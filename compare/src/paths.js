@@ -1,4 +1,4 @@
-// Files paired by their paths alone, as triage's Compare pairs a bundle's,
+// What renames by path pair files on, as triage's Compare pairs a bundle's,
 // and a rename written as `git diff --stat` writes one.
 
 // Extensions a file keeps its kind across (`a.js` -> `a.ts`, `a.css` -> `a.scss`).
@@ -51,12 +51,6 @@ export function renameKeys(path) {
   const keys = [`${head}\0${dirs.join('/')}`]
   for (let i = first; i < dirs.length; i++) keys.push(`${head}\0${i}\0${dirs.toSpliced(i, 1, '').join('/')}`)
   return keys
-}
-
-export function pathRenames(removed, added, group = () => '') {
-  const keyed = (paths = []) => new Map(paths.map((path) => [path, renameKeys(path)]))
-  const [from, to] = [removed, added].map((paths) => Map.groupBy(paths, (path) => group(path)))
-  return new Map([...from].flatMap(([key, paths]) => onlyPartners(keyed(paths), keyed(to.get(key)))))
 }
 
 export function renameParts(from, to, { extension = true } = {}) {

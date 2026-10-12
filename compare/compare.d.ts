@@ -155,13 +155,6 @@ export function renamedAlone(before: string, after: string, options?: LineOption
 // the last) changed and mix more than one kind, as spaces turned to tabs.
 export function hidesMixedWhitespace(before: string, after: string, blocks: readonly Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]): boolean
 
-// The removed paths renamed to added ones by their paths alone, as triage's
-// Compare pairs a bundle's files: a name kept less its extension, the
-// extension's family (scripts, styles) and the directories but for one past
-// the last node_modules and its package, within the group `group` gives (one
-// unless given), each the other's one candidate. `Map<removed, added>`.
-export function pathRenames(removed: Iterable<string>, added: Iterable<string>, group?: (path: string) => unknown): Map<string, string>
-
 // A rename as `git diff --stat` writes one, in parts for a view to color: the
 // directories both share (`head`), what changed (`from`, `to`), down to the
 // extension where that is all unless `extension` is false, and the rest (`tail`).

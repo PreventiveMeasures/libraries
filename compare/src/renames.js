@@ -72,7 +72,7 @@ function buildRenames(context, left, weigh, minimum) {
 }
 
 // Paths triage's Compare pairs: one file each other's only partner by family
-// and directory (its pathRenames), however the pair scores.
+// and directory, however the pair scores.
 function familyRenames(context, left, weigh, minimum) {
   const { sources, dests, pairs, used, record, scoreOf } = context
   const keyed = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, renameKeys(files[i].path)]))

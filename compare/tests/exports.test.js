@@ -8,7 +8,7 @@ describe('entry points', () => {
   it('export what their callers use alone', async () => {
     const names = async (entry) => Object.keys(await import(`../${entry}`)).toSorted()
     assert.deepEqual(await names('compare.js'), ['CompareError', 'blocksHold', 'compareTrees', 'formatPatch', 'hidesMixedWhitespace', 'layoutDir',
-      'layoutPackageDirs', 'pairLines', 'pathRenames', 'renameParts', 'renamedAlone', 'rootLabel', 'treeLayout', 'wordRanges'])
+      'layoutPackageDirs', 'pairLines', 'renameParts', 'renamedAlone', 'rootLabel', 'treeLayout', 'wordRanges'])
     assert.deepEqual(await names('names.js'), ['renamedDiff'])
     assert.deepEqual(await names('pretty.js'), ['formatChecked'])
   })

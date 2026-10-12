@@ -21,9 +21,8 @@ export { blocksHold } from './src/blocks.js'
 export { pairLines, renamedAlone, wordRanges } from './src/words.js'
 export { hidesMixedWhitespace } from './src/whitespace.js'
 
-// Files paired by path alone, as triage's Compare pairs a bundle's, and a
-// rename written as `git diff --stat` writes one.
-export { pathRenames, renameParts } from './src/paths.js'
+// A rename written as `git diff --stat` writes one.
+export { renameParts } from './src/paths.js'
 
 // Two trees taken from different roots lined up: the root between them and
 // each old path, directory and package directory as the new tree lays it out.

@@ -41,6 +41,9 @@ describe('renameGroup', () => {
     const after = tree({ 'node_modules/pad-left/LICENSE': MIT, 'node_modules/left-pad/b.js': 'x\n' })
     assert.deepEqual(summary(compareTrees(before, after)), ['node_modules/left-pad/a.js -> node_modules/left-pad/b.js', 'node_modules/left-pad/LICENSE -> node_modules/pad-left/LICENSE'])
     assert.deepEqual(summary(compareTrees(before, after, { renameGroup: pkg })), ['deleted node_modules/left-pad/LICENSE', 'node_modules/left-pad/a.js -> node_modules/left-pad/b.js', 'added node_modules/pad-left/LICENSE'])
+    const groups = new Map([['a/x.js', 1], ['b/x.js', '1'], ['c/y.js', {}], ['d/y.js', {}]])
+    assert.deepEqual(summary(compareTrees(tree({ 'a/x.js': 'x\n', 'c/y.js': 'y\n' }), tree({ 'b/x.js': 'x\n', 'd/y.js': 'y\n' }), { renameGroup: (path) => groups.get(path) })),
+      ['deleted a/x.js', 'added b/x.js', 'deleted c/y.js', 'added d/y.js'], 'groups told apart as Map keys are')
   })
 
   it('takes a function', () => {

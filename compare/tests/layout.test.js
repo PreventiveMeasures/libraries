@@ -1,41 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { layoutDir, layoutPackageDirs, pathRenames, renameParts, rootLabel, treeLayout } from '../compare.js'
+import { layoutDir, layoutPackageDirs, renameParts, rootLabel, treeLayout } from '../compare.js'
 import { detectRoot, rootDir } from '../src/layout.js'
-
-describe('pathRenames', () => {
-  // The package a path is in: the one after its last node_modules, or own source.
-  const pkgOf = (path) => /^(?:.*\/)?node_modules\/(?:@[^/]+\/)?[^/]+/u.exec(path)?.[0] ?? '__own__'
-  const renames = (removed, added) => Object.fromEntries(pathRenames(removed, added, pkgOf))
-
-  it('pairs an extension change, a directory swapped, and both', () => {
-    assert.deepEqual(renames(['src/a.js'], ['src/a.ts']), { 'src/a.js': 'src/a.ts' })
-    assert.deepEqual(renames(['src/a.js'], ['lib/a.js']), { 'src/a.js': 'lib/a.js' })
-    assert.deepEqual(renames(['src/a.ts'], ['lib/a.js']), { 'src/a.ts': 'lib/a.js' })
-    assert.deepEqual(renames(['x/src/y/a.css'], ['x/lib/y/a.scss']), { 'x/src/y/a.css': 'x/lib/y/a.scss' }, 'at any depth')
-    assert.deepEqual(renames(['node_modules/a/src/x.ts'], ['node_modules/a/lib/x.js']), { 'node_modules/a/src/x.ts': 'node_modules/a/lib/x.js' })
-  })
-
-  it('pairs only a clear rename', () => {
-    assert.deepEqual(renames(['src/a.js'], ['lib/a.js', 'src/a.ts']), {}, 'two files it could be')
-    assert.deepEqual(renames(['src/a.js', 'lib/a.ts'], ['lib/a.js']), {}, 'two files it could be from')
-    assert.deepEqual(renames(['src/a.js', 'src/a.css'], ['lib/a.js', 'lib/a.css']), { 'src/a.js': 'lib/a.js', 'src/a.css': 'lib/a.css' }, 'a script and a style of one name move apart')
-    assert.deepEqual(renames(['src/a.css'], ['src/a.js']), {}, 'a style does not become a script')
-    assert.deepEqual(renames(['src/a.json'], ['src/a.yaml']), {}, 'other files keep their extension')
-    assert.deepEqual(renames(['src/a.js'], ['src/b.js']), {}, 'nor change their name')
-    assert.deepEqual(renames(['src/x/a.js'], ['lib/y/a.js']), {}, 'one directory swaps, not two')
-    assert.deepEqual(renames(['src/a.js'], ['src/lib/a.js']), {}, 'nor moves deeper')
-  })
-
-  it('stays within a group, past its last node_modules', () => {
-    assert.deepEqual(renames(['node_modules/left-pad/index.js'], ['node_modules/zod/index.js']), {})
-    assert.deepEqual(renames(['a/node_modules/b/x.js'], ['c/node_modules/b/x.js']), {})
-    assert.deepEqual(renames(['node_modules/a/index.js'], ['src/index.js']), {})
-    assert.deepEqual(Object.fromEntries(pathRenames(['node_modules/a/index.js', 'node_modules/b/x.js'], ['src/index.js', 'node_modules/c/x.js'])), {}, 'no group given, still not past a package')
-    const groups = new Map([['a/x.js', 1], ['b/x.js', '1'], ['c/y.js', {}], ['d/y.js', {}]])
-    assert.deepEqual(Object.fromEntries(pathRenames(['a/x.js', 'c/y.js'], ['b/x.js', 'd/y.js'], (path) => groups.get(path))), {}, 'groups told apart as Map keys are')
-  })
-})
 
 describe('renameParts', () => {
   const label = (from, to, options) => {
