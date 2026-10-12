@@ -7,7 +7,8 @@
 // - a script's (`js`, `mjs`, `cjs`, `jsx`, `ts`, `mts`, `cts`, `tsx`) syntax tree as
 //   oxc parses it, its comments and its text;
 // - a style sheet's (`css`) tree as css-tree, an optional peer, parses it, but for
-//   the case of what CSS reads in any case and a zero before a number's point;
+//   the case of what CSS reads in any case and zeros in a number that change neither
+//   its value nor its type (`.50` as `0.5`, but not `1.0` as `1`, an integer);
 // - JSON's strings and comments as written.
 // Otherwise an error: no check for the kind of file (`unsupported`, CSS without
 // css-tree), it does not parse (`unformattable`) or would change more

@@ -46,7 +46,7 @@ describe('sameCode', () => {
     for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
   })
 
-  it('compares CSS as css-tree reads it, but for the case CSS ignores, a zero before a point and an attribute\'s quotes', () => {
+  it('compares CSS as css-tree reads it, but for the case CSS ignores, a number\'s needless zeros and an attribute\'s quotes', () => {
     const text = 'A:HOVER,.Foo:NOT(.Bar)[class*=x]{COLOR:RED;--Brand:#abc;background:#ABC;margin:.5EM!IMPORTANT}@MEDIA screen{a{b:c}}'
     const formatted = 'A:hover,\n.Foo:not(.Bar)[class*="x"] {\n  color: RED;\n  --Brand: #abc;\n  background: #abc;\n  margin: 0.5em !important;\n}\n'
       + '@media screen {\n  a {\n    b: c;\n  }\n}\n'
@@ -62,11 +62,13 @@ describe('sameCode', () => {
     ]) assert.equal(sameCss(before, after), true, before)
   })
 
-  it('takes numbers as written, but for a zero before the point, in a custom property\'s numbers too', () => {
-    assert.equal(sameCss('a{b:.1;c:-.5px;d:+.5%}', 'a {\n  b: 0.1;\n  c: -0.5px;\n  d: +0.5%;\n}\n'), true)
-    assert.equal(sameCss(':root{--x:.3px .5;--y:"a  .5"}', ':root {\n  --x: 0.3px 0.5;\n  --y: "a  .5";\n}\n'), true)
-    for (const [before, after] of [['a{b:0.100000000000000004}', 'a {\n  b: 0.1;\n}\n'], ['a{b:1.50}', 'a {\n  b: 1.5;\n}\n'], ['a{b:1E3}', 'a {\n  b: 1e3;\n}\n'],
-      ['a{b:.1}', 'a {\n  b: 0.2;\n}\n'], [':root{--y:"a .5"}', ':root {\n  --y: "a 0.5";\n}\n'], [':root{--x:a  b}', ':root {\n  --x: a b;\n}\n']]) assert.equal(sameCss(before, after), false, before)
+  it('takes numbers as written, but for zeros that change neither value nor type, in a custom property\'s too', () => {
+    assert.equal(sameCss('a{b:.1;c:-.5px;d:+.50%;e:1.50;f:.10em;g:2.500e3;h:1.00}', 'a {\n  b: 0.1;\n  c: -0.5px;\n  d: +0.5%;\n  e: 1.5;\n  f: 0.1em;\n  g: 2.5e3;\n  h: 1.0;\n}\n'), true)
+    assert.equal(sameCss(':root{--x:.30px .50;--y:"a  .5"}', ':root {\n  --x: 0.3px 0.5;\n  --y: "a  .5";\n}\n'), true)
+    for (const [before, after, what] of [['a{b:0.100000000000000004}', 'a {\n  b: 0.1;\n}\n', 'a digit dropped'], ['a{b:1.05}', 'a {\n  b: 1.5;\n}\n', 'a zero within'],
+      ['a{b:10}', 'a {\n  b: 1;\n}\n', 'an integer\'s zero'], ['a{z-index:1.0}', 'a {\n  z-index: 1;\n}\n', 'the point that makes it no integer, as oxfmt drops it'],
+      [':root{--x:1.0}', ':root {\n  --x: 1;\n}\n', 'and in a custom property'], ['a{b:1E3}', 'a {\n  b: 1e3;\n}\n', 'an exponent\'s case'], ['a{b:.1}', 'a {\n  b: 0.2;\n}\n', 'another number'],
+      [':root{--y:"a .5"}', ':root {\n  --y: "a 0.5";\n}\n', 'a string in a custom property'], [':root{--x:a  b}', ':root {\n  --x: a b;\n}\n', 'its spaces']]) assert.equal(sameCss(before, after), false, what)
   })
 
   it('refuses any other change, Prettier\'s own among them', () => {

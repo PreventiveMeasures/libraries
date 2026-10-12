@@ -1,7 +1,7 @@
 // Two style sheets alike but for layout, as css-tree reads them: one tree but for the ASCII case of what
 // CSS reads in any case (properties, at-rules, pseudo-classes, units, `!important`, hex colors where the
-// property's grammar takes them), a zero before a number's point, an attribute's value quoted, and
-// comments' indentation.
+// property's grammar takes them), zeros in a number that change neither its value nor its type
+// (`.50` as `0.5`), an attribute's value quoted, and comments' indentation.
 
 // A comment but for its lines' indentation, which formatting changes.
 export const indentless = (text) => text.replaceAll(/(?<![ \t])[ \t]*\r?\n[ \t]*/gu, '\n')
@@ -9,17 +9,18 @@ export const indentless = (text) => text.replaceAll(/(?<![ \t])[ \t]*\r?\n[ \t]*
 const FOLDED = new Set(['Declaration.property', 'Atrule.name', 'Dimension.unit', 'PseudoClassSelector.name', 'PseudoElementSelector.name'])
 const NUMBERS = new Set(['Number', 'Dimension', 'Percentage'])
 
-// A number as written but for the zero formatting puts before its point (`.5` as `0.5`).
-const pointed = (number) => number.replace(/^(?<sign>[+-]?)\./u, '$<sign>0.')
+// A number as written but for the zeros formatting adds before its point and drops after its last
+// digit (`.50` as `0.5`), one digit kept after the point (`1.00` as `1.0`), as `1` is an integer.
+const numberForm = (number) => number.replace(/^(?<sign>[+-]?)\./u, '$<sign>0.').replace(/^(?<kept>[+-]?\d*\.\d+?)0+(?!\d)/u, '$<kept>')
 const lower = (text) => text.replaceAll(/[A-Z]+/gu, (upper) => upper.toLowerCase())
 
-// A custom property's value, read as written but trimmed and its numbers pointed.
+// A custom property's value, read as written but trimmed and its numbers in that form.
 function raw(csstree, value) {
   const { Dimension: dimension, Number: number, Percentage: percentage } = csstree.tokenTypes
   let at = 0, form = ''
   csstree.tokenize(value, (type, start, end) => {
     if (type !== number && type !== percentage && type !== dimension) return
-    form += value.slice(at, start) + pointed(value.slice(start, end))
+    form += value.slice(at, start) + numberForm(value.slice(start, end))
     at = end
   })
   return (form + value.slice(at)).trim()
@@ -57,7 +58,7 @@ function read(csstree, text) {
     if (FOLDED.has(`${this.type}.${key}`) && !value.startsWith('--')) return lower(value)
     if (key !== 'value') return value
     if (this.type === 'Hash' && colors.has(this)) return lower(value)
-    if (NUMBERS.has(this.type)) return pointed(value)
+    if (NUMBERS.has(this.type)) return numberForm(value)
     return this.type === 'Raw' ? raw(csstree, value) : value
   })
 }
