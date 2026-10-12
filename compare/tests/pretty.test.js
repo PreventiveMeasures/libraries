@@ -42,8 +42,9 @@ describe('sameCode', () => {
     for (const [text, formatted, what] of [['a()/* a b */', 'a(); /* ab */\n', 'a space in a comment'], ['a()/* A  B */', 'a(); /* A B */\n', 'spaces within one of its lines'],
       ['a()// x(y)', 'a(); // xy\n', 'parentheses in one'], ["a()// 'x'", 'a(); // "x"\n', 'quotes in one']]) assert.equal(sameCode(text, formatted), false, what)
     assert.equal(sameCss('a{/* columns: A  B */x:y}', 'a {\n  /* columns: A B */\n  x: y;\n}\n'), false)
-    assert.equal(sameCode('{"x":"a b","y":1.50}', '{ "x": "a b", "y": 1.5 }\n', 'json'), true)
-    for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
+    assert.equal(sameCode('{"x":"a b","y":1.50,"z":[.5,1.00,1E+03,1.5e0]}', '{ "x": "a b", "y": 1.5, "z": [0.5, 1.0, 1e3, 1.5] }\n', 'json'), true)
+    for (const [text, formatted] of [['{"x":"a b"}', '{ "x": "ab" }\n'], ['{"x":"1.50"}', '{ "x": "1.5" }\n'], ['{"x":1}', '{ "x": 1 } // c\n'],
+      ['{"x":0.100000000000000004}', '{ "x": 0.1 }\n'], ['{"x":1.0}', '{ "x": 1 }\n'], ['{"x":1e0}', '{ "x": 1 }\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
   })
 
   it('compares CSS as css-tree reads it, but for the case CSS ignores, a number\'s needless zeros and an attribute\'s quotes', () => {

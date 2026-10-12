@@ -48,8 +48,9 @@ function wordChanges(left, right) {
   return { a, b, share: Math.min(share(a, left), share(b, right)) }
 }
 
+// Lines the same have no ranges, not null: null is a line with no word view.
 export function wordRanges(left, right) {
-  if (left === right) return null
+  if (left === right) return { a: [], b: [] }
   const words = wordChanges(left, right)
   return words && words.share <= MAX_CHANGED ? { a: words.a, b: words.b } : null
 }

@@ -2,6 +2,14 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
 import { hidesMixedWhitespace, pairLines, wordRanges } from '../compare.js'
+import { random } from './random.js'
+
+// Short lines of a few words, blanks and marks, some invisible or a lone surrogate.
+function lines(seed) {
+  const { next } = random(seed)
+  const words = ['a', 'b', 'f', 'x1', ' ', '  ', '\t', '(', ')', '.', '=', String.fromCodePoint(0xE9), String.fromCodePoint(0x200B), String.fromCodePoint(0xD800)]
+  return () => Array.from({ length: Math.floor(next() * 14) }, () => words[Math.floor(next() * words.length)]).join('')
+}
 
 describe('wordRanges', () => {
   it('marks what changed inside a paired line', () => {
@@ -9,7 +17,24 @@ describe('wordRanges', () => {
     assert.deepEqual(wordRanges('return foo bar', 'return baz qux'), { a: [[7, 14]], b: [[7, 14]] }, 'ranges split only by whitespace merge')
     assert.equal(wordRanges('alpha beta gamma', 'one two three'), null, 'a line mostly replaced is not worth marking')
     assert.equal(wordRanges('x'.repeat(5000), 'y'), null)
-    assert.equal(wordRanges('same', 'same'), null)
+    assert.deepEqual(wordRanges('same', 'same'), { a: [], b: [] }, 'lines the same have none, not null')
+    assert.deepEqual(wordRanges('a = b', 'a =  b'), { a: [[3, 4]], b: [[3, 5]] }, 'blanks changed are marked')
+  })
+
+  it('marks every character that changed, for lines made at random', () => {
+    const line = lines(3)
+    // What is left of a line outside its ranges, blanks aside, as merging takes some in.
+    const kept = (text, ranges) => ranges.reduceRight((rest, [from, to]) => rest.slice(0, from) + rest.slice(to), text).replaceAll(/\s/gu, '')
+    for (let i = 0; i < 3000; i++) {
+      const [left, right] = [line(), line()]
+      const words = wordRanges(left, right)
+      if (words === null) continue
+      for (const [text, ranges] of [[left, words.a], [right, words.b]]) {
+        assert.ok(ranges.every(([from, to], at) => from < to && to <= text.length && (at === 0 || ranges[at - 1][1] < from)), JSON.stringify({ left, right, words }))
+      }
+      assert.equal(kept(left, words.a), kept(right, words.b), JSON.stringify({ left, right, words }))
+      if (left !== right) assert.ok(words.a.length + words.b.length > 0, JSON.stringify({ left, right }))
+    }
   })
 })
 
@@ -21,6 +46,15 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['f(a)', 'g(b)'], ['f(c)', 'g(b)!']), [[0, 0], [1, 1]], 'in order')
     assert.deepEqual(pairLines(Array.from({ length: 201 }, () => 'f(a)'), ['f(b)']), [], 'past 200 lines, none')
   })
+
+  it('pairs each line once, in order, for lines made at random', () => {
+    const line = lines(5)
+    for (let i = 0; i < 300; i++) {
+      const news = Array.from({ length: (i * 7) % 9 }, line), olds = Array.from({ length: i % 9 }, line)
+      const pairs = pairLines(olds, news)
+      assert.ok(pairs.every(([a, b], at) => a < olds.length && b < news.length && (at === 0 || (pairs[at - 1][0] < a && pairs[at - 1][1] < b))), JSON.stringify({ olds, news, pairs }))
+    }
+  })
 })
 
 describe('hidesMixedWhitespace', () => {
@@ -30,5 +64,11 @@ describe('hidesMixedWhitespace', () => {
       ['x  \r\n', 'x\n']]) assert.equal(hides(before, after), true, JSON.stringify([before, after]))
     for (const [before, after] of [['  a()\n', '    a()\n'], ['\t\ta()\n', '\ta()\n'], ['f(a,b)\n', 'f(a, b)\n'], ['x\r\n', 'x\n'], ['a\n', 'a\n'], ['a\n', 'b\n'],
       ['  a\n', '\tb\n']]) assert.equal(hides(before, after), false, JSON.stringify([before, after]))
+  })
+
+  it('takes blocks that do not carry one text to the other under -w to hide, as they may hide anything', () => {
+    assert.equal(hidesMixedWhitespace('a\nb\n', 'a\nc\n', []), true, 'a change left out')
+    assert.equal(hidesMixedWhitespace('  a\nb\n', '\ta\nb\n', [{ a0: 1, a1: 2, b0: 1, b1: 2 }]), true, 'and a block that changes nothing')
+    assert.equal(hidesMixedWhitespace('    a\nb\n', '\ta\nb\n', changeSet('    a\nb\n', '\ta\nb\n', { horizon: 0 })), false, 'but blocks found without -w, which hide nothing')
   })
 })

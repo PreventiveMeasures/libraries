@@ -2,6 +2,8 @@
 // more than one kind: a line kept as unchanged whose blanks between the same
 // two characters differ and mix kinds, as spaces turned to tabs.
 
+import { blocksHold } from './blocks.js'
+
 // The blanks diff -w leaves out of a line: the C locale's.
 const BLANK = /[ \t\n\v\f\r]/u
 
@@ -23,7 +25,10 @@ function mixesBlanks(x, y) {
   }
 }
 
+// Blocks that don't carry `before` to `after` under -w may hide anything, and
+// would line up the wrong lines here, so they count as hiding.
 export function hidesMixedWhitespace(before, after, blocks) {
+  if (!blocksHold(before, after, blocks, { whitespace: 'all' })) return true
   const a = lines(before), b = lines(after)
   let ai = 0, bi = 0
   for (let run = 0; run <= blocks.length; run++) {

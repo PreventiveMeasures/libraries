@@ -2,6 +2,15 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { layoutDir, layoutPackageDirs, renameParts, rootLabel, treeLayout } from '../compare.js'
 import { detectRoot, rootDir } from '../src/layout.js'
+import { random } from './random.js'
+
+// Two trees of paths made at random, some under a directory the other lacks.
+function trees(seed) {
+  const { next } = random(seed)
+  const pick = (list) => list[Math.floor(next() * list.length)]
+  const path = () => [pick(['', 'src/', 'lib/', 'src/lib/', '../', 'a b/']), pick(['', 'x/', 'src/']), pick(['a.js', 'a.ts', 'b.js', 'b', '.c', 'a.js.map'])].join('')
+  return () => [new Set(Array.from({ length: Math.floor(next() * 12) }, path)), new Set(Array.from({ length: Math.floor(next() * 12) }, path))]
+}
 
 describe('renameParts', () => {
   const label = (from, to, options) => {
@@ -17,6 +26,17 @@ describe('renameParts', () => {
     assert.equal(label('src/a.js', 'lib/a.js'), '{src -> lib}/a.js')
     assert.equal(label('x/src/y/a.js', 'x/lib/y/a.js'), 'x/{src -> lib}/y/a.js')
     assert.equal(label('node_modules/a/src/x.ts', 'node_modules/a/lib/x.js'), 'node_modules/a/{src/x.ts -> lib/x.js}')
+  })
+
+  it('spells both paths in full, for paths made at random', () => {
+    const tree = trees(9)
+    for (let i = 0; i < 2000; i++) {
+      const [[from = 'a'], [to = 'b']] = tree()
+      for (const extension of [true, false]) {
+        const parts = renameParts(from, to, { extension })
+        assert.deepEqual([parts.head + parts.from + parts.tail, parts.head + parts.to + parts.tail], [from, to], JSON.stringify({ from, to, extension }))
+      }
+    }
   })
 })
 
@@ -37,6 +57,16 @@ describe('trees taken from different roots', () => {
     assert.deepEqual(layout.root, { base: 'src/', other: '' })
     assert.equal(new Set(layout.paths.values()).size, 4)
     assert.equal(layout.paths.get('a.js'), '../../a.js', 'a `../` further out than the root could place it')
+  })
+
+  it('gives every old file a path of its own, for trees made at random', () => {
+    const tree = trees(13)
+    for (let i = 0; i < 2000; i++) {
+      const [base, other] = tree()
+      const { root, paths } = treeLayout(base, other)
+      assert.deepEqual([...paths.keys()].toSorted(), [...base].toSorted(), JSON.stringify({ base: [...base], other: [...other] }))
+      assert.equal(new Set(paths.values()).size, base.size, JSON.stringify({ base: [...base], other: [...other], root }))
+    }
   })
 
   it('takes no root where two would pair as many, or only a few files would move', () => {

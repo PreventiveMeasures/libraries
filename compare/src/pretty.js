@@ -15,18 +15,18 @@ const POSITION = new Set(['start', 'end', 'range', 'loc'])
 // JSON's strings and comments, compared as written, split from the rest; one unclosed runs to the end.
 const LITERAL = /("(?:[^"\\\n]|\\[^])*"|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u
 
-// A number as the formatter spells it (`.50E+3` as `0.5e3`).
+// A number as the formatter spells it (`.50E+3` as `0.5e3`), but for what JSON may read as another
+// type: a point keeps a digit after it, a whole number its zero exponent (`1.0`, `1e0`).
 function numberSpelling(text) {
   const number = text.toLowerCase()
   const parts = /^0[box]|n$/u.test(number) ? null : /^([^e]*)(?:e([+-]?)0*(\d+))?$/u.exec(number)
   if (!parts) return number
   const [, mantissa = '', sign = '', exponent = ''] = parts
-  const fraction = (mantissa.startsWith('.') ? `0${mantissa}` : mantissa).replace(/(\.\d*?)0+$/u, '$1').replace(/\.$/u, '')
-  return exponent === '' || /^0+$/u.test(exponent) ? fraction : `${fraction}e${sign === '-' ? '-' : ''}${exponent}`
+  const fraction = (mantissa.startsWith('.') ? `0${mantissa}` : mantissa).replace(/(\.\d+?)0+$/u, '$1').replace(/\.$/u, '')
+  const zero = /^0+$/u.test(exponent)
+  return exponent === '' || (zero && fraction.includes('.')) ? fraction : `${fraction}e${sign === '-' && !zero ? '-' : ''}${exponent}`
 }
 
-// A script's text without what formatting may respell, comments and all; its
-// strings and comments are compared exactly in the syntax tree and comment list.
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
 

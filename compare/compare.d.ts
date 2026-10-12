@@ -124,8 +124,10 @@ export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?
 
 // The ranges `[from, to)` that changed within a removed line and the added
 // line it pairs with, word by word (runs of letters and digits, whitespace,
-// any other character), ranges split by whitespace alone merged; null where
-// the lines are the same, mostly replaced, or past 2000 characters or 800 words.
+// any other character): every character that changed is in one, and two split
+// by whitespace alone are merged, taking it in. None where the lines are the
+// same; null, no word view, where they are mostly replaced, or past 2000
+// characters or 800 words, so that all of either line is taken as changed.
 export function wordRanges(left: string, right: string): { a: [number, number][]; b: [number, number][] } | null
 
 // Each of a change's removed lines paired, in order, with the most alike of
@@ -136,7 +138,9 @@ export function pairLines(olds: readonly string[], news: readonly string[]): [nu
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
 // whose blanks between the same two characters (or before the first or after
-// the last) changed and mix more than one kind, as spaces turned to tabs.
+// the last) changed and mix more than one kind, as spaces turned to tabs. True
+// too where `blocks` don't carry `before` to `after` under -w, as such blocks
+// may hide anything.
 export function hidesMixedWhitespace(before: string, after: string, blocks: readonly Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]): boolean
 
 // A rename as `git diff --stat` writes one, in parts for a view to color: the
