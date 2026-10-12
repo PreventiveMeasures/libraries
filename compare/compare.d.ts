@@ -133,8 +133,9 @@ export function wordRanges(left: string, right: string): { a: [number, number][]
 // Each of a change's removed lines paired, in order, with the most alike of
 // the next six added lines, where alike enough to be one line edited (a token
 // in common, at most six in ten of its words replaced) and none of the next
-// six removed lines is more alike to it: `[i, j]` indices into the two lists.
-// None where either holds more than 200 lines.
+// six removed lines is more alike to it, which then has it, the lines between
+// pairing only before it: `[i, j]` indices into the two lists. None where
+// either holds more than 200 lines.
 export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line

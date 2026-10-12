@@ -50,6 +50,8 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['f(a)', 'f(b)'], ['f(b)']), [[1, 0]], 'nor does a line from a later one closer to it')
     assert.deepEqual(pairLines(['f(a)', 'x', 'y', 'z', 'q', 'r', 'f(b)'], ['f(b)']), [[6, 0]], 'up to six lines on')
     assert.deepEqual(pairLines(['f(a)', 'x', 'y', 'z', 'q', 'r', 's', 'f(b)'], ['f(b)']), [[0, 0]], 'and no further')
+    assert.deepEqual(pairLines(['f(a)', 'g(x)', 'f(b)'], ['f(b)', 'g(x)']), [[2, 0]], 'the lines between taking none past the line left to it')
+    assert.deepEqual(pairLines(['f(a)', 'g(x)', 'f(b)', 'h(y)'], ['g(x)', 'f(b)', 'h(y)']), [[1, 0], [2, 1], [3, 2]], 'but those before it')
     assert.deepEqual(pairLines(Array.from({ length: 201 }, () => 'f(a)'), ['f(b)']), [], 'past 200 lines, none')
   })
 

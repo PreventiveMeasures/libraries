@@ -58,7 +58,8 @@ export function wordRanges(left, right) {
 }
 
 // A removed line takes the added line closest to it, unless one of the next
-// removed lines is closer still and so takes it instead.
+// removed lines is closer still: that one then has it, and the lines between
+// pair only with added lines before it.
 export function pairLines(olds, news) {
   const pairs = []
   if (olds.length > MAX_LINES || news.length > MAX_LINES) return pairs
@@ -70,17 +71,22 @@ export function pairLines(olds, news) {
     }
     return shares.get(`${i} ${j}`)
   }
+  const kept = new Map()
   let next = 0
   for (let i = 0; i < olds.length && next < news.length; i++) {
+    kept.delete(i)
+    const end = Math.min(news.length, next + LOOKAHEAD, ...kept.values())
     let best = null, least = Infinity
-    for (let j = next; j < Math.min(news.length, next + LOOKAHEAD) && least > 0; j++) {
+    for (let j = next; j < end && least > 0; j++) {
       if (share(i, j) < least) [best, least] = [j, share(i, j)]
     }
     if (best === null) continue
-    const closer = least > 0 && olds.slice(i + 1, i + 1 + LOOKAHEAD).some((_, at) => share(i + 1 + at, best) < least)
-    if (!closer) {
+    const closer = least > 0 ? olds.slice(i + 1, i + 1 + LOOKAHEAD).findIndex((_, at) => share(i + 1 + at, best) < least) : -1
+    if (closer === -1) {
       pairs.push([i, best])
       next = best + 1
+    } else {
+      kept.set(i + 1 + closer, Math.min(best, kept.get(i + 1 + closer) ?? Infinity))
     }
   }
   return pairs
