@@ -108,6 +108,8 @@ function sameTree(a, b) {
   return true
 }
 
+// A safeguard on oxfmt's own output, not a comparison of any two texts: exported
+// for tests alone, not by the package.
 export function sameCode(text, formatted, extension = 'js') {
   if (!SCRIPTS.has(extension)) return Object.hasOwn(LITERAL, extension) && sameList(textForm(text, extension), textForm(formatted, extension))
   if (scriptForm(text) !== scriptForm(formatted)) return false
