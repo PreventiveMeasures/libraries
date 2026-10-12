@@ -22,7 +22,7 @@ describe('createWriteClient', () => {
 
   it('reads as the read client does, and writes', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
-      'createBranch', 'createCommit', 'createPR', 'forkRepo',
+      'createBranch', 'createCommit', 'createPR', 'findRepoLockfiles', 'forkRepo',
       'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
       'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listRepoTags', 'listUserRepos',
     ])

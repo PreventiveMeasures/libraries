@@ -33,6 +33,37 @@ export interface RepoDirEntry {
   sha: string
 }
 
+// A lockfile's format, by the tool that writes it, with the names it
+// writes one under and those of the project files it locks as
+// src/lockfiles.js lists them. Those @preventive/lockfile reads are as it
+// names the modules that do, yarn as yarn1.js, which reads Yarn 1's alone:
+// only the text tells a later Yarn's apart.
+export type LockfileFormat =
+  | 'pnpm' | 'npm' | 'yarn' | 'bun' | 'deno'
+  | 'uv' | 'poetry' | 'pylock' | 'pipenv' | 'pdm' | 'pixi' | 'conda-lock'
+  | 'bundler' | 'composer' | 'cargo' | 'soldeer' | 'foundry'
+  | 'cocoapods' | 'swiftpm' | 'carthage'
+  | 'go' | 'dep' | 'nuget' | 'paket' | 'gradle' | 'pub' | 'mix' | 'rebar' | 'julia'
+  | 'stack' | 'cabal' | 'shards' | 'opam' | 'nix' | 'conan' | 'bazel' | 'helm' | 'renv' | 'terraform'
+
+// A file by a lockfile's name: `path` from the repo's root, as getRepoFile
+// takes it, and `sha` its blob's id.
+export interface RepoLockfile {
+  path: string
+  format: LockfileFormat
+  sha: string
+}
+
+// A file by a project file's name, as RepoLockfile is, and the formats of
+// the lockfiles that may lock its project, in src/lockfiles.js' order:
+// whether one does, and where, is the tool's to say, a workspace's at its
+// root.
+export interface RepoProjectFile {
+  path: string
+  formats: LockfileFormat[]
+  sha: string
+}
+
 // A failed request: `status` is the HTTP status GitHub answered with.
 export class HttpError extends Error {
   name: 'HttpError'
@@ -41,6 +72,20 @@ export class HttpError extends Error {
 
 // Reads only.
 export interface Client {
+  // Every file by a lockfile's name, and every project file of a tool that
+  // writes one, in the full commit `sha`, or under its `directory`, found as
+  // getRepoTreeId finds it, each list sorted by path; and a project file no
+  // name tells, by a lockfile beside it named after it: a Python script
+  // `uv lock --script` locked, or a Stack or Cabal project file of another
+  // name than stack.yaml or cabal.project. From one listing of the tree
+  // with every tree under it, each hashed back to its id, so none is left
+  // out or changed; where GitHub cuts that short, as it does past 100,000
+  // entries, from the tree's own listing and then each subtree's in turn.
+  // Not looked in: a submodule, which is another repo's commit, or a
+  // `node_modules`, of packages installed. A symlink is no file. Refused
+  // where a path found is one getRepoFile does not take, such as one with a
+  // control character in it.
+  findRepoLockfiles(options: { repo: RepoName; sha: string; directory?: string }): Promise<{ lockfiles: RepoLockfile[]; projects: RepoProjectFile[] }>
   // An advisory by its GHSA id. With `repo`, that repository's published
   // copy: the maintainer's latest text, there before GitHub reviews it,
   // and shaped as a repository advisory (`state`, `patched_versions`, no

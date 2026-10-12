@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { decode, encodeSegment, requestWithHeaders } from '../http.js'
+import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
@@ -175,6 +176,71 @@ async function listRepoDir(headers, options) {
   return await listTree('listRepoDir', headers, options.repo, tree)
 }
 
+// A tree and every tree under it in one listing, their entries by paths
+// from it, or null where GitHub cut it short, as it does past 100,000
+// entries or 7 MB. Each tree in it, the top one too, has to hash from the
+// entries listed in it, so none is left out, changed or added: an entry is
+// filed under the path before its last `/`, a tree's own with a `/` after
+// it, so `/x` or `a//x` is in no tree.
+async function listTreeDeep(method, headers, repo, tree) {
+  const listing = await call(headers, repoApi(repo, ['git', 'trees', tree], { recursive: 1 }))
+  if (listing?.truncated === true) return null
+  const entries = Array.isArray(listing?.tree) && listing.tree.every((entry) => typeof entry?.path === 'string') ? listing.tree : []
+  const dirs = new Map([['', { sha: tree, listed: [] }], ...entries.filter((entry) => entry.type === 'tree').map((entry) => [`${entry.path}/`, { sha: entry.sha, listed: [] }])])
+  const filed = entries.every(({ path, mode, type, sha }) => {
+    const at = path.lastIndexOf('/') + 1
+    const dir = dirs.get(path.slice(0, at))
+    dir?.listed.push({ path: path.slice(at), mode, type, sha })
+    return dir !== undefined
+  })
+  assert.ok(filed && [...dirs.values()].every(({ sha, listed }) => gitTreeOfListing(listed) === sha), `${method}: GitHub's listing of tree ${tree} in ${repo}, with the trees under it, is not that tree`)
+  return entries
+}
+
+// Each file in `tree`, which is at `base` in the repo, by its path, its
+// name and its blob's id: from the tree's listing with every tree under
+// it, or, where GitHub cuts that short, from its own and then each
+// subtree's in turn, as GitHub advises for a large tree. A node_modules,
+// of packages installed, is not the repo's own.
+async function* filesIn(method, headers, repo, tree, base) {
+  const deep = await listTreeDeep(method, headers, repo, tree)
+  for (const { path, mode, type, sha } of deep ?? await listTree(method, headers, repo, tree)) {
+    const names = path.split('/')
+    if (names.includes('node_modules')) continue
+    if (type === 'blob' && mode !== '120000') yield { path: `${base}${path}`, name: names.at(-1), sha }
+    else if (deep === null && type === 'tree') yield* filesIn(method, headers, repo, sha, `${base}${path}/`)
+  }
+}
+
+const byPath = (a, b) => (a.path < b.path ? -1 : 1)
+
+async function findRepoLockfiles(headers, options) {
+  assertArgs('findRepoLockfiles', options, { repo: assertRepo, sha: assertSha, directory: optional(assertPath) })
+  const { repo, sha, directory } = options
+  const tree = await treeAt('findRepoLockfiles', headers, options)
+  const lockfiles = []
+  const projects = new Map()
+  const files = new Map()
+  const locked = []
+  for await (const { path, name, sha: blob } of filesIn('findRepoLockfiles', headers, repo, tree, directory === undefined ? '' : `${directory}/`)) {
+    files.set(path, blob)
+    const lockfile = lockfileOf(name)
+    const formats = projectFormats(name)
+    if (lockfile === undefined && formats.length === 0) continue
+    assertPath('findRepoLockfiles', `${repo}@${sha}'s ${lockfile === undefined ? 'project file' : 'lockfile'}`, path)
+    if (lockfile !== undefined) lockfiles.push({ path, format: lockfile.format, sha: blob })
+    if (lockfile?.locks !== undefined) locked.push({ path: `${path.slice(0, -name.length)}${lockfile.locks}`, format: lockfile.format })
+    if (formats.length > 0) projects.set(path, { path, formats, sha: blob })
+  }
+  // A file a lockfile beside it locks is a project file of that format too.
+  for (const { path, format } of locked) {
+    if (!files.has(path)) continue
+    const formats = projects.get(path)?.formats ?? []
+    projects.set(path, { path, formats: Object.keys(FORMATS).filter((known) => known === format || formats.includes(known)), sha: files.get(path) })
+  }
+  return { lockfiles: lockfiles.toSorted(byPath), projects: [...projects.values()].toSorted(byPath) }
+}
+
 async function getPullRequest(headers, options) {
   assertArgs('getPullRequest', options, { repo: assertRepo, number: assertNumber })
   const { repo, number } = options
@@ -219,5 +285,5 @@ async function listRepoAdvisories(headers, options) {
   return (await Array.fromAsync(cursorPages('listRepoAdvisories', headers, pageUrl))).flat()
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)
