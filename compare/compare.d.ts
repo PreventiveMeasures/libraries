@@ -136,8 +136,9 @@ export function wordRanges(left: string, right: string): { a: [number, number][]
 // them ranges): the most such pairs, and of those the most alike. Where
 // weighing every pair would take too long (many long lines alike), each removed
 // line in turn takes the most alike of the next six added lines after the last
-// one taken instead. `[i, j]` indices into the two lists; none where either
-// holds more than 200 lines.
+// one taken instead, and past a further limit on the work (some 300 ms; lines
+// made to be slow) the rest are left unpaired. `[i, j]` indices into the two
+// lists; none where either holds more than 200 lines.
 export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line

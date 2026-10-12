@@ -9,11 +9,13 @@ import { MAX_CHANGED, tokenized, wordChanges } from './words.js'
 const MAX_LINES = 200
 const BUDGET = 5_000_000
 const LOOKAHEAD = 6
+// The most work pairing may take at all, past which lines are left unpaired.
+const LIMIT = 20_000_000
 // What a pair weighed, a word's count compared and a word of @preventive/diff's
-// diff cost, in steps of a script.
+// diff cost, in steps of a script; its diff costs the script's steps besides.
 const PAIR = 60
 const VISIT = 3
-const EXACT = 35
+const EXACT = 50
 
 function counted(read) {
   const counts = new Map()
@@ -25,13 +27,14 @@ function counted(read) {
 // (Myers), their shared ends matched outright, less the blanks a word view
 // takes into the changes either side of them: each diagonal carries, for each
 // side, what its path keeps, the blanks kept since that side last changed, and
-// whether nothing but blanks has been kept since. `steps` counts the work.
+// whether nothing but blanks has been kept since. `edits` is the script's
+// length, `steps` the work, the diagonals off both middles never walked.
 function scripter(width, lengths, blanks) {
   const at = width + 1, size = 2 * width + 3
-  const ends = new Int32Array(size), seen = new Uint8Array(size)
-  const [keptA, keptB, pendingA, pendingB] = [0, 1, 2, 3].map(() => new Float64Array(size))
-  const [openA, openB] = [0, 1].map(() => new Uint8Array(size))
-  const result = { kept: [0, 0], seen: false, steps: 0 }
+  // Per diagonal: where its path ends; what each side keeps and has kept as blanks since it changed (four
+  // in a row); and as bits, whether each side has kept only blanks since it changed, and whether any word.
+  const counts = new Int32Array(4 * size), ends = new Int32Array(size), flags = new Uint8Array(size)
+  const result = { kept: [0, 0], seen: false, edits: 0, steps: 0 }
   return (a, b) => {
     let first = 0, same = 0
     for (; first < a.length && first < b.length && a[first] === b[first]; first++) same += lengths[a[first]]
@@ -39,24 +42,26 @@ function scripter(width, lengths, blanks) {
     for (; n > first && m > first && a[n - 1] === b[m - 1]; n--, m--) same += lengths[a[n - 1]]
     result.steps = a.length + b.length - n - m + 2 * first
     ends[at + 1] = first
-    seen[at + 1] = keptA[at + 1] = keptB[at + 1] = pendingA[at + 1] = pendingB[at + 1] = openA[at + 1] = openB[at + 1] = 0
+    counts.fill(0, 4 * (at + 1), 4 * (at + 2))
+    flags[at + 1] = 0
+    const high = n - first, low = first - m
     for (let d = 0; d <= n + m - 2 * first; d++) {
-      for (let k = -d; k <= d; k += 2) {
-        const down = k === -d || (k !== d && ends[at + k - 1] < ends[at + k + 1])
+      for (let k = Math.max(-d, low + ((low + d) & 1)); k <= Math.min(d, high); k += 2) {
+        const down = k === -d || k - 1 < low || (k !== d && k + 1 <= high && ends[at + k - 1] < ends[at + k + 1])
         const from = at + (down ? k + 1 : k - 1), to = at + k
         const start = down ? ends[from] : ends[from] + 1
-        let ka = keptA[from], kb = keptB[from], oa = openA[from], ob = openB[from], pa = pendingA[from], pb = pendingB[from]
+        let bits = flags[from], ka = counts[4 * from], kb = counts[4 * from + 1], pa = counts[4 * from + 2], pb = counts[4 * from + 3]
         // A word taken away changes the old side, one put in the new: blanks kept since its last change join them.
         if (d > 0 && down) {
-          if (ob) kb -= pb
-          ob = 1
+          if (bits & 2) kb -= pb
+          bits |= 2
           pb = 0
         } else if (d > 0) {
-          if (oa) ka -= pa
-          oa = 1
+          if (bits & 1) ka -= pa
+          bits |= 1
           pa = 0
         }
-        let any = seen[from], x = start, y = start - k
+        let x = start, y = start - k
         for (; x < n && y < m && a[x] === b[y]; x++, y++) {
           const length = lengths[a[x]]
           ka += length
@@ -65,23 +70,21 @@ function scripter(width, lengths, blanks) {
             pa += length
             pb += length
           } else {
-            oa = 0
-            ob = 0
+            bits &= 4
           }
-          any = 1
+          bits |= 4
         }
-        result.steps += 1 + x - start
+        result.steps += 2 + x - start
         ends[to] = x
-        keptA[to] = ka
-        keptB[to] = kb
-        pendingA[to] = pa
-        pendingB[to] = pb
-        openA[to] = oa
-        openB[to] = ob
-        seen[to] = any
+        counts[4 * to] = ka
+        counts[4 * to + 1] = kb
+        counts[4 * to + 2] = pa
+        counts[4 * to + 3] = pb
+        flags[to] = bits
         if (x >= n && y >= m) {
           result.kept = [same + ka, same + kb]
-          result.seen = same > 0 || any === 1
+          result.seen = same > 0 || (bits & 4) !== 0
+          result.edits = d
           return result
         }
       }
@@ -98,6 +101,7 @@ function weigher(olds, news) {
   const counts = reads.map((side) => side.map(counted))
   const [lengths, blanks] = [[], []]
   for (const [token, word] of known) [lengths[word], blanks[word]] = [token.length, /^\s/u.test(token)]
+  const longest = reads.map((side) => side.map((read) => Math.max(0, ...read?.words.map((word) => lengths[word]) ?? [])))
   const common = scripter(Math.max(0, ...reads.flat().map((read) => read?.words.length ?? 0)), lengths, blanks)
   let work = 0
   // The least share of `line` changed, from the words `others` holds fewer of; past `most`, any more.
@@ -113,23 +117,32 @@ function weigher(olds, news) {
   // The least share of the pair changed, as their counts alone tell: the diff can only find more.
   const floor = (i, j, most = Infinity) => (reads[0][i] === null || reads[1][j] === null ? Infinity
     : Math.min(unmatched(counts[0][i], counts[1][j], olds[i], most), unmatched(counts[1][j], counts[0][i], news[j], most)))
+  const scripts = new Map()
   const weighed = (i, j) => {
     work += PAIR
     if (floor(i, j, MAX_CHANGED) > MAX_CHANGED) return Infinity
-    const { kept, seen, steps } = common(reads[0][i].words, reads[1][j].words)
+    const [a, b] = [reads[0][i].words, reads[1][j].words]
+    const { kept, seen, edits, steps } = common(a, b)
     work += steps
+    scripts.set(i * news.length + j, steps)
     if (!seen) return Infinity
     const share = Math.min(1 - kept[0] / Math.max(1, olds[i].length), 1 - kept[1] / Math.max(1, news[j].length))
-    return share <= MAX_CHANGED ? share : viewed([i, j]) ? exact.get(i * news.length + j) : Infinity
+    if (share <= MAX_CHANGED) return share
+    // Any script as short keeps as many words, at most this many characters of them: too few, and no diff marks the pair.
+    const most = ((a.length + b.length - edits) / 2) * Math.min(longest[0][i], longest[1][j])
+    if (most < (1 - MAX_CHANGED) * Math.min(Math.max(1, olds[i].length), Math.max(1, news[j].length))) return Infinity
+    return viewed([i, j]) ? exact.get(i * news.length + j) : Infinity
   }
   // The share as wordRanges finds it, through @preventive/diff: the script above may keep other words of the
-  // same count, so what it rejects is asked here, and what is chosen is confirmed here.
+  // same count, so what it rejects is asked here, and what is chosen is confirmed here; past the limit, only
+  // what has been asked already is known.
   const exact = new Map()
   const viewed = ([i, j]) => {
     const key = i * news.length + j
     if (olds[i] === news[j]) return true
+    if (!exact.has(key) && work > LIMIT) return false
     if (!exact.has(key)) {
-      work += EXACT * (reads[0][i].words.length + reads[1][j].words.length)
+      work += EXACT * (reads[0][i].words.length + reads[1][j].words.length) + (scripts.get(key) ?? 0)
       exact.set(key, wordChanges(reads[0][i], reads[1][j]).share)
     }
     return exact.get(key) <= MAX_CHANGED
@@ -170,9 +183,9 @@ function aligned(n, m, { share, spent, charge }) {
 
 // Each removed line in turn paired with the most alike of the next added lines
 // after the last one paired, those whose counts show less changed weighed first.
-function lookedAhead(n, m, { share, floor }) {
+function lookedAhead(n, m, { share, floor, spent }) {
   const pairs = []
-  for (let i = 0, next = 0; i < n && next < m; i++) {
+  for (let i = 0, next = 0; i < n && next < m && spent() <= LIMIT; i++) {
     let best = null, least = Infinity
     const ahead = Array.from({ length: Math.min(m, next + LOOKAHEAD) - next }, (_, at) => [next + at, floor(i, next + at)])
     for (const [j, low] of ahead.toSorted((p, q) => p[1] - q[1] || p[0] - q[0])) {
@@ -188,14 +201,15 @@ function lookedAhead(n, m, { share, floor }) {
 }
 
 // Pairs the diff does not confirm are weighed no more, and the lines paired
-// again, till every pair is one wordRanges marks.
+// again, till every pair is one wordRanges marks; past the limit, the pairs not
+// yet confirmed are left out instead.
 export function pairLines(olds, news) {
   if (olds.length > MAX_LINES || news.length > MAX_LINES) return []
   const weigh = weigher(olds, news)
   for (;;) {
     const pairs = aligned(olds.length, news.length, weigh) ?? lookedAhead(olds.length, news.length, weigh)
-    const wrong = pairs.filter((pair) => !weigh.viewed(pair))
-    if (wrong.length === 0) return pairs
-    wrong.forEach(weigh.reject)
+    const confirmed = pairs.filter(weigh.viewed)
+    if (confirmed.length === pairs.length || weigh.spent() > LIMIT) return confirmed
+    pairs.filter((pair) => !confirmed.includes(pair)).forEach(weigh.reject)
   }
 }
