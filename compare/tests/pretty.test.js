@@ -48,7 +48,9 @@ describe('sameCode', () => {
       // Numbers JSON does not have, which a copy would show as valid.
       ['{"x":.5}', '{ "x": 0.5 }\n'], ['{"x":1.}', '{ "x": 1 }\n'], ['{"x":1.e5}', '{ "x": 1e5 }\n'],
       // A double quote in a string quoted otherwise, and a line carried on by a backslash, keep the strings after it strings.
-      [`['a"b', "c  d"]`, `['a"b', "c d"]\n`], ['["x\\\r\n  1.50 y"]', '["x\\\r\n1.5y"]\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
+      [`['a"b', "c  d"]`, `['a"b', "c d"]\n`], ['["x\\\r\n  1.50 y"]', '["x\\\r\n1.5y"]\n'],
+      // Blanks JSON does not have, a no-break space and a byte order mark, which a copy would drop.
+      [`{"x":${String.fromCodePoint(0xA0)}1}`, '{ "x": 1 }\n'], [`${String.fromCodePoint(0xFEFF)}{"x":1}`, '{ "x": 1 }\n']]) assert.equal(sameCode(text, formatted, 'json'), false, text)
   })
 
   it('compares CSS as css-tree reads it, but for the case CSS ignores, a number\'s needless zeros and an attribute\'s quotes', () => {
@@ -73,7 +75,8 @@ describe('sameCode', () => {
     for (const [before, after, what] of [['a{b:0.100000000000000004}', 'a {\n  b: 0.1;\n}\n', 'a digit dropped'], ['a{b:1.05}', 'a {\n  b: 1.5;\n}\n', 'a zero within'],
       ['a{b:10}', 'a {\n  b: 1;\n}\n', 'an integer\'s zero'], ['a{z-index:1.0}', 'a {\n  z-index: 1;\n}\n', 'the point that makes it no integer, as oxfmt drops it'],
       [':root{--x:1.0}', ':root {\n  --x: 1;\n}\n', 'and in a custom property'], ['a{b:1E3}', 'a {\n  b: 1e3;\n}\n', 'an exponent\'s case'], ['a{b:.1}', 'a {\n  b: 0.2;\n}\n', 'another number'],
-      [':root{--y:"a .5"}', ':root {\n  --y: "a 0.5";\n}\n', 'a string in a custom property'], [':root{--x:a  b}', ':root {\n  --x: a b;\n}\n', 'its spaces']]) assert.equal(sameCss(before, after), false, what)
+      [':root{--y:"a .5"}', ':root {\n  --y: "a 0.5";\n}\n', 'a string in a custom property'], [':root{--x:a  b}', ':root {\n  --x: a b;\n}\n', 'its spaces'],
+      [`:root{--x:a${String.fromCodePoint(0xA0)}}`, ':root {\n  --x: a;\n}\n', 'a no-break space ending it, which CSS takes for part of a word']]) assert.equal(sameCss(before, after), false, what)
   })
 
   it('refuses any other change, Prettier\'s own among them', () => {

@@ -14,7 +14,7 @@ const NUMBERS = new Set(['Number', 'Dimension', 'Percentage'])
 const numberForm = (number) => number.replace(/^(?<sign>[+-]?)\./u, '$<sign>0.').replace(/^(?<kept>[+-]?\d*\.\d+?)0+(?!\d)/u, '$<kept>')
 const lower = (text) => text.replaceAll(/[A-Z]+/gu, (upper) => upper.toLowerCase())
 
-// A custom property's value, read as written but trimmed and its numbers in that form.
+// A custom property's value, read as written but for CSS's own blanks at either end and its numbers in that form.
 function raw(csstree, value) {
   const { Dimension: dimension, Number: number, Percentage: percentage } = csstree.tokenTypes
   let at = 0, form = ''
@@ -23,7 +23,7 @@ function raw(csstree, value) {
     form += value.slice(at, start) + numberForm(value.slice(start, end))
     at = end
   })
-  return (form + value.slice(at)).trim()
+  return (form + value.slice(at)).replaceAll(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '')
 }
 
 // The hex colors among a sheet's declarations, as each known property's grammar matches its value:

@@ -32,9 +32,10 @@ function numberSpelling(text) {
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
 
-// JSON has no point without a digit either side: such a number is kept as written, or a copy would read as valid.
+// JSON has no point without a digit either side: such a number is kept as written, or a copy would read as
+// valid, as would one with other blanks than JSON's four, which stay.
 const jsonNumber = (text) => (/^\.|\.(?!\d)/u.test(text) ? text.toLowerCase() : numberSpelling(text))
-const jsonForm = (text) => text.split(LITERAL).map((part, i) => (i % 2 ? (part.startsWith('/') ? indentless(part) : part) : part.replaceAll(/\s/gu, '').replaceAll(NUMBER, jsonNumber)))
+const jsonForm = (text) => text.split(LITERAL).map((part, i) => (i % 2 ? (part.startsWith('/') ? indentless(part) : part) : part.replaceAll(/[\t\n\r ]/gu, '').replaceAll(NUMBER, jsonNumber)))
 
 // How deep JSON's brackets nest, strings and comments aside; a closer more than were opened counts for none.
 function jsonDepth(text) {
