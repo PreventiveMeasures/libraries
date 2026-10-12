@@ -11,61 +11,28 @@ export interface RenameOptions {
   otherExtension?: string
 }
 
-// How a text's top level is read: a module's (`module`), a CommonJS
-// module's (`commonjs`, the extension's, not one found by its `require`),
-// and whether its top-level names are its own (`own`: a module's, a
-// CommonJS module's, or a script's that reads `require`, `module` or
-// `exports` where no declaration stands for them) rather than globals
-// another script may read.
-export interface TextKind {
-  module: boolean
-  commonjs: boolean
-  own: boolean
-}
-
 // Why a text keeps its own names: it does not parse, or oxc's semantic check
 // finds an error in it (`unparsed`); it reads a name by its spelling (`eval`,
 // `with`: `dynamic`); it holds JSX (`jsx`); outside strict code it declares a
 // function in a block, which there sets its function's variable of that name
 // too (`block-function`); or the names found would not bind as the old ones
 // did, or a check that should never fail did, or anything else went wrong
-// (`unverified`, with what failed as `invariant` where a check or an error
-// says).
+// (`unverified`, what failed among the warnings).
 export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | 'unverified'
 
-// The old text with the new one's names (`text`), every name in it where it
-// was: `renamed` counts the variables given a new one's name and `apart` those
-// renamed apart (`r_old`), as their own name is another's on the new side;
-// `kind` is how the old text was read, as bindsAlike takes it; `reads` the
-// properties either text reads names through (`name`, `toString`, `stack`,
-// `callee`, `caller`, as a member's or a pattern's key or any string written
-// out as one), sorted, as code that reads its names may do otherwise once
-// they are renamed. Or why the old text keeps its names.
-export type RenameMap =
-  | { text: string; renamed: number; apart: number; kind: TextKind; reads: string[]; reason?: undefined; invariant?: undefined }
-  | { reason: RenameReason; invariant?: string; text?: undefined }
-
-// The old text of a JavaScript file minified on both sides given the new
-// text's names, wherever a minifier renamed a variable alike throughout: a
-// declared variable's short ASCII name (three characters at most, as a
-// minifier gives), not a script's top level, an export's or an import's by
-// its own name, or a shorthand property's. Checked to bind every name as the
-// old text did by this package's own scope analysis and again by oxc's
-// minifier (bindsAlike); never thrown but for a missing oxc peer.
-export function renameMap(before: string, after: string, options?: RenameOptions): RenameMap
-
-// Whether `renamed` binds every name as `before` does, by oxc's minifier:
-// both mangled, every variable named by its place alone, they read the same.
-// The top level read as `kind` says, a script's (none given) left as it is.
-export function bindsAlike(before: string, renamed: string, kind?: Partial<TextKind>): boolean
-
 // The diff of two JavaScript files minified on both sides with renamed names
-// set aside: the old side given the new side's names (renameMap), formatted
-// again where that changes its layout alone and still binds alike, diffed as
-// diff -U0 has it, and the blocks checked to take `before` to the new side
-// (thrown should they not). `reason` says why no names were given, `marks`
-// are the plain diff's blocks that differ in renamed names alone
-// (markedBlocks), and `warnings` what a check that should never fail found.
+// set aside. The old side is given the new side's names wherever a minifier
+// renamed a variable alike throughout (a declared variable's short ASCII name,
+// not a script's top level, an export's or import's by its own name, or a
+// shorthand property's), checked to bind every name as before by this
+// package's scope analysis and again by oxc's minifier; formatted again where
+// that changes its layout alone and still binds alike; diffed as diff -U0 has
+// it; and the blocks checked to take `before` to the new side (thrown should
+// they not). `reason` says why no names were given; `reads` the properties
+// either text reads names through (`name`, `toString`, `stack`, `callee`,
+// `caller`), sorted, as code reading its names may act otherwise renamed;
+// `marks` the plain diff's blocks that differ in renamed names alone; and
+// `warnings` what a check that should never fail found.
 export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: 'none' | 'all' | 'change' | 'trailing' }): Promise<{
   before: string
   blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]

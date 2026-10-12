@@ -2,10 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { minifySync } from 'oxc-minify'
-import * as pretty from '../pretty.js'
+import { formatChecked } from '../pretty.js'
 import { sameCode } from '../src/pretty.js'
-
-const { formatChecked } = pretty
 
 describe('sameCode', () => {
   it('takes what formatting may respell: whitespace, quotes, parentheses, semicolons, numbers', () => {
@@ -80,10 +78,6 @@ describe('sameCode', () => {
 })
 
 describe('formatChecked', () => {
-  it('is all the package gives, the check it makes kept inside', () => {
-    assert.deepEqual(Object.keys(pretty).toSorted(), ['PRETTY_OPTIONS', 'formatChecked'])
-  })
-
   it('formats a minified file, leaving template literals as they are', async () => {
     const { code } = await formatChecked('const a=css`a{color:red}`;function f(x){return x+1}', 'js')
     assert.ok(code.split('\n').length > 3)

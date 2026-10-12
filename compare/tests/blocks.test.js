@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
-import { blocksHold, markedBlocks } from '../compare.js'
+import { blocksHold } from '../compare.js'
+import { markedBlocks } from '../src/marked.js'
 import { random } from './random.js'
 
 const ranges = (blocks) => blocks.map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 }))
@@ -33,7 +34,7 @@ describe('blocksHold', () => {
     assert.equal(blocksHold('A\n', 'a\n', [], { ignoreCase: true }), true)
     assert.equal(blocksHold('', '', []), true)
     assert.equal(blocksHold('', 'x\n', [{ a0: 0, a1: 0, b0: 0, b1: 1 }]), true)
-    assert.throws(() => blocksHold('', '', [], { whitespace: 'some' }), RangeError, 'options checked as compareLines checks them')
+    assert.throws(() => blocksHold('', '', [], { whitespace: 'some' }), RangeError, 'options checked as compareTrees checks them')
   })
 
   it('takes a newline dropped after the last line for a change of that line, but under -w', () => {

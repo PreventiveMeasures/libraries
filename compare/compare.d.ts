@@ -95,7 +95,7 @@ export interface LineOptions {
 // files are left, in a group, after the renames that need no scoring than its
 // square, the rest are not looked for. 1000 unless given; Infinity for no
 // limit. `lines: false` gives statuses alone, their lines found by
-// compareLines when wanted.
+// formatPatch when wanted.
 export interface CompareOptions extends LineOptions {
   paths?: 'tree' | 'keys'
   renames?: boolean | number
@@ -114,9 +114,6 @@ export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, opt
 export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions & { lines?: true }): FileChange[]
 export function compareTrees(a: Iterable<TreeEntry>, b: Iterable<TreeEntry>, options?: CompareOptions): FileStatus[] | FileChange[]
 
-// A change, as compareTrees gives it with `lines: false`, with its lines.
-export function compareLines(change: FileStatus, options?: LineOptions): FileChange
-
 // The changes as `git diff` writes them, without its `index` lines, with
 // `context` lines around each change, 3 unless given. A file's mode is
 // written in full, where git would only have 644 or 755. The hunks are each
@@ -134,14 +131,6 @@ export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?
 // but under the whitespace options. Anything that is not a list of such
 // ranges is refused: false, never thrown.
 export function blocksHold(before: string, after: string, blocks: unknown, options?: Pick<LineOptions, 'whitespace' | 'ignoreCase'>): boolean
-
-// The blocks of the change set from `before` to `after` under the line
-// options (horizon without limit unless given, as compareLines has it) whose
-// old lines, as `given` has them -- the old text renamed, line for line, as
-// names.js's renameMap gives it -- are their new lines, alike as the change
-// set has lines alike: what differs in renamed names alone. null where
-// `given` has another number of lines than `before`. Loads no parser.
-export function markedBlocks(before: string, given: string, after: string, options?: LineOptions): Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] | null
 
 // The ranges `[from, to)` that changed within a removed line and the added
 // line it pairs with, word by word (runs of letters and digits, whitespace,
@@ -180,27 +169,20 @@ export function renameParts(from: string, to: string, options?: { extension?: bo
 
 // The directory one tree's files sit under in the other: `base: ''` and
 // `other` the directory where the old tree's `a.js` is the new one's
-// `src/a.js`, the other way round, or null. Taken where it pairs more files
-// than none, and at least half the files of the side without the directory
-// (the old tree's in the first case, the new one's in the other); a tie either way is null.
+// `src/a.js`, or the other way round.
 export interface Root { base: string; other: string }
-export function detectRoot(basePaths: Iterable<string>, otherPaths: Iterable<string>): Root | null
 
-// The root between two trees and each old path as the new tree lays it out:
-// through the root where the new tree has it there, else as it is where it has
-// that, else through the root clear of every path taken, a `../` further out.
+// The root between two trees, or null, and each old path as the new tree lays
+// it out: through the root where the new tree has it there, else as it is where
+// it has that, else through the root clear of every path taken, a `../` further
+// out. A root is taken where it pairs more files than none, and at least half
+// the files of the side without the directory; a tie either way is none.
 export interface Layout { root: Root | null; paths: Map<string, string> }
 export function treeLayout(basePaths: Iterable<string>, otherPaths: Iterable<string>): Layout
 
-// An old path through `root`, or null for one outside an old root.
-export function throughRoot(root: Root | null, path: string): string | null
-
-// An old directory moved with the root: the root itself `.`, one outside it a
-// `../` for each level of the root above it, `.` as it is.
-export function rootDir(root: Root | null, dir: string): string
-
-// An old module's directory where the layout placed one of its `files`
-// (paths within it), else moved with the root.
+// An old module's directory where the layout placed one of its `files` (paths
+// within it), else moved with the root: one outside it a `../` further out for
+// each level of the root, `.` as it is.
 export function layoutDir(layout: Layout, dir: string, files: Iterable<string>): string
 
 // Both trees' package directories by path, either map null, as the new tree

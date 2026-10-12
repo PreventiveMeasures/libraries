@@ -1,7 +1,7 @@
 // Two trees taken from different roots lined up: the directory one's files sit
 // under in the other (`root`), and each old path as the new tree lays it out.
 
-export function throughRoot(root, path) {
+function throughRoot(root, path) {
   if (!root) return path
   if (root.base === '') return `${root.other}${path}`
   return path.startsWith(root.base) ? path.slice(root.base.length) : null

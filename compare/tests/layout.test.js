@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { detectRoot, layoutDir, layoutPackageDirs, pathRenames, renameParts, rootDir, rootLabel, treeLayout } from '../compare.js'
+import { layoutDir, layoutPackageDirs, pathRenames, renameParts, rootLabel, treeLayout } from '../compare.js'
+import { detectRoot, rootDir } from '../src/layout.js'
 
 describe('pathRenames', () => {
   // The package a path is in: the one after its last node_modules, or own source.
