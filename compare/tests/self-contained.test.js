@@ -69,8 +69,8 @@ describe('compare/ is self-contained', () => {
   const declared = new Set(Object.keys(manifest.dependencies ?? {}))
   const peers = new Set(Object.keys(manifest.peerDependencies ?? {}))
   const loaders = new Set(Object.values(imports['#oxc'] ?? {}).map((path) => path.slice(2)))
-  const LOADER = { 'css-tree': 'src/peers.js', oxfmt: 'src/peers.js' }
-  const loads = (file, peer) => (Object.hasOwn(LOADER, peer) ? file === LOADER[peer] : loaders.has(file))
+  const PEERS = 'src/peers.js', PRETTY = new Set(['css-tree', 'oxfmt'])
+  const loads = (file, peer) => (PRETTY.has(peer) ? file === PEERS : loaders.has(file))
 
   it('declares @preventive/diff and @exodus/bytes alone', () => {
     assert.deepEqual([...declared], ['@exodus/bytes', '@preventive/diff'])
@@ -117,7 +117,7 @@ describe('compare/ is self-contained', () => {
       seen.add(file.href)
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
         assert.notEqual(spec, '#oxc', `${nameOf(file)}, which compare.js loads, imports #oxc`)
-        assert.ok(!Object.values(LOADER).includes(nameOf(new URL(spec, file))), `${nameOf(file)}, which compare.js loads, imports ${spec}`)
+        assert.notEqual(nameOf(new URL(spec, file)), PEERS, `${nameOf(file)}, which compare.js loads, imports ${spec}`)
         if (spec.startsWith('.')) queue.push(new URL(spec, file))
       }
     }
