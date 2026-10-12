@@ -3,7 +3,6 @@
 // pair left scored; between the first two, ours, renames told by path.
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { onlyPartners, renameKeys } from './paths.js'
 import { MAX_SCORE, similarity, spanCounts } from './similarity.js'
 import { bytesOf, sameContent } from './tree.js'
 
@@ -37,6 +36,11 @@ function exactRenames({ sources, dests, sourceNames, destNames, used, record, by
 
 // A TypeScript extension and the JavaScript one it compiles to.
 const SCRIPTS = new Map([['.ts', '.js'], ['.mts', '.mjs'], ['.cts', '.cjs'], ['.tsx', '.jsx']])
+// Extensions a file keeps its kind across, as triage's Compare groups them.
+const FAMILIES = new Map([
+  ...['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx'].map((extension) => [extension, 'script']),
+  ...['.css', '.scss', '.sass', '.less'].map((extension) => [extension, 'style']),
+])
 
 function splitPath(path) {
   const dirs = path.split('/')
@@ -50,6 +54,19 @@ function splitPath(path) {
 function buildKey(path) {
   const { dirs, stem, extension } = splitPath(path)
   return JSON.stringify([dirs.map((dir) => (dir === 'lib' || dir === 'src' ? null : dir)), stem, SCRIPTS.get(extension) ?? extension])
+}
+
+// The keys a path meets a partner on, as triage's Compare has them: its stem,
+// its extension's family, and its directories, as they are or with one open --
+// past the last node_modules and its package's name, which a group keeps.
+function familyKeys(path) {
+  const { dirs, stem, extension } = splitPath(path)
+  const head = [stem, FAMILIES.get(extension) ?? extension]
+  const modules = dirs.lastIndexOf('node_modules')
+  const first = modules === -1 ? 0 : modules + (dirs[modules + 1]?.startsWith('@') ? 3 : 2)
+  const keys = [JSON.stringify([...head, dirs])]
+  for (let i = first; i < dirs.length; i++) keys.push(JSON.stringify([...head, dirs.toSpliced(i, 1, null)]))
+  return keys
 }
 
 // Whether either file of a pair by path has a candidate that is a rename by
@@ -72,11 +89,33 @@ function buildRenames(context, left, weigh, minimum) {
 }
 
 // Paths triage's Compare pairs: one file each other's only partner by family
-// and directory, however the pair scores.
+// and directory (its detectRenames), however the pair scores.
 function familyRenames(context, left, weigh, minimum) {
   const { sources, dests, pairs, used, record, scoreOf } = context
-  const keyed = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, renameKeys(files[i].path)]))
-  for (const [s, d] of onlyPartners(keyed(sources, left.remaining.filter((r) => !used.has(r))), keyed(dests, left.open.filter((o) => !pairs.has(o))))) {
+  const buckets = new Map()
+  const keyed = (files, indices, side) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => {
+    const keys = familyKeys(files[i].path)
+    for (const key of keys) {
+      if (!buckets.has(key)) buckets.set(key, { sources: [], dests: [] })
+      buckets.get(key)[side].push(i)
+    }
+    return [i, keys]
+  }))
+  const destKeys = keyed(dests, left.open.filter((d) => !pairs.has(d)), 'dests')
+  const sourceKeys = keyed(sources, left.remaining.filter((s) => !used.has(s)), 'sources')
+  // The one file of `side` the keys meet, or -1 for none or several.
+  const partner = (keys, side) => {
+    let found = -1
+    for (const key of keys) {
+      const list = buckets.get(key)[side]
+      if (list.length > 1 || (list.length === 1 && found !== -1 && found !== list[0])) return -1
+      if (list.length === 1) found = list[0]
+    }
+    return found
+  }
+  for (const [s, keys] of sourceKeys) {
+    const d = partner(keys, 'dests')
+    if (d === -1 || partner(destKeys.get(d), 'sources') !== s) continue
     const pair = { s, d, score: scoreOf(s, d, 0) }
     if (!(weigh && outdone(context, left, pair, minimum))) record(d, s, pair.score)
   }

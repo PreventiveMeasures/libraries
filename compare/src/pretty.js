@@ -4,8 +4,7 @@
 
 import { getOxc } from '#oxc'
 import { indentless, sameCss } from './css.js'
-import { loadCssTree } from './csstree.js'
-import { loadFormatter } from './oxfmt.js'
+import { loadCssTree, loadFormatter } from './peers.js'
 
 const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowParens: 'avoid', embeddedLanguageFormatting: 'off' }
 
