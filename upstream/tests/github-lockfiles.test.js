@@ -95,8 +95,13 @@ const REPO = treeOf({
   'ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved': FILE,
   'go/go.mod': FILE,
   'go/go.sum': FILE,
+  'go/go.work': FILE,
+  'go/go.work.sum': FILE,
   'dotnet/App.csproj': FILE,
   'dotnet/packages.lock.json': FILE,
+  'dotnet/Lib.csproj': FILE,
+  'dotnet/packages.Lib.lock.json': FILE,
+  'dotnet/Directory.Packages.props': FILE,
   'php/composer.lock': FILE,
   'links/pnpm-lock.yaml': LINK,
   'links/package.json': LINK,
@@ -116,8 +121,10 @@ const LOCKFILES = [
   ['contracts/foundry.lock', 'foundry'],
   ['contracts/soldeer.lock', 'soldeer'],
   ['crates/core/Cargo.lock', 'cargo'],
+  ['dotnet/packages.Lib.lock.json', 'nuget'],
   ['dotnet/packages.lock.json', 'nuget'],
   ['go/go.sum', 'go'],
+  ['go/go.work.sum', 'go'],
   ['ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'swiftpm'],
   ['ios/Podfile.lock', 'cocoapods'],
   ['php/composer.lock', 'composer'],
@@ -134,7 +141,10 @@ const PROJECTS = [
   ['contracts/foundry.toml', ['soldeer', 'foundry']],
   ['crates/core/Cargo.toml', ['cargo']],
   ['dotnet/App.csproj', ['nuget']],
+  ['dotnet/Directory.Packages.props', ['nuget']],
+  ['dotnet/Lib.csproj', ['nuget']],
   ['go/go.mod', ['go']],
+  ['go/go.work', ['go']],
   ['ios/Podfile', ['cocoapods']],
   ['package.json', JS],
   ['pnpm-workspace.yaml', ['pnpm']],
@@ -151,7 +161,7 @@ describe('lockfileFormat and projectFormats', () => {
     }
     assert.deepEqual(projectFormats('package.json'), JS)
     assert.deepEqual(projectFormats('pyproject.toml'), ['uv', 'poetry', 'pylock', 'pdm', 'pixi'])
-    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam'], ['dev.conda-lock.yml', 'conda-lock']]) assert.equal(lockfileFormat(name), format, name)
+    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam'], ['dev.conda-lock.yml', 'conda-lock'], ['packages.My.App.lock.json', 'nuget']]) assert.equal(lockfileFormat(name), format, name)
     for (const [name, format] of [['App.csproj', 'nuget'], ['Lib.fsproj', 'nuget'], ['lib.cabal', 'cabal'], ['app.opam', 'opam']]) assert.deepEqual(projectFormats(name), [format], name)
   })
 
@@ -162,7 +172,7 @@ describe('lockfileFormat and projectFormats', () => {
   })
 
   it('know a file by its name as git has it, and by nothing else', () => {
-    for (const name of ['cargo.lock', 'podfile.lock', 'Yarn.lock', 'Package.json', 'pylock..toml', 'pylock.a.b.toml', 'pylock.toml.bak', 'Manifest-v1.toml', '.csproj', '.cabal', '.conda-lock.yml', 'dev.conda-lock.yaml', 'constructor', '__proto__', 'toString', '']) {
+    for (const name of ['cargo.lock', 'podfile.lock', 'Yarn.lock', 'Package.json', 'pylock..toml', 'pylock.a.b.toml', 'pylock.toml.bak', 'Manifest-v1.toml', '.csproj', '.cabal', '.conda-lock.yml', 'dev.conda-lock.yaml', 'packages..lock.json', 'constructor', '__proto__', 'toString', '']) {
       assert.equal(lockfileFormat(name), undefined, name)
       assert.deepEqual(projectFormats(name), [], name)
     }

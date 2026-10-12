@@ -29,10 +29,14 @@ export const FORMATS = {
   cocoapods: { lockfiles: ['Podfile.lock'], projects: ['Podfile'] },
   swiftpm: { lockfiles: ['Package.resolved'], projects: ['Package.swift'] },
   carthage: { lockfiles: ['Cartfile.resolved'], projects: ['Cartfile', 'Cartfile.private'] },
-  // go.sum has the checksums; go.mod, the versions, is locked as it is.
-  go: { lockfiles: ['go.sum'], projects: ['go.mod'] },
+  // go.sum has the checksums; go.mod, the versions, is locked as it is. A
+  // workspace's go.work.sum has those its modules' go.sum do not.
+  go: { lockfiles: ['go.sum', 'go.work.sum'], projects: ['go.mod', 'go.work'] },
   dep: { lockfiles: ['Gopkg.lock'], projects: ['Gopkg.toml'] },
-  nuget: { lockfiles: ['packages.lock.json'], projects: [/^.+\.(?:cs|fs|vb)proj$/u] },
+  // packages.<project>.lock.json, for one of projects that share a
+  // directory; Directory.Packages.props has the versions of Central
+  // Package Management, which the project files then leave out.
+  nuget: { lockfiles: ['packages.lock.json', /^packages\..+\.lock\.json$/u], projects: [/^.+\.(?:cs|fs|vb)proj$/u, 'Directory.Packages.props'] },
   paket: { lockfiles: ['paket.lock'], projects: ['paket.dependencies'] },
   gradle: { lockfiles: ['gradle.lockfile', 'buildscript-gradle.lockfile', 'settings-gradle.lockfile'], projects: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'] },
   pub: { lockfiles: ['pubspec.lock'], projects: ['pubspec.yaml'] },
