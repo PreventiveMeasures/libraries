@@ -9,21 +9,21 @@
 // how many packages to fetch, 10,000 unless given, more than npm.js counts
 // (scripts/accounts.js), so that scripts/score.js has packages the lists never
 // saw. Each packument is cached in the cache dir, gzipped, as the registry
-// served it (null for a package it doesn't have): a rerun reads it from there,
-// so that what is made of it can change without fetching again; empty the dir
-// to refresh.
+// served it (null for a package it doesn't have), with the time it was
+// fetched: a rerun reads it from there, so that what is made of it can change
+// without fetching again; empty the dir to refresh.
 //
 // Writes, in the data dir, none of it committed: packages.json (each package,
 // by rank: its monthly downloads, its maintainers, its latest version and that
 // one's publisher, the latest version an account published, not trusted
 // publishing's CI, and every account that published a version, the latest to
 // publish first, with the versions it published first and last, when, and how
-// many) and source.json (download-counts' version, and the day of the oldest
-// packument). A version published with trusted publishing (OIDC) has npm's
+// many) and source.json (download-counts' version, and the day the oldest of
+// the packuments was fetched). A version published with trusted publishing (OIDC) has npm's
 // name for the CI as its publisher ("GitHub Actions"), and its provider as
 // trusted.
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { gunzipSync, gzipSync } from 'node:zlib'
@@ -54,16 +54,23 @@ async function fetchPackument(name) {
   }
 }
 
-// A package's packument, from the cache if there, with when it was fetched.
+// A package's packument and when it was fetched, from the cache if there: each
+// entry holds both, `{"fetched":…,"packument":…}` with the registry's answer as
+// it served it, so that the time goes wherever the entry is copied.
 async function packument(name) {
   const file = join(cacheDir, `${name.replace('/', '%2F')}.json.gz`)
   const cached = await readFile(file).catch((error) => {
     if (error.code !== 'ENOENT') throw error
   })
-  if (cached) return { doc: JSON.parse(gunzipSync(cached)), fetched: (await stat(file)).mtimeMs }
+  if (cached) {
+    const entry = JSON.parse(gunzipSync(cached))
+    if (typeof entry?.fetched !== 'string') throw new Error(`${file}: a cache entry without the time it was fetched; empty the cache dir`)
+    return entry
+  }
+  const fetched = new Date().toISOString()
   const body = await fetchPackument(name)
-  await writeFile(file, gzipSync(body))
-  return { doc: JSON.parse(body), fetched: Date.now() }
+  await writeFile(file, gzipSync(`{"fetched":${JSON.stringify(fetched)},"packument":${body}}`))
+  return { fetched, packument: JSON.parse(body) }
 }
 
 // Every account that published a version, the latest to publish first: the
@@ -125,15 +132,15 @@ function accountLatest(doc) {
 const names = (list) => (Array.isArray(list) ? list : []).map((user) => user?.name).filter(Boolean)
 
 const packages = Array.from({ length: ranked.length })
-let oldest = Infinity
+let oldest = null
 let next = 0
 let done = 0
 await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
   while (next < ranked.length) {
     const index = next++
     const [name, downloads] = ranked[index]
-    const { doc, fetched } = await packument(name)
-    oldest = Math.min(oldest, fetched)
+    const { packument: doc, fetched } = await packument(name)
+    if (oldest === null || fetched < oldest) oldest = fetched
     const latest = doc?.['dist-tags']?.latest
     const version = latest && doc.versions?.[latest]
     packages[index] = {
@@ -156,4 +163,4 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
 }))
 
 await writeFile(join(dataDir, 'packages.json'), `[\n${packages.map((p) => JSON.stringify(p)).join(',\n')}\n]\n`)
-await writeFile(join(dataDir, 'source.json'), `${JSON.stringify({ counts: countsVersion && `download-counts@${countsVersion}`, fetched: new Date(oldest).toISOString().slice(0, 10) }, null, 2)}\n`)
+await writeFile(join(dataDir, 'source.json'), `${JSON.stringify({ counts: countsVersion && `download-counts@${countsVersion}`, fetched: oldest?.slice(0, 10) ?? null }, null, 2)}\n`)
