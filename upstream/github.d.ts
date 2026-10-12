@@ -5,11 +5,12 @@
 // component, titles and headlines on one line. A bad one is a rejection
 // naming the method; nothing is sent. Every URL is built from checked,
 // encoded segments and has to come back out of URL parsing unchanged.
-// Redirects are refused, except the tarballs', so an answer is about the
-// repo asked for. A response is read up to a size limit (64 MiB of JSON,
-// 128 MiB of a file, 512 MiB of a tarball) and within a timeout (30
-// seconds, 5 minutes for a tarball), and what it says goes into an error
-// message escaped.
+// Redirects are refused, so an answer is about the repo asked for, except
+// the tarballs' and, where asked, getRepo's for a repo renamed or
+// transferred. A response is read up to a size limit (64 MiB of JSON, 128
+// MiB of a file, 512 MiB of a tarball) and within a timeout (30 seconds, 5
+// minutes for a tarball), and what it says goes into an error message
+// escaped.
 
 // `owner/name`.
 export type RepoName = string
@@ -64,10 +65,13 @@ export interface RepoProjectFile {
   sha: string
 }
 
-// A failed request: `status` is the HTTP status GitHub answered with.
+// A failed request: `status` is the HTTP status GitHub answered with, and
+// `headers` its response's (a redirect's `location` among them), on every
+// call but a GraphQL one (github/write.js).
 export class HttpError extends Error {
   name: 'HttpError'
   status: number
+  headers?: Headers
 }
 
 // Reads only.
@@ -101,7 +105,14 @@ export interface Client {
   // Refused unless GitHub answers with that pull request in that repo.
   getPullRequest(options: { repo: RepoName; number: number }): Promise<{ title: string; status: PullRequestStatus }>
   // GitHub's repository object, refused unless it is the repo asked for.
-  getRepo(options: { repo: RepoName }): Promise<any>
+  // With `followRedirect`, a repository renamed or transferred, which GitHub
+  // answers with a redirect to it by its id
+  // (`https://api.github.com/repositories/<id>`), is asked for there, with
+  // the same token, once: the repository as it is now, refused unless it
+  // has that id and a `full_name` that is `owner/name`, the name to ask its
+  // other calls with. A redirect anywhere else, or a second, is refused as
+  // without it: an HttpError with the redirect's status.
+  getRepo(options: { repo: RepoName; followRedirect?: boolean }): Promise<any>
   // A file's contents as text, at `ref` or the default branch. Refused for
   // a directory, a symlink or a submodule, unless the bytes hash to the
   // blob GitHub names for the path, and unless valid UTF-8.

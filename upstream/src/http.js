@@ -32,11 +32,13 @@ const LIMITS = {
 }
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
+// `headers` are the response's, where there was one to read them from.
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, headers) {
     super(message)
     this.name = 'HttpError'
     this.status = status
+    if (headers !== undefined) this.headers = headers
   }
 }
 
@@ -119,7 +121,7 @@ export async function requestWithHeaders(url, options) {
   if (!res.ok) {
     // A stream decode holds back a character cut at the limit rather than refusing it.
     const text = await readBody(res, 4096, { truncate: true }).then((bytes) => new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: true })).catch(() => '')
-    throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`)
+    throw new HttpError(res.status, `${options.method ?? 'GET'} ${url} ${res.status}: ${printable(text)}`, res.headers)
   }
   return { body: parse(await readBody(res, LIMITS[options.as].bytes), url, options.as), headers: res.headers }
 }

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertBoolean, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isRepo, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
-import { decode, encodeSegment, requestWithHeaders } from '../http.js'
+import { HttpError, decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
@@ -49,10 +49,29 @@ async function listUserRepos(headers, options) {
   return await paginate('listUserRepos', headers, (paging) => api(['user', 'repos'], { ...paging, sort: 'full_name' }), options?.maxPages)
 }
 
+// Where GitHub's API sends a repository renamed or transferred: to that
+// repository by its id.
+const REPO_BY_ID = /^https:\/\/api\.github\.com\/repositories\/([1-9]\d{0,14})$/u
+const REDIRECTS = new Set([301, 302, 307, 308])
+
+// With `followRedirect`, GitHub's redirect for a repository renamed or
+// transferred is followed, once, on its API alone, and the answer held to
+// the id it names rather than to the name asked; any other redirect, or a
+// second, is refused as without it.
 async function getRepo(headers, options) {
-  assertArgs('getRepo', options, { repo: assertRepo })
-  const info = await call(headers, repoApi(options.repo))
-  assert.ok(sameName(info?.full_name, options.repo), `getRepo: answered for ${show(info?.full_name)}, not ${options.repo}`)
+  assertArgs('getRepo', options, { repo: assertRepo, followRedirect: optional(assertBoolean) })
+  const { repo, followRedirect } = options
+  let info
+  try {
+    info = await call(headers, repoApi(repo))
+  } catch (err) {
+    const id = followRedirect && err instanceof HttpError && REDIRECTS.has(err.status) ? REPO_BY_ID.exec(err.headers.get('location') ?? '')?.[1] : undefined
+    if (id === undefined) throw err
+    const moved = await call(headers, api(['repositories', id]))
+    assert.ok(moved?.id === Number(id) && isRepo(moved.full_name), `getRepo: ${repo} redirected to repository ${id}, answered for ${show(moved?.id)}, ${show(moved?.full_name)}`)
+    return moved
+  }
+  assert.ok(sameName(info?.full_name, repo), `getRepo: answered for ${show(info?.full_name)}, not ${repo}`)
   return info
 }
 

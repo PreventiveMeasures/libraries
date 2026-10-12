@@ -71,10 +71,12 @@ export interface CacheOptions {
 }
 
 // A failed request: `status` is the HTTP status the registry answered
-// with (404 for a package or version it does not have).
+// with (404 for a package or version it does not have), and `headers` its
+// response's.
 export class HttpError extends Error {
   name: 'HttpError'
   status: number
+  headers?: Headers
 }
 
 // A package's GitHub repo as its registry metadata names it -- getRepo
