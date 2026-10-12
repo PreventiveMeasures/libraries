@@ -47,12 +47,19 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['b', 'c'], ['B', 'C2', 'C3']), [], 'unrelated lines pair with none')
     assert.deepEqual(pairLines(['f(a)', 'g(b)'], ['f(c)', 'g(b)!']), [[0, 0], [1, 1]], 'in order')
     assert.deepEqual(pairLines(['', 'f(a)'], ['f(b)']), [[1, 0]], 'a blank line takes no line from the one edited into it')
-    assert.deepEqual(pairLines(['f(a)', 'f(b)'], ['f(b)']), [[1, 0]], 'nor does a line from a later one closer to it')
-    assert.deepEqual(pairLines(['f(a)', 'x', 'y', 'z', 'q', 'r', 'f(b)'], ['f(b)']), [[6, 0]], 'up to six lines on')
-    assert.deepEqual(pairLines(['f(a)', 'x', 'y', 'z', 'q', 'r', 's', 'f(b)'], ['f(b)']), [[0, 0]], 'and no further')
-    assert.deepEqual(pairLines(['f(a)', 'g(x)', 'f(b)'], ['f(b)', 'g(x)']), [[2, 0]], 'the lines between taking none past the line left to it')
-    assert.deepEqual(pairLines(['f(a)', 'g(x)', 'f(b)', 'h(y)'], ['g(x)', 'f(b)', 'h(y)']), [[1, 0], [2, 1], [3, 2]], 'but those before it')
-    assert.deepEqual(pairLines(Array.from({ length: 201 }, () => 'f(a)'), ['f(b)']), [], 'past 200 lines, none')
+    assert.deepEqual(pairLines(['f(a)', 'f(b)'], ['f(b)']), [[1, 0]], 'the more alike of two')
+    assert.deepEqual(pairLines(['f(a, bb)', 'unrelated', 'f(dddd, ccc)'], ['f(a, ccc)', 'f(dddd, a)']), [[0, 0], [2, 1]], 'the most pairs')
+    assert.deepEqual(pairLines(['f(a)', 'g(x)', 'f(b)', 'h(y)'], ['g(x)', 'f(b)', 'h(y)']), [[1, 0], [2, 1], [3, 2]])
+    assert.deepEqual(pairLines(['f(b)', ...Array.from({ length: 50 }, (_, k) => `u${k}`)], [...Array.from({ length: 50 }, (_, k) => `w${k}`), 'f(b)']), [[0, 50]], 'however far apart')
+  })
+
+  it('looks ahead alone where weighing every pair would take too long, still pairing in order', () => {
+    // Long lines all alike: each pair a long script, more of them than the budget weighs.
+    const line = (k, mark) => Array.from({ length: 390 }, (_, t) => ((t * 7 + k) % 13 === 0 ? `q${k}${mark}` : `w${t % 50}`)).join(' ')
+    const news = Array.from({ length: 40 }, (_, k) => line(k, 'x')), olds = Array.from({ length: 40 }, (_, k) => line(k, ''))
+    const start = performance.now()
+    assert.deepEqual(pairLines(olds, news), olds.map((_, k) => [k, k]))
+    assert.ok(performance.now() - start < 2000)
   })
 
   it('pairs each line once, in order, for lines made at random', () => {

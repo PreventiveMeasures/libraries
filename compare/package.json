@@ -59,6 +59,7 @@
     "src/oxc.js",
     "src/oxc.node.js",
     "src/patch.js",
+    "src/pairs.js",
     "src/paths.js",
     "src/peers.js",
     "src/pretty.js",

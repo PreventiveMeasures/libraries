@@ -1,5 +1,5 @@
-// Changed lines read word by word: what changed within a line, and which
-// removed line was edited into which added one.
+// Changed lines read word by word: what changed within a line and the one it
+// pairs with.
 
 import { changeSet } from '@preventive/diff'
 
@@ -9,11 +9,7 @@ const TOKEN = /[\p{L}\p{N}_$]+|\s+|[^\p{L}\p{N}_$\s]/gu
 const MAX_CHARS = 2000
 const MAX_TOKENS = 800
 // Lines whose words are mostly replaced are not one line edited.
-const MAX_CHANGED = 0.6
-// How far ahead a removed line looks for its counterpart, and the longest
-// change whose lines are paired at all.
-const LOOKAHEAD = 6
-const MAX_LINES = 200
+export const MAX_CHANGED = 0.6
 
 function mergeRanges(ranges, text) {
   const merged = []
@@ -25,69 +21,41 @@ function mergeRanges(ranges, text) {
   return merged
 }
 
-// The ranges `[from, to)` that changed on each side, those split by whitespace
-// alone merged, and the smaller share of either line they cover, all of it where
-// the lines share no token; null past the size limits. Each distinct token is
-// one line of the diff, named by number.
-function wordChanges(left, right) {
-  if (left.length > MAX_CHARS || right.length > MAX_CHARS) return null
-  const lt = left.match(TOKEN) ?? [], rt = right.match(TOKEN) ?? []
-  if (lt.length > MAX_TOKENS || rt.length > MAX_TOKENS) return null
-  const ids = new Map()
-  const encode = (tokens) => tokens.map((token) => {
-    if (!ids.has(token)) ids.set(token, String(ids.size))
-    return `${ids.get(token)}\n`
-  }).join('')
-  const blocks = changeSet(encode(lt), encode(rt), { horizon: 0 })
-  const ranges = (side, tokens, line) => {
+// A line as a word diff reads it, each distinct word numbered in `known` (one
+// for the lines compared) and written as one line of a diff; null past the
+// size limits.
+export function tokenized(line, known) {
+  if (line.length > MAX_CHARS) return null
+  const tokens = line.match(TOKEN) ?? []
+  if (tokens.length > MAX_TOKENS) return null
+  const words = tokens.map((token) => {
+    if (!known.has(token)) known.set(token, known.size)
+    return known.get(token)
+  })
+  return { line, tokens, words, encoded: words.map((word) => `${word}\n`).join('') }
+}
+
+// The ranges `[from, to)` that changed on each side of two tokenized lines,
+// those split by whitespace alone merged, and the smaller share of either line
+// they cover, all of it where the lines share no word.
+export function wordChanges(left, right) {
+  const blocks = changeSet(left.encoded, right.encoded, { horizon: 0 })
+  const ranges = (side, { tokens, line }) => {
     const at = [0]
     for (const token of tokens) at.push(at.at(-1) + token.length)
     return mergeRanges(blocks.filter((block) => block[`${side}1`] > block[`${side}0`]).map((block) => [at[block[`${side}0`]], at[block[`${side}1`]]]), line)
   }
-  const a = ranges('a', lt, left), b = ranges('b', rt, right)
+  const a = ranges('a', left), b = ranges('b', right)
   const share = (list, line) => list.reduce((sum, [from, to]) => sum + to - from, 0) / Math.max(1, line.length)
-  const shared = lt.length > blocks.reduce((sum, { a0, a1 }) => sum + a1 - a0, 0)
-  return { a, b, share: shared ? Math.min(share(a, left), share(b, right)) : 1 }
+  const shared = left.tokens.length > blocks.reduce((sum, { a0, a1 }) => sum + a1 - a0, 0)
+  return { a, b, share: shared ? Math.min(share(a, left.line), share(b, right.line)) : 1 }
 }
 
 // Lines the same have no ranges, not null: null is a line with no word view.
 export function wordRanges(left, right) {
   if (left === right) return { a: [], b: [] }
-  const words = wordChanges(left, right)
+  const known = new Map()
+  const a = tokenized(left, known), b = tokenized(right, known)
+  const words = a && b ? wordChanges(a, b) : null
   return words && words.share <= MAX_CHANGED ? { a: words.a, b: words.b } : null
-}
-
-// A removed line takes the added line closest to it, unless one of the next
-// removed lines is closer still: that one then has it, and the lines between
-// pair only with added lines before it.
-export function pairLines(olds, news) {
-  const pairs = []
-  if (olds.length > MAX_LINES || news.length > MAX_LINES) return pairs
-  const shares = new Map()
-  const share = (i, j) => {
-    if (!shares.has(`${i} ${j}`)) {
-      const words = olds[i] === news[j] ? { share: 0 } : wordChanges(olds[i], news[j])
-      shares.set(`${i} ${j}`, words && words.share <= MAX_CHANGED ? words.share : Infinity)
-    }
-    return shares.get(`${i} ${j}`)
-  }
-  const kept = new Map()
-  let next = 0
-  for (let i = 0; i < olds.length && next < news.length; i++) {
-    kept.delete(i)
-    const end = Math.min(news.length, next + LOOKAHEAD, ...kept.values())
-    let best = null, least = Infinity
-    for (let j = next; j < end && least > 0; j++) {
-      if (share(i, j) < least) [best, least] = [j, share(i, j)]
-    }
-    if (best === null) continue
-    const closer = least > 0 ? olds.slice(i + 1, i + 1 + LOOKAHEAD).findIndex((_, at) => share(i + 1 + at, best) < least) : -1
-    if (closer === -1) {
-      pairs.push([i, best])
-      next = best + 1
-    } else {
-      kept.set(i + 1 + closer, Math.min(best, kept.get(i + 1 + closer) ?? Infinity))
-    }
-  }
-  return pairs
 }

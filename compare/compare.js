@@ -14,7 +14,8 @@ export { formatPatch } from './src/patch.js'
 // Changed lines read word by word: what changed within a line and which removed
 // line was edited into which added one; and whether diff -w hides blanks of
 // more than one kind changing.
-export { pairLines, wordRanges } from './src/words.js'
+export { pairLines } from './src/pairs.js'
+export { wordRanges } from './src/words.js'
 export { hidesMixedWhitespace } from './src/whitespace.js'
 
 // A rename written as `git diff --stat` writes one.
