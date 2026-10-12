@@ -74,15 +74,17 @@ export class HttpError extends Error {
 export interface Client {
   // Every file by a lockfile's name, and every project file of a tool that
   // writes one, in the full commit `sha`, or under its `directory`, found as
-  // getRepoTreeId finds it, each list sorted by path; and a Python script
-  // `uv lock --script` locked, which no name tells, by the <script>.lock
-  // beside it. From one listing of the tree with every tree under it, each
-  // hashed back to its id, so none is left out or changed; where GitHub
-  // cuts that short, as it does past 100,000 entries, from the tree's own
-  // listing and then each subtree's in turn. Not looked in: a submodule,
-  // which is another repo's commit, or a `node_modules`, of packages
-  // installed. A symlink is no file. Refused where a path found is one
-  // getRepoFile does not take, such as one with a control character in it.
+  // getRepoTreeId finds it, each list sorted by path; and a project file no
+  // name tells, by a lockfile beside it named after it: a Python script
+  // `uv lock --script` locked, or a Stack or Cabal project file of another
+  // name than stack.yaml or cabal.project. From one listing of the tree
+  // with every tree under it, each hashed back to its id, so none is left
+  // out or changed; where GitHub cuts that short, as it does past 100,000
+  // entries, from the tree's own listing and then each subtree's in turn.
+  // Not looked in: a submodule, which is another repo's commit, or a
+  // `node_modules`, of packages installed. A symlink is no file. Refused
+  // where a path found is one getRepoFile does not take, such as one with a
+  // control character in it.
   findRepoLockfiles(options: { repo: RepoName; sha: string; directory?: string }): Promise<{ lockfiles: RepoLockfile[]; projects: RepoProjectFile[] }>
   // An advisory by its GHSA id. With `repo`, that repository's published
   // copy: the maintainer's latest text, there before GitHub reviews it,

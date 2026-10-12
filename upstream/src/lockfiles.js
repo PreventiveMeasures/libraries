@@ -65,8 +65,10 @@ export const FORMATS = {
   // rebar.config.script, where there is one, makes the configuration.
   rebar: { lockfiles: ['rebar.lock'], projects: ['rebar.config', 'rebar.config.script'] },
   julia: { lockfiles: ['Manifest.toml', 'JuliaManifest.toml', /^(?:Julia)?Manifest-v\d+\.\d+\.toml$/u], projects: ['Project.toml', 'JuliaProject.toml'] },
-  stack: { lockfiles: ['stack.yaml.lock'], projects: ['stack.yaml'] },
-  cabal: { lockfiles: ['cabal.project.freeze'], projects: ['cabal.project', /^.+\.cabal$/u] },
+  // Each of a configuration's name, stack.yaml or another, and `.lock`.
+  stack: { lockfiles: [/^(?<locks>.+\.ya?ml)\.lock$/u], projects: ['stack.yaml'] },
+  // Each of a project file's name, cabal.project or another, and `.freeze`.
+  cabal: { lockfiles: [/^(?<locks>.+)\.freeze$/u], projects: ['cabal.project', /^.+\.cabal$/u] },
   shards: { lockfiles: ['shard.lock'], projects: ['shard.yml', 'shard.override.yml'] },
   opam: { lockfiles: ['opam.locked', /^.+\.opam\.locked$/u], projects: ['opam', /^.+\.opam$/u] },
   nix: { lockfiles: ['flake.lock'], projects: ['flake.nix'] },
