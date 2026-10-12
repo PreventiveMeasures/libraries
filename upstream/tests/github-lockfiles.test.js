@@ -87,6 +87,10 @@ const REPO = treeOf({
   'py/pylock.toml': FILE,
   'py/pylock.dev.toml': FILE,
   'py/pylock.a.b.toml': FILE,
+  'py/scripts/job.py': blob('# /// script\n'),
+  'py/scripts/job.py.lock': FILE,
+  'py/scripts/other.py': FILE,
+  'py/scripts/orphan.py.lock': FILE,
   'py/env/dev.conda-lock.yml': FILE,
   'ruby/Gemfile': FILE,
   'ruby/Gemfile.lock': FILE,
@@ -141,6 +145,8 @@ const LOCKFILES = [
   ['py/env/dev.conda-lock.yml', 'conda-lock'],
   ['py/pylock.dev.toml', 'pylock'],
   ['py/pylock.toml', 'pylock'],
+  ['py/scripts/job.py.lock', 'uv'],
+  ['py/scripts/orphan.py.lock', 'uv'],
   ['py/uv.lock', 'uv'],
   ['ruby/Gemfile.lock', 'bundler'],
 ].map(([path, format]) => ({ path, format, sha: at(path) }))
@@ -161,6 +167,7 @@ const PROJECTS = [
   ['package.json', JS],
   ['pnpm-workspace.yaml', ['pnpm']],
   ['py/pyproject.toml', ['uv', 'poetry', 'pylock', 'pdm', 'pixi', 'conda-lock']],
+  ['py/scripts/job.py', ['uv']],
   ['ruby/Gemfile', ['bundler']],
 ].map(([path, formats]) => ({ path, formats, sha: at(path) }))
 const FOUND = { lockfiles: LOCKFILES, projects: PROJECTS }

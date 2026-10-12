@@ -220,13 +220,21 @@ async function findRepoLockfiles(headers, options) {
   const tree = await treeAt('findRepoLockfiles', headers, options)
   const lockfiles = []
   const projects = []
+  const scripts = new Map()
   for await (const { path, name, sha: blob } of filesIn('findRepoLockfiles', headers, repo, tree, directory === undefined ? '' : `${directory}/`)) {
+    if (name.endsWith('.py')) scripts.set(path, blob)
     const format = lockfileFormat(name)
     const formats = projectFormats(name)
     if (format === undefined && formats.length === 0) continue
     assert.ok(isRepoPath(path), `findRepoLockfiles: ${repo}@${sha} has ${format === undefined ? 'a project file' : 'a lockfile'} at ${show(path)}, which getRepoFile does not take`)
     if (format !== undefined) lockfiles.push({ path, format, sha: blob })
     if (formats.length > 0) projects.push({ path, formats, sha: blob })
+  }
+  // A script `uv lock --script` locks, which no name tells: the one its
+  // lockfile, <script>.lock, is named after.
+  for (const { path, format } of lockfiles) {
+    const script = path.slice(0, -'.lock'.length)
+    if (format === 'uv' && scripts.has(script)) projects.push({ path: script, formats: ['uv'], sha: scripts.get(script) })
   }
   return { lockfiles: lockfiles.toSorted(byPath), projects: projects.toSorted(byPath) }
 }
