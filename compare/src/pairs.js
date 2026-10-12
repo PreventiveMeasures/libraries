@@ -140,15 +140,20 @@ function weigher(olds, news) {
     if (Number.isNaN(shares[key])) shares[key] = olds[i] === news[j] ? 0 : weighed(i, j)
     return shares[key]
   }
-  return { share, floor, viewed, spent: () => work }
+  // A pair the diff does not confirm, weighed no more.
+  const reject = ([i, j]) => {
+    shares[i * news.length + j] = Infinity
+  }
+  return { share, floor, viewed, reject, spent: () => work, charge: (steps) => (work += steps) }
 }
 
 // The pairs in order that are the most, and of those the most alike, a pair
 // weighed 1000 less its share; null where weighing them all passes the budget.
-function aligned(n, m, { share, spent }) {
+function aligned(n, m, { share, spent, charge }) {
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) if (share(i, j) >= 0 && spent() > BUDGET) return null
   }
+  if (charge(n * m) > BUDGET) return null
   const value = Array.from({ length: n + 1 }, () => new Float64Array(m + 1))
   const take = (i, j) => (share(i, j) === Infinity ? -Infinity : 1000 - share(i, j) + value[i + 1][j + 1])
   for (let i = n - 1; i >= 0; i--) {
@@ -182,8 +187,15 @@ function lookedAhead(n, m, { share, floor }) {
   return pairs
 }
 
+// Pairs the diff does not confirm are weighed no more, and the lines paired
+// again, till every pair is one wordRanges marks.
 export function pairLines(olds, news) {
   if (olds.length > MAX_LINES || news.length > MAX_LINES) return []
   const weigh = weigher(olds, news)
-  return (aligned(olds.length, news.length, weigh) ?? lookedAhead(olds.length, news.length, weigh)).filter(weigh.viewed)
+  for (;;) {
+    const pairs = aligned(olds.length, news.length, weigh) ?? lookedAhead(olds.length, news.length, weigh)
+    const wrong = pairs.filter((pair) => !weigh.viewed(pair))
+    if (wrong.length === 0) return pairs
+    wrong.forEach(weigh.reject)
+  }
 }
