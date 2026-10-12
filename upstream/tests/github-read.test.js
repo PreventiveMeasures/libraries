@@ -44,7 +44,7 @@ describe('createClient', () => {
 
   it('reads, and nothing else', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
-      'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
+      'findRepoLockfiles', 'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
       'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listRepoTags', 'listUserRepos',
     ])
   })
