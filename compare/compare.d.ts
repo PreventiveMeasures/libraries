@@ -132,7 +132,8 @@ export function wordRanges(left: string, right: string): { a: [number, number][]
 
 // A change's removed lines paired with its added lines, in order, where alike
 // enough to be one line edited (a word in common, at most six in ten of either
-// line changed): the most such pairs, and of those the most alike. Where
+// line changed as wordRanges marks it, which gives every pair ranges): the
+// most such pairs, and of those the most alike. Where
 // weighing every pair would take too long (many long lines alike), each removed
 // line in turn takes the most alike of the next six added lines after the last
 // one taken instead. `[i, j]` indices into the two lists; none where either
