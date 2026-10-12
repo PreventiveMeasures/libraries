@@ -75,6 +75,10 @@ describe('renames by path', () => {
     const fresh = { 'src/a.ts': FIFTH, 'src/b.ts': L(1, 19) + N(17, 17) }
     assert.deepEqual(renames({ 'lib/a.js': SOURCE }, fresh, { renames: 100 }), ['lib/a.js -> src/a.ts 20%', 'added src/b.ts'])
     assert.deepEqual(renames({ 'lib/a.js': SOURCE }, fresh, { renameLimit: 0 }), ['lib/a.js -> src/a.ts 20%', 'added src/b.ts'])
+    // Its lines reversed score 100% without being the same, so -M100% takes it for no rename.
+    const reversed = { 'src/a.ts': FIFTH, 'src/b.ts': SOURCE.split(/(?<=\n)/u).toReversed().join('') }
+    assert.deepEqual(renames({ 'lib/a.js': SOURCE }, reversed, { renames: 100 }), ['lib/a.js -> src/a.ts 20%', 'added src/b.ts'])
+    assert.deepEqual(renames({ 'lib/a.js': SOURCE }, reversed), ['added src/a.ts', 'lib/a.js -> src/b.ts 100%'])
   })
 
   it('looks for none with renames off, or renamesByPath false, as git does', () => {
