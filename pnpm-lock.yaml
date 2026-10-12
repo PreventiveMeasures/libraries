@@ -37,7 +37,7 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
       '@preventive/diff':
-        specifier: workspace:^
+        specifier: ^1.0.2
         version: link:../diff
     devDependencies:
       '@preventive/archive':

@@ -97,7 +97,7 @@
   },
   "dependencies": {
     "@exodus/bytes": "^1.16.0",
-    "@preventive/diff": "workspace:^"
+    "@preventive/diff": "^1.0.2"
   },
   "peerDependencies": {
     "oxc-minify": ">=0.152.0",
