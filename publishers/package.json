@@ -1,0 +1,42 @@
+{
+  "name": "@preventive/publishers",
+  "version": "1.0.0",
+  "description": "The accounts known to publish packages: for npm, each that published one of its most downloaded packages over time",
+  "type": "module",
+  "exports": {
+    "./npm.js": {
+      "types": "./npm.d.ts",
+      "default": "./npm.js"
+    }
+  },
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "npm.d.ts",
+    "npm.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "publishers"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/publishers",
+  "publishConfig": {
+    "access": "public"
+  }
+}
