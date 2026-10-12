@@ -47,6 +47,7 @@ describe('pairLines', () => {
     assert.deepEqual(pairLines(['b', 'c'], ['B', 'C2', 'C3']), [], 'unrelated lines pair with none')
     assert.deepEqual(pairLines(['f(a)', 'g(b)'], ['f(c)', 'g(b)!']), [[0, 0], [1, 1]], 'in order')
     assert.deepEqual(pairLines(['', 'f(a)'], ['f(b)']), [[1, 0]], 'a blank line takes no line from the one edited into it')
+    assert.deepEqual(pairLines(['f(a)', 'f(b)'], ['f(b)']), [[1, 0]], 'nor does a line from a later one closer to it')
     assert.deepEqual(pairLines(Array.from({ length: 201 }, () => 'f(a)'), ['f(b)']), [], 'past 200 lines, none')
   })
 

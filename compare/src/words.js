@@ -57,20 +57,28 @@ export function wordRanges(left, right) {
   return words && words.share <= MAX_CHANGED ? { a: words.a, b: words.b } : null
 }
 
+// A removed line takes the added line closest to it, unless one of the next
+// removed lines is closer still and so takes it instead.
 export function pairLines(olds, news) {
   const pairs = []
   if (olds.length > MAX_LINES || news.length > MAX_LINES) return pairs
+  const shares = new Map()
+  const share = (i, j) => {
+    if (!shares.has(`${i} ${j}`)) {
+      const words = olds[i] === news[j] ? { share: 0 } : wordChanges(olds[i], news[j])
+      shares.set(`${i} ${j}`, words && words.share <= MAX_CHANGED ? words.share : Infinity)
+    }
+    return shares.get(`${i} ${j}`)
+  }
   let next = 0
   for (let i = 0; i < olds.length && next < news.length; i++) {
     let best = null, least = Infinity
     for (let j = next; j < Math.min(news.length, next + LOOKAHEAD) && least > 0; j++) {
-      const words = olds[i] === news[j] ? { share: 0 } : wordChanges(olds[i], news[j])
-      if (words && words.share <= MAX_CHANGED && words.share < least) {
-        best = j
-        least = words.share
-      }
+      if (share(i, j) < least) [best, least] = [j, share(i, j)]
     }
-    if (best !== null) {
+    if (best === null) continue
+    const closer = least > 0 && olds.slice(i + 1, i + LOOKAHEAD).some((_, at) => share(i + 1 + at, best) < least)
+    if (!closer) {
       pairs.push([i, best])
       next = best + 1
     }

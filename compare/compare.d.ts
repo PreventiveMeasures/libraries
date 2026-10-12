@@ -131,9 +131,10 @@ export function formatPatch(changes: Iterable<FileStatus | FileChange>, options?
 export function wordRanges(left: string, right: string): { a: [number, number][]; b: [number, number][] } | null
 
 // Each of a change's removed lines paired, in order, with the most alike of
-// the next six added lines, where alike enough to be one line edited (at most
-// six in ten of its words replaced): `[i, j]` indices into the two lists. None
-// where either holds more than 200 lines.
+// the next six added lines, where alike enough to be one line edited (a token
+// in common, at most six in ten of its words replaced) and none of the next
+// six removed lines is more alike to it: `[i, j]` indices into the two lists.
+// None where either holds more than 200 lines.
 export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
