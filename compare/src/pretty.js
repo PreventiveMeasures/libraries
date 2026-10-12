@@ -27,8 +27,9 @@ function numberSpelling(text) {
   return exponent === '' || (zero && fraction.includes('.')) ? fraction : `${fraction}e${sign === '-' && !zero ? '-' : ''}${exponent}`
 }
 
+const sorted = (flags) => [...flags].toSorted().join('')
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
-  .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, (flags) => [...flags].toSorted().join(''))
+  .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, sorted)
 
 // JSON has no point without a digit either side: such a number is kept as written, or a copy would read as
 // valid, as would one with other blanks than JSON's four, which stay.
@@ -56,7 +57,6 @@ function chain(node, operator) {
   return operands
 }
 const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))
-const flags = (regex) => [...regex.flags].toSorted().join('')
 
 function sameTree(a, b) {
   const work = [[a, b]]
@@ -70,7 +70,7 @@ function sameTree(a, b) {
     else {
       const [keys, others] = [fields(x), fields(y)]
       if (keys.join() !== others.join()) return false
-      if (x.type === 'Literal' && x.regex && (x.regex.pattern !== y.regex?.pattern || flags(x.regex) !== flags(y.regex))) return false
+      if (x.type === 'Literal' && x.regex && (x.regex.pattern !== y.regex?.pattern || sorted(x.regex.flags) !== sorted(y.regex.flags))) return false
       pairs = [keys.map((key) => x[key]), keys.map((key) => y[key])]
     }
     if (pairs[0].length !== pairs[1].length) return false

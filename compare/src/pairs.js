@@ -55,16 +55,19 @@ function weigher(olds, news) {
     if (Number.isNaN(shares[key])) shares[key] = olds[i] === news[j] ? 0 : weighed(i, j)
     return shares[key]
   }
-  return { share, floor, spent: () => work, charge: (steps) => (work += steps) }
+  return { share, floor, spent: () => work }
 }
 
 // The pairs in order that are the most, and of those the most alike, a pair
 // weighed 1000 less its share; null where weighing them all passes the budget.
-function aligned(n, m, { share, spent, charge }) {
+function aligned(n, m, { share, spent }) {
   for (let i = 0; i < n; i++) {
-    for (let j = 0; j < m; j++) if (share(i, j) >= 0 && spent() > BUDGET) return null
+    for (let j = 0; j < m; j++) {
+      share(i, j)
+      if (spent() > BUDGET) return null
+    }
   }
-  if (charge(n * m) > BUDGET) return null
+  if (spent() + n * m > BUDGET) return null
   const value = Array.from({ length: n + 1 }, () => new Float64Array(m + 1))
   const take = (i, j) => (share(i, j) === Infinity ? -Infinity : 1000 - share(i, j) + value[i + 1][j + 1])
   for (let i = n - 1; i >= 0; i--) {

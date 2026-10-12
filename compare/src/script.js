@@ -24,21 +24,20 @@ function mark(kept, reached, { first, n, m, low, high, d: edits }) {
 // (Myers), their shared ends matched outright, less the blanks a word view
 // takes into the changes either side of them: each diagonal carries, for each
 // side, what its path keeps, the blanks kept since that side last changed, and
-// whether nothing but blanks has been kept since. `edits` is the script's
-// length, `steps` the work, the diagonals off both middles never walked. Given
-// `kept`, its words the script keeps are marked there.
+// whether nothing but blanks has been kept since. `steps` is the work, the
+// diagonals off both middles never walked. Given `kept`, its words the script
+// keeps are marked there.
 export function scripter(width, lengths, blanks) {
   const at = width + 1, size = 2 * width + 3
   // Per diagonal: where its path ends; what each side keeps and has kept as blanks since it changed (four
   // in a row); and as bits, whether each side has kept only blanks since it changed, and whether any word.
   const counts = new Int32Array(4 * size), ends = new Int32Array(size), flags = new Uint8Array(size)
-  const result = { kept: [0, 0], seen: false, edits: 0, steps: 0 }
   return (a, b, kept = null) => {
     let first = 0, same = 0
     for (; first < a.length && first < b.length && a[first] === b[first]; first++) same += lengths[a[first]]
     let m = b.length, n = a.length
     for (; n > first && m > first && a[n - 1] === b[m - 1]; n--, m--) same += lengths[a[n - 1]]
-    result.steps = a.length + b.length - n - m + 2 * first
+    let steps = a.length + b.length - n - m + 2 * first
     ends[at + 1] = first
     counts.fill(0, 4 * (at + 1), 4 * (at + 2))
     flags[at + 1] = 0
@@ -68,12 +67,12 @@ export function scripter(width, lengths, blanks) {
           if (blanks[a[x]]) {
             pa += length
             pb += length
+            bits |= 4
           } else {
-            bits &= 4
+            bits = 4
           }
-          bits |= 4
         }
-        result.steps += 2 + x - start
+        steps += 2 + x - start
         ends[to] = x
         counts[4 * to] = ka
         counts[4 * to + 1] = kb
@@ -81,16 +80,13 @@ export function scripter(width, lengths, blanks) {
         counts[4 * to + 3] = pb
         flags[to] = bits
         if (x >= n && y >= m) {
-          result.kept = [same + ka, same + kb]
-          result.seen = same > 0 || (bits & 4) !== 0
-          result.edits = d
           if (kept) mark(kept, reached, { first, n, m, low, high, d })
-          return result
+          return { kept: [same + ka, same + kb], seen: same > 0 || (bits & 4) !== 0, steps }
         }
       }
       reached?.push({ lo, ends: ends.slice(at + lo, at + hi + 1) })
     }
-    return result
+    throw new Error('no edit script between two lines')
   }
 }
 

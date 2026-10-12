@@ -7,6 +7,9 @@ function throughRoot(root, path) {
   return path.startsWith(root.base) ? path.slice(root.base.length) : null
 }
 
+// A path outside a root as one inside it reaches it.
+const outside = (root, path) => `${'../'.repeat(root.base.split('/').length - 1)}${path}`
+
 // Each old path as the new tree lays it out: through the root where the new
 // tree has it there, else as it is where it has that, else through the root,
 // one outside it a `../` further out, clear of every path taken.
@@ -28,7 +31,7 @@ function rootPaths(base, other, root) {
   const paired = paths.size
   for (const path of base) {
     if (paths.has(path)) continue
-    let to = throughRoot(root, path) ?? `${'../'.repeat(root.base.split('/').length - 1)}${path}`
+    let to = throughRoot(root, path) ?? outside(root, path)
     while (other.has(to) || taken.has(to)) to = `../${to}`
     paths.set(path, to)
     taken.add(to)
@@ -70,7 +73,7 @@ export function treeLayout(basePaths, otherPaths) {
 export function rootDir(root, dir) {
   if (!root || dir === '.') return dir
   const to = throughRoot(root, `${dir}/`)
-  if (to === null) return `${'../'.repeat(root.base.split('/').length - 1)}${dir}`
+  if (to === null) return outside(root, dir)
   return to.slice(0, -1) || '.'
 }
 
