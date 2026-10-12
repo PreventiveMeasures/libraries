@@ -38,10 +38,16 @@ export const FORMATS = {
   // Package Management, which the project files then leave out.
   nuget: { lockfiles: ['packages.lock.json', /^packages\..+\.lock\.json$/u], projects: [/^.+\.(?:cs|fs|vb)proj$/u, 'Directory.Packages.props'] },
   paket: { lockfiles: ['paket.lock'], projects: ['paket.dependencies'] },
-  gradle: { lockfiles: ['gradle.lockfile', 'buildscript-gradle.lockfile', 'settings-gradle.lockfile'], projects: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'] },
-  pub: { lockfiles: ['pubspec.lock'], projects: ['pubspec.yaml'] },
+  // gradle.lockfile, buildscript-gradle.lockfile and settings-gradle.lockfile;
+  // the legacy one of each configuration, `<configuration>.lockfile`; and
+  // one of the name and the place a build gives it, by its ending.
+  gradle: { lockfiles: [/^.+\.lockfile$/u], projects: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'] },
+  // pubspec_overrides.yaml overrides pubspec.yaml's dependency_overrides,
+  // workspace and resolution.
+  pub: { lockfiles: ['pubspec.lock'], projects: ['pubspec.yaml', 'pubspec_overrides.yaml'] },
   mix: { lockfiles: ['mix.lock'], projects: ['mix.exs'] },
-  rebar: { lockfiles: ['rebar.lock'], projects: ['rebar.config'] },
+  // rebar.config.script, where there is one, makes the configuration.
+  rebar: { lockfiles: ['rebar.lock'], projects: ['rebar.config', 'rebar.config.script'] },
   julia: { lockfiles: ['Manifest.toml', 'JuliaManifest.toml', /^(?:Julia)?Manifest-v\d+\.\d+\.toml$/u], projects: ['Project.toml', 'JuliaProject.toml'] },
   stack: { lockfiles: ['stack.yaml.lock'], projects: ['stack.yaml'] },
   cabal: { lockfiles: ['cabal.project.freeze'], projects: ['cabal.project', /^.+\.cabal$/u] },
@@ -51,9 +57,11 @@ export const FORMATS = {
   conan: { lockfiles: ['conan.lock'], projects: ['conanfile.txt', 'conanfile.py'] },
   bazel: { lockfiles: ['MODULE.bazel.lock'], projects: ['MODULE.bazel'] },
   helm: { lockfiles: ['Chart.lock'], projects: ['Chart.yaml'] },
-  // Of no project file, but the library or the directory it is in.
+  // Of no project file, but the library it is made from.
   renv: { lockfiles: ['renv.lock'], projects: [] },
-  terraform: { lockfiles: ['.terraform.lock.hcl'], projects: [] },
+  // Of the configuration in the directory, each of its .tf files, a child
+  // module's too, of which there is none.
+  terraform: { lockfiles: ['.terraform.lock.hcl'], projects: [/^.+\.tf$/u, /^.+\.tf\.json$/u] },
 }
 
 const TOOLS = Object.entries(FORMATS)

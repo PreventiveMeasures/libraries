@@ -94,6 +94,12 @@ const REPO = treeOf({
   'ios/Podfile.lock': FILE,
   'ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved': FILE,
   'go/go.mod': FILE,
+  'infra/main.tf': FILE,
+  'infra/providers.tf.json': FILE,
+  'infra/.terraform.lock.hcl': FILE,
+  'android/build.gradle.kts': FILE,
+  'android/gradle.lockfile': FILE,
+  'android/gradle/dependency-locks/compileClasspath.lockfile': FILE,
   'go/go.sum': FILE,
   'go/go.work': FILE,
   'go/go.work.sum': FILE,
@@ -114,6 +120,8 @@ const REPO = treeOf({
 const at = (path) => deepOf(REPO.listings, REPO.tree).find((entry) => entry.path === path).sha
 const JS = ['pnpm', 'npm', 'yarn', 'bun', 'deno']
 const LOCKFILES = [
+  ['android/gradle.lockfile', 'gradle'],
+  ['android/gradle/dependency-locks/compileClasspath.lockfile', 'gradle'],
   ['apps/bun/bun.lockb', 'bun'],
   ['apps/cli/npm-shrinkwrap.json', 'npm'],
   ['apps/cli/yarn.lock', 'yarn'],
@@ -125,6 +133,7 @@ const LOCKFILES = [
   ['dotnet/packages.lock.json', 'nuget'],
   ['go/go.sum', 'go'],
   ['go/go.work.sum', 'go'],
+  ['infra/.terraform.lock.hcl', 'terraform'],
   ['ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'swiftpm'],
   ['ios/Podfile.lock', 'cocoapods'],
   ['php/composer.lock', 'composer'],
@@ -136,6 +145,7 @@ const LOCKFILES = [
   ['ruby/Gemfile.lock', 'bundler'],
 ].map(([path, format]) => ({ path, format, sha: at(path) }))
 const PROJECTS = [
+  ['android/build.gradle.kts', ['gradle']],
   ['apps/deno/deno.json', ['deno']],
   ['apps/web/package.json', JS],
   ['contracts/foundry.toml', ['soldeer', 'foundry']],
@@ -145,6 +155,8 @@ const PROJECTS = [
   ['dotnet/Lib.csproj', ['nuget']],
   ['go/go.mod', ['go']],
   ['go/go.work', ['go']],
+  ['infra/main.tf', ['terraform']],
+  ['infra/providers.tf.json', ['terraform']],
   ['ios/Podfile', ['cocoapods']],
   ['package.json', JS],
   ['pnpm-workspace.yaml', ['pnpm']],
@@ -161,8 +173,8 @@ describe('lockfileFormat and projectFormats', () => {
     }
     assert.deepEqual(projectFormats('package.json'), JS)
     assert.deepEqual(projectFormats('pyproject.toml'), ['uv', 'poetry', 'pylock', 'pdm', 'pixi'])
-    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam'], ['dev.conda-lock.yml', 'conda-lock'], ['packages.My.App.lock.json', 'nuget']]) assert.equal(lockfileFormat(name), format, name)
-    for (const [name, format] of [['App.csproj', 'nuget'], ['Lib.fsproj', 'nuget'], ['lib.cabal', 'cabal'], ['app.opam', 'opam']]) assert.deepEqual(projectFormats(name), [format], name)
+    for (const [name, format] of [['pylock.prod-2.toml', 'pylock'], ['Manifest-v1.11.toml', 'julia'], ['JuliaManifest-v1.11.toml', 'julia'], ['app.opam.locked', 'opam'], ['dev.conda-lock.yml', 'conda-lock'], ['packages.My.App.lock.json', 'nuget'], ['buildscript-gradle.lockfile', 'gradle'], ['settings-gradle.lockfile', 'gradle'], ['gradle-2.12.lockfile', 'gradle']]) assert.equal(lockfileFormat(name), format, name)
+    for (const [name, format] of [['App.csproj', 'nuget'], ['Lib.fsproj', 'nuget'], ['lib.cabal', 'cabal'], ['app.opam', 'opam'], ['main.tf', 'terraform'], ['main.tf.json', 'terraform'], ['pubspec_overrides.yaml', 'pub'], ['rebar.config.script', 'rebar']]) assert.deepEqual(projectFormats(name), [format], name)
   })
 
   it('are the formats github.d.ts lists, those @preventive/lockfile reads among them', () => {
@@ -172,7 +184,7 @@ describe('lockfileFormat and projectFormats', () => {
   })
 
   it('know a file by its name as git has it, and by nothing else', () => {
-    for (const name of ['cargo.lock', 'podfile.lock', 'Yarn.lock', 'Package.json', 'pylock..toml', 'pylock.a.b.toml', 'pylock.toml.bak', 'Manifest-v1.toml', '.csproj', '.cabal', '.conda-lock.yml', 'dev.conda-lock.yaml', 'packages..lock.json', 'constructor', '__proto__', 'toString', '']) {
+    for (const name of ['cargo.lock', 'podfile.lock', 'Yarn.lock', 'Package.json', 'pylock..toml', 'pylock.a.b.toml', 'pylock.toml.bak', 'Manifest-v1.toml', '.csproj', '.cabal', '.conda-lock.yml', 'dev.conda-lock.yaml', 'packages..lock.json', '.lockfile', '.tf', '.tf.json', 'main.tfvars', 'constructor', '__proto__', 'toString', '']) {
       assert.equal(lockfileFormat(name), undefined, name)
       assert.deepEqual(projectFormats(name), [], name)
     }
