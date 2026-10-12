@@ -11,7 +11,6 @@
 //   its value nor its type (`.50` as `0.5`, but not `1.0` as `1`, an integer);
 // - JSON's strings and comments as written.
 // Otherwise an error: no check for the kind of file (`unsupported`, CSS without
-// css-tree), it does not parse or nests deeper than oxfmt can take, JSON past
-// 256 levels and CSS past 32 (`unformattable`), or would change more
+// css-tree), it does not parse (`unformattable`) or would change more
 // (`pretty-mismatch`). Rejects only where the optional oxfmt peer is missing.
 export function format(text: string, extension: string): Promise<{ code: string } | { error: 'unsupported' | 'unformattable' | 'pretty-mismatch' }>

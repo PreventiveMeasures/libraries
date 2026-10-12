@@ -135,9 +135,9 @@ export function wordRanges(left: string, right: string): { a: [number, number][]
 // pair only where wordRanges gives them ranges (a word in common, at most six
 // in ten of either changed), the most such pairs, and of those the most alike.
 // Where weighing every pair takes too long (many long lines alike), each
-// removed line in turn takes the most alike of the next six added lines; past
-// a further limit (some 300 ms) the rest stay unpaired. `[i, j]` indices into
-// the two lists; none where either holds more than 200 lines.
+// removed line in turn takes the most alike of the next six added lines.
+// `[i, j]` indices into the two lists; none where either holds more than 200
+// lines.
 export function pairLines(olds: readonly string[], news: readonly string[]): [number, number][]
 
 // Whether diff -w, as `blocks` were found with it, keeps as unchanged a line
@@ -160,9 +160,8 @@ export interface Root { base: string; other: string }
 // The root between two trees, or null, and each old path as the new tree lays
 // it out: through the root where the new tree has it there, else as it is where
 // it has that, else through the root clear of every path taken, a `../` further
-// out. A root, at most 16 directories, is taken where it pairs more files than
-// none, and at least half the files of the side without the directory; a tie
-// either way is none.
+// out. A root is taken where it pairs more files than none, and at least half
+// the files of the side without the directory; a tie either way is none.
 export interface Layout { root: Root | null; paths: Map<string, string> }
 export function treeLayout(basePaths: Iterable<string>, otherPaths: Iterable<string>): Layout
 

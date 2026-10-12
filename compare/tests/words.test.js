@@ -64,18 +64,6 @@ describe('pairLines', () => {
     assert.ok(performance.now() - start < 2000)
   })
 
-  it('stops at a limit on lines made to be slow, every one a long script from every other', () => {
-    // Long lines of the same words in orders made at random: the counts pass every pair, the scripts are long.
-    const { next } = random(17)
-    const words = Array.from({ length: 399 }, (_, k) => `w${k}`)
-    const shuffled = () => words.map((word) => [next(), word]).toSorted(([p], [q]) => p - q).map(([, word]) => word).join(' ')
-    const news = Array.from({ length: 120 }, shuffled), olds = Array.from({ length: 120 }, shuffled)
-    const start = performance.now()
-    const pairs = pairLines(olds, news)
-    assert.ok(performance.now() - start < 5000)
-    assert.ok(pairs.every(([a, b]) => wordRanges(olds[a], news[b]) !== null))
-  })
-
   it('pairs as many lines as can be, and of those the most alike, as wordRanges marks them, for blocks made at random', () => {
     const line = lines(23)
     // The share of the lines wordRanges marks as changed, Infinity where it gives no word view.

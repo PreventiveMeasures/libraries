@@ -127,13 +127,6 @@ describe('format', () => {
     assert.deepEqual(await format('a{--x:{foo}}', 'css'), { error: 'pretty-mismatch' })
   })
 
-  it('refuses what nests deeper than oxfmt can format before it is asked, its stack giving out with the process', async () => {
-    assert.deepEqual(await format('['.repeat(1500) + ']'.repeat(1500), 'json'), { error: 'unformattable' })
-    assert.deepEqual(await format(`a{width:${'calc('.repeat(300)}1px${')'.repeat(300)}}`, 'css'), { error: 'unformattable' })
-    assert.deepEqual(await format('a{'.repeat(300) + '}'.repeat(300), 'css'), { error: 'unformattable' })
-    assert.ok('code' in await format(`{"a":${'['.repeat(100)}1${']'.repeat(100)}}`, 'json'), 'but not what nests as deep as data does')
-  })
-
   it('answers rather than throws where its own check gives out', async () => {
     assert.ok('code' in await format(`x = ${Array.from({ length: 10_000 }, () => 'a').join(' || ')}`, 'js'))
   })

@@ -10,8 +10,6 @@ import { MAX_CHANGED, changedShare, lexicon, tokenized } from './words.js'
 const MAX_LINES = 200
 const BUDGET = 5_000_000
 const LOOKAHEAD = 6
-// The most work pairing may take at all, past which lines are left unpaired.
-const LIMIT = 15_000_000
 // What a pair weighed and a word's count compared cost, in steps of a script.
 const PAIR = 60
 const VISIT = 3
@@ -83,9 +81,9 @@ function aligned(n, m, { share, spent, charge }) {
 
 // Each removed line in turn paired with the most alike of the next added lines
 // after the last one paired, those whose counts show less changed weighed first.
-function lookedAhead(n, m, { share, floor, spent }) {
+function lookedAhead(n, m, { share, floor }) {
   const pairs = []
-  for (let i = 0, next = 0; i < n && next < m && spent() <= LIMIT; i++) {
+  for (let i = 0, next = 0; i < n && next < m; i++) {
     let best = null, least = Infinity
     const ahead = Array.from({ length: Math.min(m, next + LOOKAHEAD) - next }, (_, at) => [next + at, floor(i, next + at)])
     for (const [j, low] of ahead.toSorted((p, q) => p[1] - q[1] || p[0] - q[0])) {

@@ -3,7 +3,7 @@
 // CSS refused without it), JSON's strings and comments as written.
 
 import { getOxc } from '#oxc'
-import { cssDepth, indentless, sameCss } from './css.js'
+import { indentless, sameCss } from './css.js'
 import { loadCssTree, loadFormatter } from './peers.js'
 
 const PRETTY_OPTIONS = { quoteProps: 'preserve', trailingComma: 'none', arrowParens: 'avoid', embeddedLanguageFormatting: 'off' }
@@ -12,10 +12,8 @@ const SCRIPTS = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'])
 const NUMBER = /(?<![\p{L}\p{N}_$])(?:0[box][\d_a-f]+n?|\d[\d_]*(?:\.[\d_]*)?(?:e[+-]?\d+)?n?)|(?<![\p{N}.])\.\d[\d_]*(?:e[+-]?\d+)?/giu
 const POSITION = new Set(['start', 'end', 'range', 'loc'])
 // JSON's strings, quoted either way or in backticks as its kin may have them, and its comments, compared
-// as written, split from the rest; one unclosed runs to its line's end, or the end, never searched again.
+// as written, split from the rest; one unclosed runs to its line's end, or the end.
 const LITERAL = /("(?:[^"\\\n]|\\(?:\r\n|[^]))*(?:"|(?=\n)|$)|'(?:[^'\\\n]|\\(?:\r\n|[^]))*(?:'|(?=\n)|$)|`(?:[^`\\]|\\[^])*(?:`|$)|\/\*[^]*?(?:\*\/|$)|\/\/.*)/u
-// How deep JSON and CSS may nest: some way past, oxfmt's own stack gives out, taking the process with it.
-const MOST_DEPTH = { json: 256, css: 32 }
 
 // A number as the formatter spells it (`.50E+3` as `0.5e3`), but for what JSON may read as another
 // type: a point keeps a digit after it, a whole number its zero exponent (`1.0`, `1e0`).
@@ -37,17 +35,6 @@ const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(
 const jsonNumber = (text) => (/^\.|\.(?!\d)/u.test(text) ? text.toLowerCase() : numberSpelling(text))
 const jsonForm = (text) => text.split(LITERAL).map((part, i) => (i % 2 ? (part.startsWith('/') ? indentless(part) : part) : part.replaceAll(/[\t\n\r ]/gu, '').replaceAll(NUMBER, jsonNumber)))
 
-// How deep JSON's brackets nest, strings and comments aside; a closer more than were opened counts for none.
-function jsonDepth(text) {
-  let depth = 0, most = 0
-  for (const [i, part] of text.split(LITERAL).entries()) {
-    for (const char of i % 2 ? '' : part) {
-      depth = char === '[' || char === '{' ? depth + 1 : char === ']' || char === '}' ? Math.max(0, depth - 1) : depth
-      most = Math.max(most, depth)
-    }
-  }
-  return most
-}
 const sameList = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
 
 function parsed(text, extension) {
@@ -107,8 +94,6 @@ export function sameCode(text, formatted, extension = 'js', csstree = null) {
 export async function format(text, extension) {
   const csstree = extension === 'css' ? await loadCssTree() : null
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
-  const depth = extension === 'json' ? jsonDepth(text) : extension === 'css' ? cssDepth(csstree, text) : 0
-  if (depth > (MOST_DEPTH[extension] ?? Infinity)) return { error: 'unformattable' }
   const oxfmt = await loadFormatter()
   let result
   try {

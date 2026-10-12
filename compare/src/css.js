@@ -63,18 +63,6 @@ function read(csstree, text) {
   })
 }
 
-// How deep a sheet's brackets nest, as css-tree reads its tokens; a closer more than were opened counts for none.
-export function cssDepth(csstree, text) {
-  const { Function: call, LeftCurlyBracket, LeftParenthesis, LeftSquareBracket, RightCurlyBracket, RightParenthesis, RightSquareBracket } = csstree.tokenTypes
-  const closes = new Set([RightCurlyBracket, RightParenthesis, RightSquareBracket]), opens = new Set([call, LeftCurlyBracket, LeftParenthesis, LeftSquareBracket])
-  let depth = 0, most = 0
-  csstree.tokenize(text, (type) => {
-    depth = opens.has(type) ? depth + 1 : closes.has(type) ? Math.max(0, depth - 1) : depth
-    most = Math.max(most, depth)
-  })
-  return most
-}
-
 export function sameCss(csstree, text, formatted) {
   try {
     const before = read(csstree, text)
