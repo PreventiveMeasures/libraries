@@ -185,19 +185,22 @@ export interface SoldeerTree {
 // A git dependency Soldeer clones, `git clone` of the lockfile's `git`,
 // then `git checkout` of its `rev`; here it is fetched from a GitHub
 // repository alone, by `github`, as GitHub's tarball of the tree of that
-// commit, which upstream holds to the tree GitHub names for the commit. It
-// is written as a checkout with no git config and a umask of 0o022 writes
-// it: each directory 0o755, each file 0o644, or 0o755 where git has it
-// executable; each symlink a symlink to its target, as git has it; a
-// submodule an empty directory, as Soldeer leaves it without
-// recursive_deps; a file the tree's .gitattributes mark `eol=crlf` with
-// CRLF, as upstream reads them. The .git a clone has is not written, so
-// nothing of the repository's history is there; nor is what git config on
-// the machine would change, `core.autocrlf` or a filter such as Git LFS's.
-// Its folder is the config's name and version, which Soldeer's
-// sanitize_filename has to leave as they are. The `git` is the
-// repository's URL over https or ssh, as git takes it --
-// `https://github.com/<owner>/<name>`,
+// commit, which upstream holds to the tree GitHub names for the commit. A
+// repository renamed or transferred since, which GitHub answers with a
+// redirect that git's clone follows, is fetched by the name GitHub gives
+// it now, as upstream's getRepo follows that redirect with
+// `followRedirect`; any other redirect is refused. It is written as a
+// checkout with no git config and a umask of 0o022 writes it: each
+// directory 0o755, each file 0o644, or 0o755 where git has it executable;
+// each symlink a symlink to its target, as git has it; a submodule an
+// empty directory, as Soldeer leaves it without recursive_deps; a file the
+// tree's .gitattributes mark `eol=crlf` with CRLF, as upstream reads them.
+// The .git a clone has is not written, so nothing of the repository's
+// history is there; nor is what git config on the machine would change,
+// `core.autocrlf` or a filter such as Git LFS's. Its folder is the
+// config's name and version, which Soldeer's sanitize_filename has to
+// leave as they are. The `git` is the repository's URL over https or ssh,
+// as git takes it -- `https://github.com/<owner>/<name>`,
 // `ssh://git@github.com/<owner>/<name>` or
 // `git@github.com:<owner>/<name>`, `.git` after or not; git's http and git
 // protocols, which Soldeer has git refuse, are refused. GitHub's tarball

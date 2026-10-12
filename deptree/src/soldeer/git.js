@@ -4,6 +4,7 @@
 
 import { decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
+import { HttpError } from '@preventive/upstream/github.js'
 import { DeptreeError, quote } from '../error.js'
 import { MAX_BYTES } from '../tarball.js'
 import { isGit } from './zip.js'
@@ -21,12 +22,26 @@ export function githubRepoOf(url) {
   return repo === undefined || /\/\.\.?$/u.test(repo) ? undefined : repo
 }
 
+// A repository renamed or transferred since the lockfile named it, which
+// GitHub answers with a redirect that git's clone follows, is asked for by
+// the name GitHub gives it now, as upstream's getRepo follows the redirect;
+// any other redirect is refused there. The commit holds what is fetched.
+async function tarballOf(github, repo, rev) {
+  try {
+    return await github.getRepoTarball({ repo, sha: rev })
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.status < 300 || error.status >= 400) throw error
+    const moved = await github.getRepo({ repo, followRedirect: true })
+    return await github.getRepoTarball({ repo: moved.full_name, sha: rev })
+  }
+}
+
 // GitHub's tarball, which upstream holds to the tree GitHub names for the
 // commit, files, symlinks and the submodules it shows as empty directories
 // alike. Unpacked as a checkout with umask 0o022 writes it: directories
 // 0o755, files 0o644 or 0o755 by the bit git keeps, symlinks as symlinks.
 export async function checkoutOf(github, repo, rev, where) {
-  const bytes = await github.getRepoTarball({ repo, sha: rev })
+  const bytes = await tarballOf(github, repo, rev)
   let entries
   try {
     entries = unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES }))

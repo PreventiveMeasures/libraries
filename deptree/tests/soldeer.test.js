@@ -226,6 +226,27 @@ describe('buildSoldeerTree', () => {
     assert.equal(calls[0], `acme/lib/git/commits/${LIB.commit}`)
   })
 
+  it('checks a git dependency out from a repository renamed or transferred since, by the name GitHub gives it now, as git\'s clone follows it', async () => {
+    const git = 'https://github.com/old/lib.git'
+    stubSoldeer([])
+    const calls = stubGitHub({ 'old/lib': { location: 'https://api.github.com/repositories/7' }, 'acme/lib': { ...LIB, id: 7 } })
+    const { vfs, installed } = await buildSoldeerTree({ ...withGit([], 'acme-lib', '1.0.0', git), host: HOST, github: createClient({ token: null }) })
+    assert.equal(listing(vfs)['dependencies/acme-lib-1.0.0/src/A.sol'], '644 contract A {}\n')
+    assert.deepEqual(installed, [{ path: 'dependencies/acme-lib-1.0.0', name: 'acme-lib', version: '1.0.0', git, rev: LIB.commit, commit: LIB.commit }])
+    assert.deepEqual(calls.slice(0, 5), [`old/lib/git/commits/${LIB.commit}`, 'old/lib', 'repositories/7', `acme/lib/git/commits/${LIB.commit}`, `acme/lib/tarball/${LIB.tree}`])
+    assert.ok(calls.slice(5).every((call) => call.startsWith('acme/lib/git/trees/')), 'and the listings of its trees under that name')
+  })
+
+  it('refuses a git dependency whose repository GitHub redirects anywhere but to a repository by its id', async () => {
+    const options = withGit([], 'acme-lib', '1.0.0', 'https://github.com/old/lib.git')
+    for (const location of ['https://api.github.com/repos/acme/lib', 'https://example.com/repositories/7']) {
+      stubSoldeer([])
+      const calls = stubGitHub({ 'old/lib': { location }, 'acme/lib': { ...LIB, id: 7 } })
+      await assert.rejects(buildSoldeerTree({ ...options, host: HOST, github: createClient({ token: null }) }), /^DeptreeError: dependencies\["acme-lib"\]: GET https:\/\/api\.github\.com\/repos\/old\/lib 301: /u, location)
+      assert.deepEqual(calls, [`old/lib/git/commits/${LIB.commit}`, 'old/lib'], location)
+    }
+  })
+
   it('reads a GitHub repository from each URL git takes for one over https or ssh', () => {
     for (const url of ['https://github.com/acme/lib.git', 'https://github.com/acme/lib', 'https://github.com/acme/lib/', 'HTTPS://GitHub.com/acme/lib.git', 'ssh://git@github.com/acme/lib.git', 'git@github.com:acme/lib.git', 'git@github.com:acme/lib']) {
       assert.equal(githubRepoOf(url), 'acme/lib', url)
@@ -244,6 +265,7 @@ describe('buildSoldeerTree', () => {
     const calls = stubGitHub({})
     await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST }), { name: 'TypeError', message: 'github must be a GitHub client from createClient, which a git dependency is fetched through' })
     await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST, github: 't0ken' }), TypeError)
+    await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST, github: { getRepoTarball: () => Promise.resolve(new Uint8Array()) } }), TypeError)
     await assert.rejects(buildSoldeerTree({ ...options('release/1'), host: HOST }), /^DeptreeError: dependencies\["acme-lib"\]: its folder, "acme-lib-release\/1", is one Soldeer names otherwise, which is not supported$/u)
     assert.deepEqual(calls, [])
     // A registry dependency's build asks for no client.
@@ -256,7 +278,7 @@ describe('buildSoldeerTree', () => {
     const options = withGit([], 'acme-lib', '1.0.0', git)
     await assert.rejects(build([], { ...options, github: createClient({ token: null }) }), new RegExp(`^DeptreeError: dependencies\\["acme-lib"\\]: GET https://api\\.github\\.com/repos/acme/lib/git/commits/${LIB.commit} 404: `, 'u'))
     // A client that answers whatever it is given, which upstream's would not.
-    const answering = (bytes) => ({ getRepoTarball: () => Promise.resolve(bytes) })
+    const answering = (bytes) => ({ getRepo: () => Promise.reject(new Error('unreachable')), getRepoTarball: () => Promise.resolve(bytes) })
     await assert.rejects(build([], { ...options, github: answering(new Uint8Array([1, 2, 3])) }), /^DeptreeError: dependencies\["acme-lib"\]: its tarball from GitHub cannot be read: /u)
     for (const name of ['top/.git/config', 'top/sub/.GIT./config']) {
       const tarball = await compress(pack([{ name: 'top/', type: 'directory' }, { name, data: new TextEncoder().encode('x') }]), 'gzip')
