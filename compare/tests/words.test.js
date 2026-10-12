@@ -39,7 +39,10 @@ describe('renamedAlone', () => {
     for (const [before, after] of [['class X{a(){}}', 'class X{b(){}}'], ['x={a(c){return c}}', 'x={b(c){return c}}'], ['class X{get a(){}}', 'class X{get b(){}}'], ['class X{*a(){}}', 'class X{*b(){}}']]) {
       assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a method`)
     }
-    for (const [before, after] of [['function a(){}', 'function b(){}'], ['function*a(c){}', 'function*b(c){}'], ['if(a(c)){d()}', 'if(b(c)){d()}']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}`)
+    for (const [before, after] of [['return {a}', 'return {b}'], ['const {a}=x', 'const {b}=x'], ['f({a,c})', 'f({b,c})'], ['const{a=1}=x', 'const{b=1}=x'], ['export{a}', 'export{b}']]) {
+      assert.equal(renamedAlone(before, after), false, `${before} -> ${after}: a shorthand property`)
+    }
+    for (const [before, after] of [['if(x){a}', 'if(x){b}'], ['if(x){a=1}', 'if(x){b=1}'], ['y=>{a,c}', 'y=>{b,c}'], ['x={c:a}', 'x={c:b}'], ['function a(){}', 'function b(){}'], ['function*a(c){}', 'function*b(c){}'], ['if(a(c)){d()}', 'if(b(c)){d()}']]) assert.equal(renamedAlone(before, after), true, `${before} -> ${after}`)
     const line = `a${'/*a'.repeat(50_000)}`, start = performance.now()
     renamedAlone(line, `b${line.slice(1)}`)
     assert.ok(performance.now() - start < 2000, 'in time linear in its length')

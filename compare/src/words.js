@@ -106,14 +106,18 @@ function lineWords(line, blanks) {
   return words
 }
 
-// Each `(`'s index to its `)`'s.
-function closers(list) {
-  const close = new Map(), open = []
+// Words after which a `{` opens an object or a pattern, not a block or a class's body.
+const OBJECT_AFTER = new Set('return = ( , : [ ? | & ! const let var export import of in yield await'.split(' '))
+
+// Each bracket's index to its closing one's, and each word's innermost open bracket.
+function brackets(list) {
+  const close = new Map(), open = [], opener = new Int32Array(list.length)
   list.forEach((word, k) => {
-    if (word === '(') open.push(k)
-    else if (word === ')' && open.length > 0) close.set(open.pop(), k)
+    opener[k] = open.at(-1) ?? -1
+    if (word.length === 1 && '([{'.includes(word)) open.push(k)
+    else if (word.length === 1 && ')]}'.includes(word) && open.length > 0) close.set(open.pop(), k)
   })
-  return close
+  return { close, opener }
 }
 
 export function renamedAlone(before, after, options) {
@@ -126,17 +130,23 @@ export function renamedAlone(before, after, options) {
     return k
   }
   const near = (list, from, step) => list[at(list, from, step)] ?? ''
-  const close = new Map([x, y].map((list) => [list, closers(list)]))
+  const read = new Map([x, y].map((list) => [list, brackets(list)]))
   // A method's name, as a class's or an object's: `(`, its parameters and `{` after it, no `function` before.
   const method = (list, i) => {
     const open = at(list, i + 1, 1), prior = at(list, i - 1, -1)
-    return list[open] === '(' && near(list, (close.get(list).get(open) ?? list.length) + 1, 1) === '{' && near(list, list[prior] === '*' ? prior - 1 : prior, -1) !== 'function'
+    return list[open] === '(' && near(list, (read.get(list).close.get(open) ?? list.length) + 1, 1) === '{' && near(list, list[prior] === '*' ? prior - 1 : prior, -1) !== 'function'
+  }
+  // A shorthand property's name (`{a}`, `const {a = 1} = x`), its key's too.
+  const shorthand = (list, i) => {
+    const next = at(list, i + 1, 1), opener = read.get(list).opener[i]
+    return list[opener] === '{' && ['{', ','].includes(near(list, i - 1, -1)) && OBJECT_AFTER.has(near(list, opener - 1, -1))
+      && (['}', ','].includes(list[next]) || (list[next] === '=' && !['=', '>'].includes(near(list, next + 1, 1))))
   }
   let changed = false
   for (let i = 0; i < x.length; i++) {
     if (x[i] === y[i]) continue
     if (![x[i], y[i]].every((word) => SHORT_NAME.test(word) && !SHORT_KEYWORDS.has(word))) return false
-    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i))) return false
+    if ([x, y].some((list) => ['.', '#'].includes(near(list, i - 1, -1)) || near(list, i + 1, 1) === ':' || method(list, i) || shorthand(list, i))) return false
     changed = true
   }
   return changed

@@ -59,6 +59,7 @@ describe('sameCode', () => {
       ['#ABC[x=";"]{a:b}', '#abc[x=";"] {\n  a: b;\n}\n', 'an id\'s, a string read past'], ['@media /* KEEP */ screen{a{x:y}}', '@media /* keep */ screen {\n  a {\n    x: y;\n  }\n}\n', 'a comment\'s in a query'],
       ['@supports (--Foo:1){a{x:y}}', '@supports (--foo: 1) {\n  a {\n    x: y;\n  }\n}\n', 'a custom property\'s in one'],
       ['a{x:calc(1px + 2px)}', 'a {\n  x: calc(1px+2px);\n}\n', 'the spaces calc() needs'], ['a{filter:url(#ABC)}', 'a {\n  filter: url(#abc);\n}\n', 'a URL\'s fragment'],
+      ['a{background:-moz-element(#ABC)}', 'a {\n  background: -moz-element(#abc);\n}\n', 'an element\'s id, as oxfmt lowers it'],
       [':root{--x:# fff}', ':root {\n  --x: #fff;\n}\n', 'two tokens made one'], ['a{--x:5 %}', 'a {\n  --x: 5%;\n}\n', 'and with `%`'],
       ['a{--x:{foo}}', 'a {\n  --x: {\n    foo;\n  };\n}\n', 'a `;` added in a custom property\'s block, as oxfmt adds it']]) assert.equal(sameCode(before, after, 'css'), false, what)
     assert.equal(sameCode('a{--x:{foo;};b:c}', 'a {\n  --x: {\n    foo;\n  };\n  b: c;\n}\n', 'css'), true, 'the block kept')
