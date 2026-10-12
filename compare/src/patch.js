@@ -8,6 +8,7 @@ import { quote } from './quote.js'
 import { checkLineOptions, textOf } from './text.js'
 import { sameContent } from './tree.js'
 
+const STATUSES = new Set(['added', 'deleted', 'modified', 'renamed'])
 const gitMode = (file) => (file.type === 'symlink' ? '120000' : (0o100000 | file.mode).toString(8))
 
 // git ends a label holding a space with a tab, so patch reads the whole name.
@@ -31,12 +32,8 @@ function hunkNames(text) {
   const lines = text.split('\n')
   let found = null, searched = -1
   return (start) => {
-    for (let at = start - 1; at > searched; at--) {
-      if (FUNCTION_LINE.test(lines[at])) {
-        found = cut(lines[at])
-        break
-      }
-    }
+    const line = lines.slice(searched + 1, start).findLast((candidate) => FUNCTION_LINE.test(candidate))
+    if (line !== undefined) found = cut(line)
     searched = start - 1
     return found
   }
@@ -72,22 +69,10 @@ export function formatPatch(changes, { context = 3, ...lineOptions } = {}) {
   const options = { context, ...checkLineOptions(lineOptions) }
   let out = ''
   for (const { status, old, new: fresh, similarity, blocks } of changes) {
-    switch (status) {
-      // git writes a type change as a deletion and a creation.
-      case 'type-changed':
-        out += section(old, null, null, null, options) + section(null, fresh, null, null, options)
-        break
-      case 'renamed':
-        out += section(old, fresh, similarity, blocks, options)
-        break
-      case 'added':
-      case 'deleted':
-      case 'modified':
-        out += section(old, fresh, null, blocks, options)
-        break
-      default:
-        throw new TypeError(`${JSON.stringify(status)} is not a change's status`)
-    }
+    // git writes a type change as a deletion and a creation.
+    if (status === 'type-changed') out += section(old, null, null, null, options) + section(null, fresh, null, null, options)
+    else if (STATUSES.has(status)) out += section(old, fresh, status === 'renamed' ? similarity : null, blocks, options)
+    else throw new TypeError(`${JSON.stringify(status)} is not a change's status`)
   }
   return out
 }

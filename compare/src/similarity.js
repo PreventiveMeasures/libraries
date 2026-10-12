@@ -39,12 +39,9 @@ export function spanCounts(data) {
 // Two files' bytes, null for a link, which scores 0, as do sizes too far apart
 // for `minimum`, unread. `counts` gives span counts, cached: one file meets many.
 export function similarity(src, dst, minimum, counts) {
-  if (src === null || dst === null) return 0
-  const dstSize = dst.length, srcSize = src.length
-  const max = Math.max(srcSize, dstSize)
-  const delta = max - Math.min(srcSize, dstSize)
+  if (src === null || dst === null || dst.length === 0) return 0
+  const delta = Math.abs(src.length - dst.length), max = Math.max(src.length, dst.length)
   if (max * (MAX_SCORE - minimum) < delta * MAX_SCORE) return 0
-  if (dstSize === 0) return 0
   const a = counts(src), b = counts(dst)
   let copied = 0
   for (let i = 0, j = 0; i < a.hashes.length && j < b.hashes.length;) {
