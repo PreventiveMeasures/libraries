@@ -41,11 +41,13 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // erased types and comments alone, a side not there leaving an empty runtime. A
 // retained module load or `export {}` runs the same on both sides only within
 // one module format -- an `export {}` emits a marker transpiled to CommonJS, a
-// module load runs as one format and throws as the other -- so where that
-// runtime is not empty a rename across formats (a `.d.mts` to a `.d.cts`, either
-// to a package-resolved `.d.ts` whose format is not known here) is not stamped; a
-// modification keeps its path, hence its format, and an added or deleted file
-// matches only an empty runtime. A rename is otherwise taken by its matching
+// module load runs as one format and throws as the other -- so where the runtime
+// loads a module or carries a bare `export {}` a rename across formats (a `.d.mts`
+// to a `.d.cts`, either to a package-resolved `.d.ts` whose format is not known
+// here) is not stamped; a hashbang, a directive or a pragma runs the same either
+// way, so a runtime of only those cancels across formats. A modification keeps its
+// path, hence its format, and an added or deleted file matches only an empty
+// runtime. A rename is otherwise taken by its matching
 // source, as any file's is here: a relative load may resolve to another module
 // once the file moves, but that is shown as a rename of its own, not traced. A
 // modification of a package-resolved `.d.ts` is taken to keep its format, though

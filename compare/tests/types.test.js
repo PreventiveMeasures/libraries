@@ -314,6 +314,12 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     // Erasing whole, with no runtime, a rename across formats is still type-only.
     const erased = 'export declare const a: 1\nexport declare const b: 2\n'
     assert.equal(compareTrees(tree({ 'a.d.mts': erased }), tree({ 'b.d.cts': erased }))[0].typeOnly, true)
+    // A hashbang is not format-sensitive, so a hashbang-only runtime cancels across a rename of any format,
+    // and a package-resolved one too; only a module load or `export {}` gates the format.
+    const hashbang = '#!/usr/bin/env node\nexport declare const a: 1\n'
+    const stampHb = (from, to) => compareTrees(tree({ [from]: hashbang }), tree({ [to]: hashbang }))[0].typeOnly
+    assert.equal(stampHb('a.d.mts', 'b.d.cts'), true, 'hashbang across formats')
+    assert.equal(stampHb('a.d.ts', 'b.d.ts'), true, 'hashbang, package-resolved')
   })
 
   // Real lit-html directive .d.ts files: value imports of their base classes, unchanged across the version
