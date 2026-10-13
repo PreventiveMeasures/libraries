@@ -1,10 +1,12 @@
 // compareTrees: a path in both trees is modified or type-changed, a path in one
 // added or deleted unless renames.js pairs it with another, as git diff -M does
-// and, unless `renamesByPath` is false, by the paths a build moves files to.
+// and, unless `renamesByPath` is false, by the paths a build moves files to; on
+// Node, a change to a declaration file holding types alone on each side stamped so.
 
+import { proveTypeOnly } from '#types'
 import { MAX_SCORE } from './similarity.js'
 import { findRenames } from './renames.js'
-import { checkLineOptions, contentOf } from './text.js'
+import { checkLineOptions, contentOf, textOf } from './text.js'
 import { readTree, sameContent } from './tree.js'
 
 // git's defaults: -M at 50%, diff.renameLimit at 1000.
@@ -41,6 +43,47 @@ function checkOptions({ renamesByPath, renameLimit, renameGroup, paths, lines })
 const sameFile = (a, b) => sameContent(a, b) && (a.type !== 'file' || a.mode === b.mode)
 
 const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, new: fresh, similarity })
+
+// A declaration file as TypeScript names one: `.d.ts`, `.d.mts`, `.d.cts`, and
+// `.d.css.ts` for a `.css` file's.
+const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
+
+// The module system a declaration file's extension fixes, or null where its package says and this cannot:
+// `.mts` an ES module, `.cts` a CommonJS one, a `.ts` either. `export {}` runs nothing as a module and
+// throws as CommonJS, so where the format is null, or the two sides' differ, it does not cancel.
+const fixedModule = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith('.cts') ? 'commonjs' : null)
+
+// A file's proof: that it holds types alone, and whether that rests on a retained `export {}` (`inert`),
+// which runs nothing as a module but emits a marker transpiled to CommonJS. A side not there holds
+// nothing. Not proven where the proof throws, as no check should.
+function proven(file) {
+  if (file === null) return { proven: true, inert: false }
+  const text = textOf(file)
+  try {
+    return text === undefined ? { proven: false } : proveTypeOnly(text)
+  } catch {
+    return { proven: false }
+  }
+}
+
+// Stamped where each side there is a file named as a declaration file and proven to hold types alone, and
+// a retained `export {}` is on both sides or neither: on one alone it is a change in what runs once
+// transpiled, so the change is not types only. For it to cancel, the two extensions must fix the same
+// module format: a rename from a `.d.mts` to a `.d.cts` runs it, then throws on it, and a `.d.ts` leaves
+// the format to its package, which this cannot read, so a retained `export {}` in one never cancels.
+function stamped(change) {
+  const sides = [change.old, change.new].filter((file) => file !== null)
+  if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
+  // A mode changed, an executable bit set or cleared, is a change in its own right, types aside.
+  if (change.old && change.new && change.old.mode !== change.new.mode) return change
+  const fresh = proven(change.new), old = proven(change.old)
+  if (!old.proven || !fresh.proven || Boolean(old.inert) !== Boolean(fresh.inert)) return change
+  if (old.inert) {
+    const format = fixedModule(change.old.path)
+    if (format === null || format !== fixedModule(change.new.path)) return change
+  }
+  return { ...change, typeOnly: true }
+}
 
 function pathChanges(old, fresh) {
   const added = [], changes = [], deleted = []
@@ -86,5 +129,5 @@ export function compareTrees(a, b, { renames = true, renamesByPath = true, renam
   for (const [s, file] of deleted.entries()) if (!moved.has(s)) changes.push(status('deleted', file, null))
   // A rename stands at its new path, as git lists it.
   changes.sort((x, y) => byPath((x.new ?? x.old).path, (y.new ?? y.old).path))
-  return lines ? changes.map((change) => ({ ...change, ...contentOf(change.old, change.new, lineOptions) })) : changes
+  return (lines ? changes.map((change) => ({ ...change, ...contentOf(change.old, change.new, lineOptions) })) : changes).map(stamped)
 }

@@ -4,3 +4,4 @@ import { minifySync } from 'oxc-minify'
 import { parseSync } from 'oxc-parser'
 
 export const getOxc = () => ({ parseSync, minifySync })
+export const getParser = () => parseSync

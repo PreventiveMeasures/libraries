@@ -34,12 +34,23 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // file and `new` for a deleted one; a renamed file has both, under their
 // two paths. `similarity` is a rename's, as git's similarity index: the
 // percentage of the new file the old one accounts for, 100 where the content
-// is unchanged; null for anything else.
+// is unchanged; null for anything else. `typeOnly`, on Node alone, stamps a
+// change whose every side there is a file named as a declaration file
+// (`.d.ts`, `.d.mts`, `.d.cts`, `.d.css.ts`) and holds types alone, as
+// proveTypeOnly proves: one that runs nothing on either side, as a side not
+// there runs nothing. A retained `export {}` runs nothing as a module but emits
+// a marker transpiled to CommonJS, so it is allowed only on both sides at once
+// or neither, never added or removed alone, and only where the two extensions
+// fix the same module format (`.mts` a module, `.cts` CommonJS) -- a rename from
+// a `.d.mts` to a `.d.cts` runs it, then throws on it, and a `.d.ts`, its format
+// its package's to say and not known here, never cancels one. Absent off Node,
+// and without oxc-parser.
 export interface FileStatus {
   status: Status
   old: TreeFile | null
   new: TreeFile | null
   similarity: number | null
+  typeOnly?: true
 }
 
 // A status with what happened to the content: `blocks`, @preventive/diff's
@@ -175,6 +186,39 @@ export function layoutPackageDirs(baseDirs: Map<string, string> | null, otherDir
 // A view's directory `prefix` with where the root puts it on each side
 // (`./dir/`, `./src/dir/`); a prefix the root doesn't lead is dropped.
 export function rootLabel(root: Root | null, prefix: string): { prefix: string; from: string | null; to: string | null }
+
+// Why a text is not proven to hold types alone: proving needs Node, whose type
+// stripping is held to oxc's tree, and oxc-parser, an optional peer, there,
+// and is not asked of a stripping that once failed as may leave it unsound
+// (`unsupported`); Node's stripping or oxc finds an error in it, as in
+// `export const x: number`, which only a declaration file may write, or it
+// nests too deep for either (`unparsed`); a statement stripping leaves loads a
+// module, as `import { type A }` and `export *` from one do (`imports`), or is
+// anything else (`code`); or Node's stripping, or a reading of what it leaves,
+// does not find what oxc does (`disagree`).
+export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'imports' | 'code' | 'disagree'
+
+// Whether `text`, read as TypeScript, holds types alone, so that Node, which
+// reads a `.d.ts` as the `.ts` it is named and runs what its type stripping
+// leaves, runs nothing of it:
+// - oxc's tree has no statement but those stripping erases whole -- interfaces,
+//   type aliases, anything `declare`d (bodies and initializers with it), a
+//   function's signature, `import type` and `export type`, a namespace of types
+//   alone -- and a bare `export {}`. `import { type A }` loads its module like
+//   any import, inline `type` or not, so it is not type-only; nor is
+//   `export { type A }`, which is only `export {}` once stripping takes its
+//   specifiers out; nor `export as namespace N`, left as invalid JavaScript that
+//   throws when imported;
+// - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
+//   and leaves nothing it does not, but comments, the hashbang and that one;
+// - what it leaves, read token by token apart from either, holds nothing else;
+// - nor does what its transform mode (--experimental-transform-types) leaves.
+// `inert` is true where a bare `export {}` is kept: valid JavaScript that loads
+// and runs nothing as a module, but a marker transpiled to CommonJS, so a change
+// is types only only where both sides match in it. `at` is where in `text` what
+// is found begins, where it has a place. Throws a TypeError where `text` is not a
+// well-formed string. Node warns once that stripTypeScriptTypes is experimental.
+export function proveTypeOnly(text: string): { proven: true; inert: boolean } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.

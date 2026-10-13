@@ -31,6 +31,10 @@
     "#oxc": {
       "node": "./src/oxc.node.js",
       "default": "./src/oxc.js"
+    },
+    "#types": {
+      "node": "./src/types.node.js",
+      "default": "./src/types.js"
     }
   },
   "files": [
@@ -45,6 +49,7 @@
     "src/blocks.js",
     "src/changes.js",
     "src/css.js",
+    "src/erasure.js",
     "src/error.js",
     "src/layout.js",
     "src/marked.js",
@@ -71,6 +76,8 @@
     "src/similarity.js",
     "src/text.js",
     "src/tree.js",
+    "src/types.js",
+    "src/types.node.js",
     "src/whitespace.js",
     "src/words.js"
   ],

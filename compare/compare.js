@@ -25,5 +25,10 @@ export { renameParts } from './src/paths.js'
 // each old path, directory and package directory as the new tree lays it out.
 export { layoutDir, layoutPackageDirs, rootLabel, treeLayout } from './src/layout.js'
 
+// Whether a TypeScript text holds types alone, so that Node runs nothing of it,
+// as compareTrees stamps a declaration file's change: proven on Node alone, where
+// oxc-parser, an optional peer, is loaded on first use.
+export { proveTypeOnly } from '#types'
+
 // What a tree that does not hold together is refused with.
 export { CompareError } from './src/error.js'

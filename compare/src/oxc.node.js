@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 // oxc-parser and oxc-minify, optional peers, required on first use; one missing
 // is thrown as the environment's error, not taken for a text that won't parse.
 const require = createRequire(import.meta.url)
-let oxc
+let oxc, parser
 
 function load(name) {
   try {
@@ -14,3 +14,5 @@ function load(name) {
 }
 
 export const getOxc = () => (oxc ??= { parseSync: load('oxc-parser').parseSync, minifySync: load('oxc-minify').minifySync })
+// The parser alone, for what needs no minifier: a declaration file proven to hold types alone.
+export const getParser = () => (parser ??= load('oxc-parser').parseSync)
