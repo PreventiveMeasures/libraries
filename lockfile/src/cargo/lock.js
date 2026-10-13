@@ -24,10 +24,14 @@ function canonical(url) {
   return copy.href
 }
 
+// A URL with a path after its scheme: one the url crate cannot be a base
+// of, `mailto:x`, cargo refuses as a source.
+export const isBase = (url) => url.href.startsWith('/', url.protocol.length)
+
 // Only a URL as the url crate writes it, which is how cargo writes one.
 function parseUrl(text) {
   const url = URL.parse(text)
-  return url !== null && url.href === text ? url : undefined
+  return url !== null && url.href === text && isBase(url) ? url : undefined
 }
 
 const identity = (scheme, url, reference = []) => JSON.stringify([scheme, canonical(url), ...reference])
@@ -37,16 +41,16 @@ export function parseLockSource(text, where, edge) {
   const fail = (why) => raise(`${quote(text)} is not a source: ${why}`, where)
   const [, scheme, rest] = /^(registry|sparse|git)\+(.*)$/su.exec(text) ?? fail('expected registry+, sparse+ or git+ and a URL')
   if (scheme !== 'git') {
-    const url = parseUrl(scheme === 'sparse' ? text : rest)
-    if (url === undefined || url.search !== '' || url.hash !== '') fail('expected a URL in normal form, without a query or a fragment')
     // A registry's index, but a sparse one's, is a repository git fetches.
     if (scheme === 'registry') checkRepo(rest, where)
+    const url = parseUrl(scheme === 'sparse' ? text : rest)
+    if (url === undefined || url.search !== '' || url.hash !== '') fail('expected a URL in normal form, without a query or a fragment')
     return { scheme, identity: identity(scheme, url) }
   }
   const [, base, query, commit] = /^([^#?]*)(?:\?([^#]*))?(?:#(.*))?$/su.exec(rest)
   if (edge ? commit !== undefined : !isCommit(commit ?? '')) fail(edge ? 'a dependency names no commit' : 'expected "#" and the commit it resolved to')
-  const url = parseUrl(base) ?? fail('expected a URL in normal form')
   checkRepo(base, where)
+  const url = parseUrl(base) ?? fail('expected a URL in normal form')
   const pairs = [...new URLSearchParams(query ?? '')]
   if (pairs.length > 1 || (pairs.length === 1 && !REFERENCES.includes(pairs[0][0]))) fail('expected at most one of branch=, tag= or rev=')
   return { scheme, identity: identity(scheme, url, pairs[0]) }

@@ -212,6 +212,7 @@ describe('parseCargoManifest', () => {
     ['a version requirement cargo refuses', edit(ROOT, 'cc = "1"', 'cc = ">=1 <2"'), '["build-dependencies"].cc: ">=1 <2" is not a version requirement'],
     ['a dependency key it does not know', edit(ROOT, 'cc = "1"', 'cc = { version = "1", vesion = "2" }'), '["build-dependencies"].cc: unsupported key "vesion"'],
     ['an artifact dependency', edit(ROOT, 'cc = "1"', 'cc = { version = "1", artifact = "bin" }'), '["build-dependencies"].cc.artifact: an artifact dependency, which only a nightly cargo reads, is not supported'],
+    ['a git URL with no path, which cargo cannot resolve against', edit(ROOT, 'cc = "1"', 'cc = { git = "mailto:x" }'), '["build-dependencies"].cc.git: "mailto:x" is a URL with no path, which cargo refuses'],
     ['a path base', edit(ROOT, 'cc = "1"', 'cc = { path = "cc", base = "b" }'), '["build-dependencies"].cc.base: a path base, which only a nightly cargo reads, is not supported'],
     ['a feature naming another package', edit(ROOT, 'cc = "1"', 'cc = { version = "1", features = ["x/y"] }'), '["build-dependencies"].cc.features[0]: "x/y": a dependency\'s feature cannot name another\'s'],
     ['a dependency feature with dep:', edit(ROOT, 'cc = "1"', 'cc = { version = "1", features = ["dep:y"] }'), '["build-dependencies"].cc.features[0]: "dep:y": a dependency\'s feature cannot be `dep:`'],

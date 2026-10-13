@@ -29,7 +29,9 @@ export interface PoetryLockfile {
   // The sha256 of what pyproject.toml asks for, which Poetry checks the
   // lockfile is fresh by.
   contentHash: string
-  // The project's extras, by name: the packages, by name, each turns on.
+  // The project's extras, by name in PEP 503's normal form, as Poetry writes
+  // each, as every extra and group here: the packages, by name, each turns
+  // on.
   extras: Record<string, string[]>
   // A name may be listed more than once, at other versions or from other
   // sources, each for its own markers.

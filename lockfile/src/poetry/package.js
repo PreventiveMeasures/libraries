@@ -7,7 +7,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { checkRepo, isCommit, isWithin } from '../names.js'
 import { DIGESTS, checkHash, checkHttpUrl, checkPath, checkSubdirectory } from '../python/files.js'
-import { checkMarker, checkName, checkRequirementText, normalName } from '../python/pep508.js'
+import { checkMarker, checkName, checkNormalName, checkRequirementText, normalName } from '../python/pep508.js'
 import { field } from '../shape.js'
 import { arrayOf, boolean, checker, entries, oneOf, string, stringsOf, table, tableOf, text } from '../toml/shape.js'
 
@@ -53,7 +53,7 @@ function readConstraint(value, where) {
   return {
     type,
     ...readKind(type, value, where),
-    extras: field(value, 'extras', where, stringsOf(checkName)) ?? [],
+    extras: field(value, 'extras', where, stringsOf(checkNormalName)) ?? [],
     optional: field(value, 'optional', where, boolean) ?? false,
     markers: field(value, 'markers', where, checkMarker),
   }
@@ -90,8 +90,10 @@ export function readFiles(value, where) {
 
 // What each extra adds, in PEP 508's text, as Poetry writes it from the
 // package's metadata. Poetry reads one that is not PEP 508 with a fallback
-// that takes nearly anything; it is refused here.
-export const readExtras = (value, where) => tableOf(value, where, checkName, stringsOf(checkRequirementText))
+// that takes nearly anything; it is refused here. An extra is named as
+// Poetry writes it, in normal form; two it reads as one, it keeps the
+// last of, so another name is refused.
+export const readExtras = (value, where) => tableOf(value, where, checkNormalName, stringsOf(checkRequirementText))
 
 const SOURCES = {
   legacy: ['url', 'reference'],

@@ -23,12 +23,18 @@ function parseJson(text, where) {
   // A key is a string a colon follows.
   let written = 0
   for (const match of text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)) if (match[1] !== undefined) written++
-  const count = (item) => {
-    if (typeof item !== 'object' || item === null) return 0
+  // The keys of every object, counted with a stack of its own, as what is
+  // checked after may nest deeper than the call stack goes.
+  let keys = 0
+  const stack = [value]
+  while (stack.length > 0) {
+    const item = stack.pop()
+    if (typeof item !== 'object' || item === null) continue
     const values = Object.values(item)
-    return (Array.isArray(item) ? 0 : values.length) + values.reduce((sum, x) => sum + count(x), 0)
+    if (!Array.isArray(item)) keys += values.length
+    for (const x of values) stack.push(x)
   }
-  if (written !== count(value)) throw new LockfileError('a key is given twice', where)
+  if (written !== keys) throw new LockfileError('a key is given twice', where)
   return value
 }
 
