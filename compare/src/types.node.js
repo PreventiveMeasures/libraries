@@ -118,7 +118,11 @@ function blankedOutside(code, spans) {
 // character stripping kept otherwise stays byte for byte: the executable syntax and, with their blanks and
 // all, the string literals -- a module specifier's quotes bound any blank run inside it and hold no comment,
 // and stripping never wrote there, so it is kept, and a load of another module (even one whose specifier
-// differs only in a blank) still differs here.
+// differs only in a blank) still differs here. Known limit: the kept text is read as written, so a load left
+// runtime-identical but reformatted still differs -- a removed trailing inline-type specifier leaving its
+// comma (`{ B, }` for `{ B }`), or a comment added where no blank sat. Closing that would mean canonicalizing
+// the executable text (Node's transform mode does, eliding the specifier and its comma), a wider signature
+// left for another change; erring this way only withholds a stamp, never gives a wrong one.
 function runtimeText(body, code, comments, { start, end }) {
   const commented = new Uint8Array(end - start)
   for (const comment of comments) {

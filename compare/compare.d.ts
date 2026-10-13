@@ -235,7 +235,11 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // file erases whole and carries none. A run statement is reduced: an inline type specifier
 // stripping blanks within it (`import { type A, B }`), and any comment within it, each become
 // a single blank, so a change to only those leaves `runtime` unchanged; its executable text and
-// its module specifier are kept to the character, so a load of another module still differs. A
+// its module specifier are kept to the character, so a load of another module still differs.
+// Known limit: that kept text is compared as written, so a change leaving a load runtime-identical
+// yet reformatting it withholds the stamp rather than passing -- a removed trailing inline-type
+// specifier leaving its comma (`{ B, }` where `{ B }` would stand), or a comment added where no
+// blank sat. This errs safe: the stamp is never given wrongly, only sometimes withheld. A
 // directive, a pragma and the hashbang stand as stripping leaves them, since what they say is the
 // point. A triple-slash directive counts only in the prologue,
 // before the first statement, where TypeScript honours it; below one it is prose, so moving
