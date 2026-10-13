@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import * as csstree from 'css-tree'
@@ -192,6 +193,17 @@ describe('format', () => {
     for (const sign of ['+', '-']) {
       assert.deepEqual(await format(`var ${esc('0061')}=1;x=y${sign}/* c */${sign}z`, 'js'), { code: `var ${esc('0061')} = 1;\nx = y ${sign} /* c */ ${sign}z;\n` }, sign)
     }
+  })
+
+  it('needs no minifier, and rejects where the parser checking a script is missing, as where oxfmt is', () => {
+    // format in a process of its own, where one peer does not resolve.
+    const without = (peer) => JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', `
+      import { registerHooks } from 'node:module'
+      registerHooks({ resolve: (specifier, context, next) => { if (specifier === '${peer}') throw new Error('gone'); return next(specifier, context) } })
+      const { format } = await import(${JSON.stringify(new URL('../pretty.js', import.meta.url).href)})
+      console.log(JSON.stringify(await format('a=1', 'js').catch((err) => ({ thrown: err.message }))))`], { encoding: 'utf8' }))
+    assert.deepEqual(without('oxc-minify'), { code: 'a = 1;\n' })
+    assert.match(without('oxc-parser').thrown, /needs the optional 'oxc-parser' peer/u, 'not a copy refused as changed')
   })
 
   it('formats CSS where css-tree is there to check it', async () => {

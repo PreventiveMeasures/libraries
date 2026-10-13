@@ -82,6 +82,15 @@ describe('compare/ is self-contained', () => {
     assert.deepEqual([...loaders], ['src/oxc.node.js', 'src/oxc.js'])
   })
 
+  // A bundler tracing what a server needs (Vercel's @vercel/nft) ships a peer
+  // only where its loader names it as written, not where it works the name out.
+  it('loads each peer by its name as written', () => {
+    for (const peer of peers) {
+      const loader = PRETTY.has(peer) ? PEERS : imports['#oxc'].node.slice(2)
+      assert.ok(specifiersOf(readFileSync(new URL(loader, PKG_DIR), 'utf8')).includes(peer), `${loader} loads ${peer} by a name it works out`)
+    }
+  })
+
   for (const file of files) {
     it(`${nameOf(file)} imports nothing outside compare/ but what it declares`, () => {
       const source = readFileSync(file, 'utf8')

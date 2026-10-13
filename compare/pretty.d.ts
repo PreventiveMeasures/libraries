@@ -11,5 +11,6 @@
 // - JSON's strings and comments as written.
 // Otherwise an error: no check for the kind of file (`unsupported`, CSS without
 // css-tree), it does not parse (`unformattable`) or would change more
-// (`pretty-mismatch`). Rejects only where the optional oxfmt peer is missing.
+// (`pretty-mismatch`). Rejects only where an optional peer it needs is missing:
+// oxfmt, or oxc-parser for a script.
 export function format(text: string, extension: string): Promise<{ code: string } | { error: 'unsupported' | 'unformattable' | 'pretty-mismatch' }>

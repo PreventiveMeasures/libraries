@@ -2,7 +2,7 @@
 // alone: a script's syntax tree as oxc parses it, a style sheet's as css-tree does (an optional peer,
 // CSS refused without it), JSON's strings and comments as written.
 
-import { getOxc } from '#oxc'
+import { getParser } from '#oxc'
 import { indentless, sameCss } from './css.js'
 import { loadCssTree, loadFormatter } from './peers.js'
 
@@ -45,7 +45,7 @@ const sameList = (a, b) => a.length === b.length && a.every((item, i) => item ==
 function parsed(text, extension) {
   const lang = extension === 'tsx' ? 'tsx' : /^[cm]?ts$/u.test(extension) ? 'ts' : 'jsx'
   const sourceType = extension.startsWith('m') ? 'module' : extension.startsWith('c') ? 'commonjs' : 'unambiguous'
-  const result = getOxc().parseSync(`file.${extension}`, text, { lang, sourceType, preserveParens: false })
+  const result = getParser()(`file.${extension}`, text, { lang, sourceType, preserveParens: false })
   return result.errors.length > 0 ? null : result
 }
 
@@ -226,11 +226,13 @@ function breakAfterComments(code, extension) {
 }
 
 // Only what can be checked is formatted: scripts, JSON, and CSS where css-tree is there to read it.
-// oxfmt is loaded outside the try: one missing is thrown, not taken for a file that won't format.
+// oxfmt, and oxc-parser that checks a script, are loaded outside the try: one missing is thrown, not
+// taken for a file that won't format, or for a copy the check finds changed.
 export async function format(text, extension) {
   const csstree = extension === 'css' ? await loadCssTree() : null
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
   const oxfmt = await loadFormatter()
+  if (SCRIPTS.has(extension)) getParser()
   const result = await oxfmt(`pretty.${extension}`, text, PRETTY_OPTIONS).catch(() => null)
   if (result === null || result.errors.length > 0) return { error: 'unformattable' }
   // oxfmt's copy as it is, or where the check refuses it, as the file writes what oxfmt respelled: a
