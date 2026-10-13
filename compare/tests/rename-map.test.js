@@ -335,6 +335,14 @@ test('a change\'s variables pair as its tokens line up, its lines wrapped otherw
   assert.deepEqual(model.a.slice(9, 12), after.slice(10, 13))
 })
 
+test('a change\'s tokens pair only what its lines say nothing of, as reordered lines may line up across', () => {
+  const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
+  // `f(a, b, c)` moved up: its tokens line up with `f(a, c, b)`'s, and would pair `b` with `z`.
+  const model = ignoring(['function q(a, b, c) {', '  k(b);', '  f(a, c, b);', '  k(b);', '  f(a, b, c);', '}', 'q(1, 2, 3);'],
+    ['function q(x, y, z) {', '  f(x, y, z);', '  k(y);', '  k(y);', '}', 'q(1, 2, 3);'])
+  assert.deepEqual(model.a.slice(0, 5), ['function q(x, y, z) {', '  k(y);', '  f(x, z, y);', '  k(y);', '  f(x, y, z);'])
+})
+
 test('a second pass reads the pairs found as names, telling apart places alike with every name set aside', () => {
   const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
   // `o` dropped: any of five parameters could have gone, but `r` and `n` are known from the lines that keep them.

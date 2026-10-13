@@ -42,25 +42,34 @@ const plain = (lines) => lines.map((line) => line.replace(SPACE, ''))
 // bordered by lines alike its own may sit anywhere along them short of the next
 // run, as diff slides it, so which of those it leaves kept, facing which, is
 // the diff's pick and says nothing (a function added before one written alike
-// with names set aside: either's header may face the old one's).
-function slack(a, b, blocks) {
-  const loose = (lines, runs) => {
+// with names set aside: either's header may face the old one's) -- unless the
+// line it would keep instead reads the same variables (`same`), which say
+// the same either way.
+function slack(a, b, blocks, sameA, sameB) {
+  const loose = (lines, runs, same) => {
     const flags = new Uint8Array(lines.length)
     runs.forEach(([start, end], k) => {
       const ceiling = runs[k + 1]?.[0] ?? lines.length, floor = k > 0 ? runs[k - 1][1] : 0
-      for (let e = end, s = start; s > floor && lines[s - 1] === lines[e - 1]; s--, e--) flags[s - 1] = 1
-      for (let e = end, s = start; e < ceiling && lines[s] === lines[e]; s++, e++) flags[e] = 1
+      for (let e = end, s = start; s > floor && lines[s - 1] === lines[e - 1]; s--, e--) if (!same(s - 1, e - 1)) flags[s - 1] = 1
+      for (let e = end, s = start; e < ceiling && lines[s] === lines[e]; s++, e++) if (!same(e, s)) flags[e] = 1
     })
     return flags
   }
-  return [loose(a, blocks.filter(({ a0, a1 }) => a1 > a0).map(({ a0, a1 }) => [a0, a1])), loose(b, blocks.filter(({ b0, b1 }) => b1 > b0).map(({ b0, b1 }) => [b0, b1]))]
+  return [loose(a, blocks.filter(({ a0, a1 }) => a1 > a0).map(({ a0, a1 }) => [a0, a1]), sameA),
+    loose(b, blocks.filter(({ b0, b1 }) => b1 > b0).map(({ b0, b1 }) => [b0, b1]), sameB)]
+}
+
+// Whether two of a run's lines, from `from`, read the same variables in order.
+const reading = (k, from = 0) => (x, y) => {
+  const one = k.lines[from + x], other = k.lines[from + y]
+  return one.length === other.length && one.every((variable, n) => variable === other[n])
 }
 
 // The pairs of lines a diff of `a` and `b` keeps, but those slack.
-function* kept(a, b) {
+function* kept(a, b, sameA, sameB) {
   const text = (lines) => lines.map((line) => `${line}\n`).join('')
   const blocks = changes(text(a), text(b))
-  const [looseA, looseB] = slack(a, b, blocks)
+  const [looseA, looseB] = slack(a, b, blocks, sameA, sameB)
   let i = 0, j = 0
   for (const { a0, a1, b1 } of [...blocks, { a0: a.length, a1: a.length, b1: b.length }]) {
     for (; i < a0; i++, j++) if (!looseA[i] && !looseB[j]) yield [i, j]
@@ -73,7 +82,7 @@ function* kept(a, b) {
 // place a variable stood one token alike any other's. Null past MAX_TOKENS.
 const PLACE = '*', TOKEN = /[\p{ID_Continue}$\u200C\u200D]+|\S/gu
 // A diff's cost grows faster than its length: a change of more tokens a side
-// than this pairs its lines in order, as many as each other reading as many.
+// than this pairs by its lines alone.
 const MAX_TOKENS = 20000
 function tokens(k, from, to) {
   const at = [], list = []
@@ -105,9 +114,9 @@ function placed(ka, a0, a1, kb, b0, b1) {
   const reads = (k, from, to) => k.lines.slice(from, to).some((line) => line.length > 0)
   if (!reads(ka, a0, a1) || !reads(kb, b0, b1)) return []
   const a = tokens(ka, a0, a1), b = a && tokens(kb, b0, b1)
-  if (b) return [...kept(a.list, b.list)].filter(([x]) => a.at[x]).map(([x, y]) => [a.at[x], b.at[y]])
-  if (a1 - a0 !== b1 - b0) return []
-  return ka.lines.slice(a0, a1).flatMap((olds, k) => (olds.length === kb.lines[b0 + k].length ? olds.map((variable, n) => [variable, kb.lines[b0 + k][n]]) : []))
+  if (!b) return []
+  const pairs = kept(a.list, b.list, (x, y) => a.at[x] === a.at[y], (x, y) => b.at[x] === b.at[y])
+  return [...pairs].filter(([x]) => a.at[x]).map(([x, y]) => [a.at[x], b.at[y]])
 }
 
 const tallies = () => ({ backward: new Map(), forward: new Map() })
@@ -116,26 +125,38 @@ function count(map, from, to) {
   map.get(from).set(to, (map.get(from).get(to) ?? 0) + 1)
 }
 
-// Pairs of lines counted, a long run of unchanged ones apart from the rest,
-// and the variables a change's tokens pair.
+// Pairs of lines counted, a long run of unchanged ones apart from the rest, and
+// apart from both the variables a change's tokens pair (`tokened`). Lines
+// reading variables one side has and the other not say nothing. In a change of
+// unlike lengths, lines alike but for a final `;` or `,` pair (a declaration
+// others now follow: `let t = ...;` -> `let t = ...,`).
 function tallied(ka, kb) {
-  const changed = tallies(), unchanged = tallies()
+  const changed = tallies(), tokened = tallies(), unchanged = tallies()
   const counted = ({ backward, forward }, variable, other) => {
     count(forward, variable, other)
     count(backward, other, variable)
   }
-  const alike = (counts, olds, news) => olds.forEach((variable, k) => counted(counts, variable, news[k]))
+  const alike = (counts, olds, news) => olds.length === news.length && olds.forEach((variable, k) => counted(counts, variable, news[k]))
+  const trimmed = (lines, from, to) => plain(lines.slice(from, to).map((line) => line.replace(/[;,]\s*$/u, '')))
   const blocks = changes(ka.key, kb.key)
-  const [looseA, looseB] = slack(plain(ka.keys), plain(kb.keys), blocks)
+  const [looseA, looseB] = slack(plain(ka.keys), plain(kb.keys), blocks, reading(ka), reading(kb))
   let i = 0, j = 0
   for (const block of [...blocks, { a0: ka.lines.length, a1: ka.lines.length, b0: kb.lines.length, b1: kb.lines.length }]) {
     const counts = block.a0 - i >= ANCHORED_RUN ? unchanged : changed
     for (; i < block.a0; i++, j++) if (!looseA[i] && !looseB[j]) alike(counts, ka.lines[i], kb.lines[j])
-    if (block.a1 > block.a0 && block.b1 > block.b0) for (const [variable, other] of placed(ka, block.a0, block.a1, kb, block.b0, block.b1)) counted(changed, variable, other)
+    const [olds, news] = [block.a1 - block.a0, block.b1 - block.b0]
+    if (olds > 0 && news > 0) {
+      if (olds === news) for (let k = 0; k < olds; k++) alike(changed, ka.lines[block.a0 + k], kb.lines[block.b0 + k])
+      else {
+        const pairs = kept(trimmed(ka.keys, block.a0, block.a1), trimmed(kb.keys, block.b0, block.b1), reading(ka, block.a0), reading(kb, block.b0))
+        for (const [x, y] of pairs) alike(changed, ka.lines[block.a0 + x], kb.lines[block.b0 + y])
+      }
+      for (const [variable, other] of placed(ka, block.a0, block.a1, kb, block.b0, block.b1)) counted(tokened, variable, other)
+    }
     i = block.a1
     j = block.b1
   }
-  return { changed, unchanged }
+  return { changed, tokened, unchanged }
 }
 
 // The most counted of those not yet paired, none where two tie.
@@ -170,19 +191,22 @@ function matched({ backward, forward }, { map, paired }, eligible = () => true) 
 }
 
 // Unchanged lines pair first; changed ones then pair only what those say
-// nothing of, as `weak` pairs, the first to give way where names read wrongly.
-// A second pass reads the pairs found as names, so lines alike with every name
-// set aside and diffed against the wrong one line up by those.
+// nothing of, and a change's tokens only what no line says anything of: lines
+// reordered, a change's tokens may line up across them. Both are `weak` pairs,
+// the first to give way where names read wrongly. A second pass reads the
+// pairs found as names, so lines alike with every name set aside and diffed
+// against the wrong one line up by those.
 export function pairing(before, after, a, b) {
   const found = { map: new Map(), paired: new Set() }, said = new Set(), weak = new Set()
   const passes = [[() => null, () => null], [(variable) => found.map.get(variable)?.name ?? null, (variable) => (found.paired.has(variable) ? variable.name : null)]]
   for (const [old, now] of passes) {
     // A pass pairs nothing where every variable of a side is paired already.
     if (!a.variables.some((variable) => variable.aside && !found.map.has(variable)) || !b.variables.some((variable) => variable.aside && !found.paired.has(variable))) break
-    const { changed, unchanged } = tallied(keyed(before, a, old), keyed(after, b, now))
-    matched(unchanged, found)
-    for (const variable of [...unchanged.forward.keys(), ...unchanged.backward.keys()]) said.add(variable)
-    for (const variable of matched(changed, found, (from, to) => !said.has(from) && !said.has(to))) weak.add(variable)
+    const { changed, tokened, unchanged } = tallied(keyed(before, a, old), keyed(after, b, now))
+    for (const [counts, tier] of [[unchanged, false], [changed, true], [tokened, true]]) {
+      for (const variable of matched(counts, found, (from, to) => !said.has(from) && !said.has(to))) if (tier) weak.add(variable)
+      for (const variable of [...counts.forward.keys(), ...counts.backward.keys()]) said.add(variable)
+    }
   }
   return { map: found.map, weak }
 }
