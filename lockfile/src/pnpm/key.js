@@ -52,7 +52,18 @@ function checkGroups(groups, key, where) {
   }
 }
 
-// The package key, and the patch hash when there is one.
+// Each of the groups, without its parentheses.
+function groupsOf(suffix) {
+  const groups = []
+  let [open, start] = [0, 0]
+  for (let i = 0; i < suffix.length; i++) {
+    if (suffix[i] === '(' && open++ === 0) start = i + 1
+    else if (suffix[i] === ')' && --open === 0) groups.push(suffix.slice(start, i))
+  }
+  return groups
+}
+
+// The package key, the patch hash when there is one, and the peers.
 export function splitSnapshotKey(key, where) {
   const { start, peers } = suffixOf(key)
   let hash
@@ -62,7 +73,7 @@ export function splitSnapshotKey(key, where) {
     if (hash === undefined) throw new LockfileError(`${quote(group)} is not a patch hash`, where)
   }
   checkGroups(key.slice(peers), key, where)
-  return { base: key.slice(0, start), patchHash: hash }
+  return { base: key.slice(0, start), patchHash: hash, peers: groupsOf(key.slice(peers)) }
 }
 
 // A package key's name, checked, and what follows its `@`.

@@ -14,7 +14,7 @@ import { fromBase32 } from '@exodus/bytes/base32.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, attempt, quote } from '../error.js'
 import { KINDS, unreached } from '../graph.js'
-import { checkIntegrity, checkRelative } from '../names.js'
+import { checkIntegrity, checkName, checkRelative, isVersion } from '../names.js'
 import { boolean, count, field, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
 import { byName, readPackages } from './packages.js'
@@ -50,6 +50,14 @@ const fromBase32Bare = (hash) => fromBase32(hash, { padding: false })
 
 const isHash = (hash, bytes, decode) => attempt(() => hash === hash.toLowerCase() && decode(hash).length === bytes, () => false)
 
+// A patch's selector: a name and a version, or a name for every version.
+// A range pnpm matches by semver, which is not read here.
+function checkSelector(selector, where) {
+  const sep = selector.indexOf('@', 1)
+  checkName(sep === -1 ? selector : selector.slice(0, sep), where)
+  if (sep !== -1 && !isVersion(selector.slice(sep + 1))) throw new LockfileError(`${quote(selector)} is not a name and a version, or a name alone, which is not supported`, where)
+}
+
 // pnpm 9 and 10 write a patch as its hash and the path of its file; pnpm 11
 // and later as the hash alone: an md5 in base32 from pnpm 9, a sha256 in hex.
 const readPatches = (value, where) => mapping(orEmpty(value), where, (item, here, selector) => {
@@ -58,7 +66,7 @@ const readPatches = (value, where) => mapping(orEmpty(value), where, (item, here
   const hashAt = full ? at(here, 'hash') : here
   const hash = text(full ? item.hash : item, hashAt)
   if (!isHash(hash, 32, fromHex) && !isHash(hash, 16, fromBase32Bare)) throw new LockfileError(`${quote(hash)} is not a patch hash`, hashAt)
-  text(selector, here)
+  checkSelector(selector, here)
   return { hash, path: full ? checkRelative(item.path, at(here, 'path')) : undefined }
 })
 
@@ -100,8 +108,7 @@ function readDocument(doc, prefix, env) {
   if (version !== '9.0') throw new LockfileError(`unsupported version: expected "9.0", found ${kind(version)}`, at(prefix, 'lockfileVersion'))
   record(doc, where, env ? ENV_FIELDS : FIELDS)
   const patchedDependencies = readPatches(doc.patchedDependencies, at(prefix, 'patchedDependencies'))
-  const hashes = new Set(Object.values(patchedDependencies).map((patch) => patch.hash))
-  const { packages, snapshots } = readPackages(doc, prefix, hashes)
+  const { packages, snapshots } = readPackages(doc, prefix, new Map(Object.entries(patchedDependencies)))
   const importers = readImporters(doc.importers, at(prefix, 'importers'), snapshots, env)
   checkReached(importers, packages, prefix, env ? ENV_KINDS : KINDS)
   if (env) return { lockfileVersion: version, importers, packages }
@@ -138,7 +145,8 @@ export function parsePnpmLockfile(source) {
   separator.lastIndex = lead.length
   const found = separator.exec(source)
   if (found === null) throw new LockfileError('expected the env document the first "---" starts to end at a line of "---"')
-  const alone = source.slice(separator.lastIndex).trim() === ''
+  // Spaces and line ends alone: anything else, the YAML would refuse or read.
+  const alone = /^(?: *\r?\n)* *$/u.test(source.slice(separator.lastIndex))
   const docs = parseYamlStream(alone ? source.slice(0, found.index + 1) : source)
   if (docs.length !== (alone ? 1 : 2)) {
     throw new LockfileError(`expected the env document${alone ? '' : ' and the lockfile'} between lines of "---" alone, found ${docs.length} documents`)
