@@ -1,6 +1,9 @@
 // The minimatch yarn 1 and npm read globs of workspaces with, read here a
 // path segment at a time: `**` as null, and `*` and `?` within one, which,
-// as `**`, match no segment that starts with `.`.
+// as `**`, match no segment that starts with `.`. Any other character the
+// two read otherwise than as itself is refused: a `#`, as yarn 1 reads a
+// glob it starts as a comment, which finds nothing, and npm finds nothing
+// by it either.
 
 import { LockfileError, quote } from './error.js'
 
@@ -28,7 +31,7 @@ function wildcard(pattern, name) {
 
 export function compile(glob, where) {
   const segments = glob.split('/')
-  if (segments.length > 30 || segments.some((segment) => segment === '' || /[[\]{}()!+\\]/u.test(segment))) {
+  if (segments.length > 30 || segments.some((segment) => segment === '' || /[[\]{}()!+#\\]/u.test(segment))) {
     throw new LockfileError(`${quote(glob)} is a glob not read here`, where)
   }
   return segments.map((segment) => {

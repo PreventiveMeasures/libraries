@@ -458,6 +458,9 @@ describe('the tree is npm\'s', () => {
   it('workspaces of one name each, by globs npm reads', () => {
     refuses(edit((l) => (l.packages[''].workspaces = ['packages/*', 'd'], l.packages.d.name = 'ws')), 'the name of the workspace "packages/ws" too, of which npm keeps one', P('d'))
     refuses(edit((l) => (l.packages[''].workspaces = ['!packages/*'])), '"!packages/*" is a glob not read here', `${P('')}.workspaces[0]`)
+    // npm finds no workspace by a glob of a "#", which yarn 1 reads as a
+    // comment, where this would find "#ws".
+    refuses(edit((l) => (l.packages[''].workspaces = ['./#ws'])), '"#ws" is a glob not read here', `${P('')}.workspaces[0]`)
   })
 })
 
