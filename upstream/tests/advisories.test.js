@@ -82,6 +82,7 @@ describe('advisories', () => {
     await assert.rejects(advisories([ok], { github: { listRepoAdvisories: github.listRepoAdvisories } }), /advisories: github must be a GitHub client from createClient/u)
     await assert.rejects(advisories([ok], { gitHub: {} }), /advisories: unknown option gitHub/u)
     await assert.rejects(advisories([ok], { details: 'yes' }), /advisories: details must be a boolean/u)
+    await assert.rejects(advisories([ok], { osv: 'yes' }), /advisories: osv must be a boolean/u)
     assert.deepEqual(calls, [])
   })
 
@@ -250,6 +251,103 @@ describe('npm', () => {
   it('throws an HttpError for a failed request', async () => {
     globalThis.fetch = () => Promise.resolve(Response.json({ error: 'nope' }, { status: 503 }))
     await assert.rejects(npm([{ name: 'pkg', version: '1.0.0' }]), (err) => err instanceof HttpError && err.status === 503)
+  })
+})
+
+describe('npm, with osv', () => {
+  const BATCH = 'https://api.osv.dev/v1/querybatch'
+  const VULN = 'https://api.osv.dev/v1/vulns/'
+
+  // The registry answering `registry` (name → rows), and OSV its `hits`
+  // (`name@version` → ids) and `records` (id → record); `calls` is every
+  // URL asked.
+  function stubBoth(registry, hits, records) {
+    const calls = []
+    globalThis.fetch = (url, init = {}) => {
+      calls.push(String(url))
+      const body = init.body && JSON.parse(init.body)
+      if (String(url) === BULK) return Promise.resolve(Response.json(Object.fromEntries(Object.keys(body).filter((name) => registry[name]).map((name) => [name, registry[name]]))))
+      if (String(url) === BATCH) {
+        const results = body.queries.map(({ package: { name }, version }) => {
+          const ids = hits[`${name}@${version}`] ?? []
+          return ids.length > 0 ? { vulns: ids.map((id) => ({ id })) } : {}
+        })
+        return Promise.resolve(Response.json({ results }))
+      }
+      const id = String(url).slice(VULN.length)
+      return Promise.resolve(Object.hasOwn(records, id) ? Response.json(records[id]) : Response.json({ code: 5, message: 'Bug not found.' }, { status: 404 }))
+    }
+    return calls
+  }
+
+  const record = (id, name, summary, aliases = []) => ({ id, summary, aliases, affected: [{ package: { ecosystem: 'npm', name } }] })
+
+  it('adds the versions OSV has an advisory of and the registry does not, the malicious packages\' records above all; the rest stay the registry\'s, with OSV\'s ids', async () => {
+    const calls = stubBoth({
+      minimist: [row()],
+      'event-stream': [row({ id: 2, url: 'https://github.com/advisories/GHSA-mh6f-8j2x-4483', title: 'Critical severity vulnerability that affects event-stream and flatmap-stream', vulnerable_versions: '=3.3.6', cwe: ['CWE-506'], cvss: { score: 0 } })],
+    }, {
+      'minimist@1.2.5': ['GHSA-xvch-5gv4-984h'],
+      'event-stream@3.3.6': ['MAL-2018-1'],
+      'nx@21.5.0': ['MAL-2025-41443'],
+    }, {
+      'GHSA-xvch-5gv4-984h': record('GHSA-xvch-5gv4-984h', 'minimist', 'Prototype Pollution in minimist', ['CVE-2021-44906']),
+      'MAL-2018-1': record('MAL-2018-1', 'event-stream', 'Malicious code in event-stream (npm)', ['GHSA-mh6f-8j2x-4483']),
+      'MAL-2025-41443': record('MAL-2025-41443', 'nx', 'Malicious code in nx (npm)', ['GHSA-cxm3-wv7p-598c']),
+    })
+    const found = await advisories([
+      { ecosystem: 'npm', name: 'minimist', versions: ['1.2.5', '1.2.6'] },
+      { ecosystem: 'npm', name: 'event-stream', versions: ['3.3.6'] },
+      { ecosystem: 'npm', name: 'nx', versions: ['21.4.0', '21.5.0'] },
+    ], { osv: true })
+    assert.deepEqual(found.map(({ source, name, id, aliases, versions }) => ({ source, name, id, aliases, versions })), [
+      { source: 'registry', name: 'event-stream', id: 'GHSA-mh6f-8j2x-4483', aliases: ['MAL-2018-1'], versions: ['3.3.6'] },
+      { source: 'registry', name: 'minimist', id: 'GHSA-xvch-5gv4-984h', aliases: ['CVE-2021-44906'], versions: ['1.2.5'] },
+      { source: 'osv', name: 'nx', id: 'MAL-2025-41443', aliases: ['GHSA-cxm3-wv7p-598c'], versions: ['21.5.0'] },
+    ])
+    assert.deepEqual(found.at(-1), { ecosystem: 'npm', name: 'nx', source: 'osv', id: 'MAL-2025-41443', ghsa: 'GHSA-cxm3-wv7p-598c', url: 'https://github.com/advisories/GHSA-cxm3-wv7p-598c',
+      aliases: ['GHSA-cxm3-wv7p-598c'], title: 'Malicious code in nx (npm)', cwe: [], versions: ['21.5.0'] })
+    assert.deepEqual(calls.filter((url) => url !== BULK && url !== BATCH).toSorted(), ['GHSA-xvch-5gv4-984h', 'MAL-2018-1', 'MAL-2025-41443'].map((id) => `${VULN}${id}`), 'each record fetched once')
+  })
+
+  it('keeps the versions an OSV record covers that the registry\'s narrower range for it does not', async () => {
+    stubBoth({ nocodb: [row({ url: 'https://github.com/advisories/GHSA-96fh-m4r8-6v9v', title: 'NocoDB: Cross-Workspace Integration Use', vulnerable_versions: '<0.200.0' })] },
+      { 'nocodb@0.100.0': ['GHSA-96fh-m4r8-6v9v'], 'nocodb@0.300.0': ['GHSA-96fh-m4r8-6v9v'] },
+      { 'GHSA-96fh-m4r8-6v9v': record('GHSA-96fh-m4r8-6v9v', 'nocodb', 'NocoDB: Cross-Workspace Integration Use') })
+    const found = await advisories([{ ecosystem: 'npm', name: 'nocodb', versions: ['0.100.0', '0.300.0'] }], { osv: true })
+    assert.deepEqual(found.map(({ source, id, versions }) => ({ source, id, versions })), [
+      { source: 'registry', id: 'GHSA-96fh-m4r8-6v9v', versions: ['0.100.0'] },
+      { source: 'osv', id: 'GHSA-96fh-m4r8-6v9v', versions: ['0.300.0'] },
+    ])
+  })
+
+  it('with details, gives a registry row the text of OSV\'s record of its GHSA read once, and asks OSV for the rest', async () => {
+    const calls = stubBoth({
+      minimist: [row()],
+      lodash: [row({ id: 3, url: 'https://github.com/advisories/GHSA-35jh-r3h4-6jhm', title: 'Command Injection in lodash', vulnerable_versions: '<4.17.21' })],
+    }, { 'minimist@1.2.5': ['GHSA-xvch-5gv4-984h'] }, {
+      'GHSA-xvch-5gv4-984h': { ...record('GHSA-xvch-5gv4-984h', 'minimist', 'Prototype Pollution in minimist'), details: 'Text of GHSA-xvch-5gv4-984h' },
+      'GHSA-35jh-r3h4-6jhm': { ...record('GHSA-35jh-r3h4-6jhm', 'lodash', 'Command Injection in lodash'), details: 'Text of GHSA-35jh-r3h4-6jhm' },
+    })
+    const found = await advisories([{ ecosystem: 'npm', name: 'minimist', versions: ['1.2.5'] }, { ecosystem: 'npm', name: 'lodash', versions: ['4.17.15'] }], { osv: true, details: true })
+    assert.deepEqual(found.map(({ source, id, details }) => ({ source, id, details })), [
+      { source: 'registry', id: 'GHSA-35jh-r3h4-6jhm', details: 'Text of GHSA-35jh-r3h4-6jhm' },
+      { source: 'registry', id: 'GHSA-xvch-5gv4-984h', details: 'Text of GHSA-xvch-5gv4-984h' },
+    ])
+    assert.deepEqual(calls.filter((url) => url.startsWith(VULN)).toSorted(), [`${VULN}GHSA-35jh-r3h4-6jhm`, `${VULN}GHSA-xvch-5gv4-984h`], 'each record read once')
+  })
+
+  it('asks OSV of nothing without it', async () => {
+    const calls = stubBoth({}, { 'nx@21.5.0': ['MAL-2025-41443'] }, {})
+    assert.deepEqual(await npm([{ name: 'nx', version: '21.5.0' }]), [])
+    assert.deepEqual(calls, [BULK])
+  })
+
+  it('throws where OSV fails, as for cargo and composer', async () => {
+    stubBoth({}, {}, {})
+    const fetch = globalThis.fetch
+    globalThis.fetch = (url, init) => (String(url) === BATCH ? Promise.resolve(Response.json({ error: 'nope' }, { status: 503 })) : fetch(url, init))
+    await assert.rejects(npm([{ name: 'nx', version: '21.5.0' }], { osv: true }), (err) => err instanceof HttpError && err.status === 503)
   })
 })
 

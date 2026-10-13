@@ -84,9 +84,9 @@ function toAdvisory(ecosystem, name, versions, record, details) {
 // publishes comes back under each one's id, the records naming each other
 // as aliases, either way round, directly or through others: one group, in
 // which each version is reported under the first answered for it, and
-// each record has the others' ids as aliases.
-async function osvAdvisories(ecosystem, asked, options) {
-  const { osv, github, lookUp, covers } = ecosystem
+// each record has the others' ids as aliases. `osv` is OSV's name for the
+// ecosystem.
+export async function osvRows({ osv }, asked, { details }) {
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id -> name -> versions, in `list` order
   for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
@@ -118,9 +118,14 @@ async function osvAdvisories(ecosystem, asked, options) {
     const aliases = [...new Set([...record.aliases, ...group.map((other) => other.id)])].filter((id) => id !== record.id)
     for (const [name, versions] of hits.get(record.id)) {
       const rest = [...versions].filter((version) => !above.some((other) => hits.get(other.id).get(name)?.has(version)))
-      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }, options.details))
+      if (rest.length > 0) rows.push(toAdvisory(osv, name, rest, { ...record, aliases }, details))
     }
   }
   rows.sort((a, b) => order(a.name, b.name) || order(a.id, b.id))
-  return await withRepositories(rows, asked, options, { ecosystem: github, lookUp, covers })
+  return rows
+}
+
+async function osvAdvisories(ecosystem, asked, options) {
+  const { github, lookUp, covers } = ecosystem
+  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, { ecosystem: github, lookUp, covers })
 }
