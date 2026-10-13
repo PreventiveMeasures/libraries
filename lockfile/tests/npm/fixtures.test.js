@@ -11,7 +11,8 @@ import { fixture, parse, plain } from './base.js'
 // gives a version of a package its dependent does not ask for. Each but
 // the plain one and the override's again as lockfileVersion 2, as npm 9 to
 // 12 write it when set to, and the workspace as npm 8 writes it by default.
-// scripts/record-npm.js builds them; its header says what is in them.
+// scripts/record-npm.js records them into fixtures.json.br; its header
+// says what is in them.
 
 const read = (name, options) => parse(fixture(name), options)
 const VERSIONS = ['npm-9', 'npm-10', 'npm-11', 'npm-12']

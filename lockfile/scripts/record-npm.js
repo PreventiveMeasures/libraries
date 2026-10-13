@@ -1,6 +1,8 @@
-// Records what npm writes for the projects below into tests/npm/fixtures/,
-// each package-lock.json as <name>.json. Needs npm, git and network access
-// to the npm registry and github.com:
+// Records what npm writes for the projects below into
+// tests/npm/fixtures.json.br, each package-lock.json by its run's name: one
+// JSON object of their texts, compressed with brotli, which
+// tests/npm/base.js reads. Needs npm, git and network access to the npm
+// registry and github.com:
 //
 //     node lockfile/scripts/record-npm.js [name...]
 //
@@ -33,12 +35,23 @@
 // writes it by default, of version 2, the file npm 7.24.2 writes too.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib'
 
-const OUT = fileURLToPath(new URL('../tests/npm/fixtures/', import.meta.url))
+const OUT = new URL('../tests/npm/fixtures.json.br', import.meta.url)
+
+// The fixtures there already, which a run named replaces its own of.
+const fixtures = existsSync(OUT) ? JSON.parse(brotliDecompressSync(readFileSync(OUT)).toString('utf8')) : {}
+
+// By name, at brotli's best, with a window wide enough to take the
+// lockfiles of one project as the near copies they are.
+function save() {
+  const text = JSON.stringify(Object.fromEntries(Object.entries(fixtures).sort(([a], [b]) => (a < b ? -1 : 1))))
+  const params = { [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT, [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: text.length }
+  writeFileSync(OUT, brotliCompressSync(text, { params }))
+}
 
 const ODD = 'https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz'
 const GIT = 'git+https://github.com/juliangruber/isarray.git#v2.0.5'
@@ -175,7 +188,8 @@ for (const run of RUNS.filter(({ name }) => only.length === 0 || only.includes(n
   try {
     lay(dir, run)
     npm(...INSTALL, ...run.args ?? [])
-    write(OUT, `${run.name}.json`, readFileSync(join(dir, 'package-lock.json'), 'utf8'))
+    fixtures[run.name] = readFileSync(join(dir, 'package-lock.json'), 'utf8')
+    save()
   } finally {
     rmSync(top, { recursive: true, force: true })
     rmSync(`${top}.cache`, { recursive: true, force: true })

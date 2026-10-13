@@ -4,14 +4,22 @@
 // ones, a directory linked and a workspace with its own node_modules — as
 // npm writes it, of version 3 and of 2; and the same with an edit, as text.
 // And what the tests share: the reader with semver, and the lockfiles npm
-// wrote.
+// wrote, which scripts/record-npm.js records into fixtures.json.br, one
+// JSON object of their texts by name, compressed with brotli.
 
 import { readFileSync } from 'node:fs'
+import { brotliDecompressSync } from 'node:zlib'
 import { parseNpmLockfile } from '../../npm.js'
 import { semver } from '../yarn1/semver.js'
 
+const FIXTURES = JSON.parse(brotliDecompressSync(readFileSync(new URL('fixtures.json.br', import.meta.url))).toString('utf8'))
+
 export const parse = (text, options) => parseNpmLockfile(text, options ?? { semver })
-export const fixture = (name) => readFileSync(new URL(`fixtures/${name}.json`, import.meta.url), 'utf8')
+
+export function fixture(name) {
+  if (!Object.hasOwn(FIXTURES, name)) throw new Error(`no fixture ${name}`)
+  return FIXTURES[name]
+}
 export const plain = (value) => structuredClone(value)
 
 export const I = 'sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=='
