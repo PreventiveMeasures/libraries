@@ -198,14 +198,16 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'imports' | 'code' | '
 // - oxc's tree has no statement but those stripping erases whole -- interfaces,
 //   type aliases, anything `declare`d (bodies and initializers with it), a
 //   function's signature, imports and exports of types alone, a namespace of
-//   types alone -- and `export {}` and `export as namespace N`, which load and
-//   run nothing;
+//   types alone -- and `export {}`, left as valid JavaScript that loads and runs
+//   nothing (not `export as namespace N`, left as invalid JavaScript that throws
+//   when the file is imported);
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
-//   and leaves nothing it does not, but comments, the hashbang and those two;
+//   and leaves nothing it does not, but comments, the hashbang and that one;
 // - what it leaves, read token by token apart from either, holds nothing else;
 // - nor does what its transform mode (--experimental-transform-types) leaves.
-// `at` is where in `text` what is found begins, where it has a place. Node
-// warns once that stripTypeScriptTypes is experimental.
+// `at` is where in `text` what is found begins, where it has a place. Throws a
+// TypeError where `text` is not a well-formed string. Node warns once that
+// stripTypeScriptTypes is experimental.
 export function proveTypeOnly(text: string): { proven: true } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree

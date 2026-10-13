@@ -3,5 +3,6 @@
 
 export function proveTypeOnly(text) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
+  if (!text.isWellFormed()) throw new TypeError('a text must be a well-formed string')
   return { proven: false, reason: 'unsupported', at: null }
 }

@@ -69,9 +69,20 @@ describe('Node runs a .d.ts as the .ts it is named', () => {
 describe('proveTypeOnly', () => {
   it('proves declaration files of types alone, as tsc writes them and as written by hand', () => {
     assert.deepEqual(proveTypeOnly(EMITTED), { proven: true })
-    assert.deepEqual(proveTypeOnly(UMD), { proven: true })
     for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export { type A }\n', 'declare const x = 1, y: 2\n',
       'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) assert.deepEqual(proveTypeOnly(text), { proven: true }, text)
+  })
+
+  // Node leaves `export as namespace N` verbatim; as JavaScript it is a syntax error, so importing the
+  // file throws rather than running nothing -- a change compareTrees must not stamp as type-only.
+  it('refuses a UMD global export, left as invalid JavaScript that throws when imported', () => {
+    for (const [text, at] of [['export as namespace Foo', 0], ['export as namespace Foo;\nexport {}', 0], ['declare const x: 1\nexport as namespace N', 19]]) {
+      assert.deepEqual(proveTypeOnly(text), refused('code', at), text)
+    }
+    const umd = proveTypeOnly(UMD)
+    assert.equal(umd.proven, false)
+    assert.equal(umd.reason, 'code')
+    assert.ok(UMD.slice(umd.at).startsWith('export as namespace'), 'at the namespace export')
   })
 
   it('refuses what loads a module, a type imported by name from it too', () => {
@@ -92,10 +103,15 @@ describe('proveTypeOnly', () => {
 
   it('refuses what Node or oxc finds an error in, what only a declaration file may write among it', () => {
     for (const [text, at] of [['export const x: number', null], ['type A = 1 /* unclosed', null], ['declare const x: 1\n<!-- a comment to a script', null],
-      ['declare namespace N { f() }', 22], ['type A = "\uD800"', 10], ['\uFEFFtype A = "\uDC00"', 11]]) {
+      ['declare namespace N { f() }', 22]]) {
       assert.deepEqual(proveTypeOnly(text), refused('unparsed', at), text)
     }
-    assert.throws(() => proveTypeOnly(null), TypeError)
+  })
+
+  it('throws where the input is not a well-formed string', () => {
+    for (const bad of [null, undefined, 42, {}, Buffer.from('type A = 1'), 'type A = "\uD800"', '\uFEFFtype A = "\uDC00"', 'declare const x: 1 // \uDBFF']) {
+      assert.throws(() => proveTypeOnly(bad), TypeError, String(bad))
+    }
   })
 })
 
@@ -158,14 +174,14 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
 })
 
 describe('what Node leaves of a declaration file, read token by token', () => {
-  it('may hold blanks, comments, a hashbang first, `export {}` and `export as namespace N`', () => {
+  it('may hold blanks, comments, a hashbang first, and `export {}` with any trailing `;`', () => {
     for (const text of ['', ' \t\n\r\v\f\u00A0\uFEFF\u2028\u2029\u3000', '// a\n/* b\n */', '#!/usr/bin/env node\n// x', 'export {};', 'export {        }\n',
-      'export /* a */ { // b\n}', 'export as namespace Foo;\nexport as namespace $_1']) assert.equal(leftover(text), -1, text)
+      'export /* a */ { // b\n}', 'export {}\nexport {}']) assert.equal(leftover(text), -1, text)
   })
 
-  it('holds nothing else', () => {
+  it('holds nothing else, a bare `;` and `export as namespace N` among it', () => {
     for (const [text, at] of [['f()', 0], ['// a\u2028f()', 5], ['// a\u2029f()', 5], ['/* a', 0], ['<!-- a', 0], ['--> a', 0], [';', 0], ["export {} from 'a'", 10],
-      ['export * from "a"', 0], ['exports {}', 0], ['export\u200C{}', 0], ['export as namespace \u00E9', 0], ['export as namespace a.b', 21], [' #!/a', 1],
+      ['export * from "a"', 0], ['exports {}', 0], ['export\u200C{}', 0], ['export as namespace Foo', 0], ['export as namespace a.b', 0], [' #!/a', 1],
       ['export default {}', 0], ['"use strict"', 0], ['export {}\nx', 10]]) assert.equal(leftover(text), at, text)
   })
 })
@@ -197,5 +213,14 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     const text = 'export declare const a: 1\nexport declare const b: 2\nexport declare const c: 3\n'
     assert.deepEqual(compareTrees(tree({ 'a.d.ts': text }), tree({ 'b.d.ts': text })).map(({ status, typeOnly }) => [status, typeOnly]), [['renamed', true]])
     assert.deepEqual(compareTrees(tree({ 'a.d.ts': text }), tree({ 'a.js': text })).map(({ status, typeOnly }) => [status, typeOnly]), [['renamed', undefined]])
+  })
+
+  // A change to or from `export as namespace N` flips the file between importable and throwing on import,
+  // so it is not type-only however little of the rest is code.
+  it('none where a side gains a namespace export, left as invalid JavaScript', () => {
+    for (const ext of ['d.ts', 'd.mts']) {
+      assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const a: 1\n' }, { [`a.${ext}`]: 'export as namespace A\n' }, { renames: false }), [[`modified a.${ext}`, undefined]])
+    }
+    assert.deepEqual(stamps({}, { 'a.d.ts': 'export as namespace A\n' }, { renames: false }), [['added a.d.ts', undefined]])
   })
 })

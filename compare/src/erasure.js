@@ -3,8 +3,10 @@
 // so a declaration file runs nothing only where stripping leaves nothing to run. Nothing here
 // parses; types.node.js gives both the tree and Node's text.
 
-// What stripping makes of a statement: nothing (`erased`); `export {}` or `export as namespace N`,
-// which import and run nothing (`inert`); a statement that loads a module (`imports`); or code.
+// What stripping makes of a statement: nothing (`erased`); `export {}` (empty, or of types alone), left as
+// valid JavaScript that loads and runs nothing (`inert`); a statement that loads a module (`imports`); or
+// code -- `export as namespace N` among it, which stripping leaves verbatim as invalid JavaScript, so the
+// file throws a SyntaxError when imported rather than running nothing.
 export const CODE = 'code', ERASED = 'erased', IMPORT = 'imports', INERT = 'inert'
 
 const TYPES = new Set(['TSInterfaceDeclaration', 'TSTypeAliasDeclaration'])
@@ -50,19 +52,18 @@ export function strippedAs(statement) {
       if (statement.source) return IMPORT
       return statement.specifiers.every((specifier) => specifier.exportKind === 'type') ? INERT : CODE
     case 'ExportDefaultDeclaration': return statement.declaration.type === 'TSInterfaceDeclaration' || statement.declaration.type === 'TSDeclareFunction' ? ERASED : CODE
-    case 'TSNamespaceExportDeclaration': return INERT
+    // `export as namespace N` is left verbatim, invalid as JavaScript, so importing the file throws.
+    case 'TSNamespaceExportDeclaration': return CODE
     default: return erased(statement) ? ERASED : CODE
   }
 }
 
 // What a stripped text may hold, read token by token as no parser reads it: blanks and line breaks
-// (JavaScript's, `\s`), comments, a hashbang first, and the inert statements, a name in them ASCII.
+// (JavaScript's, `\s`), comments, a hashbang first, and `export {}` (empty, or what was all type
+// specifiers), with any trailing `;`.
 const LINE_END = /[\n\r\u2028\u2029]/gu
 const BLANK = /\s/u
-const INERT_FORMS = [
-  [/export(?![\w$])/uy, /\{/uy, /\}/uy],
-  [/export(?![\w$])/uy, /as(?![\w$])/uy, /namespace(?![\w$])/uy, /[A-Za-z_$][\w$]*(?![\w$])/uy],
-]
+const EXPORT_EMPTY = [/export(?![\w$])/uy, /\{/uy, /\}/uy]
 
 function lineEnd(text, at) {
   LINE_END.lastIndex = at
@@ -80,19 +81,16 @@ function skip(text, at) {
   }
 }
 
-function inertEnd(text, from) {
-  for (const form of INERT_FORMS) {
-    let at = from
-    for (const token of form) {
-      token.lastIndex = skip(text, at)
-      at = token.test(text) ? token.lastIndex : -1
-      if (at === -1) break
-    }
-    if (at === -1) continue
-    const semicolon = skip(text, at)
-    return text[semicolon] === ';' ? semicolon + 1 : at
+// Past an `export {}` from `from`, with any trailing `;`, or -1 where none starts there.
+function exportEmptyEnd(text, from) {
+  let at = from
+  for (const token of EXPORT_EMPTY) {
+    token.lastIndex = skip(text, at)
+    at = token.test(text) ? token.lastIndex : -1
+    if (at === -1) return -1
   }
-  return -1
+  const semicolon = skip(text, at)
+  return text[semicolon] === ';' ? semicolon + 1 : at
 }
 
 // Where a stripped text first holds anything else, or -1 where it holds nothing else.
@@ -101,7 +99,7 @@ export function leftover(text) {
   for (;;) {
     at = skip(text, at)
     if (at === text.length) return -1
-    const end = inertEnd(text, at)
+    const end = exportEmptyEnd(text, at)
     if (end === -1) return at
     at = end
   }

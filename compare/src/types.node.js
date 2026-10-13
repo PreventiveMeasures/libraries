@@ -67,6 +67,8 @@ function disagreement(text, code, { comments, program }, { erased, inert }) {
   const kept = new Uint8Array(text.length)
   for (const { start, end } of [...comments, ...inert, ...(program.hashbang ? [program.hashbang] : [])]) kept.fill(1, start, end)
   for (const { start, end } of erased) kept.fill(0, start, end)
+  // A character stripping changed must become a blank, not a line break written over one; one it kept
+  // must be a blank, or lie in a span.
   for (let i = 0; i < text.length; i++) {
     if (code[i] === text[i] ? !kept[i] && !BLANK.test(code[i]) : !WRITTEN.test(code[i]) || LINE_BREAK.test(text[i])) return i
   }
@@ -76,12 +78,12 @@ function disagreement(text, code, { comments, program }, { erased, inert }) {
 // proveTypeOnly with the stripping given: exported for tests alone, not by the package.
 export function proveWith(text, stripTypeScriptTypes) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
+  if (!text.isWellFormed()) throw new TypeError('a text must be a well-formed string')
   const parseSync = parser()
   if (typeof stripTypeScriptTypes !== 'function' || parseSync === null || !trusted(stripTypeScriptTypes)) return UNSUPPORTED
   // Stripping drops a byte order mark the text starts with.
   const shift = text.startsWith('\uFEFF') ? 1 : 0
   const body = text.slice(shift)
-  if (!body.isWellFormed()) return refused('unparsed', shift + body.search(/\p{Cs}/u))
   // Stripping goes first: oxc's parser, native, overflows its stack on nesting deep enough and ends the
   // process, where stripping throws first, at less than half the depth on an 8 MB stack. oxc reads only
   // what stripping read whole: it either strips it, or refuses what it does not erase once it has read it all.
