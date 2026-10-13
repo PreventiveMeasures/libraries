@@ -131,6 +131,17 @@ describe('format', () => {
     assert.ok('code' in await format(`x = ${Array.from({ length: 10_000 }, () => 'a').join(' || ')}`, 'js'))
   })
 
+  it('ends the line a block comment over more than one ends, indented as its first', async () => {
+    const license = '/**\n * @license\n * Copyright 2017 Google LLC\n * SPDX-License-Identifier: BSD-3-Clause\n */'
+    assert.deepEqual(await format(`import{a as s}from"x";${license}class e extends s{}`, 'mjs'),
+      { code: `import { a as s } from "x";\n${license}\nclass e extends s {}\n` })
+    assert.deepEqual(await format('function f(){/**\n * a\n */return 1}', 'js'), { code: 'function f() {\n  /**\n   * a\n   */\n  return 1;\n}\n' })
+    assert.deepEqual(await format('/**\n * a\n *//**\n * b\n */c()', 'js'), { code: '/**\n * a\n */\n/**\n * b\n */\nc();\n' }, 'one after another')
+    assert.deepEqual(await format('/* a */f()', 'js'), { code: '/* a */ f();\n' }, 'one on one line keeps it')
+    // One holding a line break ends a line to the parser already: `return` returns nothing here, before and after.
+    assert.deepEqual(await format('function f(){return/**\n*/1}', 'js'), { code: 'function f() {\n  return;\n  /**\n   */\n  1;\n}\n' })
+  })
+
   it('formats CSS where css-tree is there to check it', async () => {
     assert.deepEqual(await format('a{color:#ABC;margin:.5EM}', 'css'), { code: 'a {\n  color: #abc;\n  margin: 0.5em;\n}\n' })
   })

@@ -89,6 +89,27 @@ export function sameCode(text, formatted, extension = 'js', csstree = null) {
   return before !== null && after !== null && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
 }
 
+// A script's block comments over more than one line, a license's say, each end their line: what oxfmt
+// leaves after one on its last line (`*/ class A {`) goes to the next, indented as the comment's first
+// line is. A comment holding a line break ends a line to the parser already (`return /*\n*/ 1` returns),
+// so the break changes nothing it reads; the check after says so.
+function breakAfterComments(code, extension) {
+  if (!SCRIPTS.has(extension) || !/\*\/[\t ]*\S/u.test(code)) return code
+  const result = parsed(code, extension)
+  if (!result) return code
+  let from = 0, out = ''
+  for (const { type, value, start, end } of result.comments) {
+    const lineEnd = code.indexOf('\n', end)
+    const rest = code.slice(end, lineEnd === -1 ? code.length : lineEnd)
+    if (type !== 'Block' || !value.includes('\n') || rest.trim() === '') continue
+    out += code.slice(from, end)
+    const line = out.slice(out.lastIndexOf('\n', out.length - (end - start)) + 1)
+    out += `\n${/^[\t ]*/u.exec(line)[0]}`
+    from = end + rest.length - rest.trimStart().length
+  }
+  return out + code.slice(from)
+}
+
 // Only what can be checked is formatted: scripts, JSON, and CSS where css-tree is there to read it.
 // oxfmt is loaded outside the try: one missing is thrown, not taken for a file that won't format.
 export async function format(text, extension) {
@@ -99,7 +120,8 @@ export async function format(text, extension) {
   if (result === null || result.errors.length > 0) return { error: 'unformattable' }
   // A check that fails in itself, its stack say, refuses the copy as one that finds it changed would.
   try {
-    return sameCode(text, result.code, extension, csstree) ? { code: result.code } : { error: 'pretty-mismatch' }
+    const code = breakAfterComments(result.code, extension)
+    return sameCode(text, code, extension, csstree) ? { code } : { error: 'pretty-mismatch' }
   } catch {
     return { error: 'pretty-mismatch' }
   }
