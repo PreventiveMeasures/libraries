@@ -71,7 +71,7 @@ importers:
         specifier: 1.0.0-beta.4
         version: link:../archive
       '@preventive/compare':
-        specifier: ^1.0.2
+        specifier: ^1.1.0
         version: link:../compare
       '@preventive/diff':
         specifier: ^1.0.2
