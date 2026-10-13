@@ -268,6 +268,9 @@ describe('what else pnpm writes is read', () => {
     refuses(edit(['      c: 2.0.0\n\n  b@1.0.0', '\n  b@1.0.0']), `${where}: the peer "c@2.0.0" is not one of its dependencies, nor a peer of theirs it resolves`)
     refuses(edit(['      c: 2.0.0\n\n  b@1.0.0', '\n    transitivePeerDependencies:\n      - c\n\n  b@1.0.0'], ['1.0.0(c@2.0.0)', '1.0.0(c@9.0.0)'], ['  a@1.0.0(c@2.0.0):', '  a@1.0.0(c@9.0.0):']), 'snapshots["a@1.0.0(c@9.0.0)"]: the peer "c@9.0.0" is not one of its dependencies, nor a peer of theirs it resolves')
     refuses(edit(['1.0.0(c@2.0.0)', '1.0.0(not a peer)'], ['  a@1.0.0(c@2.0.0):', "  'a@1.0.0(not a peer)':"]), 'snapshots["a@1.0.0(not a peer)"]: "not a peer" is not a peer, as pnpm writes one in a key')
+    // A dependency before the peer whose package is missing: refused as
+    // that, not a TypeError.
+    refuses(edit(['    dependencies:\n      b: 1.0.0(patch_hash', '    dependencies:\n      y: 1.0.0\n      b: 1.0.0(patch_hash'], ['  c@2.0.0: {}\n', '  c@2.0.0: {}\n\n  y@1.0.0: {}\n']), 'snapshots["y@1.0.0"]: "y@1.0.0" is not in packages')
   })
 
   it('peers past peersSuffixMaxLength, as the one hash pnpm puts in their place', () => {

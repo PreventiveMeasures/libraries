@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError, parseSoldeerLockfile } from '../../soldeer.js'
 import { parseToml } from '../../toml.js'
+import { toml } from './toml.js'
 
 // Real lockfiles, each with the soldeer.toml it was written for: Soldeer
 // 0.12, 0.11 and 0.5 locking one config of every kind of dependency;
@@ -13,8 +14,6 @@ const FIXTURES = new URL('fixtures/', import.meta.url)
 const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
 const config = (name) => parseToml(readFileSync(new URL(`${name}.toml`, FIXTURES), 'utf8'))
 const read = (name) => parseSoldeerLockfile(text(name), { config: config(name) })
-// A value as parseToml makes it: each object a table, of a null prototype.
-const toml = (value) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.assign(Object.create(null), Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toml(item)]))) : value)
 
 const plain = (value) => structuredClone(value)
 

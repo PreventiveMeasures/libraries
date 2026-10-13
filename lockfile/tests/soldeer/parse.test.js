@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { LockfileError, TomlError, parseSoldeerLockfile } from '../../soldeer.js'
 import { parseToml } from '../../toml.js'
+import { toml } from './toml.js'
 
 const H = 'a'.repeat(64)
 const C = 'b'.repeat(40)
@@ -154,8 +155,6 @@ describe('the config', () => {
     'b-git': { version: 'v1', git: 'https://example.com/b.git', branch: 'main' },
     'c-private': { version: '>=2.0.0, <3.0.0' },
   }
-  // A value as parseToml makes it: each object a table, of a null prototype.
-  const toml = (value) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.assign(Object.create(null), Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toml(item)]))) : value)
   const config = (extra) => toml({ soldeer: { remappings_generate: false }, dependencies: { ...DEPENDENCIES, ...extra } })
   const DEPS = '[dependencies]\n"a-lib" = "^1.0.0"\n"b-git" = { version = "v1", git = "https://example.com/b.git", branch = "main" }\n"c-private" = { version = ">=2.0.0, <3.0.0" }\n'
 

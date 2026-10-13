@@ -17,30 +17,17 @@ function identify(text, where) {
   return { name, version: field(pkg, 'version', here, checkCrateVersion) ?? '0.0.0' }
 }
 
-// JSON.parse would take the last of a key given twice.
-function parseJson(text, where) {
-  const value = attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`, where))
-  // A key is a string a colon follows.
+// The keys written, each a string a colon follows: more than JSON.parse
+// leaves, which takes the last of a key given twice.
+function keysWritten(text) {
   let written = 0
   for (const match of text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/gsu)) if (match[1] !== undefined) written++
-  // The keys of every object, counted with a stack of its own, as what is
-  // checked after may nest deeper than the call stack goes.
-  let keys = 0
-  const stack = [value]
-  while (stack.length > 0) {
-    const item = stack.pop()
-    if (typeof item !== 'object' || item === null) continue
-    const values = Object.values(item)
-    if (!Array.isArray(item)) keys += values.length
-    for (const x of values) stack.push(x)
-  }
-  if (written !== keys) throw new LockfileError('a key is given twice', where)
-  return value
+  return written
 }
 
 // `package` is null for a git source; cargo 1.9x adds a `$comment`.
 function readChecksum(text, where) {
-  const value = parseJson(text, where)
+  const value = attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`, where))
   if (!isMapping(value)) throw new LockfileError('expected an object', where)
   if (value.$comment !== undefined && typeof value.$comment !== 'string') throw new LockfileError('expected "$comment" to be a string', where)
   const keys = Object.keys(value).filter((key) => key !== '$comment').sort().join()
@@ -53,6 +40,7 @@ function readChecksum(text, where) {
     if (typeof sum !== 'string' || !isHexSha256(sum)) throw new LockfileError(`expected a sha256 for ${quote(path)}`, where)
     files[path] = sum
   }
+  if (keysWritten(text) !== Object.keys(value).length + Object.keys(files).length) throw new LockfileError('a key is given twice', where)
   return { checksum: value.package ?? undefined, files }
 }
 

@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test'
 import { LockfileError } from '../../npm.js'
 import { isName } from '../../src/names.js'
 import { random } from '../random.js'
-import { BASE, C, I, fixture, parse, plain, registry, write } from './base.js'
+import { BASE, C, I, fixture, legacyEntries, parse, plain, published, registry, write } from './base.js'
 import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 
 // Arborist, from the npm beside node, against this reader, over lockfiles
@@ -19,8 +19,6 @@ import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 // the same, and is refused with any one field of that tree changed. The
 // seed is fixed, so a failure names its lockfile and comes back on a
 // rerun.
-
-const published = (name, release, rest = {}) => ({ version: release, resolved: registry(name, release), integrity: I, ...rest })
 
 // A project linked from its own node_modules, which npm writes the tree for
 // npm 6 again under; two packages a node_modules deep, of one name, that
@@ -270,15 +268,6 @@ function compare(lock, { nodes, met }) {
   return true
 }
 
-// Each entry of a tree for npm 6, with the mapping it is in.
-function legacyEntries(dependencies, found = []) {
-  for (const [name, entry] of Object.entries(dependencies)) {
-    found.push([dependencies, name, entry])
-    if (entry.dependencies !== undefined) legacyEntries(entry.dependencies, found)
-  }
-  return found
-}
-
 // One field of one entry of the tree for npm 6 changed, or an entry taken
 // out or put in, none of which npm writes.
 function changeLegacy({ next, pick }, dependencies) {
@@ -290,11 +279,14 @@ function changeLegacy({ next, pick }, dependencies) {
   const r = next()
   if (r < 0.15) entry.version = `${entry.version}-x`
   else if (r < 0.35) toggle(pick(['dev', 'optional', 'devOptional', 'peer', 'bundled']), true)
-  else if (r < 0.5 && entry.requires !== undefined && Object.keys(entry.requires).length > 0) {
-    const required = pick(Object.keys(entry.requires))
-    entry.requires[required] = `${entry.requires[required]} || 9`
-  } else if (r < 0.5) entry.requires = { ...entry.requires, 'zz-extra': '1.0.0' }
-  else if (r < 0.6) delete holder[name]
+  else if (r < 0.5) {
+    const required = Object.keys(entry.requires ?? {})
+    if (required.length === 0) entry.requires = { ...entry.requires, 'zz-extra': '1.0.0' }
+    else {
+      const key = pick(required)
+      entry.requires[key] = `${entry.requires[key]} || 9`
+    }
+  } else if (r < 0.6) delete holder[name]
   else if (r < 0.7) holder['zz-extra'] = { version: '1.0.0' }
   else if (r < 0.8) toggle('integrity', I)
   else if (r < 0.9) entry.resolved = entry.resolved === undefined ? 'https://example.com/zz.tgz' : `${entry.resolved}?x`

@@ -10,13 +10,13 @@
 // document.
 
 import { parseYamlStream } from '../yaml/parse.js'
-import { fromBase32 } from '@exodus/bytes/base32.js'
 import { fromHex } from '@exodus/bytes/hex.js'
-import { LockfileError, at, attempt, quote } from '../error.js'
+import { LockfileError, at, quote } from '../error.js'
 import { KINDS, unreached } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative, isVersion } from '../names.js'
 import { boolean, count, field, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
+import { fromBase32Bare, isHash, splitPackageKey } from './key.js'
 import { byName, readPackages } from './packages.js'
 
 const FIELDS = [
@@ -44,18 +44,11 @@ const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, he
   return byName(['specifier', 'version'], (item, there) => ({ specifier: string(item.specifier, at(there, 'specifier')), version: text(item.version, at(there, 'version')) }))(names, here)
 })
 
-// A bare hash as pnpm writes one: lowercase hex, or base32 unpadded, of so
-// many bytes. Either decoder takes either case, and refuses all else.
-const fromBase32Bare = (hash) => fromBase32(hash, { padding: false })
-
-const isHash = (hash, bytes, decode) => attempt(() => hash === hash.toLowerCase() && decode(hash).length === bytes, () => false)
-
 // A patch's selector: a name and a version, or a name for every version.
 // A range pnpm matches by semver, which is not read here.
 function checkSelector(selector, where) {
-  const sep = selector.indexOf('@', 1)
-  checkName(sep === -1 ? selector : selector.slice(0, sep), where)
-  if (sep !== -1 && !isVersion(selector.slice(sep + 1))) throw new LockfileError(`${quote(selector)} is not a name and a version, or a name alone, which is not supported`, where)
+  if (selector.indexOf('@', 1) === -1) return checkName(selector, where)
+  if (!isVersion(splitPackageKey(selector, where).ref)) throw new LockfileError(`${quote(selector)} is not a name and a version, or a name alone, which is not supported`, where)
 }
 
 // pnpm 9 and 10 write a patch as its hash and the path of its file; pnpm 11

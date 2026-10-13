@@ -7,6 +7,7 @@
 import { sanitizeWithOptions } from '../crate/sanitize-filename.js'
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
+import { field, orEmpty } from '../shape.js'
 import { boolean, entries, kind as kindOf, string, table } from '../toml/shape.js'
 import { isInlineTable } from '../toml/value.js'
 
@@ -71,8 +72,8 @@ function checkEntry(entry, dependency, where) {
   if (fixed ? entry.version !== dependency.version : !satisfies(entry.version, dependency.version)) {
     throw new LockfileError(`${quote(dependency.version)}, which its entry's version, ${quote(entry.version)}, ${fixed ? 'is not' : 'does not satisfy'}`, at(where, 'version'))
   }
-  for (const field of ['url', 'git', 'rev']) {
-    if (dependency[field] !== undefined && dependency[field] !== entry[field]) throw new LockfileError(`${quote(dependency[field])}, where its entry has ${quote(entry[field])}`, at(where, field))
+  for (const key of ['url', 'git', 'rev']) {
+    if (dependency[key] !== undefined && dependency[key] !== entry[key]) throw new LockfileError(`${quote(dependency[key])}, where its entry has ${quote(entry[key])}`, at(where, key))
   }
 }
 
@@ -86,8 +87,8 @@ const SETTINGS = [...BOOLEANS, 'remappings_prefix', 'remappings_location']
 function checkSettings(settings, where) {
   if (settings === undefined) return
   table(settings, where, SETTINGS)
-  for (const key of BOOLEANS) if (settings[key] !== undefined) boolean(settings[key], at(where, key))
-  if (settings.remappings_prefix !== undefined) string(settings.remappings_prefix, at(where, 'remappings_prefix'))
+  for (const key of BOOLEANS) field(settings, key, where, boolean)
+  field(settings, 'remappings_prefix', where, string)
   const location = settings.remappings_location
   if (![undefined, 'txt', 'config'].includes(location)) throw new LockfileError(`expected "txt" or "config", found ${kindOf(location)}`, at(where, 'remappings_location'))
   if (settings.recursive_deps === true) throw new LockfileError('has Soldeer install what each dependency depends on too, which the lockfile does not have', at(where, 'recursive_deps'))
@@ -96,9 +97,8 @@ function checkSettings(settings, where) {
 // read_config_deps: a table from a header or dotted keys, as toml_edit
 // gives one; from an inline one Soldeer reads no dependency.
 function readDependencies(value, where) {
-  if (value === undefined) return Object.create(null)
-  if (isInlineTable(table(value, where))) throw new LockfileError('an inline table, from which Soldeer reads no dependency', where)
-  return value
+  if (value !== undefined && isInlineTable(table(value, where))) throw new LockfileError('an inline table, from which Soldeer reads no dependency', where)
+  return orEmpty(value)
 }
 
 export function checkConfig(config, dependencies) {

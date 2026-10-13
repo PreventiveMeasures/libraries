@@ -8,7 +8,7 @@
 // that npm 6 reads the lockfile as npm 7 and later do.
 
 import { LockfileError, at, attempt, quote } from '../error.js'
-import { relativeTo, resolvePath } from '../names.js'
+import { relativeTo } from '../names.js'
 import { kind, record } from '../shape.js'
 import { inDepBundle } from './bundles.js'
 import { FLAGS } from './entries.js'
@@ -38,14 +38,22 @@ function chosenEdges(node, semver) {
   let chosen = []
   let best
   for (const edge of node.edgesIn) {
-    if (!isValid(edge, semver)) continue
     const parts = edge.from.location.split('node_modules')
     const key = [parts.length, parts.at(-1)]
     const order = best === undefined ? -1 : key[0] - best[0] || key[1].localeCompare(best[1], 'en')
+    // One placed after the best met so far is not chosen, met or not.
+    if (order > 0 || !isValid(edge, semver)) continue
     if (order < 0) [chosen, best] = [[edge], key]
-    else if (order === 0) chosen.push(edge)
+    else chosen.push(edge)
   }
   return chosen
+}
+
+// A path, from the lockfile's directory, as npm saves it in a `file:` spec:
+// path.relative from the directory `dir`.
+function savedPath(dir, path) {
+  const relative = relativeTo(dir, path)
+  return `file:${relative === '.' ? '' : relative}`
 }
 
 // npm-package-arg's type of what an edge asks for, its saveSpec where it
@@ -55,7 +63,7 @@ function specOf(node, edge) {
   const dir = directoryOf(edge.from)
   const requested = readSpec(node.folder, edge.spec, dir, undefined)
   const raw = `${node.folder}@${edge.spec}`
-  if (requested.type === 'file') return { type: 'file', save: `file:${relativeTo(dir, requested.path)}`, raw }
+  if (requested.type === 'file') return { type: 'file', save: savedPath(dir, requested.path), raw }
   if (requested.type === 'remote') return { type: 'remote', save: requested.url, raw }
   return { type: requested.type, raw }
 }
@@ -92,15 +100,15 @@ function expectValue(value, expected, where, node) {
 
 const expect = (entry, key, expected, where, node) => expectValue(entry[key], expected, at(where, key), node)
 
-// A `file:` spec as npm writes it under `requires`: path.relative from the
-// directory that asks for it, `dir`, to where the spec leads from there. A
-// path from the root or a drive, or with a backslash, npm writes by where
-// the project is, or by the platform.
-function fileSpec(spec, dir, escape, where) {
-  const path = spec.slice(5)
-  if (/^(?:\/|[A-Za-z]:)|\\/u.test(path)) throw new LockfileError(`${quote(spec)} is a path npm writes by where the project is, which is not supported`, where)
-  const relative = relativeTo(dir, resolvePath(dir, path))
-  return `file:${escape(relative === '.' ? '' : relative)}`
+// A `file:` spec as npm writes it under `requires`, from the directory
+// that asks for it to where the spec leads from there. A path npm would
+// write by where the project is, or the home directory, is refused.
+function fileSpec(edge, dir, escape, where) {
+  const { path } = attempt(() => readSpec(edge.name, edge.spec, dir, undefined), (error) => {
+    if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
+    throw error
+  })
+  return escape(savedPath(dir, path))
 }
 
 // What a node asks for, but peers, as npm writes it: none where it asks
@@ -110,7 +118,7 @@ function requiresOf(node, escape, where) {
   const requires = Object.create(null)
   for (const edge of node.edges.values()) {
     if (edge.type.startsWith('peer')) continue
-    requires[edge.name] = edge.spec.startsWith('file:') ? fileSpec(edge.spec, directoryOf(node), escape, at(where, edge.name)) : edge.spec
+    requires[edge.name] = edge.spec.startsWith('file:') ? fileSpec(edge, directoryOf(node), escape, at(where, edge.name)) : edge.spec
   }
   return requires
 }
@@ -131,11 +139,11 @@ function checkRequires(value, node, escape, where) {
 
 // The tree under `written`, as npm writes it: an entry of each node in the
 // node_modules of `node`, but of a link to a directory the tree is in
-// there already, of those in `skip`; `path` is them and `node`'s own, for
-// the entries below.
-function checkTree(written, node, where, skip, path, context) {
-  const kids = new Set([...node.children.values()].filter((kid) => !skip.includes(packageOf(kid).location)))
+// there already, of those `above` it.
+function checkTree(written, node, where, above, context) {
+  const kids = new Set([...node.children.values()].filter((kid) => !above.includes(packageOf(kid).location)))
   if (kids.size === 0) return expectValue(written, undefined, where, node)
+  const path = [...above, node.location]
   const entries = written === undefined ? Object.create(null) : record(written, where)
   for (const [name, entry] of Object.entries(entries)) {
     const kid = node.children.get(name.toLowerCase())
@@ -186,27 +194,41 @@ function checkEntry(entry, node, where, path, context) {
   for (const flag of FLAGS) expect(entry, flag, node.flags?.[flag] || undefined, where, node)
   const target = packageOf(node)
   checkRequires(entry.requires, target, context.escape, at(where, 'requires'))
-  checkTree(entry.dependencies, target, at(where, 'dependencies'), path, [...path, target.location], context)
+  checkTree(entry.dependencies, target, at(where, 'dependencies'), path, context)
 }
 
-function check(written, nodes, semver, escaped) {
+// The tree, `#` in a path written as it is, or as `%23` where `escaped`;
+// `seen.hash` set where a `#` is met, so the other way could read otherwise.
+function check(written, nodes, semver, escaped, seen = {}) {
+  const escape = (path) => {
+    if (!path.includes('#')) return path
+    seen.hash = true
+    return escaped ? path.replaceAll('#', '%23') : path
+  }
   const root = nodes.get('')
-  const escape = escaped ? (path) => path.replaceAll('#', '%23') : (path) => path
-  const context = { semver, escape, own: new Map(), root, omitted: undefined, resolved: undefined }
-  checkTree(written, root, 'dependencies', [], [''], context)
+  checkTree(written, root, 'dependencies', [], { semver, escape, own: new Map(), root, omitted: undefined, resolved: undefined })
 }
+
+// One of the npms that write a `#` as `%23`, all of which set the flags as
+// npm 9 does.
+const ESCAPING = '9.0.0'
 
 // The tree under `dependencies` of a lockfile of version 2, from the nodes
 // as loaded and checked: as `npm` writes it, where given; else as one
 // version of npm does, and where none, the refusal is the latest one's.
-// An npm that writes a `#` as `%23` sets the flags as npm 9 does.
 export function checkLegacy(written, nodes, semver, npm) {
   if (npm !== undefined) return check(written, nodes, semver, escapesHash(npm))
-  const error = attempt(() => check(written, nodes, semver, false), (thrown) => thrown)
-  if (error === undefined) return
-  if (!(error instanceof LockfileError)) throw error
-  attempt(() => check(written, nodes, semver, true), () => {
-    throw error
-  })
-  checkFlags(nodes, '11.1.0', 'an npm that writes a "#" as "%23"')
+  const seen = { hash: false }
+  try {
+    check(written, nodes, semver, false, seen)
+  } catch (error) {
+    // The other way reads alike up to the first `#`, and so fails alike.
+    if (!(error instanceof LockfileError) || !seen.hash) throw error
+    try {
+      check(written, nodes, semver, true)
+    } catch {
+      throw error
+    }
+    checkFlags(nodes, ESCAPING, 'an npm that writes a "#" as "%23"')
+  }
 }

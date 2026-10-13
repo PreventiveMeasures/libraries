@@ -22,17 +22,20 @@ function bundlerOf(node, path = new Set()) {
 
 const underBundler = ({ parent }) => parent !== undefined && (parent.bundleDependencies !== undefined || underBundler(parent))
 
-// Whether a node, a package or a link, comes in the tarball of a package:
-// inDepBundle, of a bundler other than the project.
+// The bundler of a node, a package or a link, if any.
+const bundlerIn = (node) => (underBundler(node) ? bundlerOf(node) : undefined)
+
+// Whether a node comes in the tarball of a package: inDepBundle, of a
+// bundler other than the project.
 export function inDepBundle(node, root) {
-  const bundler = underBundler(node) ? bundlerOf(node) : undefined
+  const bundler = bundlerIn(node)
   return bundler !== undefined && bundler !== root
 }
 
 // A package bundled in another's tarball comes from it, and from nothing
 // else; the project's own it bundles are installed as any other.
 function checkBundled(node, root) {
-  const bundler = underBundler(node) ? bundlerOf(node) : undefined
+  const bundler = bundlerIn(node)
   if (node.inBundle !== (bundler !== undefined)) {
     throw new LockfileError(bundler === undefined ? 'set, where nothing bundles it' : `expected true, as ${quote(bundler.location)} bundles it`, at(node.where, 'inBundle'))
   }

@@ -4,7 +4,7 @@ import { LockfileError, parseNpmLockfile } from '../../npm.js'
 import { at } from '../../src/error.js'
 import { random } from '../random.js'
 import { semver } from '../yarn1/semver.js'
-import { BASE, BASE_V2, C, I, S1, edit, parse, plain, registry, write } from './base.js'
+import { BASE, BASE_V2, C, I, S1, edit, legacyEntries, parse, plain, registry, write } from './base.js'
 
 // The small lockfile of base.js, and then one edit at a time, each refused
 // with a message that says where and why.
@@ -670,13 +670,10 @@ describe('a lockfile of version 2, with the tree again for npm 6', () => {
   })
 
   it('a URL left out of every entry, as npm can be set to, or of none', () => {
-    const omit = (dependencies) => {
-      for (const entry of Object.values(dependencies)) {
-        delete entry.resolved
-        if (entry.dependencies !== undefined) omit(entry.dependencies)
-      }
+    const omit = (l) => {
+      for (const [, , entry] of legacyEntries(l.dependencies)) delete entry.resolved
     }
-    assert.equal(parse(v2((l) => omit(l.dependencies))).lockfileVersion, 2)
+    assert.equal(parse(v2(omit)).lockfileVersion, 2)
     refuses(v2((l) => delete l.dependencies.b.resolved), `expected "${registry('b', '1.0.0')}": npm leaves it out of every entry or of none, and dependencies["@s/o"].resolved has it`, `${D('b')}.resolved`)
     refuses(v2((l) => delete l.dependencies['@s/o'].resolved), 'expected none: npm leaves it out of every entry or of none, and dependencies["@s/o"].resolved has none', `${D('a')}.resolved`)
   })
@@ -726,7 +723,7 @@ describe('a lockfile of version 2, with the tree again for npm 6', () => {
     const up = { z: 'file:../..', y: 'file:./../d/./x', w: 'file:../../..' }
     assert.equal(parse(v2(outside(up, { z: 'file:../..', y: 'file:x', w: 'file:../../..' }))).importers['../d'].edges.z.target, undefined)
     assert.equal(parse(edit(outside({ z: 'file:/abs/z.tgz' }), BASE)).importers['../d'].edges.z.target, undefined)
-    refuses(v2(outside({ z: 'file:/abs/z.tgz' })), '"file:/abs/z.tgz" is a path npm writes by where the project is, which is not supported', `${D('d')}.requires.z`)
+    refuses(v2(outside({ z: 'file:/abs/z.tgz' })), '"file:/abs/z.tgz" is a path from the root, a drive or the home directory, which a lockfile does not hold', `${D('d')}.requires.z`)
   })
 
   it('a link to the project, under which npm writes the tree again', () => {
