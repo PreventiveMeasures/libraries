@@ -1,17 +1,23 @@
 {
   "name": "@preventive/publishers",
   "version": "1.0.0",
-  "description": "The accounts known to publish packages: for npm, each that published one of its most downloaded packages over time",
+  "description": "The accounts known to publish packages: for npm, each that published one of its most downloaded packages over time, and the scopes of those packages",
   "type": "module",
   "exports": {
     "./npm.js": {
       "types": "./npm.d.ts",
       "default": "./npm.js"
+    },
+    "./npm-scopes.js": {
+      "types": "./npm-scopes.d.ts",
+      "default": "./npm-scopes.js"
     }
   },
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "npm-scopes.d.ts",
+    "npm-scopes.js",
     "npm.d.ts",
     "npm.js"
   ],
