@@ -50,7 +50,7 @@ function readTop(doc) {
   if (!/^[\da-f]{32}$/u.test(contentHash)) throw new LockfileError(`${quote(contentHash)} is not an md5 in lowercase hex`, 'content-hash')
   for (const key of ['prefer-stable', 'prefer-lowest']) if (typeof doc[key] !== 'boolean') throw refuse('true or false', doc[key], key)
   const minimumStability = doc['minimum-stability']
-  if (!Object.hasOwn(STABILITIES, minimumStability)) throw new LockfileError(`expected one of ${Object.keys(STABILITIES).join(', ')}, found ${kind(minimumStability)}`, 'minimum-stability')
+  if (typeof minimumStability !== 'string' || !Object.hasOwn(STABILITIES, minimumStability)) throw new LockfileError(`expected one of ${Object.keys(STABILITIES).join(', ')}, found ${kind(minimumStability)}`, 'minimum-stability')
   return { contentHash, pluginApiVersion, minimumStability }
 }
 
@@ -103,20 +103,20 @@ function readOverrides(value) {
   const where = 'platform-overrides'
   if (value === undefined) return Object.create(null)
   if (!isMapping(value) || isEmptyObject(value)) throw refuse('a non-empty mapping, as Composer writes it where there are any', value, where)
-  // PlatformRepository refuses false of `php` as written, and keys each
-  // override by its name in lowercase, the last of it; false of PHP so, it
-  // disables php, which no install gets past.
-  const missing = (here) => new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
-  let php
-  const overrides = mapping(value, where, (version, here, name) => {
+  // PlatformRepository keys each override by its name in lowercase, and
+  // takes the last of a name: two are refused, as either would be read as
+  // the one. It refuses false of `php`; false of PHP, it disables php,
+  // which no install gets past.
+  const named = new Map()
+  return mapping(value, where, (version, here, name) => {
     if (!isPlatform(name)) throw new LockfileError(`${quote(name)} is not a platform package's name`, here)
+    const other = named.get(lower(name))
+    if (other !== undefined) throw new LockfileError(`${quote(other)} too, of which Composer takes the last, as it takes a name in any case`, here)
+    named.set(lower(name), name)
     if (version !== false && (typeof version !== 'string' || normalize(plain(version, here)) === undefined)) throw refuse('a version, or false', version, here)
-    if (name === 'php' && version === false) throw missing(here)
-    if (lower(name) === 'php') php = { version, here }
+    if (lower(name) === 'php' && version === false) throw new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
     return version
   }, entriesOf)
-  if (php?.version === false) throw missing(php.here)
-  return overrides
 }
 
 function readList(doc, key) {
@@ -157,6 +157,8 @@ function readAliases(value, byName) {
     if (readVersion(version, at(here, 'version')) !== version) throw new LockfileError(`${quote(version)} is not a version normalized, as Composer writes it`, at(here, 'version'))
     if (['dev-master', 'dev-trunk', 'dev-default'].includes(version)) throw new LockfileError(`${quote(version)}, which Composer writes as ${DEFAULT_BRANCH_ALIAS}`, at(here, 'version'))
     const alias = string(item.alias, at(here, 'alias'))
+    // The root's `as`, which Composer reads with no space in it.
+    if (/\s/u.test(alias)) throw new LockfileError(`${quote(alias)} has a space, which Composer's alias of a requirement cannot`, at(here, 'alias'))
     const normalized = readVersion(alias, at(here, 'alias'))
     if (item.alias_normalized !== normalized) throw new LockfileError(`expected ${quote(normalized)}, the alias normalized`, at(here, 'alias_normalized'))
     return { package: name, version, alias, aliasNormalized: normalized }
