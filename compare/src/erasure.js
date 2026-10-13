@@ -72,7 +72,13 @@ export function strippedAs(statement) {
       // load; `export { a } from` a module re-exports a binding. A bare `export {}`, no source, is a marker.
       if (statement.source) return bindingless(statement) ? CODE : IMPORT
       return statement.specifiers.length === 0 ? INERT : CODE
-    case 'ExportDefaultDeclaration': return statement.declaration.type === 'TSInterfaceDeclaration' || statement.declaration.type === 'TSDeclareFunction' ? ERASED : CODE
+    case 'ExportDefaultDeclaration':
+      if (statement.declaration.type === 'TSInterfaceDeclaration' || statement.declaration.type === 'TSDeclareFunction') return ERASED
+      // `export default E`, a bare identifier, re-exports a binding by name: a run statement that runs as an
+      // ES module and throws as CommonJS, like `export {}`, so it is inert here, not code -- it is the idiom a
+      // declaration file's default export takes (`declare const _d: T; export default _d`). Any other default,
+      // a value expression or a class body among it, is code a declaration file has no reason to hold.
+      return statement.declaration.type === 'Identifier' ? INERT : CODE
     // `export as namespace N` is left verbatim, invalid as JavaScript, so importing the file throws.
     case 'TSNamespaceExportDeclaration': return CODE
     default: return erased(statement) ? ERASED : CODE

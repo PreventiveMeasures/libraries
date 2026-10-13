@@ -42,7 +42,7 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // retained module load or `export {}` runs the same on both sides only within
 // one module format -- an `export {}` emits a marker transpiled to CommonJS, a
 // module load runs as one format and throws as the other -- so where the runtime
-// loads a module or carries a bare `export {}` a rename across formats (a `.d.mts`
+// loads a module, carries a bare `export {}`, or default-exports an identifier a rename across formats (a `.d.mts`
 // to a `.d.cts`, either to a package-resolved `.d.ts` whose format is not known
 // here) is not stamped; a hashbang, a directive or a pragma runs the same either
 // way, so a runtime of only those cancels across formats. A modification keeps its
@@ -219,12 +219,15 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 //   function's signature, `import type` and `export type`, a namespace of types
 //   alone -- and those it leaves to run: a module load that binds from it
 //   (`import`, `export *`, `export { a } from` a module, `import { type A }` whose
-//   inline `type` loads it all the same) and a bare `export {}`. `export { type A }`
+//   inline `type` loads it all the same), a bare `export {}`, and `export default E`
+//   on a bare identifier (the idiom a declaration file's default export takes,
+//   `declare const _d: T; export default _d`). `export { type A }`
 //   is code, not a run statement: it is `export {}` only once stripping takes its
 //   specifiers out, not as the source has it; nor is `export as namespace N`, left
 //   as invalid JavaScript that throws when imported, nor a side-effect load that
 //   binds nothing -- a bare `import`, an empty `import {}`, `export {}` with a
-//   source -- which loads a module for no type;
+//   source -- which loads a module for no type, nor an `export default` of anything
+//   but a bare identifier (a value expression, an object, a class body);
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
 //   and leaves nothing it does not, but comments, the hashbang and those;
 // - what it leaves, the run statements set aside, read token by token apart from
@@ -246,7 +249,7 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // point. A triple-slash directive counts only in the prologue,
 // before the first statement, where TypeScript honours it; below one it is prose, so moving
 // it out of the prologue drops it from `runtime`, as removing it does. `loads` is whether any
-// run statement is a module load or a bare `export {}`: the runtime that runs as one module
+// run statement is a module load, a bare `export {}`, or an `export default` on an identifier: the runtime that runs as one module
 // format and throws, or emits a different marker, as the other -- a hashbang, directive or
 // pragma does not. A change is types only where both sides prove and leave the same `runtime`:
 // it then touches erased types and ordinary comments alone. Where `loads`, a rename across
