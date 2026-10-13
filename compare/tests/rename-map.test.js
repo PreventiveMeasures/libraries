@@ -309,6 +309,43 @@ test('a line alike another place\'s with names set aside, paired between changes
   assert.deepEqual(model.blocks, [{ a0: 0, a1: 0, b0: 0, b1: 3 }, { a0: 6, a1: 6, b0: 9, b1: 10 }], 'what was added alone')
 })
 
+test('a line a run of changes could have kept in place of another line alike says nothing of its names', () => {
+  const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
+  // `ha` renamed `ma`, a new `ha` written alike with names set aside added before it: the
+  // old header may be diffed against either, the body and the caller saying which.
+  const tail = ['function Oi(r) {', '  return g(r);', '}', 'const Qn = async () => {};']
+  const before = ['function ua(r) {', '  return f(r);', '}', 'async function ha(r, e) {', '  await Qn("reports", r, e);', '}', ...tail, 'h(() => ha(1, 2), ua, Oi);']
+  const after = ['function ua(r) {', '  return f(r);', '}', 'async function ha(r, e) {', '  let t = await k(r, e);', '  return t;', '}',
+    'async function ma(r, e) {', '  await Qn("reports", r, e);', '}', ...tail, 'h(() => ma(1, 2), ua, Oi);', 'k(ha);']
+  const model = ignoring(before, after)
+  assert.deepEqual(model.a.slice(3, 6), after.slice(7, 10), 'the old `ha` reads as `ma`, its names its own')
+  assert.deepEqual(model.blocks, [{ a0: 3, a1: 3, b0: 3, b1: 7 }, { a0: 11, a1: 11, b0: 15, b1: 16 }], 'what was added alone')
+})
+
+test('a change\'s variables pair as its tokens line up, its lines wrapped otherwise or reading more of them', () => {
+  const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
+  // Longer, the loop's line wraps, and reads `i` once more: `i` still `i`, `Lr` now `Br`.
+  const head = ['async function ms(t, e) {', '  let n = await e.send("/a"),']
+  const before = [...head, '    o = t.filter(r => r.embedded);', '  if (o.length > 0) {', '    let { aliases: r = [] } = await e.send("/b");',
+    '    for (let i of o) Object.assign(i, Lr(i.embedded, i.dir, n, r));', '  }', '  return n;', '}', 'function Lr(a, b) {', '  return a + b;', '}', 'f(ms);']
+  const after = [...head, '    o = t.filter(r => r.github);', '  if (o.length > 0) {', '    let { aliases: r = [] } = await e.send("/b");',
+    '    for (let i of o)', '      Object.assign(i, Br(i.github, i.dir, n, r, i.prefix));', '  }', '  return n;', '}', 'function Br(a, b) {', '  return a + b;', '}', 'f(ms);']
+  const model = ignoring(before, after)
+  assert.equal(model.a[5], '    for (let i of o) Object.assign(i, Br(i.embedded, i.dir, n, r));')
+  assert.deepEqual(model.a.slice(9, 12), after.slice(10, 13))
+})
+
+test('a second pass reads the pairs found as names, telling apart places alike with every name set aside', () => {
+  const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
+  // `o` dropped: any of five parameters could have gone, but `r` and `n` are known from the lines that keep them.
+  const body = ['  f(r);', '  g(n);', '  h(r, n);', '  return a;', '}']
+  const before = ['function dt(a, b, c) {', '  return [a, b, c];', '}', 'function vt(e, t, r, n, o) {', '  let a = dt(e, t, o);', ...body, 'vt(1, 2, 3, 4, 5);']
+  const after = ['function dt(a, b, c) {', '  return [a, b, c];', '}', 'function mt(e, t, r, n) {', '  let a = dt(e, t);', ...body, 'mt(1, 2, 3, 4);']
+  const model = ignoring(before, after)
+  assert.equal(model.a[3], 'function mt(e, t, r, n, o) {')
+  assert.equal(model.a[4], '  let a = dt(e, t, o);')
+})
+
 test('a function body\'s var named as a parameter is that parameter', () => {
   const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
   // The old function returns its argument, the new one `undefined`.
