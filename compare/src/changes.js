@@ -75,9 +75,11 @@ function proven(file) {
 
 // Stamped where each side there is a declaration file proven to hold types alone and the two leave the
 // same runtime -- a change touching only erased types (and comments). A mode changing is a change of its
-// own. Where that runtime loads a module, carries a bare `export {}`, or default-exports an identifier it runs the same on both sides only
-// within one module format, so a rename across formats (a `.d.mts` to a `.d.cts`, either to a
-// package-resolved `.d.ts`) does not qualify; a hashbang, a directive or a pragma runs the same either way,
+// own. Where that runtime loads a module, carries a bare `export {}`, or default-exports an identifier it runs
+// the same on both sides only within one module format, so a rename cancels it only between two extensions
+// that fix the same format -- two `.d.ts` (both package-resolved), two `.d.mts`, or two `.d.cts`; a rename
+// whose extensions differ (a `.d.mts` to a `.d.cts`, or a `.d.ts` to or from either) does not qualify, since
+// an extension pins a format where a package-resolved `.d.ts` leaves it open. A hashbang, a directive or a pragma runs the same either way,
 // so a runtime of only those cancels across formats. A modification keeps its path, hence its format, and
 // a deleted file matches only an empty runtime; an added one an empty runtime or a single bare `export {}`
 // (EXPORT_EMPTY). Nothing loaded an added file before, so only what else the diff changes can, shown as a
@@ -85,10 +87,11 @@ function proven(file) {
 // and throws on it as CommonJS, whatever the extension. A module load beside it would run another module.
 // A rename is taken by its matching source, as any file's is here: a relative load in the runtime may
 // resolve to another module once the file moves, but that is the rename's doing, shown as a rename of its
-// own, not traced. Known limitation: a modification of a package-resolved `.d.ts` is taken to keep its
-// format, though the `package.json` that resolves it could change `type` between the two trees and flip it;
-// that flip is a change to `package.json`, seen in the diff on its own, and format is read from the
-// extension here, not resolved from a package.
+// own, not traced. Known limitation: a package-resolved `.d.ts` is taken to keep its format across a
+// modification (same path) and to share one across a rename to another `.d.ts`, since format is read from
+// the extension, not resolved from a package. The governing `package.json` could differ -- edited between
+// the two trees, or a different one at the rename's destination -- and flip the format; that flip rides the
+// `package.json` change or the move, each seen in the diff on its own, and is not traced here.
 
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
@@ -97,10 +100,7 @@ function stamped(change) {
   const fresh = proven(change.new), old = proven(change.old)
   if (!old.proven || !fresh.proven) return change
   if (old.runtime !== fresh.runtime && !(change.old === null && EXPORT_EMPTY.test(fresh.runtime))) return change
-  if (old.loads && change.old && change.new && change.old.path !== change.new.path) {
-    const format = fixedModule(change.old.path)
-    if (format === null || format !== fixedModule(change.new.path)) return change
-  }
+  if (old.loads && change.old && change.new && change.old.path !== change.new.path && fixedModule(change.old.path) !== fixedModule(change.new.path)) return change
   return { ...change, typeOnly: true }
 }
 
