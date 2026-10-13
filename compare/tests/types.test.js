@@ -83,8 +83,12 @@ describe('proveTypeOnly', () => {
     assert.deepEqual(proveTypeOnly("import { X } from 'a'\nexport declare const y: X\n"), { proven: true, runtime: "import { X } from 'a'", loads: true })
     assert.deepEqual(proveTypeOnly("export { X } from 'a'\n"), { proven: true, runtime: "export { X } from 'a'", loads: true })
     assert.deepEqual(proveTypeOnly("export * from 'a'\n"), { proven: true, runtime: "export * from 'a'", loads: true })
-    assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node\n', loads: false })
-    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: 'export {};', loads: true })
+    assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node', loads: false })
+    // A triple-slash directive and a source-map pragma steer a tool though stripping keeps them as comments:
+    // they join the runtime, in source order, so a change to one is not types only. Neither is a module load,
+    // so a directive- or pragma-only runtime does not gate the module format (`loads` is false).
+    assert.deepEqual(proveTypeOnly('declare const x: 1\n//# sourceMappingURL=x.map\n'), { proven: true, runtime: '//# sourceMappingURL=x.map', loads: false })
+    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: '/// <reference types="node" />\nexport {};', loads: true })
     // A type-only specifier within a kept import blanks; the module still loads, so it is runtime.
     const r = proveTypeOnly("import { type A, B } from 'b'\nexport declare const x: A\n")
     assert.equal(r.proven, true)
@@ -101,6 +105,24 @@ describe('proveTypeOnly', () => {
     const exp = proveTypeOnly("export { type A } from 'a'\nexport declare const y: 1\n")
     assert.equal(exp.proven, true, 'inline-type re-export')
     assert.match(exp.runtime, /^export \{\s*\} from 'a'$/u)
+  })
+
+  // Stripping blanks an inline type specifier to a run of blanks whose width tracks the type's name, and a
+  // comment within a kept import would stand verbatim in the runtime; each is reduced so a change touching
+  // only those leaves the runtime untouched and the diff stays types only. What stripping keeps stands byte
+  // for byte: a module specifier's own blanks among it, so a load of another module still differs.
+  it('reduces an inline type specifier and a comment within a kept import, but keeps the module specifier', () => {
+    const rt = (text) => proveTypeOnly(text).runtime
+    assert.equal(rt("import { type A, B } from 'm'\n"), rt("import { type Longer, B } from 'm'\n"), 'inline-type name change')
+    assert.equal(rt("import { B, type A } from 'm'\n"), rt("import { B, type Other } from 'm'\n"), 'trailing inline-type change')
+    // A comment and its adjacent blanks collapse together, so adding or changing a comment within a load does
+    // not shift the rest: the gap reads the same with no comment, a short one, or a long one.
+    assert.equal(rt('import { B } from "m"\n'), rt('import /* c */ { B } from "m"\n'), 'comment added within the import')
+    assert.equal(rt('import /* v1 */ { B } from "m"\n'), rt('import /* a longer one */ { B } from "m"\n'), 'comment within the import changed')
+    // The module specifier is kept byte for byte: a different module, or one whose own blanks differ, is a
+    // different runtime, so such a change is not types only -- the normalization adds no false stamp.
+    assert.notEqual(rt('import { B } from "./a b.js"\n'), rt('import { B } from "./a  b.js"\n'), 'specifier blanks are kept')
+    assert.notEqual(rt("import { B } from 'm'\n"), rt("import { C } from 'm'\n"), 'a value binding is kept')
   })
 
   // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
@@ -287,6 +309,10 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     }
     // An import changing -- a different module loaded -- is a runtime change, not types only.
     assert.deepEqual(stamps({ 'a.d.ts': "import { X } from './x.js'\nexport declare const y: X\n" }, { 'a.d.ts': "import { X } from './y.js'\nexport declare const y: X\n" }, { renames: false }), [['modified a.d.ts', undefined]])
+    // An inline type specifier changing within an otherwise unchanged load touches only erased types: the
+    // value binding and the module are the same, so it is stamped though stripping blanks the specifier to a
+    // different width on each side.
+    assert.deepEqual(stamps({ 'a.d.ts': "import { type A, X } from './x.js'\nexport declare const y: A | X\n" }, { 'a.d.ts': "import { type Longer, X } from './x.js'\nexport declare const y: Longer | X\n" }, { renames: false }), [['modified a.d.ts', true]])
     // An added or deleted file with a runtime: the side not there is empty, so not stamped; one that erases whole is.
     assert.deepEqual(stamps({}, { 'a.d.mts': 'export {}\n' }, { renames: false }), [['added a.d.mts', undefined]])
     assert.deepEqual(stamps({ 'a.d.mts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.mts', undefined]])
@@ -322,14 +348,56 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     assert.equal(stampHb('a.d.ts', 'b.d.ts'), true, 'hashbang, package-resolved')
   })
 
-  // Real lit-html directive .d.ts files: value imports of their base classes, unchanged across the version
-  // bump, with only an interface modifier and a comment touched -- a types-only modification.
-  it('stamps a directive declaration whose value imports are unchanged', () => {
+  // Real lit-html directive .d.ts files: value imports of their base classes and a source-map pragma, all
+  // unchanged across the version bump, with only an interface modifier and a comment touched -- a types-only
+  // modification. The pragma, kept on both sides, cancels; only a change to it would stand in the way.
+  it('stamps a directive declaration whose value imports and pragma are unchanged', () => {
     const litHtml = (readonly, falsy) => `import { AttributePart, noChange } from '../lit-html.js';\n` +
       `import { Directive, DirectiveParameters, PartInfo } from '../directive.js';\n` +
       `export interface ClassInfo {\n    ${readonly}[name: string]: string | boolean | number;\n}\n` +
       `declare class ClassMapDirective extends Directive {\n    render(classInfo: ClassInfo): string;\n}\n` +
-      `// a directive; a ${falsy} value removes the class\nexport declare const classMap: (classInfo: ClassInfo) => unknown;\nexport type { ClassMapDirective };\n`
+      `// a directive; a ${falsy} value removes the class\nexport declare const classMap: (classInfo: ClassInfo) => unknown;\nexport type { ClassMapDirective };\n` +
+      `//# sourceMappingURL=class-map.d.ts.map\n`
     assert.deepEqual(stamps({ 'class-map.d.ts': litHtml('readonly ', 'falsey') }, { 'class-map.d.ts': litHtml('', 'falsy') }, { renames: false }), [['modified class-map.d.ts', true]])
+  })
+
+  // A triple-slash directive and a source-map pragma steer a tool though they are comments: the same one on
+  // both sides cancels like any runtime, but a change to one is not types only.
+  it('holds a directive or a pragma to match across a change', () => {
+    const ref = (types, c) => `/// <reference types="${types}" />\nexport declare const x: ${c}\n`
+    assert.deepEqual(stamps({ 'a.d.ts': ref('node', 1) }, { 'a.d.ts': ref('node', 2) }, { renames: false }), [['modified a.d.ts', true]], 'directive unchanged')
+    assert.deepEqual(stamps({ 'a.d.ts': ref('node', 1) }, { 'a.d.ts': ref('bun', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'directive changed')
+    // TypeScript lowercases the tag before matching, so a mixed-case tag is a directive all the same: it joins
+    // the runtime and a change to it is not types only. (The pragma name stays case-sensitive, as V8 reads it.)
+    const upper = (types, c) => `/// <REFERENCE types="${types}" />\nexport declare const x: ${c}\n`
+    assert.equal(proveTypeOnly(upper('node', 1)).runtime, '/// <REFERENCE types="node" />', 'mixed-case directive joins the runtime')
+    assert.deepEqual(stamps({ 'a.d.ts': upper('node', 1) }, { 'a.d.ts': upper('node', 2) }, { renames: false }), [['modified a.d.ts', true]], 'mixed-case directive unchanged')
+    assert.deepEqual(stamps({ 'a.d.ts': upper('node', 1) }, { 'a.d.ts': upper('bun', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'mixed-case directive changed')
+    // Only TypeScript's named tags are directives; a `/// <summary>` or other triple-slash comment is prose,
+    // so changing it alongside types is still types only. A named tag without an attribute (`/// <reference>`)
+    // is not a directive either -- a real one carries an attribute, so whitespace follows the name.
+    for (const tag of ['<summary>', '<reference>', '<reference/>', '<amd-module>']) {
+      const doc = (text, c) => `/// ${tag}${text}\nexport declare const x: ${c}\n`
+      assert.deepEqual(stamps({ 'a.d.ts': doc('old', 1) }, { 'a.d.ts': doc('new', 2) }, { renames: false }), [['modified a.d.ts', true]], `prose: ${tag}`)
+    }
+    // Below the first declaration a triple-slash directive is ineffective, so moving it out of the prologue
+    // is a change; an ineffective directive on both sides is ignored and does not block stamping.
+    const below = (c) => `export declare const x: ${c}\n/// <reference types="node" />\n`
+    assert.deepEqual(stamps({ 'a.d.ts': ref('node', 1) }, { 'a.d.ts': below(1) }, { renames: false }), [['modified a.d.ts', undefined]], 'directive moved below a declaration')
+    assert.deepEqual(stamps({ 'a.d.ts': below(1) }, { 'a.d.ts': below(2) }, { renames: false }), [['modified a.d.ts', true]], 'ineffective directive both sides')
+    const map = (name, c) => `export declare const x: ${c}\n//# sourceMappingURL=${name}\n`
+    assert.deepEqual(stamps({ 'a.d.ts': map('a.map', 1) }, { 'a.d.ts': map('a.map', 2) }, { renames: false }), [['modified a.d.ts', true]], 'pragma unchanged')
+    assert.deepEqual(stamps({ 'a.d.ts': map('a.map', 1) }, { 'a.d.ts': map('b.map', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'pragma changed')
+    // A comment that is not an effective pragma -- no whitespace after `#`, or an empty value -- is prose:
+    // out of the runtime, so a change to it stays types only.
+    const prose = (url, c) => `export declare const x: ${c}\n//#sourceMappingURL=${url}\n`
+    assert.deepEqual(stamps({ 'a.d.ts': prose('old.map', 1) }, { 'a.d.ts': prose('new.map', 2) }, { renames: false }), [['modified a.d.ts', true]], 'no-space pragma is prose')
+    assert.equal(proveTypeOnly('//# sourceMappingURL=\nexport declare const x: 1\n').runtime, '', 'empty-value pragma is prose')
+    // The engine skips blanks between `=` and the value (`//# sourceMappingURL=  a.map` names `a.map`), so a
+    // pragma so spelled is real: it joins the runtime and a change to its value is not types only.
+    const spaced = (name, c) => `export declare const x: ${c}\n//# sourceMappingURL=  ${name}\n`
+    assert.equal(proveTypeOnly(spaced('a.map', 1)).runtime, '//# sourceMappingURL=  a.map', 'spaced-value pragma joins the runtime')
+    assert.deepEqual(stamps({ 'a.d.ts': spaced('a.map', 1) }, { 'a.d.ts': spaced('a.map', 2) }, { renames: false }), [['modified a.d.ts', true]], 'spaced-value pragma unchanged')
+    assert.deepEqual(stamps({ 'a.d.ts': spaced('a.map', 1) }, { 'a.d.ts': spaced('b.map', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'spaced-value pragma changed')
   })
 })

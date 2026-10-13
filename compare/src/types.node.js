@@ -21,6 +21,26 @@ const LINE_BREAK = /[\n\r\u2028\u2029]/u
 const NOT_LINE_BREAK = /[^\n\r\u2028\u2029]/gu
 const BLANK = /\s/u
 
+// Comments a tool reads as more than prose, which stripping keeps verbatim: a triple-slash directive, which
+// pulls other declarations into the file's types, and a source map or source URL pragma, which names where
+// a tool looks (its legacy forms, `//@` and a `/*# */` block, among it). They join the runtime, so a change
+// to one shows there rather than passing as types only. A directive is one of TypeScript's named tags
+// (`reference`, `amd-module`, `amd-dependency`) carrying an attribute, so whitespace follows the name;
+// TypeScript lowercases the tag before matching, so the name is case-insensitive (`/// <REFERENCE .. />` is a
+// directive). A `/// <summary>`, a bare `/// <reference>` or `/// <reference/>` without an attribute, or any
+// other triple-slash comment is prose. A pragma likewise needs its grammar: the engine reads
+// `//# sourceMappingURL=` only with whitespace after the `#` or `@`, then blanks it skips, then a non-empty
+// value -- so `//#sourceURL=x` and an empty `//# sourceURL=` are prose, while `//# sourceURL=  x` names `x`
+// and is a pragma. The pragma name, unlike the directive tag, is case-sensitive: V8 reads only the exact
+// `sourceURL`/`sourceMappingURL`, so `//# SOURCEURL=x` is prose. Erring wide is safe here (a prose change
+// merely withholds a stamp), but matching every real directive or pragma is not optional: missing one would
+// stamp its change, so each is kept as broad as its effective grammar allows, no stricter. A directive steers
+// only where it leads the file, `prologue` true: TypeScript honours it before the first statement and reads
+// it as prose below one, so moving it out of the prologue drops it, as removing it does.
+const DIRECTIVE = /^\/\/\/\s*<(?:reference|amd-module|amd-dependency)\s/iu
+const PRAGMA = /^\/[/*][#@]\s+source(?:Mapping)?URL=\s*\S/u
+const steers = (text, prologue) => (DIRECTIVE.test(text) && prologue) || PRAGMA.test(text)
+
 // Node's stripping is one instance for the process, its loader of `.ts` files' too, and one stopped partway
 // (a stack overflowed, execution terminated) is not trusted again: one that threw here anything but its
 // refusal of a text, or that does not strip the canary as it should, as one stopped elsewhere may not.
@@ -87,6 +107,46 @@ function blankedOutside(code, spans) {
   return out
 }
 
+// A run statement's text for the signature, with what stripping erased within it and the comments it holds
+// reduced, so a change touching only those does not change the signature: an inline type specifier (`import
+// { type A, B }`) blanks to a run of blanks whose width tracks the type's name, and a comment within an
+// otherwise unchanged load (`import /* c */ { B }`) stands as text amid blanks. A gap between tokens is any
+// maximal run of blanks and comments; one holding a comment, or a character stripping erased (where `body`
+// and `code` differ), collapses whole to a single blank, comment and adjacent blanks together, so adding or
+// changing either does not shift the rest. A gap of only source blanks that stripping left (plain spacing
+// between tokens) is kept as is, so such a difference withholds the stamp rather than passing. Every
+// character stripping kept otherwise stays byte for byte: the executable syntax and, with their blanks and
+// all, the string literals -- a module specifier's quotes bound any blank run inside it and hold no comment,
+// and stripping never wrote there, so it is kept, and a load of another module (even one whose specifier
+// differs only in a blank) still differs here. Known limit: the kept text is read as written, so a load left
+// runtime-identical but reformatted still differs -- a removed trailing inline-type specifier leaving its
+// comma (`{ B, }` for `{ B }`), or a comment added where no blank sat. Closing that would mean canonicalizing
+// the executable text (Node's transform mode does, eliding the specifier and its comma), a wider signature
+// left for another change; erring this way only withholds a stamp, never gives a wrong one.
+function runtimeText(body, code, comments, { start, end }) {
+  const commented = new Uint8Array(end - start)
+  for (const comment of comments) {
+    if (comment.start >= start && comment.end <= end) commented.fill(1, comment.start - start, comment.end - start)
+  }
+  const reducible = (at) => BLANK.test(code[at]) || commented[at - start] === 1
+  let at = start, out = ''
+  while (at < end) {
+    if (reducible(at)) {
+      let drop = false, to = at
+      while (to < end && reducible(to)) {
+        if (body[to] !== code[to] || commented[to - start] === 1) drop = true
+        to++
+      }
+      out += drop ? ' ' : code.slice(at, to)
+      at = to
+    } else {
+      out += code[at]
+      at++
+    }
+  }
+  return out
+}
+
 // proveTypeOnly with the stripping given: exported for tests alone, not by the package.
 export function proveWith(text, stripTypeScriptTypes) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
@@ -128,11 +188,25 @@ export function proveWith(text, stripTypeScriptTypes) {
   if ('error' in transformed) return refused('disagree', null)
   const after = parsed(parseSync, transformed.code)
   if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
-  // The runtime a change must leave untouched to be types only: the hashbang, module loads and `export {}`
-  // stripping leaves, as it leaves them. Empty where the file erases whole. `loads` is whether any of it is
-  // a module load or `export {}`, the runtime that runs differently per module format -- a hashbang does not.
-  const signature = (tree.program.hashbang ? `${stripped.code.slice(tree.program.hashbang.start, tree.program.hashbang.end)}\n` : '') +
-    runtime.map((statement) => stripped.code.slice(statement.start, statement.end)).join('\n')
+  // The runtime a change must leave untouched to be types only: the hashbang, the module loads and
+  // `export {}` stripping leaves, and the directive and pragma comments it keeps -- in source order. Empty
+  // where the file erases whole and carries none. A run statement is read through runtimeText, so an inline
+  // type specifier or a comment within it does not count; the hashbang, a directive and a pragma stand
+  // verbatim, since what they say is the point. A triple-slash directive counts only in the prologue, before
+  // the first statement, where TypeScript honours it; a comment blanked within an erased statement reads as
+  // blanks here, so only a kept one steers. `loads` is whether any run statement is a module load or
+  // `export {}`, the runtime that runs differently per module format -- a hashbang, directive or pragma does
+  // not.
+  const prologue = tree.program.body.length > 0 ? tree.program.body[0].start : stripped.code.length
+  const hashbang = tree.program.hashbang ? [tree.program.hashbang] : []
+  const steering = tree.comments.filter(({ start, end }) => steers(stripped.code.slice(start, end), start < prologue))
+  const verbatim = ({ start, end }) => stripped.code.slice(start, end)
+  const parts = [
+    ...hashbang.map((node) => ({ start: node.start, text: verbatim(node) })),
+    ...runtime.map((node) => ({ start: node.start, text: runtimeText(body, stripped.code, tree.comments, node) })),
+    ...steering.map((node) => ({ start: node.start, text: verbatim(node) })),
+  ]
+  const signature = parts.sort((a, b) => a.start - b.start).map((part) => part.text).join('\n')
   return { proven: true, runtime: signature, loads: runtime.length > 0 }
 }
 

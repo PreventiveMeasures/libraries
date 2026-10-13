@@ -228,15 +228,29 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // - what it leaves, the run statements set aside, read token by token apart from
 //   either, holds nothing else;
 // - nor does what its transform mode (--experimental-transform-types) leaves.
-// `runtime` is the stripped text of those run statements, the hashbang first,
-// joined by newlines -- empty where the file erases whole. `loads` is whether any
-// of them is a module load or a bare `export {}`: the runtime that runs as one
-// module format and throws, or emits a different marker, as the other. A change is
-// types only where both sides prove and leave the same `runtime`: it then touches
-// erased types and comments alone. Where `loads`, a rename across module formats
-// does not cancel (see compareTrees' `typeOnly`); a hashbang-only runtime, which
-// runs the same either way, cancels across them. `at` is where in `text` what is
-// found begins, where it has a place. Throws a TypeError where `text` is not a
+// `runtime` is built from those run statements and from the directive and pragma
+// comments stripping keeps -- a `/// <reference ... />`, a `//# sourceMappingURL=`
+// or `//# sourceURL=` and their legacy forms, comments a tool reads as more than prose --
+// the hashbang first and the rest in source order, joined by newlines; empty where the
+// file erases whole and carries none. A run statement is reduced: an inline type specifier
+// stripping blanks within it (`import { type A, B }`), and any comment within it, each become
+// a single blank, so a change to only those leaves `runtime` unchanged; its executable text and
+// its module specifier are kept to the character, so a load of another module still differs.
+// Known limit: that kept text is compared as written, so a change leaving a load runtime-identical
+// yet reformatting it withholds the stamp rather than passing -- a removed trailing inline-type
+// specifier leaving its comma (`{ B, }` where `{ B }` would stand), or a comment added where no
+// blank sat. This errs safe: the stamp is never given wrongly, only sometimes withheld. A
+// directive, a pragma and the hashbang stand as stripping leaves them, since what they say is the
+// point. A triple-slash directive counts only in the prologue,
+// before the first statement, where TypeScript honours it; below one it is prose, so moving
+// it out of the prologue drops it from `runtime`, as removing it does. `loads` is whether any
+// run statement is a module load or a bare `export {}`: the runtime that runs as one module
+// format and throws, or emits a different marker, as the other -- a hashbang, directive or
+// pragma does not. A change is types only where both sides prove and leave the same `runtime`:
+// it then touches erased types and ordinary comments alone. Where `loads`, a rename across
+// module formats does not cancel (see compareTrees' `typeOnly`); a runtime without it runs the
+// same either way and cancels across them. `at` is where in `text` what is found
+// begins, where it has a place. Throws a TypeError where `text` is not a
 // well-formed string. Node warns once that stripTypeScriptTypes is experimental.
 export function proveTypeOnly(text: string): { proven: true; runtime: string; loads: boolean } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
