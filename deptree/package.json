@@ -1,7 +1,7 @@
 {
   "name": "@preventive/deptree",
   "version": "1.0.0-alpha.12",
-  "description": "A dependency tree in memory, as a package manager would install it",
+  "description": "In-memory dependency tree, as a package manager installs it",
   "type": "module",
   "exports": {
     "./pnpm.js": {

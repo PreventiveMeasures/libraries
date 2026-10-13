@@ -1,7 +1,7 @@
 {
   "name": "@preventive/libraries",
   "private": true,
-  "description": "Workspace root: the packages live one directory down, this file only drives them",
+  "description": "Workspace root that drives the packages",
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "author": {
