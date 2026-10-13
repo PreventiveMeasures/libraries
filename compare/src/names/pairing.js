@@ -3,6 +3,7 @@
 // each other, and two each the other's most counted pair, a tie pairing neither.
 
 import { changeSet } from '@preventive/diff'
+import { RESERVED } from './syntax.js'
 
 // Unchanged lines between changes that pair as unchanged ones, not as changed.
 const ANCHORED_RUN = 3
@@ -65,14 +66,14 @@ const reading = (k, from = 0) => (x, y) => {
   return one.length === other.length && one.every((variable, n) => variable === other[n])
 }
 
-// The pairs of lines a diff of `a` and `b` keeps, but those slack.
+// The pairs of lines a diff of `a` and `b` keeps, each told whether slack.
 function* kept(a, b, sameA, sameB) {
   const text = (lines) => lines.map((line) => `${line}\n`).join('')
   const blocks = changes(text(a), text(b))
   const [looseA, looseB] = slack(a, b, blocks, sameA, sameB)
   let i = 0, j = 0
   for (const { a0, a1, b1 } of [...blocks, { a0: a.length, a1: a.length, b1: b.length }]) {
-    for (; i < a0; i++, j++) if (!looseA[i] && !looseB[j]) yield [i, j]
+    for (; i < a0; i++, j++) yield [i, j, looseA[i] || looseB[j]]
     i = a1
     j = b1
   }
@@ -106,17 +107,29 @@ function tokens(k, from, to) {
   return { list, at }
 }
 
-// The variables of a change that its tokens, diffed, keep facing each other:
-// its lines written anew, wrapped or ended otherwise (`let t = ...;` ->
-// `let t = ...,`), or reading more variables or fewer (`f(a)` -> `f(b, c)`:
-// none, `b` or `c` alike).
+// A word but a keyword: what ties tokens kept together to their own place, as
+// punctuation and keywords alone line up any statement with any other.
+const WORD = /^=[\p{ID_Start}$_]/u
+const ties = (token) => WORD.test(token) && !RESERVED.has(token.slice(1))
+
+// The variables of a change that its tokens, diffed, keep facing each other in
+// a run of tokens kept together holding a word: its lines written anew, wrapped
+// or ended otherwise (`let t = ...;` -> `let t = ...,`), or reading more
+// variables or fewer (`f(a)` -> `f(b, c)`: none, `b` or `c` alike). Lines
+// reordered line up by punctuation alone, `aa(a, b); bb(b);` ->
+// `bb(y, z); aa(x);` facing `(a, b)` with `(y, z)`, which pairs nothing.
 function placed(ka, a0, a1, kb, b0, b1) {
   const reads = (k, from, to) => k.lines.slice(from, to).some((line) => line.length > 0)
   if (!reads(ka, a0, a1) || !reads(kb, b0, b1)) return []
   const a = tokens(ka, a0, a1), b = a && tokens(kb, b0, b1)
   if (!b) return []
-  const pairs = kept(a.list, b.list, (x, y) => a.at[x] === a.at[y], (x, y) => b.at[x] === b.at[y])
-  return [...pairs].filter(([x]) => a.at[x]).map(([x, y]) => [a.at[x], b.at[y]])
+  const found = [], pairs = [...kept(a.list, b.list, (x, y) => a.at[x] === a.at[y], (x, y) => b.at[x] === b.at[y])]
+  for (let end = 1, start = 0; start < pairs.length; start = end++) {
+    while (end < pairs.length && pairs[end][0] === pairs[end - 1][0] + 1 && pairs[end][1] === pairs[end - 1][1] + 1) end++
+    const run = pairs.slice(start, end)
+    if (run.some(([x]) => ties(a.list[x]))) for (const [x, y, loose] of run) if (a.at[x] && !loose) found.push([a.at[x], b.at[y]])
+  }
+  return found
 }
 
 const tallies = () => ({ backward: new Map(), forward: new Map() })
@@ -149,7 +162,7 @@ function tallied(ka, kb) {
       if (olds === news) for (let k = 0; k < olds; k++) alike(changed, ka.lines[block.a0 + k], kb.lines[block.b0 + k])
       else {
         const pairs = kept(trimmed(ka.keys, block.a0, block.a1), trimmed(kb.keys, block.b0, block.b1), reading(ka, block.a0), reading(kb, block.b0))
-        for (const [x, y] of pairs) alike(changed, ka.lines[block.a0 + x], kb.lines[block.b0 + y])
+        for (const [x, y] of [...pairs].filter((pair) => !pair[2])) alike(changed, ka.lines[block.a0 + x], kb.lines[block.b0 + y])
       }
       for (const [variable, other] of placed(ka, block.a0, block.a1, kb, block.b0, block.b1)) counted(tokened, variable, other)
     }

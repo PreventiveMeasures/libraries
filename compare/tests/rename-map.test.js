@@ -341,6 +341,10 @@ test('a change\'s tokens pair only what its lines say nothing of, as reordered l
   const model = ignoring(['function q(a, b, c) {', '  k(b);', '  f(a, c, b);', '  k(b);', '  f(a, b, c);', '}', 'q(1, 2, 3);'],
     ['function q(x, y, z) {', '  f(x, y, z);', '  k(y);', '  k(y);', '}', 'q(1, 2, 3);'])
   assert.deepEqual(model.a.slice(0, 5), ['function q(x, y, z) {', '  k(y);', '  f(x, z, y);', '  k(y);', '  f(x, y, z);'])
+  // Lines reordered reading other numbers of names, which no line pairs: their
+  // tokens line up `(a, b)` with `(y, z)` by punctuation alone, saying nothing.
+  const reordered = ignoring(['function q(a, b) {', '  aa(a, b);', '  bb(b);', '}', 'q(1, 2);'], ['function q(x, y, z) {', '  bb(y, z);', '  cc();', '  aa(x);', '}', 'q(1, 2);'])
+  assert.deepEqual(reordered.a.slice(0, 3), ['function q(a, b) {', '  aa(a, b);', '  bb(b);'])
 })
 
 test('a second pass reads the pairs found as names, telling apart places alike with every name set aside', () => {
