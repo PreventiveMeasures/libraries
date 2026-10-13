@@ -48,24 +48,27 @@ const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, ne
 // `.d.css.ts` for a `.css` file's.
 const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 
-// Not proven where the proof throws, as no check should. A `.mts` is an ES module, where a retained
-// `export {}` runs nothing; a `.cts` or a `.ts` (its module system is the package's, not known here) may
-// be CommonJS, where it throws, so one is proven only where it erases whole.
+// A file's proof: that it holds types alone, and whether that rests on a retained `export {}` (`inert`),
+// which runs nothing as a module but emits a marker transpiled to CommonJS. A side not there holds
+// nothing. Not proven where the proof throws, as no check should.
 function proven(file) {
+  if (file === null) return { proven: true, inert: false }
   const text = textOf(file)
   try {
-    return text !== undefined && proveTypeOnly(text, file.path.endsWith('.mts')).proven
+    return text === undefined ? { proven: false } : proveTypeOnly(text)
   } catch {
-    return false
+    return { proven: false }
   }
 }
 
-// Stamped where each side there is a file named as a declaration file, and
-// proven to hold types alone: a side not there holds nothing either.
+// Stamped where each side there is a file named as a declaration file and proven to hold types alone, and
+// a retained `export {}` is on both sides or neither: on one alone it is a change in what runs once
+// transpiled, so the change is not types only.
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
   if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
-  return sides.every(proven) ? { ...change, typeOnly: true } : change
+  const fresh = proven(change.new), old = proven(change.old)
+  return old.proven && fresh.proven && Boolean(old.inert) === Boolean(fresh.inert) ? { ...change, typeOnly: true } : change
 }
 
 function pathChanges(old, fresh) {

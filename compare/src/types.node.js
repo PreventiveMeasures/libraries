@@ -76,7 +76,7 @@ function disagreement(text, code, { comments, program }, { erased, inert }) {
 }
 
 // proveTypeOnly with the stripping given: exported for tests alone, not by the package.
-export function proveWith(text, stripTypeScriptTypes, esm) {
+export function proveWith(text, stripTypeScriptTypes) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
   if (!text.isWellFormed()) throw new TypeError('a text must be a well-formed string')
   const parseSync = parser()
@@ -97,9 +97,6 @@ export function proveWith(text, stripTypeScriptTypes, esm) {
   for (const statement of tree.program.body) {
     const kind = strippedAs(statement)
     if (kind === IMPORT || kind === CODE) return refused(kind, shift + statement.start)
-    // `export {}` is left in place and runs nothing only as a module; in CommonJS it throws, so a file
-    // not known to be ESM keeps none -- all its statements must erase whole.
-    if (kind === INERT && esm !== true) return refused('code', shift + statement.start)
     spans[kind].push(statement)
   }
   if ('error' in stripped || stripped.code.length !== body.length) return refused('disagree', null)
@@ -108,7 +105,9 @@ export function proveWith(text, stripTypeScriptTypes, esm) {
   if (left !== -1) return refused('disagree', shift + left)
   const transformed = strip(stripTypeScriptTypes, body, 'transform')
   if (transformed === null) return UNSUPPORTED
-  return 'code' in transformed && leftover(transformed.code) === -1 ? { proven: true } : refused('disagree', null)
+  // A retained `export {}` runs nothing as a module but emits a marker transpiled to CommonJS, so the file
+  // is types-but-for-it: `inert`, stamped by compareTrees only where both sides of a change match.
+  return 'code' in transformed && leftover(transformed.code) === -1 ? { proven: true, inert: spans[INERT].length > 0 } : refused('disagree', null)
 }
 
-export const proveTypeOnly = (text, esm) => proveWith(text, nodeModule.stripTypeScriptTypes, esm)
+export const proveTypeOnly = (text) => proveWith(text, nodeModule.stripTypeScriptTypes)

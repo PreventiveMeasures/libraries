@@ -68,35 +68,29 @@ describe('Node runs a .d.ts as the .ts it is named', () => {
 
 describe('proveTypeOnly', () => {
   it('proves declaration files that erase whole, as tsc writes them and as written by hand', () => {
-    // No retained statement, so proven whatever the module system.
+    // No retained statement: types alone, inert false.
     for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export type { A }\nexport type * from "m"\n',
       'import type { A } from "m"\nexport declare const x: A\n', 'declare const x = 1, y: 2\n',
       'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) {
-      assert.deepEqual(proveTypeOnly(text), { proven: true }, text)
-      assert.deepEqual(proveTypeOnly(text, true), { proven: true }, text)
+      assert.deepEqual(proveTypeOnly(text), { proven: true, inert: false }, text)
     }
   })
 
-  // `export {}` runs nothing only as a module; in CommonJS Node throws importing it. It is kept only for a
-  // file known to be ESM (`esm`), a `.d.mts`; a `.d.cts` or a `.d.ts` of unknown module system keeps none.
-  it('proves a retained `export {}` only where the file is known ESM', () => {
-    assert.deepEqual(proveTypeOnly('export {};\n', true), { proven: true })
-    assert.deepEqual(proveTypeOnly(EMITTED, true), { proven: true })
-    for (const esm of [undefined, false]) {
-      assert.deepEqual(proveTypeOnly('export {};\n', esm), refused('code', 0), String(esm))
-      assert.equal(proveTypeOnly(EMITTED, esm).proven, false, String(esm))
-    }
+  // A bare `export {}` runs nothing as a module but is a marker transpiled to CommonJS: proven, `inert`, so
+  // compareTrees stamps it only where both sides match. A file that erases around it is proven inert too.
+  it('proves a bare `export {}` as inert', () => {
+    assert.deepEqual(proveTypeOnly('export {};\n'), { proven: true, inert: true })
+    assert.deepEqual(proveTypeOnly('declare const x: 1\nexport {}\n'), { proven: true, inert: true })
+    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, inert: true })
   })
 
   // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
-  // export declaration, so proving it would rest on stripping emitting a no-op, not on the source. It is
-  // refused even as ESM. (`import { type A }` loads its module -- see the imports test.)
-  it('refuses an inline-type export, inert only once stripped, even as a module', () => {
+  // export declaration, so proving it would rest on stripping emitting a no-op, not on the source.
+  // (`import { type A }` loads its module -- see the imports test.)
+  it('refuses an inline-type export, inert only once stripped, not a bare `export {}`', () => {
     for (const text of ['export { type A }', 'export { type A as B }', 'export { type A, type B }', 'declare const A: 1\nexport { type A }']) {
-      for (const esm of [true, false, undefined]) {
-        assert.equal(proveTypeOnly(text, esm).proven, false, text)
-        assert.equal(proveTypeOnly(text, esm).reason, 'code', text)
-      }
+      assert.equal(proveTypeOnly(text).proven, false, text)
+      assert.equal(proveTypeOnly(text).reason, 'code', text)
     }
   })
 
@@ -155,7 +149,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
   }
 
   it('proves nothing where Node strips nothing, or has no stripping', () => {
-    assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true }, 'comments blanked too')
+    assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true, inert: false }, 'comments blanked too')
     assert.deepEqual(proveWith(text, undefined), refused('unsupported', null))
     assert.deepEqual(proveWith(text, throwing('ERR_NO_TYPESCRIPT')), refused('unsupported', null))
     assert.deepEqual(portable(text), refused('unsupported', null), 'nor off Node')
@@ -163,8 +157,8 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
 
   it('takes any blank but a line break for one stripping writes, as it writes one of as many UTF-8 bytes', () => {
     const wide = 'type A = "\u00E9\u4E00\u{1F600}" /* \u4E00 */\ninterface B { /** \u4E00\u{1F600} */ b: "\u3000" }\n'
-    assert.deepEqual(proveTypeOnly(wide), { proven: true })
-    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true })
+    assert.deepEqual(proveTypeOnly(wide), { proven: true, inert: false })
+    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true, inert: false })
   })
 
   it('refuses where stripping keeps what oxc finds erased, or blanks otherwise', () => {
@@ -181,7 +175,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
   it('refuses where stripping or its transform mode refuses the text, or leaves code', () => {
     assert.deepEqual(proveWith(text, strip(throwing('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'))), refused('disagree', null))
     assert.deepEqual(proveWith(text, strip('                   // c\n', '(function(N) {})(N || (N = {}));\nvar N;\n')), refused('disagree', null))
-    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true })
+    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true, inert: false })
   })
 
   // Stopped partway, Node's stripping may throw on every text from then on: one that failed so once is
@@ -191,12 +185,12 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, overflowing), refused('unparsed', null), 'not read whole, so not for oxc to read')
     assert.deepEqual(proveWith('type A = 1', overflowing), refused('unsupported', null), 'nor anything after')
     const stopped = strip(throwing('ERR_INTERNAL_ASSERTION'), '', 'type A = 1')
-    assert.deepEqual(proveWith(text, stopped), { proven: true })
+    assert.deepEqual(proveWith(text, stopped), { proven: true, inert: false })
     assert.deepEqual(proveWith('type A = 1', stopped), refused('unparsed', null))
     assert.deepEqual(proveWith(text, stopped), refused('unsupported', null))
     const wrong = (t, options) => (t.startsWith('let a') ? t : stripTypeScriptTypes(t, options))
     assert.deepEqual(proveWith(text, wrong), refused('unsupported', null), 'the canary kept whole')
-    assert.deepEqual(proveTypeOnly(text), { proven: true }, "and Node's own stripping still trusted")
+    assert.deepEqual(proveTypeOnly(text), { proven: true, inert: false }, "and Node's own stripping still trusted")
   })
 })
 
@@ -251,12 +245,19 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     assert.deepEqual(stamps({}, { 'a.d.ts': 'export as namespace A\n' }, { renames: false }), [['added a.d.ts', undefined]])
   })
 
-  // A retained `export {}` runs nothing as a module but throws in CommonJS, which a `.d.cts` is and a
-  // `.d.ts` may be: stamped only for a `.d.mts`. A file that erases whole is stamped whatever the extension.
-  it('a retained `export {}` stamped only for a .d.mts, an erased file for any', () => {
-    for (const [ext, stamp] of [['d.mts', true], ['d.cts', undefined], ['d.ts', undefined]]) {
-      assert.deepEqual(stamps({ [`a.${ext}`]: 'export {}\n' }, { [`a.${ext}`]: 'declare const x: 1\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, stamp]])
-      assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const x: 1\n' }, { [`a.${ext}`]: 'export declare const x: 2\n' }, { renames: false }), [[`modified a.${ext}`, true]])
+  // A bare `export {}` runs nothing as a module but is a marker transpiled to CommonJS, so it changes what
+  // runs only where it is added or removed: stamped where both sides have it or neither, never on one side.
+  it('a bare `export {}` stamped only where both sides have it', () => {
+    for (const ext of ['d.ts', 'd.mts', 'd.cts']) {
+      // On both sides, only the types around it changing: stamped, whatever the extension.
+      assert.deepEqual(stamps({ [`a.${ext}`]: 'export declare const x: 1\nexport {}\n' }, { [`a.${ext}`]: 'export declare const x: 2\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, true]])
+      // Added or removed on one side alone: not stamped.
+      assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const x: 1\n' }, { [`a.${ext}`]: 'declare const x: 1\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, undefined]])
     }
+    // An added or deleted file carrying a bare `export {}`: the side not there has none, so not stamped.
+    assert.deepEqual(stamps({}, { 'a.d.ts': 'export {}\n' }, { renames: false }), [['added a.d.ts', undefined]])
+    assert.deepEqual(stamps({ 'a.d.ts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.ts', undefined]])
+    // One that erases whole, with no retained `export {}`, is type-only added or deleted.
+    assert.deepEqual(stamps({}, { 'a.d.ts': 'export declare const x: 1\n' }, { renames: false }), [['added a.d.ts', true]])
   })
 })
