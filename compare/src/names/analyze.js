@@ -10,6 +10,9 @@ const FUNCTIONS = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFu
 const BLOCKS = new Set(['BlockStatement', 'ForStatement', 'ForInStatement', 'ForOfStatement', 'SwitchStatement'])
 // Globals that make a script a CommonJS module, its top level its own.
 const COMMONJS = new Set(['exports', 'module', 'require'])
+// A function or class with no name of its own, which takes the one it is bound to.
+const ANONYMOUS = new Set(['FunctionExpression', 'ArrowFunctionExpression', 'ClassExpression'])
+const NAMING_ASSIGNMENTS = new Set(['=', '&&=', '||=', '??='])
 
 // oxc is loaded outside the try: one missing is no text that won't parse. A text
 // oxc's semantic check finds an error in is one it can't vouch for.
@@ -88,6 +91,24 @@ function moduleNames(node, s) {
   }
   if (node.declaration?.type === 'VariableDeclaration') for (const declarator of node.declaration.declarations) for (const id of declared(declarator.id)) s.keeping.add(id)
   else if (node.declaration?.id) s.keeping.add(node.declaration.id)
+}
+
+function anonymous(node) {
+  while (node?.type === 'ParenthesizedExpression') node = node.expression
+  return ANONYMOUS.has(node?.type) && !node.id
+}
+
+// The names functions and classes are named by, as `.name` reads them: a
+// declaration's or an expression's own, or the one an unnamed one is bound to
+// (`var f = () => {}`, `f = function () {}`, `(f = class {}) => f`).
+function namingNames(node, s) {
+  switch (node.type) {
+    case 'FunctionDeclaration': case 'FunctionExpression': case 'ClassDeclaration': case 'ClassExpression': if (node.id) s.naming.add(node.id); break
+    case 'VariableDeclarator': if (node.id.type === 'Identifier' && anonymous(node.init)) s.naming.add(node.id); break
+    case 'AssignmentPattern': if (node.left.type === 'Identifier' && anonymous(node.right)) s.naming.add(node.left); break
+    case 'AssignmentExpression': if (NAMING_ASSIGNMENTS.has(node.operator) && node.left.type === 'Identifier' && anonymous(node.right)) s.naming.add(node.left); break
+    default: break
+  }
 }
 
 // Names that are no variable's (keys, labels), names kept, and the properties
@@ -181,7 +202,7 @@ function enter(node, where, s) {
 
 // A work list rather than a recursion: a minified file's expressions nest deeply.
 function walk(program) {
-  const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), reads: new Set(), references: [], work: [] }
+  const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), naming: new Set(), reads: new Set(), references: [], work: [] }
   s.root = Object.assign(scope(s, null, true), { strict: program.sourceType === 'module' || saysStrict(program.body) })
   s.work.push([program, s.root])
   while (s.work.length > 0) {
@@ -190,6 +211,7 @@ function walk(program) {
       if (!s.declarations.has(node) && !s.others.has(node)) s.references.push([node, where])
       continue
     }
+    namingNames(node, s)
     const reason = visit(node, where, s)
     if (reason) return { reason }
     enter(node, where, s)
@@ -207,7 +229,10 @@ function resolved(program, s) {
     if (variable) occurrences.push([node, variable, where])
     else globals.push([node, where])
   }
-  for (const [node, variable] of occurrences) if (s.keeping.has(node)) variable.kept = true
+  for (const [node, variable] of occurrences) {
+    if (s.keeping.has(node)) variable.kept = true
+    if (s.naming.has(node)) variable.naming = true
+  }
   const own = program.sourceType === 'module' || program.sourceType === 'commonjs' || globals.some(([node]) => COMMONJS.has(node.name))
   for (const variable of s.variables) variable.aside = variable.name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(variable.name) && !variable.kept && (own || variable.scope !== s.root)
   // A shorthand property's two names are one, at one place.

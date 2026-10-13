@@ -106,6 +106,20 @@ describe('renameMap', () => {
     assert.deepEqual(renameMap(text('a', '{ name: a }'), text('b', '{ name: b }'), cjs).reads, [], 'a key written, not read')
   })
 
+  it('tells `.name` read only where a name renamed is a function\'s or class\'s, the one name `.name` reads', () => {
+    const reads = (declare, other = declare.replaceAll(/\ba\b/gu, 'b')) => renameMap(`${declare}\nmodule.exports = (x) => [x.name, a];\n`, `${other}\nmodule.exports = (x) => [x.name, b];\n`, cjs).reads
+    assert.deepEqual(reads('var a = 1;'), [], 'a value\'s')
+    assert.deepEqual(reads('var a = {};'), [])
+    for (const declare of ['function a() {}', 'class a {}', 'var a = () => {};', 'var a = (function () {});', 'let a; a = function () {};', 'var a; a ||= class {};',
+      'var [a = () => {}] = [];', 'var { k: a = class {} } = {};']) assert.deepEqual(reads(declare), ['name'], declare)
+    assert.deepEqual(reads('var a = function c() {};', 'var b = function c() {};'), [], 'a function named its own name, kept')
+    assert.deepEqual(reads('var a = 1, f = function e() {};', 'var b = 1, f = function g() {};'), ['name'], 'a function expression\'s own name renamed')
+    assert.deepEqual(renameMap('var a = 1;\nmodule.exports = (x) => [x.toString(), a];\n', 'var b = 1;\nmodule.exports = (x) => [x.toString(), b];\n', cjs).reads, ['toString'],
+      'a function\'s source read, which any name in it is part of')
+    assert.deepEqual(renameMap('function a() {}\nmodule.exports = (x) => [x.toString(), x.name, a];\n', 'function a() {}\nmodule.exports = (x) => [x.toString(), x.name, a, 1];\n', cjs).reads, [],
+      'nothing renamed, nothing a read may act otherwise for')
+  })
+
   it('shows the file with its names where a check that should never fail fails, and tells what failed', () => {
     // A name written with an escape is no span renaming may replace as written.
     const mapped = renameMap('var \\u0061 = 1;\nf(\\u0061);\nmodule.exports = 1;\n', 'var b = 1;\nf(b);\nmodule.exports = 1;\n', cjs)

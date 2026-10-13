@@ -53,7 +53,10 @@ function renamedNames(before, after, { extension = 'js', otherExtension = extens
   if (!bindsAlike(before, text, a)) return { reason: 'unverified' }
   const changed = a.variables.filter((variable) => given.get(variable) !== variable.name)
   const renamed = changed.filter((variable) => paired.map.has(variable)).length
-  const reads = [...new Set([...a.reads, ...b.reads])].toSorted()
+  // A read of names can act otherwise only where one is renamed, and `.name` reads a function's or
+  // class's alone: one only where a name renamed is one's.
+  const naming = changed.some((variable) => variable.naming || paired.map.get(variable)?.naming)
+  const reads = changed.length === 0 ? [] : [...new Set([...a.reads, ...b.reads])].filter((read) => read !== 'name' || naming).toSorted()
   return { text, renamed, apart: changed.length - renamed, kind: { module: a.module, commonjs: a.commonjs, own: a.own }, reads }
 }
 
