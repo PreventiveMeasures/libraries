@@ -43,14 +43,15 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // one module format -- an `export {}` emits a marker transpiled to CommonJS, a
 // module load runs as one format and throws as the other -- so where that
 // runtime is not empty a rename across formats (a `.d.mts` to a `.d.cts`, either
-// to a package-resolved `.d.ts` whose format is not known here) or to another
-// directory (a relative load would resolve elsewhere) is not stamped; a
-// modification keeps its path, hence its format and directory, and an added or
-// deleted file matches only an empty runtime. A modification of a package-resolved
-// `.d.ts` is taken to keep its format, though the `package.json` resolving it
-// could change `type` between the trees and flip it -- a change seen in the diff
-// on its own, as format is read here from the extension, not from a package.
-// Absent off Node, and without oxc-parser.
+// to a package-resolved `.d.ts` whose format is not known here) is not stamped; a
+// modification keeps its path, hence its format, and an added or deleted file
+// matches only an empty runtime. A rename is otherwise taken by its matching
+// source, as any file's is here: a relative load may resolve to another module
+// once the file moves, but that is shown as a rename of its own, not traced. A
+// modification of a package-resolved `.d.ts` is taken to keep its format, though
+// the `package.json` resolving it could change `type` between the trees and flip
+// it -- a change seen in the diff on its own, as format is read here from the
+// extension, not from a package. Absent off Node, and without oxc-parser.
 export interface FileStatus {
   status: Status
   old: TreeFile | null

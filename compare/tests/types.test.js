@@ -306,10 +306,10 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
       assert.equal(stamp('a.d.cts', 'b.d.cts'), true, `commonjs to commonjs: ${run}`)
       assert.equal(stamp('a.d.ts', 'b.d.ts'), undefined, `the package both ways: ${run}`)
       assert.equal(stamp('esm/a.d.ts', 'cjs/a.d.ts'), undefined, `across packages: ${run}`)
-      // Same format, another directory: a relative load in the runtime would resolve elsewhere, so a
-      // rename that moves the file is not types only, whatever its runtime holds.
-      assert.equal(stamp('one/a.d.mts', 'two/a.d.mts'), undefined, `another directory: ${run}`)
-      assert.equal(stamp('dir/a.d.mts', 'dir/b.d.mts'), true, `same directory, new name: ${run}`)
+      // The directory does not matter: a rename is taken by its matching source, and where a relative load
+      // resolves once the file moves is the rename's doing, shown as a rename, not traced. Only the fixed
+      // format gates it, so a same-format rename to another directory still cancels.
+      assert.equal(stamp('one/a.d.mts', 'two/a.d.mts'), true, `another directory, same format: ${run}`)
     }
     // Erasing whole, with no runtime, a rename across formats is still type-only.
     const erased = 'export declare const a: 1\nexport declare const b: 2\n'
