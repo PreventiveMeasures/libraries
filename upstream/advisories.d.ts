@@ -50,6 +50,15 @@ export interface AdvisoryOptions {
   // and its rows take OSV's record of their GHSA, one more request each
   // (no GitHub client needed).
   details?: boolean
+  // Also asks OSV of each npm package's versions, as cargo and composer
+  // packages always are, for what the registry does not have: above all
+  // the malicious packages' records (MAL-...), which it has none of, as
+  // those of npm releases taken down that GitHub's database has no
+  // advisory of. A version a registry row reports under the same advisory,
+  // its id among an OSV record's id and aliases, is left to that row,
+  // which takes the record's ids among its aliases. Sends each npm
+  // package's name and versions to OSV, so not for a private package.
+  osv?: boolean
 }
 
 // One advisory on one package, with the versions asked about that it
@@ -58,11 +67,13 @@ export interface Advisory {
   ecosystem: Ecosystem
   name: string
   // `registry`: npm's, as `npm audit` has it, one row per vulnerable
-  // range. `osv`: OSV's records for cargo and composer, RustSec's, GitHub's
-  // and malicious packages' (MAL-...) among them; of the records naming each
-  // other as aliases, directly or through others, a version is reported
-  // under one only: RustSec's, else the GHSA, else the first by id. Each
-  // has the others' ids among its aliases.
+  // range. `osv`: OSV's records for cargo and composer, and with `osv` for
+  // npm, the versions they cover that no registry row reports under the
+  // same advisory; RustSec's, GitHub's and malicious packages' (MAL-...)
+  // among them; of the records naming each other as aliases, directly or
+  // through others, a version is reported under one only: RustSec's, else
+  // the GHSA, else the first by id. Each has the others' ids among its
+  // aliases.
   // `repository`: published on the package's repository, one row per
   // range, holding only the versions the others' answer does not report
   // under that GHSA. The only source for `soldeer` and `github`, where
@@ -81,6 +92,8 @@ export interface Advisory {
   // (https://osv.dev/vulnerability/RUSTSEC-...). Built, never fetched: only
   // a registry row without a GHSA (npm:<id>) has none.
   url?: string
+  // The advisory's other ids: an `osv` row's record's own and its group's,
+  // and with `osv`, a registry row's OSV records' of it.
   aliases: string[]
   title?: string
   // With `details`, the advisory's full text, Markdown as published: an

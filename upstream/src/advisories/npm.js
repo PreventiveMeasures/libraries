@@ -6,7 +6,7 @@ import { chunks, pool } from '../pool.js'
 import { compareVersions } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, metrics } from './common.js'
 import { withRepositories } from './github.js'
-import { RECORDS_AT_ONCE, getVuln } from './osv.js'
+import { RECORDS_AT_ONCE, getVuln, osvRows } from './osv.js'
 import { npmRepos } from './repos.js'
 
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
@@ -52,21 +52,48 @@ async function registryAdvisories(asked) {
 
 // The registry's rows carry no text: each GHSA's is OSV's record of it,
 // GitHub's advisory database as published, asked once for the rows that
-// cover an asked version. One OSV does not have yet has none.
+// cover an asked version, but where `osv` already read it. One OSV does
+// not have yet has none.
 async function withDetails(rows) {
-  const ghsas = [...new Set(rows.filter((row) => row.ghsa && row.versions.length > 0).map((row) => row.ghsa))]
+  const asks = (row) => row.source === 'registry' && row.details === undefined
+  const ghsas = [...new Set(rows.filter((row) => asks(row) && row.ghsa && row.versions.length > 0).map((row) => row.ghsa))]
   const records = await pool(ghsas, RECORDS_AT_ONCE, (ghsa) => getVuln(ghsa).catch(recover(isNotFound, undefined)))
   const text = new Map(ghsas.map((ghsa, i) => [ghsa, records[i]?.details]))
-  return rows.map((row) => ({ ...row, ...detailsOf(text.get(row.ghsa), row.ghsa) }))
+  return rows.map((row) => (asks(row) ? { ...row, ...detailsOf(text.get(row.ghsa), row.ghsa) } : row))
 }
 
-// What `npm audit` asks the registry, one row per vulnerable range.
+// With `osv`, OSV's records of the asked versions besides the registry's
+// rows, the malicious packages' (MAL-...), which the registry has none
+// of, among them. A version a registry row reports under the same
+// advisory, the row's id one of an OSV row's ids or aliases, is left to
+// that row, which takes the OSV row's ids among its aliases, and its text
+// where it is the same record; an OSV row keeps the versions no such row
+// reports.
+function withOsv(registry, osv) {
+  const rows = registry.map((row) => ({ ...row }))
+  const added = []
+  for (const record of osv) {
+    const ids = [record.id, ...record.aliases]
+    const same = rows.filter((row) => row.name === record.name && ids.includes(row.id) && row.versions.some((version) => record.versions.includes(version)))
+    for (const row of same) {
+      row.aliases = [...new Set([...row.aliases, ...ids])].filter((id) => id !== row.id)
+      if (record.id === row.id && record.details !== undefined) row.details = record.details
+    }
+    const versions = record.versions.filter((version) => !same.some((row) => row.versions.includes(version)))
+    if (versions.length > 0) added.push({ ...record, versions })
+  }
+  return [...rows, ...added]
+}
+
+// What `npm audit` asks the registry, one row per vulnerable range, and
+// with `osv`, what OSV has besides.
 export const NPM = {
   assertName: assertPackageName,
   assertVersion: assertPackageVersion,
   compare: compareVersions,
   advisories: async (asked, options) => {
-    const rows = await registryAdvisories(asked)
+    const [registry, osv] = await Promise.all([registryAdvisories(asked), options.osv ? osvRows({ osv: 'npm' }, asked, options) : []])
+    const rows = withOsv(registry, osv)
     return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { ecosystem: 'npm', lookUp: npmRepos })
   },
 }
