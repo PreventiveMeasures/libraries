@@ -48,10 +48,10 @@ const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, ne
 // `.d.css.ts` for a `.css` file's.
 const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 
-// The module system a declaration file's extension fixes: `.mts` an ES module, `.cts` a CommonJS one,
-// `.ts` the package's to say. `export {}` runs nothing as one and throws as the other, so it tells a
-// rename across them apart.
-const moduleFormat = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith('.cts') ? 'commonjs' : 'package')
+// The module system a declaration file's extension fixes, or null where its package says and this cannot:
+// `.mts` an ES module, `.cts` a CommonJS one, a `.ts` either. `export {}` runs nothing as a module and
+// throws as CommonJS, so where the format is null, or the two sides' differ, it does not cancel.
+const fixedModule = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith('.cts') ? 'commonjs' : null)
 
 // A file's proof: that it holds types alone, and whether that rests on a retained `export {}` (`inert`),
 // which runs nothing as a module but emits a marker transpiled to CommonJS. A side not there holds
@@ -68,14 +68,18 @@ function proven(file) {
 
 // Stamped where each side there is a file named as a declaration file and proven to hold types alone, and
 // a retained `export {}` is on both sides or neither: on one alone it is a change in what runs once
-// transpiled, so the change is not types only. The two must share a module format for a retained
-// `export {}` to cancel -- a rename from a `.d.mts` to a `.d.cts` runs it, then throws on it.
+// transpiled, so the change is not types only. For it to cancel, the two extensions must fix the same
+// module format: a rename from a `.d.mts` to a `.d.cts` runs it, then throws on it, and a `.d.ts` leaves
+// the format to its package, which this cannot read, so a retained `export {}` in one never cancels.
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
   if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
   const fresh = proven(change.new), old = proven(change.old)
   if (!old.proven || !fresh.proven || Boolean(old.inert) !== Boolean(fresh.inert)) return change
-  if (old.inert && moduleFormat(change.old.path) !== moduleFormat(change.new.path)) return change
+  if (old.inert) {
+    const format = fixedModule(change.old.path)
+    if (format === null || format !== fixedModule(change.new.path)) return change
+  }
   return { ...change, typeOnly: true }
 }
 

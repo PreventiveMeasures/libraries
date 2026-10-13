@@ -40,9 +40,11 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // proveTypeOnly proves: one that runs nothing on either side, as a side not
 // there runs nothing. A retained `export {}` runs nothing as a module but emits
 // a marker transpiled to CommonJS, so it is allowed only on both sides at once
-// or neither, never added or removed alone, and only where the two share a
-// module format -- a rename from a `.d.mts` to a `.d.cts` runs it, then throws
-// on it. Absent off Node, and without oxc-parser.
+// or neither, never added or removed alone, and only where the two extensions
+// fix the same module format (`.mts` a module, `.cts` CommonJS) -- a rename from
+// a `.d.mts` to a `.d.cts` runs it, then throws on it, and a `.d.ts`, its format
+// its package's to say and not known here, never cancels one. Absent off Node,
+// and without oxc-parser.
 export interface FileStatus {
   status: Status
   old: TreeFile | null

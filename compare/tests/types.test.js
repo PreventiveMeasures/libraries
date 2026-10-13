@@ -246,30 +246,34 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
   })
 
   // A bare `export {}` runs nothing as a module but is a marker transpiled to CommonJS, so it changes what
-  // runs only where it is added or removed: stamped where both sides have it or neither, never on one side.
-  it('a bare `export {}` stamped only where both sides have it', () => {
-    for (const ext of ['d.ts', 'd.mts', 'd.cts']) {
-      // On both sides, only the types around it changing: stamped, whatever the extension.
-      assert.deepEqual(stamps({ [`a.${ext}`]: 'export declare const x: 1\nexport {}\n' }, { [`a.${ext}`]: 'export declare const x: 2\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, true]])
-      // Added or removed on one side alone: not stamped.
+  // runs only where it is added or removed: stamped where both sides have it or neither, never on one side,
+  // and only where the extension fixes the module format (`.mts`, `.cts`), not a `.ts` the package resolves.
+  it('a bare `export {}` stamped only where both sides have it and the format is fixed', () => {
+    for (const [ext, both] of [['d.mts', true], ['d.cts', true], ['d.ts', undefined], ['d.css.ts', undefined]]) {
+      // On both sides, only the types around it changing: stamped where the extension fixes the format.
+      assert.deepEqual(stamps({ [`a.${ext}`]: 'export declare const x: 1\nexport {}\n' }, { [`a.${ext}`]: 'export declare const x: 2\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, both]])
+      // Added or removed on one side alone: never stamped.
       assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const x: 1\n' }, { [`a.${ext}`]: 'declare const x: 1\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, undefined]])
     }
     // An added or deleted file carrying a bare `export {}`: the side not there has none, so not stamped.
-    assert.deepEqual(stamps({}, { 'a.d.ts': 'export {}\n' }, { renames: false }), [['added a.d.ts', undefined]])
-    assert.deepEqual(stamps({ 'a.d.ts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.ts', undefined]])
+    assert.deepEqual(stamps({}, { 'a.d.mts': 'export {}\n' }, { renames: false }), [['added a.d.mts', undefined]])
+    assert.deepEqual(stamps({ 'a.d.mts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.mts', undefined]])
     // One that erases whole, with no retained `export {}`, is type-only added or deleted.
     assert.deepEqual(stamps({}, { 'a.d.ts': 'export declare const x: 1\n' }, { renames: false }), [['added a.d.ts', true]])
   })
 
-  // A bare `export {}` cancels only where both sides share a module format: a rename across formats runs
-  // it as a module on one side and throws on it as CommonJS on the other.
-  it('a bare `export {}` stamped on a rename only within one module format', () => {
+  // A bare `export {}` cancels only where both extensions fix the same module format: a rename across
+  // formats runs it as a module on one side and throws on it as CommonJS on the other, and a `.d.ts`, whose
+  // format its package resolves (two trees' may differ), is never taken to share one.
+  it('a bare `export {}` stamped on a rename only within one fixed module format', () => {
     const text = 'export declare const a: 1\nexport declare const b: 2\nexport {}\n'
     const stamp = (from, to) => compareTrees(tree({ [from]: text }), tree({ [to]: text }))[0].typeOnly
     assert.equal(stamp('a.d.mts', 'b.d.cts'), undefined, 'module to commonjs')
     assert.equal(stamp('a.d.ts', 'b.d.mts'), undefined, 'the package to a module')
     assert.equal(stamp('a.d.mts', 'b.d.mts'), true, 'module to module')
-    assert.equal(stamp('a.d.ts', 'b.d.ts'), true, 'the package both ways')
+    assert.equal(stamp('a.d.cts', 'b.d.cts'), true, 'commonjs to commonjs')
+    assert.equal(stamp('a.d.ts', 'b.d.ts'), undefined, 'the package both ways, its format unknown here')
+    assert.equal(stamp('esm/a.d.ts', 'cjs/a.d.ts'), undefined, 'across packages of its own module type')
     // Erasing whole, no retained `export {}`, a rename across formats is still type-only.
     const erased = 'export declare const a: 1\nexport declare const b: 2\n'
     assert.equal(compareTrees(tree({ 'a.d.mts': erased }), tree({ 'b.d.cts': erased }))[0].typeOnly, true)
