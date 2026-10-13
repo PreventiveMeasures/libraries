@@ -4,9 +4,9 @@
 // parses; types.node.js gives both the tree and Node's text.
 
 // What stripping makes of a statement: nothing (`erased`); a bare `export {}` the source writes, left as
-// valid JavaScript that loads and runs nothing (`inert`); a statement that loads a module (`imports`); or
-// code -- `export as namespace N`, left verbatim as invalid JavaScript that throws when the file is
-// imported, among it.
+// valid JavaScript that loads and runs nothing (`inert`); an import or re-export that loads a module and
+// takes a binding from it (`imports`); or code -- `export as namespace N` left verbatim as invalid
+// JavaScript that throws when the file is imported, and a side-effect load binding nothing, among it.
 export const CODE = 'code', ERASED = 'erased', IMPORT = 'imports', INERT = 'inert'
 
 const TYPES = new Set(['TSInterfaceDeclaration', 'TSTypeAliasDeclaration'])
@@ -37,14 +37,30 @@ function erased(node) {
   }
 }
 
+// An import or re-export that binds nothing and only loads its module: a side-effect `import`, an empty
+// `import {}`, or `export {}` with a source. Code in a declaration file's source -- it loads for effects
+// alone, naming no type -- but also what transform mode emits when it elides an inline-type import or
+// re-export, so the transformed-output check reads it as that elision, not as source code.
+export function bindingless(statement) {
+  if (statement.type === 'ImportDeclaration') return statement.importKind !== 'type' && statement.specifiers.length === 0
+  if (statement.type === 'ExportNamedDeclaration') return !statement.declaration && statement.exportKind !== 'type' && Boolean(statement.source) && statement.specifiers.length === 0
+  return false
+}
+
 // A statement of a program's, as stripping leaves it. `import type` and `export type` are erased whole,
 // loading nothing; `import { type A }` from a module loads it all the same, inline `type` or not, so it
 // is a module load. A bare `export {}` is inert; `export { type A }` is code, not inert: it is `export {}`
 // only once stripping takes its specifiers out, not as the source has it, and that a stripped no-op would
-// run nothing is no reason to call the source type-only.
+// run nothing is no reason to call the source type-only. An import or re-export that binds nothing from its
+// module -- a side-effect `import`, an empty `import {}`, or `export {}` with a source -- loads it for its
+// side effects alone: code a declaration file has no reason to hold, not a module named for a type.
 export function strippedAs(statement) {
   switch (statement.type) {
-    case 'ImportDeclaration': return statement.importKind === 'type' ? ERASED : IMPORT
+    case 'ImportDeclaration':
+      if (statement.importKind === 'type') return ERASED
+      // A side-effect import binds and names nothing: code a declaration file has no reason to hold, not a
+      // module a type comes from.
+      return bindingless(statement) ? CODE : IMPORT
     case 'ExportAllDeclaration': return statement.exportKind === 'type' ? ERASED : IMPORT
     case 'TSImportEqualsDeclaration':
       if (statement.importKind === 'type') return ERASED
@@ -52,7 +68,9 @@ export function strippedAs(statement) {
     case 'ExportNamedDeclaration':
       if (statement.declaration) return erased(statement.declaration) ? ERASED : strippedAs(statement.declaration)
       if (statement.exportKind === 'type') return ERASED
-      if (statement.source) return IMPORT
+      // A re-export with a source but no specifiers re-exports nothing yet loads the module, a side-effect
+      // load; `export { a } from` a module re-exports a binding. A bare `export {}`, no source, is a marker.
+      if (statement.source) return bindingless(statement) ? CODE : IMPORT
       return statement.specifiers.length === 0 ? INERT : CODE
     case 'ExportDefaultDeclaration': return statement.declaration.type === 'TSInterfaceDeclaration' || statement.declaration.type === 'TSDeclareFunction' ? ERASED : CODE
     // `export as namespace N` is left verbatim, invalid as JavaScript, so importing the file throws.

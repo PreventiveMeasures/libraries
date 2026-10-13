@@ -7,7 +7,7 @@
 
 import * as nodeModule from 'node:module'
 import { getParser } from '#oxc'
-import { CODE, ERASED, IMPORT, INERT, leftover, strippedAs } from './erasure.js'
+import { CODE, ERASED, bindingless, leftover, strippedAs } from './erasure.js'
 
 // Each a fresh result, never a shared object a caller could mutate into another's.
 const unsupported = () => ({ proven: false, reason: 'unsupported', at: null })
@@ -18,6 +18,7 @@ const refused = (reason, at) => ({ proven: false, reason, at })
 // it keeps. Any blank but a line break is taken for one.
 const WRITTEN = /[^\S\n\r\u2028\u2029]/u
 const LINE_BREAK = /[\n\r\u2028\u2029]/u
+const NOT_LINE_BREAK = /[^\n\r\u2028\u2029]/gu
 const BLANK = /\s/u
 
 // Node's stripping is one instance for the process, its loader of `.ts` files' too, and one stopped partway
@@ -62,11 +63,13 @@ function parsed(parseSync, text) {
 }
 
 // Where stripping and oxc's tree do not agree, or -1: stripping blanks what it erases and keeps line
-// breaks, and what it keeps that is no blank lies in a comment or the hashbang outside the statements
-// oxc finds erased, or in an inert one. A comment within an erased statement goes with it.
-function disagreement(text, code, { comments, program }, { erased, inert }) {
+// breaks, and what it keeps that is no blank lies in a comment, the hashbang, or a statement it leaves to
+// run -- a module load or `export {}` -- not in one oxc finds erased. A comment within an erased statement
+// (strip blanks it) goes with it. A type-only specifier within a kept import blanks, and the else branch
+// below allows it.
+function disagreement(text, code, { comments, program }, erased, runtime) {
   const kept = new Uint8Array(text.length)
-  for (const { start, end } of [...comments, ...inert, ...(program.hashbang ? [program.hashbang] : [])]) kept.fill(1, start, end)
+  for (const { start, end } of [...comments, ...runtime, ...(program.hashbang ? [program.hashbang] : [])]) kept.fill(1, start, end)
   for (const { start, end } of erased) kept.fill(0, start, end)
   // A character stripping changed must become a blank, not a line break written over one; one it kept
   // must be a blank, or lie in a span.
@@ -74,6 +77,14 @@ function disagreement(text, code, { comments, program }, { erased, inert }) {
     if (code[i] === text[i] ? !kept[i] && !BLANK.test(code[i]) : !WRITTEN.test(code[i]) || LINE_BREAK.test(text[i])) return i
   }
   return -1
+}
+
+// `code` with each span blanked to spaces, its line breaks kept, so what is left of the stripped text
+// once the statements it leaves to run are set aside can be read for anything else.
+function blankedOutside(code, spans) {
+  let out = code
+  for (const { start, end } of spans) out = out.slice(0, start) + out.slice(start, end).replace(NOT_LINE_BREAK, ' ') + out.slice(end)
+  return out
 }
 
 // proveTypeOnly with the stripping given: exported for tests alone, not by the package.
@@ -94,21 +105,35 @@ export function proveWith(text, stripTypeScriptTypes) {
   const tree = parsed(parseSync, body)
   if (tree === null) return refused('unparsed', null)
   if (tree.errors.length > 0) return refused('unparsed', shift + (tree.errors[0].labels?.[0]?.start ?? 0))
-  const spans = { [ERASED]: [], [INERT]: [] }
+  // `erased` statements strip to blanks; `runtime` ones stripping leaves to run -- a module load or
+  // `export {}`. Anything else is code, which no declaration file of types alone holds.
+  const erased = [], runtime = []
   for (const statement of tree.program.body) {
     const kind = strippedAs(statement)
-    if (kind === IMPORT || kind === CODE) return refused(kind, shift + statement.start)
-    spans[kind].push(statement)
+    if (kind === CODE) return refused('code', shift + statement.start)
+    ;(kind === ERASED ? erased : runtime).push(statement)
   }
   if ('error' in stripped || stripped.code.length !== body.length) return refused('disagree', null)
-  const at = disagreement(body, stripped.code, tree, spans)
-  const left = at === -1 ? leftover(stripped.code) : at
+  const at = disagreement(body, stripped.code, tree, erased, runtime)
+  if (at !== -1) return refused('disagree', shift + at)
+  // Set the run statements aside; the rest of the stripped text must be blanks, comments and a hashbang.
+  const left = leftover(blankedOutside(stripped.code, runtime))
   if (left !== -1) return refused('disagree', shift + left)
+  // Transform mode (--experimental-transform-types) reveals a construct strip under-erases as code: its
+  // output, read again, must hold nothing but run statements and what erased to nothing. A bindingless load
+  // is not under-erasure here: transform emits one where it elides an inline-type import or re-export (an
+  // `import { type A }` becomes a bare side-effect `import`), so it is allowed though its source form is code.
   const transformed = strip(stripTypeScriptTypes, body, 'transform')
   if (transformed === null) return unsupported()
-  // A retained `export {}` runs nothing as a module but emits a marker transpiled to CommonJS, so the file
-  // is types-but-for-it: `inert`, stamped by compareTrees only where both sides of a change match.
-  return 'code' in transformed && leftover(transformed.code) === -1 ? { proven: true, inert: spans[INERT].length > 0 } : refused('disagree', null)
+  if ('error' in transformed) return refused('disagree', null)
+  const after = parsed(parseSync, transformed.code)
+  if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
+  // The runtime a change must leave untouched to be types only: the hashbang, module loads and `export {}`
+  // stripping leaves, as it leaves them. Empty where the file erases whole. `loads` is whether any of it is
+  // a module load or `export {}`, the runtime that runs differently per module format -- a hashbang does not.
+  const signature = (tree.program.hashbang ? `${stripped.code.slice(tree.program.hashbang.start, tree.program.hashbang.end)}\n` : '') +
+    runtime.map((statement) => stripped.code.slice(statement.start, statement.end)).join('\n')
+  return { proven: true, runtime: signature, loads: runtime.length > 0 }
 }
 
 export const proveTypeOnly = (text) => proveWith(text, nodeModule.stripTypeScriptTypes)

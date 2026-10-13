@@ -67,49 +67,67 @@ describe('Node runs a .d.ts as the .ts it is named', () => {
 })
 
 describe('proveTypeOnly', () => {
-  it('proves declaration files that erase whole, as tsc writes them and as written by hand', () => {
-    // No retained statement: types alone, inert false.
+  it('proves a file that erases whole: its runtime is empty', () => {
     for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export type { A }\nexport type * from "m"\n',
       'import type { A } from "m"\nexport declare const x: A\n', 'declare const x = 1, y: 2\n',
       'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) {
-      assert.deepEqual(proveTypeOnly(text), { proven: true, inert: false }, text)
+      assert.deepEqual(proveTypeOnly(text), { proven: true, runtime: '', loads: false }, text)
     }
   })
 
-  // A bare `export {}` runs nothing as a module but is a marker transpiled to CommonJS: proven, `inert`, so
-  // compareTrees stamps it only where both sides match. A file that erases around it is proven inert too.
-  it('proves a bare `export {}` as inert', () => {
-    assert.deepEqual(proveTypeOnly('export {};\n'), { proven: true, inert: true })
-    assert.deepEqual(proveTypeOnly('declare const x: 1\nexport {}\n'), { proven: true, inert: true })
-    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, inert: true })
+  // The run statements stripping leaves -- module loads and `export {}` -- are the file's `runtime`, which a
+  // change must leave untouched to be types only. Imports load their module inline `type` or not.
+  it("proves a file's module loads and `export {}` as its runtime", () => {
+    assert.deepEqual(proveTypeOnly('export {};\n'), { proven: true, runtime: 'export {};', loads: true })
+    assert.deepEqual(proveTypeOnly('declare const x: 1\nexport {}\n'), { proven: true, runtime: 'export {}', loads: true })
+    assert.deepEqual(proveTypeOnly("import { X } from 'a'\nexport declare const y: X\n"), { proven: true, runtime: "import { X } from 'a'", loads: true })
+    assert.deepEqual(proveTypeOnly("export { X } from 'a'\n"), { proven: true, runtime: "export { X } from 'a'", loads: true })
+    assert.deepEqual(proveTypeOnly("export * from 'a'\n"), { proven: true, runtime: "export * from 'a'", loads: true })
+    assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node\n', loads: false })
+    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: 'export {};', loads: true })
+    // A type-only specifier within a kept import blanks; the module still loads, so it is runtime.
+    const r = proveTypeOnly("import { type A, B } from 'b'\nexport declare const x: A\n")
+    assert.equal(r.proven, true)
+    assert.match(r.runtime, /^import \{ *B \} from 'b'$/u)
+  })
+
+  // An import or re-export whose only specifier is an inline type still loads its module, so it is runtime,
+  // not a side-effect load. Transform mode elides the specifier, emitting a bindingless load; the
+  // transformed-output check reads that as the elision, not code, so these prove rather than disagreeing.
+  it('proves an inline-type-only import or re-export, which transform elides to a bindingless load', () => {
+    const imp = proveTypeOnly("import { type A } from 'a'\nexport declare const x: A\n")
+    assert.equal(imp.proven, true, 'inline-type import')
+    assert.match(imp.runtime, /^import \{\s*\} from 'a'$/u)
+    const exp = proveTypeOnly("export { type A } from 'a'\nexport declare const y: 1\n")
+    assert.equal(exp.proven, true, 'inline-type re-export')
+    assert.match(exp.runtime, /^export \{\s*\} from 'a'$/u)
   })
 
   // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
-  // export declaration, so proving it would rest on stripping emitting a no-op, not on the source.
-  // (`import { type A }` loads its module -- see the imports test.)
-  it('refuses an inline-type export, inert only once stripped, not a bare `export {}`', () => {
-    for (const text of ['export { type A }', 'export { type A as B }', 'export { type A, type B }', 'declare const A: 1\nexport { type A }']) {
+  // export declaration. `export as namespace N` is left verbatim, invalid as JavaScript, so importing throws.
+  it('refuses code: an inline-type export, a namespace export, and arbitrary statements', () => {
+    for (const text of ['export { type A }', 'export { type A as B }', 'export { type A, type B }', 'declare const A: 1\nexport { type A }',
+      'export as namespace Foo', 'export as namespace Foo;\nexport {}']) {
       assert.equal(proveTypeOnly(text).proven, false, text)
       assert.equal(proveTypeOnly(text).reason, 'code', text)
     }
-  })
-
-  // Node leaves `export as namespace N` verbatim; as JavaScript it is a syntax error, so importing the
-  // file throws rather than running nothing -- a change compareTrees must not stamp as type-only.
-  it('refuses a UMD global export, left as invalid JavaScript that throws when imported', () => {
-    for (const [text, at] of [['export as namespace Foo', 0], ['export as namespace Foo;\nexport {}', 0], ['declare const x: 1\nexport as namespace N', 19]]) {
-      assert.deepEqual(proveTypeOnly(text), refused('code', at), text)
-    }
+    assert.deepEqual(proveTypeOnly('declare const x: 1\nexport as namespace N'), refused('code', 19))
     const umd = proveTypeOnly(UMD)
     assert.equal(umd.proven, false)
     assert.equal(umd.reason, 'code')
     assert.ok(UMD.slice(umd.at).startsWith('export as namespace'), 'at the namespace export')
   })
 
-  it('refuses what loads a module, a type imported by name from it too', () => {
-    for (const [text, at] of [["import { type A } from 'a'", 0], ["import 'a'", 0], ["import a from 'a'", 0], ["export { type A } from 'a'", 0], ["export * from 'a'", 0],
-      ["import a = require('a')", 0], ["export import a = require('a')", 0], ["declare const x: 1\nimport type { A } from 'a'\nimport { B } from 'b'", 46]]) {
-      assert.deepEqual(proveTypeOnly(text), refused('imports', at), text)
+  it('refuses `import = require`, which Node does not strip', () => {
+    for (const text of ["import a = require('a')", "export import a = require('a')"]) assert.equal(proveTypeOnly(text).proven, false, text)
+  })
+
+  // A declaration file imports to name a type; an import or re-export binding nothing loads a module for
+  // its side effects alone -- code a `.d.ts` has no reason to hold, so it is raised, not stamped.
+  it('refuses a side-effect import or a bindingless module load, which name no type', () => {
+    for (const [text, at] of [["import 'a'", 0], ["import {} from 'a'", 0], ["export {} from 'a'", 0],
+      ["import 'a'\nexport {}\n", 0], ["declare const x: 1\nimport 'a'\n", 19]]) {
+      assert.deepEqual(proveTypeOnly(text), refused('code', at), text)
     }
   })
 
@@ -149,7 +167,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
   }
 
   it('proves nothing where Node strips nothing, or has no stripping', () => {
-    assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true, inert: false }, 'comments blanked too')
+    assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true, runtime: '', loads: false }, 'comments blanked too')
     assert.deepEqual(proveWith(text, undefined), refused('unsupported', null))
     assert.deepEqual(proveWith(text, throwing('ERR_NO_TYPESCRIPT')), refused('unsupported', null))
     assert.deepEqual(portable(text), refused('unsupported', null), 'nor off Node')
@@ -159,8 +177,8 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
 
   it('takes any blank but a line break for one stripping writes, as it writes one of as many UTF-8 bytes', () => {
     const wide = 'type A = "\u00E9\u4E00\u{1F600}" /* \u4E00 */\ninterface B { /** \u4E00\u{1F600} */ b: "\u3000" }\n'
-    assert.deepEqual(proveTypeOnly(wide), { proven: true, inert: false })
-    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true, inert: false })
+    assert.deepEqual(proveTypeOnly(wide), { proven: true, runtime: '', loads: false })
+    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true, runtime: '', loads: false })
   })
 
   it('refuses where stripping keeps what oxc finds erased, or blanks otherwise', () => {
@@ -177,7 +195,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
   it('refuses where stripping or its transform mode refuses the text, or leaves code', () => {
     assert.deepEqual(proveWith(text, strip(throwing('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'))), refused('disagree', null))
     assert.deepEqual(proveWith(text, strip('                   // c\n', '(function(N) {})(N || (N = {}));\nvar N;\n')), refused('disagree', null))
-    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true, inert: false })
+    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true, runtime: '', loads: false })
   })
 
   // Stopped partway, Node's stripping may throw on every text from then on: one that failed so once is
@@ -187,12 +205,12 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, overflowing), refused('unparsed', null), 'not read whole, so not for oxc to read')
     assert.deepEqual(proveWith('type A = 1', overflowing), refused('unsupported', null), 'nor anything after')
     const stopped = strip(throwing('ERR_INTERNAL_ASSERTION'), '', 'type A = 1')
-    assert.deepEqual(proveWith(text, stopped), { proven: true, inert: false })
+    assert.deepEqual(proveWith(text, stopped), { proven: true, runtime: '', loads: false })
     assert.deepEqual(proveWith('type A = 1', stopped), refused('unparsed', null))
     assert.deepEqual(proveWith(text, stopped), refused('unsupported', null))
     const wrong = (t, options) => (t.startsWith('let a') ? t : stripTypeScriptTypes(t, options))
     assert.deepEqual(proveWith(text, wrong), refused('unsupported', null), 'the canary kept whole')
-    assert.deepEqual(proveTypeOnly(text), { proven: true, inert: false }, "and Node's own stripping still trusted")
+    assert.deepEqual(proveTypeOnly(text), { proven: true, runtime: '', loads: false }, "and Node's own stripping still trusted")
   })
 })
 
@@ -256,37 +274,62 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     assert.deepEqual(stamps({}, { 'a.d.ts': 'export as namespace A\n' }, { renames: false }), [['added a.d.ts', undefined]])
   })
 
-  // A bare `export {}` runs nothing as a module but is a marker transpiled to CommonJS, so it changes what
-  // runs only where it is added or removed: stamped where both sides have it or neither, never on one side,
-  // and only where the extension fixes the module format (`.mts`, `.cts`), not a `.ts` the package resolves.
-  it('a bare `export {}` stamped only where both sides have it and the format is fixed', () => {
-    for (const [ext, both] of [['d.mts', true], ['d.cts', true], ['d.ts', undefined], ['d.css.ts', undefined]]) {
-      // On both sides, only the types around it changing: stamped where the extension fixes the format.
-      assert.deepEqual(stamps({ [`a.${ext}`]: 'export declare const x: 1\nexport {}\n' }, { [`a.${ext}`]: 'export declare const x: 2\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, both]])
-      // Added or removed on one side alone: never stamped.
-      assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const x: 1\n' }, { [`a.${ext}`]: 'declare const x: 1\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, undefined]])
+  // The same runtime -- a bare `export {}`, or a module load -- on both sides cancels: the change between
+  // them touches only erased types. A modification keeps its path and so its module format; a one-sided add
+  // or removal changes the runtime and never stamps.
+  it('cancels a runtime unchanged on both sides of a modification, whatever the extension', () => {
+    for (const ext of ['d.ts', 'd.mts', 'd.cts', 'd.css.ts']) {
+      for (const run of ['export {}', "import { X } from './x.js'"]) {
+        assert.deepEqual(stamps({ [`a.${ext}`]: `${run}\nexport declare const x: 1\n` }, { [`a.${ext}`]: `${run}\nexport declare const x: 2\n` }, { renames: false }), [[`modified a.${ext}`, true]], `${ext} ${run}`)
+        // Added or removed on one side alone: the runtimes differ.
+        assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const x: 1\n' }, { [`a.${ext}`]: `${run}\ndeclare const x: 1\n` }, { renames: false }), [[`modified a.${ext}`, undefined]], `${ext} ${run}`)
+      }
     }
-    // An added or deleted file carrying a bare `export {}`: the side not there has none, so not stamped.
+    // An import changing -- a different module loaded -- is a runtime change, not types only.
+    assert.deepEqual(stamps({ 'a.d.ts': "import { X } from './x.js'\nexport declare const y: X\n" }, { 'a.d.ts': "import { X } from './y.js'\nexport declare const y: X\n" }, { renames: false }), [['modified a.d.ts', undefined]])
+    // An added or deleted file with a runtime: the side not there is empty, so not stamped; one that erases whole is.
     assert.deepEqual(stamps({}, { 'a.d.mts': 'export {}\n' }, { renames: false }), [['added a.d.mts', undefined]])
     assert.deepEqual(stamps({ 'a.d.mts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.mts', undefined]])
-    // One that erases whole, with no retained `export {}`, is type-only added or deleted.
     assert.deepEqual(stamps({}, { 'a.d.ts': 'export declare const x: 1\n' }, { renames: false }), [['added a.d.ts', true]])
   })
 
-  // A bare `export {}` cancels only where both extensions fix the same module format: a rename across
-  // formats runs it as a module on one side and throws on it as CommonJS on the other, and a `.d.ts`, whose
+  // A runtime cancels across a rename only where both extensions fix the same module format: a module load
+  // or `export {}` runs as a module on one side and throws as CommonJS on the other, and a `.d.ts`, whose
   // format its package resolves (two trees' may differ), is never taken to share one.
-  it('a bare `export {}` stamped on a rename only within one fixed module format', () => {
-    const text = 'export declare const a: 1\nexport declare const b: 2\nexport {}\n'
-    const stamp = (from, to) => compareTrees(tree({ [from]: text }), tree({ [to]: text }))[0].typeOnly
-    assert.equal(stamp('a.d.mts', 'b.d.cts'), undefined, 'module to commonjs')
-    assert.equal(stamp('a.d.ts', 'b.d.mts'), undefined, 'the package to a module')
-    assert.equal(stamp('a.d.mts', 'b.d.mts'), true, 'module to module')
-    assert.equal(stamp('a.d.cts', 'b.d.cts'), true, 'commonjs to commonjs')
-    assert.equal(stamp('a.d.ts', 'b.d.ts'), undefined, 'the package both ways, its format unknown here')
-    assert.equal(stamp('esm/a.d.ts', 'cjs/a.d.ts'), undefined, 'across packages of its own module type')
-    // Erasing whole, no retained `export {}`, a rename across formats is still type-only.
+  it('cancels a runtime on a rename only within one fixed module format', () => {
+    for (const run of ['export {}', "import { X } from './x.js'"]) {
+      const text = `${run}\nexport declare const a: X\n`
+      const stamp = (from, to) => compareTrees(tree({ [from]: text }), tree({ [to]: text }))[0].typeOnly
+      assert.equal(stamp('a.d.mts', 'b.d.cts'), undefined, `module to commonjs: ${run}`)
+      assert.equal(stamp('a.d.ts', 'b.d.mts'), undefined, `the package to a module: ${run}`)
+      assert.equal(stamp('a.d.mts', 'b.d.mts'), true, `module to module: ${run}`)
+      assert.equal(stamp('a.d.cts', 'b.d.cts'), true, `commonjs to commonjs: ${run}`)
+      assert.equal(stamp('a.d.ts', 'b.d.ts'), undefined, `the package both ways: ${run}`)
+      assert.equal(stamp('esm/a.d.ts', 'cjs/a.d.ts'), undefined, `across packages: ${run}`)
+      // The directory does not matter: a rename is taken by its matching source, and where a relative load
+      // resolves once the file moves is the rename's doing, shown as a rename, not traced. Only the fixed
+      // format gates it, so a same-format rename to another directory still cancels.
+      assert.equal(stamp('one/a.d.mts', 'two/a.d.mts'), true, `another directory, same format: ${run}`)
+    }
+    // Erasing whole, with no runtime, a rename across formats is still type-only.
     const erased = 'export declare const a: 1\nexport declare const b: 2\n'
     assert.equal(compareTrees(tree({ 'a.d.mts': erased }), tree({ 'b.d.cts': erased }))[0].typeOnly, true)
+    // A hashbang is not format-sensitive, so a hashbang-only runtime cancels across a rename of any format,
+    // and a package-resolved one too; only a module load or `export {}` gates the format.
+    const hashbang = '#!/usr/bin/env node\nexport declare const a: 1\n'
+    const stampHb = (from, to) => compareTrees(tree({ [from]: hashbang }), tree({ [to]: hashbang }))[0].typeOnly
+    assert.equal(stampHb('a.d.mts', 'b.d.cts'), true, 'hashbang across formats')
+    assert.equal(stampHb('a.d.ts', 'b.d.ts'), true, 'hashbang, package-resolved')
+  })
+
+  // Real lit-html directive .d.ts files: value imports of their base classes, unchanged across the version
+  // bump, with only an interface modifier and a comment touched -- a types-only modification.
+  it('stamps a directive declaration whose value imports are unchanged', () => {
+    const litHtml = (readonly, falsy) => `import { AttributePart, noChange } from '../lit-html.js';\n` +
+      `import { Directive, DirectiveParameters, PartInfo } from '../directive.js';\n` +
+      `export interface ClassInfo {\n    ${readonly}[name: string]: string | boolean | number;\n}\n` +
+      `declare class ClassMapDirective extends Directive {\n    render(classInfo: ClassInfo): string;\n}\n` +
+      `// a directive; a ${falsy} value removes the class\nexport declare const classMap: (classInfo: ClassInfo) => unknown;\nexport type { ClassMapDirective };\n`
+    assert.deepEqual(stamps({ 'class-map.d.ts': litHtml('readonly ', 'falsey') }, { 'class-map.d.ts': litHtml('', 'falsy') }, { renames: false }), [['modified class-map.d.ts', true]])
   })
 })

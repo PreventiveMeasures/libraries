@@ -36,15 +36,24 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // percentage of the new file the old one accounts for, 100 where the content
 // is unchanged; null for anything else. `typeOnly`, on Node alone, stamps a
 // change whose every side there is a file named as a declaration file
-// (`.d.ts`, `.d.mts`, `.d.cts`, `.d.css.ts`) and holds types alone, as
-// proveTypeOnly proves: one that runs nothing on either side, as a side not
-// there runs nothing. A retained `export {}` runs nothing as a module but emits
-// a marker transpiled to CommonJS, so it is allowed only on both sides at once
-// or neither, never added or removed alone, and only where the two extensions
-// fix the same module format (`.mts` a module, `.cts` CommonJS) -- a rename from
-// a `.d.mts` to a `.d.cts` runs it, then throws on it, and a `.d.ts`, its format
-// its package's to say and not known here, never cancels one. Absent off Node,
-// and without oxc-parser.
+// (`.d.ts`, `.d.mts`, `.d.cts`, `.d.css.ts`) and holds types alone but for a
+// runtime both sides leave the same, as proveTypeOnly proves: one touching
+// erased types and comments alone, a side not there leaving an empty runtime. A
+// retained module load or `export {}` runs the same on both sides only within
+// one module format -- an `export {}` emits a marker transpiled to CommonJS, a
+// module load runs as one format and throws as the other -- so where the runtime
+// loads a module or carries a bare `export {}` a rename across formats (a `.d.mts`
+// to a `.d.cts`, either to a package-resolved `.d.ts` whose format is not known
+// here) is not stamped; a hashbang, a directive or a pragma runs the same either
+// way, so a runtime of only those cancels across formats. A modification keeps its
+// path, hence its format, and an added or deleted file matches only an empty
+// runtime. A rename is otherwise taken by its matching
+// source, as any file's is here: a relative load may resolve to another module
+// once the file moves, but that is shown as a rename of its own, not traced. A
+// modification of a package-resolved `.d.ts` is taken to keep its format, though
+// the `package.json` resolving it could change `type` between the trees and flip
+// it -- a change seen in the diff on its own, as format is read here from the
+// extension, not from a package. Absent off Node, and without oxc-parser.
 export interface FileStatus {
   status: Status
   old: TreeFile | null
@@ -192,33 +201,44 @@ export function rootLabel(root: Root | null, prefix: string): { prefix: string; 
 // and is not asked of a stripping that once failed as may leave it unsound
 // (`unsupported`); Node's stripping or oxc finds an error in it, as in
 // `export const x: number`, which only a declaration file may write, or it
-// nests too deep for either (`unparsed`); a statement stripping leaves loads a
-// module, as `import { type A }` and `export *` from one do (`imports`), or is
-// anything else (`code`); or Node's stripping, or a reading of what it leaves,
-// does not find what oxc does (`disagree`).
-export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'imports' | 'code' | 'disagree'
+// nests too deep for either (`unparsed`); a statement is neither erased nor a
+// module load binding a type nor a bare `export {}`, as `export { type A }`,
+// `export as namespace N` and a side-effect load that binds nothing are not
+// (`code`); or Node's stripping, or a reading of what it leaves, does not find
+// what oxc does (`disagree`).
+export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 
-// Whether `text`, read as TypeScript, holds types alone, so that Node, which
-// reads a `.d.ts` as the `.ts` it is named and runs what its type stripping
-// leaves, runs nothing of it:
+// Whether `text`, read as TypeScript, holds types alone but for a `runtime` a
+// change must leave byte for byte untouched, so that Node, which reads a `.d.ts`
+// as the `.ts` it is named and runs what its type stripping leaves, runs only
+// that of it:
 // - oxc's tree has no statement but those stripping erases whole -- interfaces,
 //   type aliases, anything `declare`d (bodies and initializers with it), a
 //   function's signature, `import type` and `export type`, a namespace of types
-//   alone -- and a bare `export {}`. `import { type A }` loads its module like
-//   any import, inline `type` or not, so it is not type-only; nor is
-//   `export { type A }`, which is only `export {}` once stripping takes its
-//   specifiers out; nor `export as namespace N`, left as invalid JavaScript that
-//   throws when imported;
+//   alone -- and those it leaves to run: a module load that binds from it
+//   (`import`, `export *`, `export { a } from` a module, `import { type A }` whose
+//   inline `type` loads it all the same) and a bare `export {}`. `export { type A }`
+//   is code, not a run statement: it is `export {}` only once stripping takes its
+//   specifiers out, not as the source has it; nor is `export as namespace N`, left
+//   as invalid JavaScript that throws when imported, nor a side-effect load that
+//   binds nothing -- a bare `import`, an empty `import {}`, `export {}` with a
+//   source -- which loads a module for no type;
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
-//   and leaves nothing it does not, but comments, the hashbang and that one;
-// - what it leaves, read token by token apart from either, holds nothing else;
+//   and leaves nothing it does not, but comments, the hashbang and those;
+// - what it leaves, the run statements set aside, read token by token apart from
+//   either, holds nothing else;
 // - nor does what its transform mode (--experimental-transform-types) leaves.
-// `inert` is true where a bare `export {}` is kept: valid JavaScript that loads
-// and runs nothing as a module, but a marker transpiled to CommonJS, so a change
-// is types only only where both sides match in it. `at` is where in `text` what
-// is found begins, where it has a place. Throws a TypeError where `text` is not a
+// `runtime` is the stripped text of those run statements, the hashbang first,
+// joined by newlines -- empty where the file erases whole. `loads` is whether any
+// of them is a module load or a bare `export {}`: the runtime that runs as one
+// module format and throws, or emits a different marker, as the other. A change is
+// types only where both sides prove and leave the same `runtime`: it then touches
+// erased types and comments alone. Where `loads`, a rename across module formats
+// does not cancel (see compareTrees' `typeOnly`); a hashbang-only runtime, which
+// runs the same either way, cancels across them. `at` is where in `text` what is
+// found begins, where it has a place. Throws a TypeError where `text` is not a
 // well-formed string. Node warns once that stripTypeScriptTypes is experimental.
-export function proveTypeOnly(text: string): { proven: true; inert: boolean } | { proven: false; reason: TypeOnlyReason; at: number | null }
+export function proveTypeOnly(text: string): { proven: true; runtime: string; loads: boolean } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.

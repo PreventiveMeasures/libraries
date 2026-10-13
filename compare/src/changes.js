@@ -49,15 +49,18 @@ const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, ne
 const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 
 // The module system a declaration file's extension fixes, or null where its package says and this cannot:
-// `.mts` an ES module, `.cts` a CommonJS one, a `.ts` either. `export {}` runs nothing as a module and
-// throws as CommonJS, so where the format is null, or the two sides' differ, it does not cancel.
+// `.mts` an ES module, `.cts` a CommonJS one, a `.ts` either. A module load and `export {}` run as one and
+// throw as the other, so where a side's runtime is not empty and the format is null, or the two differ,
+// a change across them is not types only.
 const fixedModule = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith('.cts') ? 'commonjs' : null)
 
-// A file's proof: that it holds types alone, and whether that rests on a retained `export {}` (`inert`),
-// which runs nothing as a module but emits a marker transpiled to CommonJS. A side not there holds
-// nothing. Not proven where the proof throws, as no check should.
+// A file's proof: that it holds types alone but for its `runtime` -- a hashbang, the module loads and
+// `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only.
+// `loads` is whether that runtime holds a module load or `export {}`, the part that runs differently per
+// module format; a hashbang, a directive or a pragma does not, so a runtime of only those is format-free. A
+// side not there has none. Not proven where the proof throws, as no check should.
 function proven(file) {
-  if (file === null) return { proven: true, inert: false }
+  if (file === null) return { proven: true, runtime: '', loads: false }
   const text = textOf(file)
   try {
     return text === undefined ? { proven: false } : proveTypeOnly(text)
@@ -66,19 +69,27 @@ function proven(file) {
   }
 }
 
-// Stamped where each side there is a file named as a declaration file and proven to hold types alone, and
-// a retained `export {}` is on both sides or neither: on one alone it is a change in what runs once
-// transpiled, so the change is not types only. For it to cancel, the two extensions must fix the same
-// module format: a rename from a `.d.mts` to a `.d.cts` runs it, then throws on it, and a `.d.ts` leaves
-// the format to its package, which this cannot read, so a retained `export {}` in one never cancels.
+// Stamped where each side there is a declaration file proven to hold types alone and the two leave the
+// same runtime -- a change touching only erased types (and comments). A mode changing is a change of its
+// own. Where that runtime loads a module or carries a bare `export {}` it runs the same on both sides only
+// within one module format, so a rename across formats (a `.d.mts` to a `.d.cts`, either to a
+// package-resolved `.d.ts`) does not qualify; a hashbang, a directive or a pragma runs the same either way,
+// so a runtime of only those cancels across formats. A modification keeps its path, hence its format, and
+// an added or deleted file matches only an empty one.
+// A rename is taken by its matching source, as any file's is here: a relative load in the runtime may
+// resolve to another module once the file moves, but that is the rename's doing, shown as a rename of its
+// own, not traced. Known limitation: a modification of a package-resolved `.d.ts` is taken to keep its
+// format, though the `package.json` that resolves it could change `type` between the two trees and flip it;
+// that flip is a change to `package.json`, seen in the diff on its own, and format is read from the
+// extension here, not resolved from a package.
+
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
   if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
-  // A mode changed, an executable bit set or cleared, is a change in its own right, types aside.
   if (change.old && change.new && change.old.mode !== change.new.mode) return change
   const fresh = proven(change.new), old = proven(change.old)
-  if (!old.proven || !fresh.proven || Boolean(old.inert) !== Boolean(fresh.inert)) return change
-  if (old.inert) {
+  if (!old.proven || !fresh.proven || old.runtime !== fresh.runtime) return change
+  if (old.loads && change.old && change.new && change.old.path !== change.new.path) {
     const format = fixedModule(change.old.path)
     if (format === null || format !== fixedModule(change.new.path)) return change
   }
