@@ -23,11 +23,16 @@ function findPhar() {
 const PHAR = findPhar()
 
 // Each case is [kind, ...arguments]; each result { value } or { error }.
+// Each case goes to Composer once, as edited lockfiles have most of their
+// packages as they were.
 export function composer(cases) {
   if (PHAR === undefined) return undefined
-  const run = spawnSync(process.env.PHP ?? 'php', ['-d', 'memory_limit=-1', SCRIPT, PHAR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 1 << 28 })
+  const keys = cases.map((item) => JSON.stringify(item))
+  const unique = [...new Set(keys)]
+  const run = spawnSync(process.env.PHP ?? 'php', ['-d', 'memory_limit=-1', SCRIPT, PHAR], { input: `[${unique.join(',')}]`, encoding: 'utf8', maxBuffer: 1 << 28 })
   if (run.error !== undefined || run.status !== 0) return undefined
-  return JSON.parse(run.stdout)
+  const results = new Map(JSON.parse(run.stdout).map((result, index) => [unique[index], result]))
+  return keys.map((key) => results.get(key))
 }
 
 export const hasComposer = () => composer([['normalize', 'v1.0']])?.[0]?.value === '1.0.0.0'
