@@ -228,11 +228,16 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // - what it leaves, the run statements set aside, read token by token apart from
 //   either, holds nothing else;
 // - nor does what its transform mode (--experimental-transform-types) leaves.
-// `runtime` is the stripped text of those run statements and of the directive and
-// pragma comments stripping keeps -- a `/// <reference ... />`, a `//# sourceMappingURL=`
+// `runtime` is built from those run statements and from the directive and pragma
+// comments stripping keeps -- a `/// <reference ... />`, a `//# sourceMappingURL=`
 // or `//# sourceURL=` and their legacy forms, comments a tool reads as more than prose --
 // the hashbang first and the rest in source order, joined by newlines; empty where the
-// file erases whole and carries none. A triple-slash directive counts only in the prologue,
+// file erases whole and carries none. A run statement is reduced: an inline type specifier
+// stripping blanks within it (`import { type A, B }`), and any comment within it, each become
+// a single blank, so a change to only those leaves `runtime` unchanged; its executable text and
+// its module specifier are kept to the character, so a load of another module still differs. A
+// directive, a pragma and the hashbang stand as stripping leaves them, since what they say is the
+// point. A triple-slash directive counts only in the prologue,
 // before the first statement, where TypeScript honours it; below one it is prose, so moving
 // it out of the prologue drops it from `runtime`, as removing it does. `loads` is whether any
 // run statement is a module load or a bare `export {}`: the runtime that runs as one module

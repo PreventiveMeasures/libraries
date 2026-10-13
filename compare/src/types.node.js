@@ -107,6 +107,40 @@ function blankedOutside(code, spans) {
   return out
 }
 
+// A run statement's text for the signature, with what stripping erased within it and the comments it holds
+// reduced, so a change touching only those does not change the signature: an inline type specifier (`import
+// { type A, B }`) blanks to a run of blanks whose width tracks the type's name, and a comment within an
+// otherwise unchanged load would stand verbatim. Each maximal blank run that stripping itself made -- one
+// holding a character where `body` and `code` differ -- collapses to a single blank, and each comment wholly
+// within the span to one too. Every character stripping kept stays byte for byte: the executable syntax and,
+// with their blanks and all, the string literals -- a module specifier's quotes bound any blank run inside
+// it, and stripping never wrote there, so it is kept, and a load of another module (even one whose specifier
+// differs only in a blank) still differs here. A blank run of only source blanks that stripping left (plain
+// spacing between tokens) is likewise kept, so such a difference withholds the stamp rather than passing.
+function runtimeText(body, code, comments, { start, end }) {
+  const within = comments.filter((comment) => comment.start >= start && comment.end <= end)
+  let at = start, next = 0, out = ''
+  while (at < end) {
+    if (next < within.length && at === within[next].start) {
+      out += ' '
+      at = within[next].end
+      next++
+    } else if (BLANK.test(code[at])) {
+      let erased = false, to = at
+      while (to < end && BLANK.test(code[to])) {
+        if (body[to] !== code[to]) erased = true
+        to++
+      }
+      out += erased ? ' ' : code.slice(at, to)
+      at = to
+    } else {
+      out += code[at]
+      at++
+    }
+  }
+  return out
+}
+
 // proveTypeOnly with the stripping given: exported for tests alone, not by the package.
 export function proveWith(text, stripTypeScriptTypes) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
@@ -149,17 +183,24 @@ export function proveWith(text, stripTypeScriptTypes) {
   const after = parsed(parseSync, transformed.code)
   if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
   // The runtime a change must leave untouched to be types only: the hashbang, the module loads and
-  // `export {}` stripping leaves, and the directive and pragma comments it keeps -- each as stripping
-  // leaves it, in source order. Empty where the file erases whole and carries none. A triple-slash
-  // directive counts only in the prologue, before the first statement, where TypeScript honours it; a
-  // comment blanked within an erased statement reads as blanks here, so only a kept one steers. `loads` is
-  // whether any run statement is a module load or `export {}`, the runtime that runs differently per module
-  // format -- a hashbang, directive or pragma does not.
+  // `export {}` stripping leaves, and the directive and pragma comments it keeps -- in source order. Empty
+  // where the file erases whole and carries none. A run statement is read through runtimeText, so an inline
+  // type specifier or a comment within it does not count; the hashbang, a directive and a pragma stand
+  // verbatim, since what they say is the point. A triple-slash directive counts only in the prologue, before
+  // the first statement, where TypeScript honours it; a comment blanked within an erased statement reads as
+  // blanks here, so only a kept one steers. `loads` is whether any run statement is a module load or
+  // `export {}`, the runtime that runs differently per module format -- a hashbang, directive or pragma does
+  // not.
   const prologue = tree.program.body.length > 0 ? tree.program.body[0].start : stripped.code.length
   const hashbang = tree.program.hashbang ? [tree.program.hashbang] : []
   const steering = tree.comments.filter(({ start, end }) => steers(stripped.code.slice(start, end), start < prologue))
-  const kept = [...hashbang, ...runtime, ...steering].sort((a, b) => a.start - b.start)
-  const signature = kept.map(({ start, end }) => stripped.code.slice(start, end)).join('\n')
+  const verbatim = ({ start, end }) => stripped.code.slice(start, end)
+  const parts = [
+    ...hashbang.map((node) => ({ start: node.start, text: verbatim(node) })),
+    ...runtime.map((node) => ({ start: node.start, text: runtimeText(body, stripped.code, tree.comments, node) })),
+    ...steering.map((node) => ({ start: node.start, text: verbatim(node) })),
+  ]
+  const signature = parts.sort((a, b) => a.start - b.start).map((part) => part.text).join('\n')
   return { proven: true, runtime: signature, loads: runtime.length > 0 }
 }
 

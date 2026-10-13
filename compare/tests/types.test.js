@@ -107,6 +107,21 @@ describe('proveTypeOnly', () => {
     assert.match(exp.runtime, /^export \{\s*\} from 'a'$/u)
   })
 
+  // Stripping blanks an inline type specifier to a run of blanks whose width tracks the type's name, and a
+  // comment within a kept import would stand verbatim in the runtime; each is reduced so a change touching
+  // only those leaves the runtime untouched and the diff stays types only. What stripping keeps stands byte
+  // for byte: a module specifier's own blanks among it, so a load of another module still differs.
+  it('reduces an inline type specifier and a comment within a kept import, but keeps the module specifier', () => {
+    const rt = (text) => proveTypeOnly(text).runtime
+    assert.equal(rt("import { type A, B } from 'm'\n"), rt("import { type Longer, B } from 'm'\n"), 'inline-type name change')
+    assert.equal(rt("import { B, type A } from 'm'\n"), rt("import { B, type Other } from 'm'\n"), 'trailing inline-type change')
+    assert.equal(rt('import /* v1 */ { B } from "m"\n'), rt('import /* a longer one */ { B } from "m"\n'), 'comment within the import')
+    // The module specifier is kept byte for byte: a different module, or one whose own blanks differ, is a
+    // different runtime, so such a change is not types only -- the normalization adds no false stamp.
+    assert.notEqual(rt('import { B } from "./a b.js"\n'), rt('import { B } from "./a  b.js"\n'), 'specifier blanks are kept')
+    assert.notEqual(rt("import { B } from 'm'\n"), rt("import { C } from 'm'\n"), 'a value binding is kept')
+  })
+
   // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
   // export declaration. `export as namespace N` is left verbatim, invalid as JavaScript, so importing throws.
   it('refuses code: an inline-type export, a namespace export, and arbitrary statements', () => {
@@ -291,6 +306,10 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     }
     // An import changing -- a different module loaded -- is a runtime change, not types only.
     assert.deepEqual(stamps({ 'a.d.ts': "import { X } from './x.js'\nexport declare const y: X\n" }, { 'a.d.ts': "import { X } from './y.js'\nexport declare const y: X\n" }, { renames: false }), [['modified a.d.ts', undefined]])
+    // An inline type specifier changing within an otherwise unchanged load touches only erased types: the
+    // value binding and the module are the same, so it is stamped though stripping blanks the specifier to a
+    // different width on each side.
+    assert.deepEqual(stamps({ 'a.d.ts': "import { type A, X } from './x.js'\nexport declare const y: A | X\n" }, { 'a.d.ts': "import { type Longer, X } from './x.js'\nexport declare const y: Longer | X\n" }, { renames: false }), [['modified a.d.ts', true]])
     // An added or deleted file with a runtime: the side not there is empty, so not stamped; one that erases whole is.
     assert.deepEqual(stamps({}, { 'a.d.mts': 'export {}\n' }, { renames: false }), [['added a.d.mts', undefined]])
     assert.deepEqual(stamps({ 'a.d.mts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.mts', undefined]])
