@@ -81,7 +81,7 @@ describe('proveTypeOnly', () => {
     assert.deepEqual(proveTypeOnly('export {};\n'), { proven: true, runtime: 'export {};' })
     assert.deepEqual(proveTypeOnly('declare const x: 1\nexport {}\n'), { proven: true, runtime: 'export {}' })
     assert.deepEqual(proveTypeOnly("import { X } from 'a'\nexport declare const y: X\n"), { proven: true, runtime: "import { X } from 'a'" })
-    assert.deepEqual(proveTypeOnly("import 'a'\nexport {}\n"), { proven: true, runtime: "import 'a'\nexport {}" })
+    assert.deepEqual(proveTypeOnly("export { X } from 'a'\n"), { proven: true, runtime: "export { X } from 'a'" })
     assert.deepEqual(proveTypeOnly("export * from 'a'\n"), { proven: true, runtime: "export * from 'a'" })
     assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node\n' })
     assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: 'export {};' })
@@ -108,6 +108,15 @@ describe('proveTypeOnly', () => {
 
   it('refuses `import = require`, which Node does not strip', () => {
     for (const text of ["import a = require('a')", "export import a = require('a')"]) assert.equal(proveTypeOnly(text).proven, false, text)
+  })
+
+  // A declaration file imports to name a type; an import or re-export binding nothing loads a module for
+  // its side effects alone -- code a `.d.ts` has no reason to hold, so it is raised, not stamped.
+  it('refuses a side-effect import or a bindingless module load, which name no type', () => {
+    for (const [text, at] of [["import 'a'", 0], ["import {} from 'a'", 0], ["export {} from 'a'", 0],
+      ["import 'a'\nexport {}\n", 0], ["declare const x: 1\nimport 'a'\n", 19]]) {
+      assert.deepEqual(proveTypeOnly(text), refused('code', at), text)
+    }
   })
 
   it('refuses code, and anything else stripping leaves but comments', () => {

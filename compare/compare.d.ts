@@ -194,9 +194,10 @@ export function rootLabel(root: Root | null, prefix: string): { prefix: string; 
 // (`unsupported`); Node's stripping or oxc finds an error in it, as in
 // `export const x: number`, which only a declaration file may write, or it
 // nests too deep for either (`unparsed`); a statement is neither erased nor a
-// module load or bare `export {}`, as `export { type A }` and `export as
-// namespace N` are not (`code`); or Node's stripping, or a reading of what it
-// leaves, does not find what oxc does (`disagree`).
+// module load binding a type nor a bare `export {}`, as `export { type A }`,
+// `export as namespace N` and a side-effect load that binds nothing are not
+// (`code`); or Node's stripping, or a reading of what it leaves, does not find
+// what oxc does (`disagree`).
 export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 
 // Whether `text`, read as TypeScript, holds types alone but for a `runtime` a
@@ -206,12 +207,14 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // - oxc's tree has no statement but those stripping erases whole -- interfaces,
 //   type aliases, anything `declare`d (bodies and initializers with it), a
 //   function's signature, `import type` and `export type`, a namespace of types
-//   alone -- and those it leaves to run: a module load (`import`, `export *` and
-//   `export {}` from a module, `import { type A }` whose inline `type` loads it
-//   all the same) and a bare `export {}`. `export { type A }` is code, not a run
-//   statement: it is `export {}` only once stripping takes its specifiers out,
-//   not as the source has it; nor is `export as namespace N`, left as invalid
-//   JavaScript that throws when imported;
+//   alone -- and those it leaves to run: a module load that binds from it
+//   (`import`, `export *`, `export { a } from` a module, `import { type A }` whose
+//   inline `type` loads it all the same) and a bare `export {}`. `export { type A }`
+//   is code, not a run statement: it is `export {}` only once stripping takes its
+//   specifiers out, not as the source has it; nor is `export as namespace N`, left
+//   as invalid JavaScript that throws when imported, nor a side-effect load that
+//   binds nothing -- a bare `import`, an empty `import {}`, `export {}` with a
+//   source -- which loads a module for no type;
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
 //   and leaves nothing it does not, but comments, the hashbang and those;
 // - what it leaves, the run statements set aside, read token by token apart from
