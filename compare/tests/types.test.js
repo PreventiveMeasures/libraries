@@ -115,7 +115,10 @@ describe('proveTypeOnly', () => {
     const rt = (text) => proveTypeOnly(text).runtime
     assert.equal(rt("import { type A, B } from 'm'\n"), rt("import { type Longer, B } from 'm'\n"), 'inline-type name change')
     assert.equal(rt("import { B, type A } from 'm'\n"), rt("import { B, type Other } from 'm'\n"), 'trailing inline-type change')
-    assert.equal(rt('import /* v1 */ { B } from "m"\n'), rt('import /* a longer one */ { B } from "m"\n'), 'comment within the import')
+    // A comment and its adjacent blanks collapse together, so adding or changing a comment within a load does
+    // not shift the rest: the gap reads the same with no comment, a short one, or a long one.
+    assert.equal(rt('import { B } from "m"\n'), rt('import /* c */ { B } from "m"\n'), 'comment added within the import')
+    assert.equal(rt('import /* v1 */ { B } from "m"\n'), rt('import /* a longer one */ { B } from "m"\n'), 'comment within the import changed')
     // The module specifier is kept byte for byte: a different module, or one whose own blanks differ, is a
     // different runtime, so such a change is not types only -- the normalization adds no false stamp.
     assert.notEqual(rt('import { B } from "./a b.js"\n'), rt('import { B } from "./a  b.js"\n'), 'specifier blanks are kept')

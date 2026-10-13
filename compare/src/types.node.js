@@ -110,28 +110,30 @@ function blankedOutside(code, spans) {
 // A run statement's text for the signature, with what stripping erased within it and the comments it holds
 // reduced, so a change touching only those does not change the signature: an inline type specifier (`import
 // { type A, B }`) blanks to a run of blanks whose width tracks the type's name, and a comment within an
-// otherwise unchanged load would stand verbatim. Each maximal blank run that stripping itself made -- one
-// holding a character where `body` and `code` differ -- collapses to a single blank, and each comment wholly
-// within the span to one too. Every character stripping kept stays byte for byte: the executable syntax and,
-// with their blanks and all, the string literals -- a module specifier's quotes bound any blank run inside
-// it, and stripping never wrote there, so it is kept, and a load of another module (even one whose specifier
-// differs only in a blank) still differs here. A blank run of only source blanks that stripping left (plain
-// spacing between tokens) is likewise kept, so such a difference withholds the stamp rather than passing.
+// otherwise unchanged load (`import /* c */ { B }`) stands as text amid blanks. A gap between tokens is any
+// maximal run of blanks and comments; one holding a comment, or a character stripping erased (where `body`
+// and `code` differ), collapses whole to a single blank, comment and adjacent blanks together, so adding or
+// changing either does not shift the rest. A gap of only source blanks that stripping left (plain spacing
+// between tokens) is kept as is, so such a difference withholds the stamp rather than passing. Every
+// character stripping kept otherwise stays byte for byte: the executable syntax and, with their blanks and
+// all, the string literals -- a module specifier's quotes bound any blank run inside it and hold no comment,
+// and stripping never wrote there, so it is kept, and a load of another module (even one whose specifier
+// differs only in a blank) still differs here.
 function runtimeText(body, code, comments, { start, end }) {
-  const within = comments.filter((comment) => comment.start >= start && comment.end <= end)
-  let at = start, next = 0, out = ''
+  const commented = new Uint8Array(end - start)
+  for (const comment of comments) {
+    if (comment.start >= start && comment.end <= end) commented.fill(1, comment.start - start, comment.end - start)
+  }
+  const reducible = (at) => BLANK.test(code[at]) || commented[at - start] === 1
+  let at = start, out = ''
   while (at < end) {
-    if (next < within.length && at === within[next].start) {
-      out += ' '
-      at = within[next].end
-      next++
-    } else if (BLANK.test(code[at])) {
-      let erased = false, to = at
-      while (to < end && BLANK.test(code[to])) {
-        if (body[to] !== code[to]) erased = true
+    if (reducible(at)) {
+      let drop = false, to = at
+      while (to < end && reducible(to)) {
+        if (body[to] !== code[to] || commented[to - start] === 1) drop = true
         to++
       }
-      out += erased ? ' ' : code.slice(at, to)
+      out += drop ? ' ' : code.slice(at, to)
       at = to
     } else {
       out += code[at]
