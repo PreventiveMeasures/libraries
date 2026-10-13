@@ -7,6 +7,8 @@ import { format } from '../pretty.js'
 import { sameCode } from '../src/pretty.js'
 
 const sameCss = (text, formatted) => sameCode(text, formatted, 'css', csstree)
+// A name's escape as a file writes it.
+const esc = (hex) => `\\u${hex}`
 
 describe('sameCode', () => {
   it('takes what formatting may respell: whitespace, quotes, parentheses, semicolons, numbers', () => {
@@ -14,6 +16,8 @@ describe('sameCode', () => {
       "var a='x',b='it\\'s';f(x=>x);a=1,b=2;x={'a':1};var n=.5,m=1E+3,k=1.50;!(a||b)||(c||d);new Foo",
       'var a = "x",\n  b = "it\'s";\nf((x) => x);\n((a = 1), (b = 2));\nx = { "a": 1 };\nvar n = 0.5,\n  m = 1e3,\n  k = 1.5;\n!(a || b) || c || d;\nnew Foo();\n'), true)
     assert.equal(sameCode('a=/x/img.test(s)', 'a = /x/gim.test(s);\n'), true, 'flags in order')
+    assert.equal(sameCode('a=/x/yu\nb=/y/ig', 'a = /x/uy;\nb = /y/gi;\n'), true, 'and ending a statement, the next one\'s name after')
+    assert.equal(sameCode('x=a/ig;b', 'x = a / ig;\nb;\n'), true, 'a name divided by, as written')
     assert.equal(sameCode(';!function(){}()', '!(function () {})();\n'), true, 'an empty statement dropped, an expression wrapped')
     assert.equal(sameCode('a&&(b&&c)', 'a && b && c;\n'), true, 'a chain of one operator regrouped')
     assert.equal(sameCode('const x:number=(a as any)+1', 'const x: number = (a as any) + 1;\n', 'ts'), true)
@@ -36,6 +40,9 @@ describe('sameCode', () => {
       assert.equal(sameCode('a=b-c', output), false, what)
     }
     assert.equal(sameCode('a=/x/im', 'a = /x/gim;\n'), false, 'a flag')
+    assert.equal(sameCode('x=a/ig;b', 'x = a / gi;\nb;\n'), false, 'a name\'s letters sorted as flags would be')
+    assert.equal(sameCode(`var ${esc('0061')}=1`, 'var a = 1;\n'), false, 'a name\'s escape read')
+    assert.equal(sameCode('x=a&&/* c */\nb', 'x = a /* c */ && b;\n'), false, 'a comment moved before the operator it followed')
     assert.equal(sameCode('a=1.5', 'a = 1.25;\n'), false, 'a number')
     assert.equal(sameCode('a()/* keep me */', 'a();\n'), false, 'a comment')
     // What reads alike once parentheses and semicolons are set aside, but means otherwise.
@@ -165,6 +172,22 @@ describe('format', () => {
     assert.match(code, /^import \{ directive, Directive, PartType \} from "\.\/directive\.js";\nexport type Part =\n {2}\| Part0WithALongName\n/u)
     assert.match((await format(`export function isPart(x: unknown): x is ${union} { return true }`, 'ts')).code, /x is\n {2}\| Part0WithALongName\n/u, 'and after a type predicate\'s `is`')
     assert.match((await format(`export type M = { [P in ${union}]: 1 };`, 'ts')).code, /P in\n\s+\| Part0WithALongName\n/u, 'and a mapped type\'s `in`')
+  })
+
+  it('writes a name as the file does, escapes and all', async () => {
+    const [a, b, c] = [esc('0061'), esc('0062'), esc('0063')]
+    assert.deepEqual(await format(`var ${a}=1;a.${b};x={${a}:1,${c}};class A{#${a};static ${esc('0275')}x=1;m(){this.#${a}}}`, 'js'),
+      { code: `var ${a} = 1;\na.${b};\nx = { ${a}: 1, ${c} };\nclass A {\n  #${a};\n  static ${esc('0275')}x = 1;\n  m() {\n    this.#${a};\n  }\n}\n` })
+    assert.deepEqual(await format(`var ${esc('{61}')}b=a${esc('200c')}b`, 'js'), { code: `var ${esc('{61}')}b = a${esc('200c')}b;\n` }, 'a joiner, unseen once read')
+    assert.deepEqual(await format(`function f(${a}:string,b?:${esc('0074')}){}`, 'ts'), { code: `function f(${a}: string, b?: ${esc('0074')}) {}\n` }, 'and a typed one')
+  })
+
+  it('keeps a comment after the operator, `,`, `?` or `:` it follows', async () => {
+    for (const [text, code] of [['x=a&&/* c */\n(b||c)', 'x = a && /* c */ (b || c);\n'], ['x=a+/* c */\nb', 'x = a + /* c */ b;\n'],
+      ['x=a?/* c */\nb:c', 'x = a ? /* c */ b : c;\n'], ['x=a?b:/* c */\nc', 'x = a ? b : /* c */ c;\n'], ['f(a,/* c */\nb)', 'f(a, /* c */ b);\n'],
+      ['x=a in/* c */\nb', 'x = a in /* c */ b;\n'], ['x=a&&/* c */ /* d */\nb', 'x = a && /* c */ /* d */ b;\n'],
+      // One over more than one line still ends its line.
+      ['x=a&&/** c\n */\nb', 'x =\n  a && /** c\n   */\n  b;\n']]) assert.deepEqual(await format(text, 'js'), { code }, text)
   })
 
   it('formats CSS where css-tree is there to check it', async () => {

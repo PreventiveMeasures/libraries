@@ -1,7 +1,8 @@
 // `text` formatted by oxfmt as a file with `extension`, changing what is written
-// no more than layout needs (keys keep their quotes, no trailing commas or arrow
-// parentheses are added, template literals stay), the copy used only where checks
-// of oxfmt's output, apart from oxfmt, find it changes the layout alone:
+// no more than layout needs (keys keep their quotes, names their escapes, a comment
+// its place after an operator; no trailing commas or arrow parentheses are added,
+// template literals stay), the copy used only where checks of oxfmt's output, apart
+// from oxfmt, find it changes the layout alone:
 // - a script's (`js`, `mjs`, `cjs`, `jsx`, `ts`, `mts`, `cts`, `tsx`) syntax tree as
 //   oxc parses it, its comments and its text;
 // - a style sheet's (`css`) tree as css-tree, an optional peer, parses it, but for
