@@ -365,5 +365,11 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     const prose = (url, c) => `export declare const x: ${c}\n//#sourceMappingURL=${url}\n`
     assert.deepEqual(stamps({ 'a.d.ts': prose('old.map', 1) }, { 'a.d.ts': prose('new.map', 2) }, { renames: false }), [['modified a.d.ts', true]], 'no-space pragma is prose')
     assert.equal(proveTypeOnly('//# sourceMappingURL=\nexport declare const x: 1\n').runtime, '', 'empty-value pragma is prose')
+    // The engine skips blanks between `=` and the value (`//# sourceMappingURL=  a.map` names `a.map`), so a
+    // pragma so spelled is real: it joins the runtime and a change to its value is not types only.
+    const spaced = (name, c) => `export declare const x: ${c}\n//# sourceMappingURL=  ${name}\n`
+    assert.equal(proveTypeOnly(spaced('a.map', 1)).runtime, '//# sourceMappingURL=  a.map', 'spaced-value pragma joins the runtime')
+    assert.deepEqual(stamps({ 'a.d.ts': spaced('a.map', 1) }, { 'a.d.ts': spaced('a.map', 2) }, { renames: false }), [['modified a.d.ts', true]], 'spaced-value pragma unchanged')
+    assert.deepEqual(stamps({ 'a.d.ts': spaced('a.map', 1) }, { 'a.d.ts': spaced('b.map', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'spaced-value pragma changed')
   })
 })
