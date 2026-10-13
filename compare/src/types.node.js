@@ -194,9 +194,9 @@ export function proveWith(text, stripTypeScriptTypes) {
   // type specifier or a comment within it does not count; the hashbang, a directive and a pragma stand
   // verbatim, since what they say is the point. A triple-slash directive counts only in the prologue, before
   // the first statement, where TypeScript honours it; a comment blanked within an erased statement reads as
-  // blanks here, so only a kept one steers. `loads` is whether any run statement is a module load or
-  // `export {}`, the runtime that runs differently per module format -- a hashbang, directive or pragma does
-  // not.
+  // blanks here, so only a kept one steers. `loads` is whether any run statement is a module load, a bare
+  // `export {}`, or an `export default` on an identifier, the runtime that runs differently per module format
+  // -- a hashbang, directive or pragma does not.
   const prologue = tree.program.body.length > 0 ? tree.program.body[0].start : stripped.code.length
   const hashbang = tree.program.hashbang ? [tree.program.hashbang] : []
   const steering = tree.comments.filter(({ start, end }) => steers(stripped.code.slice(start, end), start < prologue))

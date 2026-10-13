@@ -42,7 +42,7 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // retained module load or `export {}` runs the same on both sides only within
 // one module format -- an `export {}` emits a marker transpiled to CommonJS, a
 // module load runs as one format and throws as the other -- so where the runtime
-// loads a module or carries a bare `export {}` a rename across formats (a `.d.mts`
+// loads a module, carries a bare `export {}`, or default-exports an identifier a rename across formats (a `.d.mts`
 // to a `.d.cts`, either to a package-resolved `.d.ts` whose format is not known
 // here) is not stamped; a hashbang, a directive or a pragma runs the same either
 // way, so a runtime of only those cancels across formats. A modification keeps its
@@ -249,7 +249,7 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // point. A triple-slash directive counts only in the prologue,
 // before the first statement, where TypeScript honours it; below one it is prose, so moving
 // it out of the prologue drops it from `runtime`, as removing it does. `loads` is whether any
-// run statement is a module load or a bare `export {}`: the runtime that runs as one module
+// run statement is a module load, a bare `export {}`, or an `export default` on an identifier: the runtime that runs as one module
 // format and throws, or emits a different marker, as the other -- a hashbang, directive or
 // pragma does not. A change is types only where both sides prove and leave the same `runtime`:
 // it then touches erased types and ordinary comments alone. Where `loads`, a rename across

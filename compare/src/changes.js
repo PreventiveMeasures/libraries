@@ -60,7 +60,7 @@ const EXPORT_EMPTY = /^export\s*\{\s*\}\s*;?$/u
 
 // A file's proof: that it holds types alone but for its `runtime` -- a hashbang, the module loads and
 // `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only.
-// `loads` is whether that runtime holds a module load or `export {}`, the part that runs differently per
+// `loads` is whether that runtime holds a module load, `export {}`, or an `export default` on an identifier, the part that runs differently per
 // module format; a hashbang, a directive or a pragma does not, so a runtime of only those is format-free. A
 // side not there has none. Not proven where the proof throws, as no check should.
 function proven(file) {
@@ -75,7 +75,7 @@ function proven(file) {
 
 // Stamped where each side there is a declaration file proven to hold types alone and the two leave the
 // same runtime -- a change touching only erased types (and comments). A mode changing is a change of its
-// own. Where that runtime loads a module or carries a bare `export {}` it runs the same on both sides only
+// own. Where that runtime loads a module, carries a bare `export {}`, or default-exports an identifier it runs the same on both sides only
 // within one module format, so a rename across formats (a `.d.mts` to a `.d.cts`, either to a
 // package-resolved `.d.ts`) does not qualify; a hashbang, a directive or a pragma runs the same either way,
 // so a runtime of only those cancels across formats. A modification keeps its path, hence its format, and
