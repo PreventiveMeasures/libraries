@@ -54,6 +54,10 @@ const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 // a change across them is not types only.
 const fixedModule = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith('.cts') ? 'commonjs' : null)
 
+// A path's directory, with its trailing slash, or '' at the root. A relative load resolves against it, so
+// a rename that changes it can run a different module from the same runtime text.
+const dirOf = (path) => path.slice(0, path.lastIndexOf('/') + 1)
+
 // A file's proof: that it holds types alone but for its `runtime` -- a hashbang, the module loads and
 // `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only. A
 // side not there has none. Not proven where the proof throws, as no check should.
@@ -69,9 +73,11 @@ function proven(file) {
 
 // Stamped where each side there is a declaration file proven to hold types alone and the two leave the
 // same runtime -- a change touching only erased types (and comments). A mode changing is a change of its
-// own. Where that runtime is not empty it runs the same on both sides only within one module format, so a
-// rename across formats (a `.d.mts` to a `.d.cts`, either to a package-resolved `.d.ts`) does not qualify;
-// a modification keeps its path, hence its format, and an added or deleted file matches only an empty one.
+// own. Where that runtime is not empty it runs the same on both sides only within one module format and
+// one directory, so a rename across formats (a `.d.mts` to a `.d.cts`, either to a package-resolved
+// `.d.ts`) does not qualify, nor one to another directory, where a relative load would resolve elsewhere;
+// a modification keeps its path, hence its format and directory, and an added or deleted file matches only
+// an empty one.
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
   if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
@@ -81,6 +87,7 @@ function stamped(change) {
   if (old.runtime !== '' && change.old && change.new && change.old.path !== change.new.path) {
     const format = fixedModule(change.old.path)
     if (format === null || format !== fixedModule(change.new.path)) return change
+    if (dirOf(change.old.path) !== dirOf(change.new.path)) return change
   }
   return { ...change, typeOnly: true }
 }

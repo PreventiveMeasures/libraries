@@ -37,6 +37,16 @@ function erased(node) {
   }
 }
 
+// An import or re-export that binds nothing and only loads its module: a side-effect `import`, an empty
+// `import {}`, or `export {}` with a source. Code in a declaration file's source -- it loads for effects
+// alone, naming no type -- but also what transform mode emits when it elides an inline-type import or
+// re-export, so the transformed-output check reads it as that elision, not as source code.
+export function bindingless(statement) {
+  if (statement.type === 'ImportDeclaration') return statement.importKind !== 'type' && statement.specifiers.length === 0
+  if (statement.type === 'ExportNamedDeclaration') return !statement.declaration && statement.exportKind !== 'type' && Boolean(statement.source) && statement.specifiers.length === 0
+  return false
+}
+
 // A statement of a program's, as stripping leaves it. `import type` and `export type` are erased whole,
 // loading nothing; `import { type A }` from a module loads it all the same, inline `type` or not, so it
 // is a module load. A bare `export {}` is inert; `export { type A }` is code, not inert: it is `export {}`
@@ -48,9 +58,9 @@ export function strippedAs(statement) {
   switch (statement.type) {
     case 'ImportDeclaration':
       if (statement.importKind === 'type') return ERASED
-      // A side-effect import -- `import` of a module for its effects, or an empty `import {}` -- binds and
-      // names nothing: code a declaration file has no reason to hold, not a module a type comes from.
-      return statement.specifiers.length === 0 ? CODE : IMPORT
+      // A side-effect import binds and names nothing: code a declaration file has no reason to hold, not a
+      // module a type comes from.
+      return bindingless(statement) ? CODE : IMPORT
     case 'ExportAllDeclaration': return statement.exportKind === 'type' ? ERASED : IMPORT
     case 'TSImportEqualsDeclaration':
       if (statement.importKind === 'type') return ERASED
@@ -60,7 +70,7 @@ export function strippedAs(statement) {
       if (statement.exportKind === 'type') return ERASED
       // A re-export with a source but no specifiers re-exports nothing yet loads the module, a side-effect
       // load; `export { a } from` a module re-exports a binding. A bare `export {}`, no source, is a marker.
-      if (statement.source) return statement.specifiers.length === 0 ? CODE : IMPORT
+      if (statement.source) return bindingless(statement) ? CODE : IMPORT
       return statement.specifiers.length === 0 ? INERT : CODE
     case 'ExportDefaultDeclaration': return statement.declaration.type === 'TSInterfaceDeclaration' || statement.declaration.type === 'TSDeclareFunction' ? ERASED : CODE
     // `export as namespace N` is left verbatim, invalid as JavaScript, so importing the file throws.

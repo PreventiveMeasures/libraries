@@ -91,6 +91,18 @@ describe('proveTypeOnly', () => {
     assert.match(r.runtime, /^import \{ *B \} from 'b'$/u)
   })
 
+  // An import or re-export whose only specifier is an inline type still loads its module, so it is runtime,
+  // not a side-effect load. Transform mode elides the specifier, emitting a bindingless load; the
+  // transformed-output check reads that as the elision, not code, so these prove rather than disagreeing.
+  it('proves an inline-type-only import or re-export, which transform elides to a bindingless load', () => {
+    const imp = proveTypeOnly("import { type A } from 'a'\nexport declare const x: A\n")
+    assert.equal(imp.proven, true, 'inline-type import')
+    assert.match(imp.runtime, /^import \{\s*\} from 'a'$/u)
+    const exp = proveTypeOnly("export { type A } from 'a'\nexport declare const y: 1\n")
+    assert.equal(exp.proven, true, 'inline-type re-export')
+    assert.match(exp.runtime, /^export \{\s*\} from 'a'$/u)
+  })
+
   // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
   // export declaration. `export as namespace N` is left verbatim, invalid as JavaScript, so importing throws.
   it('refuses code: an inline-type export, a namespace export, and arbitrary statements', () => {
@@ -294,6 +306,10 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
       assert.equal(stamp('a.d.cts', 'b.d.cts'), true, `commonjs to commonjs: ${run}`)
       assert.equal(stamp('a.d.ts', 'b.d.ts'), undefined, `the package both ways: ${run}`)
       assert.equal(stamp('esm/a.d.ts', 'cjs/a.d.ts'), undefined, `across packages: ${run}`)
+      // Same format, another directory: a relative load in the runtime would resolve elsewhere, so a
+      // rename that moves the file is not types only, whatever its runtime holds.
+      assert.equal(stamp('one/a.d.mts', 'two/a.d.mts'), undefined, `another directory: ${run}`)
+      assert.equal(stamp('dir/a.d.mts', 'dir/b.d.mts'), true, `same directory, new name: ${run}`)
     }
     // Erasing whole, with no runtime, a rename across formats is still type-only.
     const erased = 'export declare const a: 1\nexport declare const b: 2\n'

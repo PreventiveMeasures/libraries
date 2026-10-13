@@ -7,7 +7,7 @@
 
 import * as nodeModule from 'node:module'
 import { getParser } from '#oxc'
-import { CODE, ERASED, leftover, strippedAs } from './erasure.js'
+import { CODE, ERASED, bindingless, leftover, strippedAs } from './erasure.js'
 
 // Each a fresh result, never a shared object a caller could mutate into another's.
 const unsupported = () => ({ proven: false, reason: 'unsupported', at: null })
@@ -120,12 +120,14 @@ export function proveWith(text, stripTypeScriptTypes) {
   const left = leftover(blankedOutside(stripped.code, runtime))
   if (left !== -1) return refused('disagree', shift + left)
   // Transform mode (--experimental-transform-types) reveals a construct strip under-erases as code: its
-  // output, read again, must hold nothing but run statements and what erased to nothing.
+  // output, read again, must hold nothing but run statements and what erased to nothing. A bindingless load
+  // is not under-erasure here: transform emits one where it elides an inline-type import or re-export (an
+  // `import { type A }` becomes a bare side-effect `import`), so it is allowed though its source form is code.
   const transformed = strip(stripTypeScriptTypes, body, 'transform')
   if (transformed === null) return unsupported()
   if ('error' in transformed) return refused('disagree', null)
   const after = parsed(parseSync, transformed.code)
-  if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE)) return refused('disagree', null)
+  if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
   // The runtime a change must leave untouched to be types only: the hashbang, module loads and `export {}`
   // stripping leaves, as it leaves them. Empty where the file erases whole.
   const signature = (tree.program.hashbang ? `${stripped.code.slice(tree.program.hashbang.start, tree.program.hashbang.end)}\n` : '') +
