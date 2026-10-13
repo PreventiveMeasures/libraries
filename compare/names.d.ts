@@ -33,12 +33,26 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // function's or class's, the one name it reads (`function f`, `f = () => {}`);
 // `marks` the plain diff's blocks that differ in renamed names alone; and
 // `warnings` what a check that should never fail found.
-export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: 'none' | 'all' | 'change' | 'trailing' }): Promise<{
+export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: Whitespace }): Promise<{
   before: string
   blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
   reason: RenameReason | null
   reads: string[]
   marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
+  warnings: string[]
+}>
+
+export type Whitespace = 'none' | 'all' | 'change' | 'trailing'
+
+// renamedDiff for each of `whitespace`'s settings (`['none']` unless given),
+// `diffs` in their order: the names found and the old side given them once
+// for all, as are `before`, `reason`, `reads` and `warnings`; each setting's
+// `blocks` checked as renamedDiff's are, and its `marks` read as they are.
+export function renamedDiffs(before: string, after: string, options?: RenameOptions & { whitespace?: Whitespace[] }): Promise<{
+  before: string
+  reason: RenameReason | null
+  reads: string[]
+  diffs: { whitespace: Whitespace; blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]; marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] }[]
   warnings: string[]
 }>
 

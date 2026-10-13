@@ -9,7 +9,7 @@ describe('entry points', () => {
     const names = async (entry) => Object.keys(await import(`../${entry}`)).toSorted()
     assert.deepEqual(await names('compare.js'), ['CompareError', 'compareTrees', 'formatPatch', 'hidesMixedWhitespace', 'layoutDir',
       'layoutPackageDirs', 'pairLines', 'proveTypeOnly', 'renameParts', 'rootLabel', 'treeLayout', 'wordRanges'])
-    assert.deepEqual(await names('names.js'), ['renamedDiff'])
+    assert.deepEqual(await names('names.js'), ['renamedDiff', 'renamedDiffs'])
     assert.deepEqual(await names('pretty.js'), ['format'])
   })
 })
