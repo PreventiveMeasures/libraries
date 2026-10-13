@@ -162,6 +162,7 @@ describe('format', () => {
     const union = Array.from({ length: 6 }, (_, i) => `Part${i}WithALongName`).join(' | ')
     const { code } = await format(`import{directive,Directive,PartType,}from"./directive.js";export type Part=${union};`, 'ts')
     assert.match(code, /^import \{ directive, Directive, PartType \} from "\.\/directive\.js";\nexport type Part =\n {2}\| Part0WithALongName\n/u)
+    assert.match((await format(`export function isPart(x: unknown): x is ${union} { return true }`, 'ts')).code, /x is\n {2}\| Part0WithALongName\n/u, 'and after a type predicate\'s `is`')
   })
 
   it('formats CSS where css-tree is there to check it', async () => {

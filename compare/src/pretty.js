@@ -32,9 +32,9 @@ const sorted = (flags) => [...flags].toSorted().join('')
 // blanks, parentheses, semicolons, quotes, numbers and a regular expression's flags; a comma before a
 // closing bracket, past any comments (`import { a, b, }`); and a `|` or `&` opening a type
 // (`type P =\n  | A\n  | B`), where in an expression neither may follow `=`, `:`, `(`, `<`, `,`, `[`,
-// `?`, `=>`, `as`, `satisfies` or `extends`.
+// `?`, `=>`, `as`, `satisfies`, `extends` or `is`.
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/,(?=(?:\s|\/\/[^\n]*|\/\*[^]*?\*\/)*[\])}>])/gu, '')
-  .replaceAll(/(?<=(?:[(,:<=?[]|=>|\b(?:as|satisfies|extends))\s*)[&|](?![&=|])/gu, '').replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
+  .replaceAll(/(?<=(?:[(,:<=?[]|=>|\b(?:as|satisfies|extends|is))\s*)[&|](?![&=|])/gu, '').replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, sorted)
 
 // JSON has no point without a digit either side: such a number is kept as written, or a copy would read as
