@@ -28,7 +28,11 @@ function numberSpelling(text) {
 }
 
 const sorted = (flags) => [...flags].toSorted().join('')
-const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
+// A script's text but for what the formatter may respell, beside the syntax tree compared after:
+// blanks, parentheses, semicolons, quotes, numbers and a regular expression's flags, and a comma before
+// a closing bracket, past any comments (`import { a, b, }`).
+const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/,(?=(?:\s|\/\/[^\n]*|\/\*[^]*?\*\/)*[\])}>])/gu, '')
+  .replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
   .replaceAll(/(?<=\/)[dgimsuvy]{2,}(?![\p{L}\p{N}_$])/gu, sorted)
 
 // JSON has no point without a digit either side: such a number is kept as written, or a copy would read as
@@ -45,7 +49,8 @@ function parsed(text, extension) {
   return result.errors.length > 0 ? null : result
 }
 
-const comments = ({ comments: list }) => list.map(({ type, value }) => `${type} ${indentless(value)}`)
+// A comment as written, but for its indentation and the blanks ending it, which formatting trims.
+const comments = ({ comments: list }) => list.map(({ type, value }) => `${type} ${indentless(value).replace(/[\t ]+$/u, '')}`)
 // `a && (b && c)` and `(a && b) && c` read alike, as do `||` and `??` chains.
 function chain(node, operator) {
   const operands = [], rest = [node]
@@ -79,14 +84,42 @@ function sameTree(a, b) {
   return true
 }
 
+// A script's types as the formatter writes them: a member's separator `;` where it was `,`
+// (`{ a: string, b: number }`), and no `|` or `&` before a union's or an intersection's first type
+// (`type P =\n  | A\n  | B`, `[K in\n  | A\n  | B]`). oxc reads a member with the separator ending it
+// and a union from the mark leading it, so each is taken where it is, in whatever context.
+function typed(text, program) {
+  const edits = [], work = [program]
+  while (work.length > 0) {
+    const node = work.pop()
+    // Pushed one by one: a spread of a file's statements could pass more arguments than a call takes.
+    if (Array.isArray(node)) for (const item of node) work.push(item)
+    else if (node !== null && typeof node === 'object') {
+      const members = node.type === 'TSTypeLiteral' ? node.members : node.type === 'TSInterfaceBody' ? node.body : []
+      for (const member of members) if (text[member.end - 1] === ',') edits.push([member.end - 1, ';'])
+      const mark = node.type === 'TSUnionType' ? '|' : node.type === 'TSIntersectionType' ? '&' : null
+      if (mark && text[node.start] === mark && node.types[0]?.start > node.start) edits.push([node.start, ''])
+      for (const key of Object.keys(node)) if (!POSITION.has(key) && typeof node[key] === 'object') work.push(node[key])
+    }
+  }
+  let from = 0, out = ''
+  for (const [at, put] of edits.toSorted(([x], [y]) => x - y)) {
+    out += text.slice(from, at) + put
+    from = at + 1
+  }
+  return out + text.slice(from)
+}
+
 // A safeguard on oxfmt's own output, not a comparison of any two texts: exported
 // for tests alone, not by the package. CSS is read by `csstree` where given.
 export function sameCode(text, formatted, extension = 'js', csstree = null) {
   if (extension === 'css') return csstree !== null && sameCss(csstree, text, formatted)
   if (extension === 'json') return sameList(jsonForm(text), jsonForm(formatted))
-  if (!SCRIPTS.has(extension) || scriptForm(text) !== scriptForm(formatted)) return false
+  if (!SCRIPTS.has(extension)) return false
   const [before, after] = [parsed(text, extension), parsed(formatted, extension)]
-  return before !== null && after !== null && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
+  if (before === null || after === null) return false
+  const form = (code, { program }) => scriptForm(/^[cm]?tsx?$/u.test(extension) ? typed(code, program) : code)
+  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
 }
 
 // A script's block comments over more than one line, a license's say, each end their line: what oxfmt

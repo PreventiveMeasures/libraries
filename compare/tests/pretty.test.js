@@ -17,6 +17,17 @@ describe('sameCode', () => {
     assert.equal(sameCode(';!function(){}()', '!(function () {})();\n'), true, 'an empty statement dropped, an expression wrapped')
     assert.equal(sameCode('a&&(b&&c)', 'a && b && c;\n'), true, 'a chain of one operator regrouped')
     assert.equal(sameCode('const x:number=(a as any)+1', 'const x: number = (a as any) + 1;\n', 'ts'), true)
+    assert.equal(sameCode('import{a,b,}from"m";f(a,b,);x={a,b,};y=[a,b,]', 'import { a, b } from "m";\nf(a, b);\nx = { a, b };\ny = [a, b];\n'), true, 'trailing commas dropped')
+    assert.equal(sameCode('y=[1,// one\n2,// two\n]', 'y = [\n  1, // one\n  2 // two\n];\n'), true, 'and before a comment')
+    assert.equal(sameCode('type P=A|B|C;let x:(A|B)[];f<A|B>();g(x as {a:1}|null)', 'type P =\n  | A\n  | B\n  | C;\nlet x: (\n  | A\n  | B\n)[];\nf<\n  | A\n  | B\n>();\ng(\n  x as\n    | { a: 1 }\n    | null\n);\n', 'ts'), true,
+      'a union broken over lines, each part led by `|`')
+    assert.equal(sameCode('type I=A&B;type M={[K in A|B]:1}', 'type I =\n  & A\n  & B;\ntype M = {\n  [K in\n    | A\n    | B]: 1;\n};\n', 'ts'), true, 'an intersection led by `&`, a mapped type\'s keys by `|`')
+    assert.equal(sameCode('a()// x  \nb()/* y */', 'a(); // x\nb(); /* y */\n'), true, 'blanks ending a comment')
+    const members = `type T = { ${Array.from({ length: 130_000 }, (_, i) => `a${i}: 1,`).join(' ')} };\n`, statements = `${Array.from({ length: 130_000 }, (_, i) => `let a${i} = 0;`).join('\n')}\n`
+    assert.equal(sameCode(statements, statements, 'ts'), true, 'more statements than a call takes arguments')
+    assert.equal(sameCode(members, members, 'ts'), true, 'and more members')
+    assert.equal(sameCode('type T={a:string,b?:number};interface I{c:1,d():void}', 'type T = { a: string; b?: number };\ninterface I {\n  c: 1;\n  d(): void;\n}\n', 'ts'), true,
+      'a type\'s members separated by `;` for `,`')
   })
 
   it('refuses anything else, as two checks apart from the formatter find', () => {
@@ -34,6 +45,12 @@ describe('sameCode', () => {
     assert.equal(sameCode('(a?.b).c\n', 'a?.b.c\n'), false, 'an optional chain extended')
     assert.equal(sameCode('a&&(b||c)', 'a && b || c;\n'), false, 'chains of two operators regrouped')
     assert.equal(sameCode('const x:number=a', 'const x: string = a;\n', 'ts'), false)
+    // A comma or a `|` set aside, the syntax tree still has what they mean.
+    assert.equal(sameCode('x=[a,,]', 'x = [a];\n'), false, 'a hole dropped beside a trailing comma')
+    assert.equal(sameCode('type P=A|B', 'type P = A & B;\n', 'ts'), false, 'a union made an intersection')
+    assert.equal(sameCode('type P=|A|B', 'type P = | A & B;\n', 'ts'), false, 'and after a leading `|`')
+    assert.equal(sameCode('let x={a:1,b:2}', 'let x = { a: 1; b: 2 };\n', 'ts'), false, 'an object\'s `,` made `;`, which no longer parses')
+    assert.equal(sameCode('f(a,b)', 'f(a; b);\n', 'ts'), false, 'and an argument list\'s')
     assert.equal(sameCode('f(', 'f(\n'), false, 'text that does not parse')
   })
 
@@ -140,6 +157,14 @@ describe('format', () => {
     assert.deepEqual(await format('/* a */f()', 'js'), { code: '/* a */ f();\n' }, 'one on one line keeps it')
     // One holding a line break ends a line to the parser already: `return` returns nothing here, before and after.
     assert.deepEqual(await format('function f(){return/**\n*/1}', 'js'), { code: 'function f() {\n  return;\n  /**\n   */\n  1;\n}\n' })
+  })
+
+  it('takes trailing commas it drops and the `|` it leads a union\'s lines with', async () => {
+    const union = Array.from({ length: 6 }, (_, i) => `Part${i}WithALongName`).join(' | ')
+    const { code } = await format(`import{directive,Directive,PartType,}from"./directive.js";export type Part=${union};`, 'ts')
+    assert.match(code, /^import \{ directive, Directive, PartType \} from "\.\/directive\.js";\nexport type Part =\n {2}\| Part0WithALongName\n/u)
+    assert.match((await format(`export function isPart(x: unknown): x is ${union} { return true }`, 'ts')).code, /x is\n {2}\| Part0WithALongName\n/u, 'and after a type predicate\'s `is`')
+    assert.match((await format(`export type M = { [P in ${union}]: 1 };`, 'ts')).code, /P in\n\s+\| Part0WithALongName\n/u, 'and a mapped type\'s `in`')
   })
 
   it('formats CSS where css-tree is there to check it', async () => {
