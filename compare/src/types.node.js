@@ -21,6 +21,23 @@ const LINE_BREAK = /[\n\r\u2028\u2029]/u
 const NOT_LINE_BREAK = /[^\n\r\u2028\u2029]/gu
 const BLANK = /\s/u
 
+// Comments a tool reads as more than prose, which stripping keeps verbatim: a triple-slash directive, which
+// pulls other declarations into the file's types, and a source map or source URL pragma, which names where
+// a tool looks (its legacy forms, `//@` and a `/*# */` block, among it). They join the runtime, so a change
+// to one shows there rather than passing as types only. A directive is one of TypeScript's named tags
+// (`reference`, `amd-module`, `amd-dependency`) carrying an attribute, so whitespace follows the name; a
+// `/// <summary>`, a bare `/// <reference>` or `/// <reference/>` without one, or any other triple-slash
+// comment is prose. A pragma likewise needs its grammar: the engine reads `//# sourceMappingURL=` only with
+// whitespace after the `#` or `@` and a non-empty value, so `//#sourceURL=x` or an empty `//# sourceURL=`
+// is prose. Erring wide is safe here (a prose change merely withholds a stamp), but matching every real
+// directive or pragma is not optional: missing one would stamp its change, so each is kept as broad as its
+// effective grammar allows, no stricter. A directive steers only where it leads the file,
+// `prologue` true: TypeScript honours it before the first statement and reads it as prose below one, so
+// moving it out of the prologue drops it, as removing it does.
+const DIRECTIVE = /^\/\/\/\s*<(?:reference|amd-module|amd-dependency)\s/u
+const PRAGMA = /^\/[/*][#@]\s+source(?:Mapping)?URL=\S/u
+const steers = (text, prologue) => (DIRECTIVE.test(text) && prologue) || PRAGMA.test(text)
+
 // Node's stripping is one instance for the process, its loader of `.ts` files' too, and one stopped partway
 // (a stack overflowed, execution terminated) is not trusted again: one that threw here anything but its
 // refusal of a text, or that does not strip the canary as it should, as one stopped elsewhere may not.
@@ -128,11 +145,18 @@ export function proveWith(text, stripTypeScriptTypes) {
   if ('error' in transformed) return refused('disagree', null)
   const after = parsed(parseSync, transformed.code)
   if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
-  // The runtime a change must leave untouched to be types only: the hashbang, module loads and `export {}`
-  // stripping leaves, as it leaves them. Empty where the file erases whole. `loads` is whether any of it is
-  // a module load or `export {}`, the runtime that runs differently per module format -- a hashbang does not.
-  const signature = (tree.program.hashbang ? `${stripped.code.slice(tree.program.hashbang.start, tree.program.hashbang.end)}\n` : '') +
-    runtime.map((statement) => stripped.code.slice(statement.start, statement.end)).join('\n')
+  // The runtime a change must leave untouched to be types only: the hashbang, the module loads and
+  // `export {}` stripping leaves, and the directive and pragma comments it keeps -- each as stripping
+  // leaves it, in source order. Empty where the file erases whole and carries none. A triple-slash
+  // directive counts only in the prologue, before the first statement, where TypeScript honours it; a
+  // comment blanked within an erased statement reads as blanks here, so only a kept one steers. `loads` is
+  // whether any run statement is a module load or `export {}`, the runtime that runs differently per module
+  // format -- a hashbang, directive or pragma does not.
+  const prologue = tree.program.body.length > 0 ? tree.program.body[0].start : stripped.code.length
+  const hashbang = tree.program.hashbang ? [tree.program.hashbang] : []
+  const steering = tree.comments.filter(({ start, end }) => steers(stripped.code.slice(start, end), start < prologue))
+  const kept = [...hashbang, ...runtime, ...steering].sort((a, b) => a.start - b.start)
+  const signature = kept.map(({ start, end }) => stripped.code.slice(start, end)).join('\n')
   return { proven: true, runtime: signature, loads: runtime.length > 0 }
 }
 
