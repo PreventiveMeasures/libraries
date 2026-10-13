@@ -1,7 +1,7 @@
 {
   "name": "@preventive/publishers",
   "version": "1.1.0",
-  "description": "The accounts known to publish packages: for npm, each that published one of its most downloaded packages over time, and the scopes of those packages",
+  "description": "npm accounts and scopes behind the most downloaded packages",
   "type": "module",
   "exports": {
     "./npm.js": {

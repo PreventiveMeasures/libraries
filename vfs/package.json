@@ -1,7 +1,7 @@
 {
   "name": "@preventive/vfs",
   "version": "1.0.0-beta.4",
-  "description": "In-memory filesystem: an inode tree with POSIX path resolution, built from a path map or tar entries",
+  "description": "In-memory filesystem with POSIX path resolution",
   "type": "module",
   "main": "./vfs.js",
   "types": "./vfs.d.ts",
