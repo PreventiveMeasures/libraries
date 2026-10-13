@@ -92,10 +92,11 @@ function separated(text, program) {
   const ends = [], work = [program]
   while (work.length > 0) {
     const node = work.pop()
-    if (Array.isArray(node)) work.push(...node)
+    // Pushed one by one: a spread of a file's statements could pass more arguments than a call takes.
+    if (Array.isArray(node)) for (const item of node) work.push(item)
     else if (node !== null && typeof node === 'object') {
       const members = node.type === 'TSTypeLiteral' ? node.members : node.type === 'TSInterfaceBody' ? node.body : []
-      ends.push(...members.filter((member) => text[member.end - 1] === ',').map((member) => member.end - 1))
+      for (const member of members) if (text[member.end - 1] === ',') ends.push(member.end - 1)
       for (const key of Object.keys(node)) if (!POSITION.has(key) && typeof node[key] === 'object') work.push(node[key])
     }
   }

@@ -22,6 +22,9 @@ describe('sameCode', () => {
     assert.equal(sameCode('type P=A|B|C;let x:(A|B)[];f<A|B>();g(x as {a:1}|null)', 'type P =\n  | A\n  | B\n  | C;\nlet x: (\n  | A\n  | B\n)[];\nf<\n  | A\n  | B\n>();\ng(\n  x as\n    | { a: 1 }\n    | null\n);\n', 'ts'), true,
       'a union broken over lines, each part led by `|`')
     assert.equal(sameCode('a()// x  \nb()/* y */', 'a(); // x\nb(); /* y */\n'), true, 'blanks ending a comment')
+    const members = `type T = { ${Array.from({ length: 130_000 }, (_, i) => `a${i}: 1,`).join(' ')} };\n`, statements = `${Array.from({ length: 130_000 }, (_, i) => `let a${i} = 0;`).join('\n')}\n`
+    assert.equal(sameCode(statements, statements, 'ts'), true, 'more statements than a call takes arguments')
+    assert.equal(sameCode(members, members, 'ts'), true, 'and more members')
     assert.equal(sameCode('type T={a:string,b?:number};interface I{c:1,d():void}', 'type T = { a: string; b?: number };\ninterface I {\n  c: 1;\n  d(): void;\n}\n', 'ts'), true,
       'a type\'s members separated by `;` for `,`')
   })
