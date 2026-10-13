@@ -77,7 +77,11 @@ function proven(file) {
 // one directory, so a rename across formats (a `.d.mts` to a `.d.cts`, either to a package-resolved
 // `.d.ts`) does not qualify, nor one to another directory, where a relative load would resolve elsewhere;
 // a modification keeps its path, hence its format and directory, and an added or deleted file matches only
-// an empty one.
+// an empty one. Known limitation: a modification of a package-resolved `.d.ts` is taken to keep its format,
+// though the `package.json` that resolves it could change `type` between the two trees and flip it; that
+// flip is a change to `package.json`, seen in the diff on its own, and format is read from the extension
+// here, not resolved from a package.
+
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
   if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
