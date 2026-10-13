@@ -109,6 +109,8 @@ describe('compare/ is self-contained', () => {
 
   // A browser bundle of compare.js alone needs no peer installed: only names.js
   // and pretty.js lead to #oxc, whose portable module imports both as it loads.
+  // The package's own imports are followed to the portable module a bundle
+  // takes: #types', which proves nothing off Node, loads no oxc either.
   it('compare.js reaches no #oxc module, nor oxfmt or css-tree', () => {
     const queue = [new URL('compare.js', PKG_DIR)], seen = new Set()
     while (queue.length > 0) {
@@ -119,8 +121,10 @@ describe('compare/ is self-contained', () => {
         assert.notEqual(spec, '#oxc', `${nameOf(file)}, which compare.js loads, imports #oxc`)
         assert.notEqual(nameOf(new URL(spec, file)), PEERS, `${nameOf(file)}, which compare.js loads, imports ${spec}`)
         if (spec.startsWith('.')) queue.push(new URL(spec, file))
+        else if (spec.startsWith('#')) queue.push(new URL(imports[spec].default, PKG_DIR))
       }
     }
+    assert.ok(seen.has(new URL(imports['#types'].default, PKG_DIR).href), 'compare.js reaches #types')
     assert.ok(seen.size >= 10, `compare.js loads ${seen.size} modules`)
   })
 

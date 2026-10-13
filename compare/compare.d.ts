@@ -34,12 +34,17 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // file and `new` for a deleted one; a renamed file has both, under their
 // two paths. `similarity` is a rename's, as git's similarity index: the
 // percentage of the new file the old one accounts for, 100 where the content
-// is unchanged; null for anything else.
+// is unchanged; null for anything else. `typeOnly`, on Node alone, stamps a
+// change whose every side there is a file named as a declaration file
+// (`.d.ts`, `.d.mts`, `.d.cts`, `.d.css.ts`) and holds types alone, as
+// proveTypeOnly proves: one that runs nothing on either side, as a side not
+// there runs nothing. Absent elsewhere, and without oxc-parser.
 export interface FileStatus {
   status: Status
   old: TreeFile | null
   new: TreeFile | null
   similarity: number | null
+  typeOnly?: true
 }
 
 // A status with what happened to the content: `blocks`, @preventive/diff's
@@ -175,6 +180,32 @@ export function layoutPackageDirs(baseDirs: Map<string, string> | null, otherDir
 // A view's directory `prefix` with where the root puts it on each side
 // (`./dir/`, `./src/dir/`); a prefix the root doesn't lead is dropped.
 export function rootLabel(root: Root | null, prefix: string): { prefix: string; from: string | null; to: string | null }
+
+// Why a text is not proven to hold types alone: proving needs Node, whose type
+// stripping is held to oxc's tree, and oxc-parser, an optional peer, there
+// (`unsupported`); Node's stripping or oxc finds an error in it, as in
+// `export const x: number`, which only a declaration file may write, or it
+// nests too deep for either (`unparsed`); a statement stripping leaves loads a
+// module, as `import { type A }` and `export *` from one do (`imports`), or is
+// anything else (`code`); or Node's stripping, or a reading of what it leaves,
+// does not find what oxc does (`disagree`).
+export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'imports' | 'code' | 'disagree'
+
+// Whether `text`, read as TypeScript, holds types alone, so that Node, which
+// reads a `.d.ts` as the `.ts` it is named and runs what its type stripping
+// leaves, runs nothing of it:
+// - oxc's tree has no statement but those stripping erases whole -- interfaces,
+//   type aliases, anything `declare`d (bodies and initializers with it), a
+//   function's signature, imports and exports of types alone, a namespace of
+//   types alone -- and `export {}` and `export as namespace N`, which load and
+//   run nothing;
+// - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
+//   and leaves nothing it does not, but comments, the hashbang and those two;
+// - what it leaves, read token by token apart from either, holds nothing else;
+// - nor does what its transform mode (--experimental-transform-types) leaves.
+// `at` is where in `text` what is found begins, where it has a place. Node
+// warns once that stripTypeScriptTypes is experimental.
+export function proveTypeOnly(text: string): { proven: true } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.

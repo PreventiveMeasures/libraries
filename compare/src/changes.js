@@ -1,10 +1,12 @@
 // compareTrees: a path in both trees is modified or type-changed, a path in one
 // added or deleted unless renames.js pairs it with another, as git diff -M does
-// and, unless `renamesByPath` is false, by the paths a build moves files to.
+// and, unless `renamesByPath` is false, by the paths a build moves files to; on
+// Node, a change to a declaration file holding types alone on each side stamped so.
 
+import { proveTypeOnly } from '#types'
 import { MAX_SCORE } from './similarity.js'
 import { findRenames } from './renames.js'
-import { checkLineOptions, contentOf } from './text.js'
+import { checkLineOptions, contentOf, textOf } from './text.js'
 import { readTree, sameContent } from './tree.js'
 
 // git's defaults: -M at 50%, diff.renameLimit at 1000.
@@ -41,6 +43,23 @@ function checkOptions({ renamesByPath, renameLimit, renameGroup, paths, lines })
 const sameFile = (a, b) => sameContent(a, b) && (a.type !== 'file' || a.mode === b.mode)
 
 const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, new: fresh, similarity })
+
+// A declaration file as TypeScript names one: `.d.ts`, `.d.mts`, `.d.cts`, and
+// `.d.css.ts` for a `.css` file's.
+const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
+
+const proven = (file) => {
+  const text = textOf(file)
+  return text !== undefined && proveTypeOnly(text).proven
+}
+
+// Stamped where each side there is a file named as a declaration file, and
+// proven to hold types alone: a side not there holds nothing either.
+function stamped(change) {
+  const sides = [change.old, change.new].filter((file) => file !== null)
+  if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
+  return sides.every(proven) ? { ...change, typeOnly: true } : change
+}
 
 function pathChanges(old, fresh) {
   const added = [], changes = [], deleted = []
@@ -86,5 +105,5 @@ export function compareTrees(a, b, { renames = true, renamesByPath = true, renam
   for (const [s, file] of deleted.entries()) if (!moved.has(s)) changes.push(status('deleted', file, null))
   // A rename stands at its new path, as git lists it.
   changes.sort((x, y) => byPath((x.new ?? x.old).path, (y.new ?? y.old).path))
-  return lines ? changes.map((change) => ({ ...change, ...contentOf(change.old, change.new, lineOptions) })) : changes
+  return (lines ? changes.map((change) => ({ ...change, ...contentOf(change.old, change.new, lineOptions) })) : changes).map(stamped)
 }
