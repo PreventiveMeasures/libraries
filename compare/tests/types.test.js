@@ -83,6 +83,9 @@ describe('proveTypeOnly', () => {
     assert.deepEqual(proveTypeOnly("import { X } from 'a'\nexport declare const y: X\n"), { proven: true, runtime: "import { X } from 'a'", loads: true })
     assert.deepEqual(proveTypeOnly("export { X } from 'a'\n"), { proven: true, runtime: "export { X } from 'a'", loads: true })
     assert.deepEqual(proveTypeOnly("export * from 'a'\n"), { proven: true, runtime: "export * from 'a'", loads: true })
+    // `export default <identifier>` re-exports a binding by name -- the idiom a declaration file's default
+    // export takes -- so it is a run statement, not code: ES module syntax, hence `loads`.
+    assert.deepEqual(proveTypeOnly('declare const _d: 1\nexport default _d\n'), { proven: true, runtime: 'export default _d', loads: true })
     assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node', loads: false })
     // A triple-slash directive and a source-map pragma steer a tool though stripping keeps them as comments:
     // they join the runtime, in source order, so a change to one is not types only. Neither is a module load,
@@ -156,7 +159,7 @@ describe('proveTypeOnly', () => {
   it('refuses code, and anything else stripping leaves but comments', () => {
     for (const [text, at] of [['console.log(1)', 0], ['declare const x: 1; f()', 20], ['export class A { m(): void }', 0], ['abstract class A {}', 0],
       ['enum E { A }', 0], ['namespace N { export const x = 1 }', 0], ['namespace N { declare const x: 1 }', 0], ['namespace N { declare namespace M { const x = 1 } }', 0],
-      ['@d declare class A {}', 0], ['declare const x: 1\nexport default x', 19], ['export { x }', 0], ['export = x', 0], ['"use strict"', 0], ['type A = 1;;', 11],
+      ['@d declare class A {}', 0], ['declare const x: 1\nexport default {}', 19], ['export { x }', 0], ['export = x', 0], ['"use strict"', 0], ['type A = 1;;', 11],
       ['declare const x: 1 // c\u2028f()', 24], ['let x: number', 0], ['import A = B.C', 0]]) {
       assert.deepEqual(proveTypeOnly(text), refused('code', at), text)
     }

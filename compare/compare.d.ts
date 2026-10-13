@@ -219,12 +219,15 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 //   function's signature, `import type` and `export type`, a namespace of types
 //   alone -- and those it leaves to run: a module load that binds from it
 //   (`import`, `export *`, `export { a } from` a module, `import { type A }` whose
-//   inline `type` loads it all the same) and a bare `export {}`. `export { type A }`
+//   inline `type` loads it all the same), a bare `export {}`, and `export default E`
+//   on a bare identifier (the idiom a declaration file's default export takes,
+//   `declare const _d: T; export default _d`). `export { type A }`
 //   is code, not a run statement: it is `export {}` only once stripping takes its
 //   specifiers out, not as the source has it; nor is `export as namespace N`, left
 //   as invalid JavaScript that throws when imported, nor a side-effect load that
 //   binds nothing -- a bare `import`, an empty `import {}`, `export {}` with a
-//   source -- which loads a module for no type;
+//   source -- which loads a module for no type, nor an `export default` of anything
+//   but a bare identifier (a value expression, an object, a class body);
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
 //   and leaves nothing it does not, but comments, the hashbang and those;
 // - what it leaves, the run statements set aside, read token by token apart from
