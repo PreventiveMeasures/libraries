@@ -346,6 +346,15 @@ test('a second pass reads the pairs found as names, telling apart places alike w
   assert.equal(model.a[4], '  let a = dt(e, t, o);')
 })
 
+test('a change of more tokens than a diff of them is worth pairs its lines in order, as many reading as many', () => {
+  // One line of 12,000 numbers, each changed: not diffed token by token, as one of millions would take minutes.
+  const items = (shift) => Array.from({ length: 12000 }, (_, i) => i * 3 + shift).join(',')
+  const line = (shift, [a, b], tail = '') => `function g(${a}) { let ${b} = [${items(shift)}]; return f(${a}, ${b}${tail}); }`
+  const first = (before, after) => renameMap(asModule(text([before])), asModule(text([after]))).text.split('\n')[0]
+  assert.equal(first(line(0, ['a', 'b']), line(1, ['c', 'd'])), line(0, ['c', 'd']), 'reading as many, its names pair in order')
+  assert.equal(first(line(0, ['a', 'b']), line(1, ['c', 'd'], ', d')), line(0, ['a', 'b']).replace('function g(', 'function g_old('), 'reading more, they say nothing')
+})
+
 test('a function body\'s var named as a parameter is that parameter', () => {
   const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
   // The old function returns its argument, the new one `undefined`.

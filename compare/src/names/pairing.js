@@ -70,25 +70,29 @@ function* kept(a, b) {
 }
 
 // A run of lines' tokens (`list`) and the variable each stands for (`at`): the
-// place a variable stood one token alike any other's.
+// place a variable stood one token alike any other's. Null past MAX_TOKENS.
 const PLACE = '*', TOKEN = /[\p{ID_Continue}$\u200C\u200D]+|\S/gu
+// A diff's cost grows faster than its length: a change of more tokens a side
+// than this pairs its lines in order, as many as each other reading as many.
+const MAX_TOKENS = 20000
 function tokens(k, from, to) {
   const at = [], list = []
-  const add = (text) => {
-    for (const [token] of text.matchAll(TOKEN)) {
-      list.push(`=${token}`)
-      at.push(null)
-    }
+  const add = (token, variable) => {
+    list.push(token)
+    at.push(variable)
+    return list.length <= MAX_TOKENS
+  }
+  const text = (line, start, end) => {
+    for (const [token] of k.keys[line].slice(start, end).matchAll(TOKEN)) if (!add(`=${token}`, null)) return false
+    return true
   }
   for (let line = from; line < to; line++) {
     let start = 0
-    k.places[line].forEach((place, n) => {
-      add(k.keys[line].slice(start, place))
-      list.push(PLACE)
-      at.push(k.lines[line][n])
+    for (const [n, place] of k.places[line].entries()) {
+      if (!text(line, start, place) || !add(PLACE, k.lines[line][n])) return null
       start = place
-    })
-    add(k.keys[line].slice(start))
+    }
+    if (!text(line, start)) return null
   }
   return { list, at }
 }
@@ -98,8 +102,12 @@ function tokens(k, from, to) {
 // `let t = ...,`), or reading more variables or fewer (`f(a)` -> `f(b, c)`:
 // none, `b` or `c` alike).
 function placed(ka, a0, a1, kb, b0, b1) {
-  const a = tokens(ka, a0, a1), b = tokens(kb, b0, b1)
-  return [...kept(a.list, b.list)].filter(([x]) => a.at[x]).map(([x, y]) => [a.at[x], b.at[y]])
+  const reads = (k, from, to) => k.lines.slice(from, to).some((line) => line.length > 0)
+  if (!reads(ka, a0, a1) || !reads(kb, b0, b1)) return []
+  const a = tokens(ka, a0, a1), b = a && tokens(kb, b0, b1)
+  if (b) return [...kept(a.list, b.list)].filter(([x]) => a.at[x]).map(([x, y]) => [a.at[x], b.at[y]])
+  if (a1 - a0 !== b1 - b0) return []
+  return ka.lines.slice(a0, a1).flatMap((olds, k) => (olds.length === kb.lines[b0 + k].length ? olds.map((variable, n) => [variable, kb.lines[b0 + k][n]]) : []))
 }
 
 const tallies = () => ({ backward: new Map(), forward: new Map() })
