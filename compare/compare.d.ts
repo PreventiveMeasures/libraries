@@ -46,8 +46,10 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // to a `.d.cts`, either to a package-resolved `.d.ts` whose format is not known
 // here) is not stamped; a hashbang, a directive or a pragma runs the same either
 // way, so a runtime of only those cancels across formats. A modification keeps its
-// path, hence its format, and an added or deleted file matches only an empty
-// runtime. A rename is otherwise taken by its matching
+// path, hence its format, and a deleted file matches only an empty runtime; an
+// added one an empty runtime or a single bare `export {}`, as nothing loaded it
+// before and what now does runs nothing of that alone, as a module or not. A
+// rename is otherwise taken by its matching
 // source, as any file's is here: a relative load may resolve to another module
 // once the file moves, but that is shown as a rename of its own, not traced. A
 // modification of a package-resolved `.d.ts` is taken to keep its format, though

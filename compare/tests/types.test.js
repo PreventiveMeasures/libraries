@@ -314,9 +314,24 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     // different width on each side.
     assert.deepEqual(stamps({ 'a.d.ts': "import { type A, X } from './x.js'\nexport declare const y: A | X\n" }, { 'a.d.ts': "import { type Longer, X } from './x.js'\nexport declare const y: Longer | X\n" }, { renames: false }), [['modified a.d.ts', true]])
     // An added or deleted file with a runtime: the side not there is empty, so not stamped; one that erases whole is.
-    assert.deepEqual(stamps({}, { 'a.d.mts': 'export {}\n' }, { renames: false }), [['added a.d.mts', undefined]])
     assert.deepEqual(stamps({ 'a.d.mts': 'export {}\n' }, {}, { renames: false }), [['deleted a.d.mts', undefined]])
     assert.deepEqual(stamps({}, { 'a.d.ts': 'export declare const x: 1\n' }, { renames: false }), [['added a.d.ts', true]])
+    for (const run of ["import { X } from './x.js'", 'export {}\nexport {}', '#!/usr/bin/env node\nexport {}', '/// <reference types="node" />\nexport {};']) {
+      assert.deepEqual(stamps({}, { 'a.d.ts': `${run}\ndeclare const x: 1\n` }, { renames: false }), [['added a.d.ts', undefined]], run)
+    }
+  })
+
+  // An added file whose runtime is a single bare `export {}` is stamped: nothing loaded it before, and
+  // whatever loads it now, a change of its own, runs nothing of it as a module and throws on it as CommonJS,
+  // so no extension's format is needed. A deleted one is not.
+  it('stamps an added declaration file whose runtime is a single bare `export {}`', () => {
+    for (const ext of ['d.ts', 'd.mts', 'd.cts', 'd.css.ts']) {
+      for (const text of ['export {};\n', 'export {}', 'export{}', 'export /* a */ { } ;\n', 'declare global {\n  interface Window { z: 1 }\n}\nexport {};\n']) {
+        assert.deepEqual(stamps({}, { [`a.${ext}`]: text }, { renames: false }), [[`added a.${ext}`, true]], `${ext} ${text}`)
+      }
+    }
+    assert.deepEqual(stamps({}, { 'a.d.ts': 'export {};\n' }, { renames: false, lines: false }), [['added a.d.ts', true]], 'statuses alone')
+    assert.deepEqual(stamps({}, { 'a.ts': 'export {};\n' }, { renames: false }), [['added a.ts', undefined]], 'no declaration file')
   })
 
   // A runtime cancels across a rename only where both extensions fix the same module format: a module load
