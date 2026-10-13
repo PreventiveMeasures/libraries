@@ -25,17 +25,19 @@ const BLANK = /\s/u
 // pulls other declarations into the file's types, and a source map or source URL pragma, which names where
 // a tool looks (its legacy forms, `//@` and a `/*# */` block, among it). They join the runtime, so a change
 // to one shows there rather than passing as types only. A directive is one of TypeScript's named tags
-// (`reference`, `amd-module`, `amd-dependency`) carrying an attribute, so whitespace follows the name; a
-// `/// <summary>`, a bare `/// <reference>` or `/// <reference/>` without one, or any other triple-slash
-// comment is prose. A pragma likewise needs its grammar: the engine reads `//# sourceMappingURL=` only with
-// whitespace after the `#` or `@`, then blanks it skips, then a non-empty value -- so `//#sourceURL=x` and an
-// empty `//# sourceURL=` are prose, while `//# sourceURL=  x` names `x` and is a pragma. Erring wide is safe
-// here (a prose change merely withholds a stamp), but matching every real directive or pragma is not
-// optional: missing one would stamp its change, so each is kept as broad as its effective grammar allows, no
-// stricter. A directive steers only where it leads the file, `prologue` true: TypeScript honours it before
-// the first statement and reads it as prose below one, so moving it out of the prologue drops it, as removing
-// it does.
-const DIRECTIVE = /^\/\/\/\s*<(?:reference|amd-module|amd-dependency)\s/u
+// (`reference`, `amd-module`, `amd-dependency`) carrying an attribute, so whitespace follows the name;
+// TypeScript lowercases the tag before matching, so the name is case-insensitive (`/// <REFERENCE .. />` is a
+// directive). A `/// <summary>`, a bare `/// <reference>` or `/// <reference/>` without an attribute, or any
+// other triple-slash comment is prose. A pragma likewise needs its grammar: the engine reads
+// `//# sourceMappingURL=` only with whitespace after the `#` or `@`, then blanks it skips, then a non-empty
+// value -- so `//#sourceURL=x` and an empty `//# sourceURL=` are prose, while `//# sourceURL=  x` names `x`
+// and is a pragma. The pragma name, unlike the directive tag, is case-sensitive: V8 reads only the exact
+// `sourceURL`/`sourceMappingURL`, so `//# SOURCEURL=x` is prose. Erring wide is safe here (a prose change
+// merely withholds a stamp), but matching every real directive or pragma is not optional: missing one would
+// stamp its change, so each is kept as broad as its effective grammar allows, no stricter. A directive steers
+// only where it leads the file, `prologue` true: TypeScript honours it before the first statement and reads
+// it as prose below one, so moving it out of the prologue drops it, as removing it does.
+const DIRECTIVE = /^\/\/\/\s*<(?:reference|amd-module|amd-dependency)\s/iu
 const PRAGMA = /^\/[/*][#@]\s+source(?:Mapping)?URL=\s*\S/u
 const steers = (text, prologue) => (DIRECTIVE.test(text) && prologue) || PRAGMA.test(text)
 

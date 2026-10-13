@@ -345,6 +345,12 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     const ref = (types, c) => `/// <reference types="${types}" />\nexport declare const x: ${c}\n`
     assert.deepEqual(stamps({ 'a.d.ts': ref('node', 1) }, { 'a.d.ts': ref('node', 2) }, { renames: false }), [['modified a.d.ts', true]], 'directive unchanged')
     assert.deepEqual(stamps({ 'a.d.ts': ref('node', 1) }, { 'a.d.ts': ref('bun', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'directive changed')
+    // TypeScript lowercases the tag before matching, so a mixed-case tag is a directive all the same: it joins
+    // the runtime and a change to it is not types only. (The pragma name stays case-sensitive, as V8 reads it.)
+    const upper = (types, c) => `/// <REFERENCE types="${types}" />\nexport declare const x: ${c}\n`
+    assert.equal(proveTypeOnly(upper('node', 1)).runtime, '/// <REFERENCE types="node" />', 'mixed-case directive joins the runtime')
+    assert.deepEqual(stamps({ 'a.d.ts': upper('node', 1) }, { 'a.d.ts': upper('node', 2) }, { renames: false }), [['modified a.d.ts', true]], 'mixed-case directive unchanged')
+    assert.deepEqual(stamps({ 'a.d.ts': upper('node', 1) }, { 'a.d.ts': upper('bun', 1) }, { renames: false }), [['modified a.d.ts', undefined]], 'mixed-case directive changed')
     // Only TypeScript's named tags are directives; a `/// <summary>` or other triple-slash comment is prose,
     // so changing it alongside types is still types only. A named tag without an attribute (`/// <reference>`)
     // is not a directive either -- a real one carries an attribute, so whitespace follows the name.
