@@ -197,10 +197,12 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'imports' | 'code' | '
 // leaves, runs nothing of it:
 // - oxc's tree has no statement but those stripping erases whole -- interfaces,
 //   type aliases, anything `declare`d (bodies and initializers with it), a
-//   function's signature, imports and exports of types alone, a namespace of
-//   types alone -- and `export {}`, left as valid JavaScript that loads and runs
-//   nothing (not `export as namespace N`, left as invalid JavaScript that throws
-//   when the file is imported);
+//   function's signature, `import type` and `export type`, a namespace of types
+//   alone -- and a bare `export {}`, left as valid JavaScript that loads and runs
+//   nothing. `import { type A }` loads its module like any import, inline `type`
+//   or not, so it is not type-only; nor is `export { type A }`, which is only
+//   `export {}` once stripping takes its specifiers out; nor `export as namespace
+//   N`, left as invalid JavaScript that throws when the file is imported;
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
 //   and leaves nothing it does not, but comments, the hashbang and that one;
 // - what it leaves, read token by token apart from either, holds nothing else;

@@ -69,8 +69,20 @@ describe('Node runs a .d.ts as the .ts it is named', () => {
 describe('proveTypeOnly', () => {
   it('proves declaration files of types alone, as tsc writes them and as written by hand', () => {
     assert.deepEqual(proveTypeOnly(EMITTED), { proven: true })
-    for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export { type A }\n', 'declare const x = 1, y: 2\n',
+    for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export {};\n', 'export type { A }\nexport type * from "m"\n',
+      'import type { A } from "m"\nexport declare const x: A\n', 'declare const x = 1, y: 2\n',
       'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) assert.deepEqual(proveTypeOnly(text), { proven: true }, text)
+  })
+
+  // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
+  // export declaration, so proving it would rest on stripping emitting a no-op, not on the source. `export
+  // {}` as the source writes it stays inert. (`import { type A }` loads its module -- see the imports test.)
+  it('refuses an inline-type export, inert only once stripped, not the bare `export {}` the source writes', () => {
+    for (const text of ['export { type A }', 'export { type A as B }', 'export { type A, type B }', 'declare const A: 1\nexport { type A }']) {
+      assert.equal(proveTypeOnly(text).proven, false, text)
+      assert.equal(proveTypeOnly(text).reason, 'code', text)
+    }
+    assert.deepEqual(proveTypeOnly('export {}\n'), { proven: true })
   })
 
   // Node leaves `export as namespace N` verbatim; as JavaScript it is a syntax error, so importing the

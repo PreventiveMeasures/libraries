@@ -3,10 +3,10 @@
 // so a declaration file runs nothing only where stripping leaves nothing to run. Nothing here
 // parses; types.node.js gives both the tree and Node's text.
 
-// What stripping makes of a statement: nothing (`erased`); `export {}` (empty, or of types alone), left as
+// What stripping makes of a statement: nothing (`erased`); a bare `export {}` the source writes, left as
 // valid JavaScript that loads and runs nothing (`inert`); a statement that loads a module (`imports`); or
-// code -- `export as namespace N` among it, which stripping leaves verbatim as invalid JavaScript, so the
-// file throws a SyntaxError when imported rather than running nothing.
+// code -- `export as namespace N`, left verbatim as invalid JavaScript that throws when the file is
+// imported, among it.
 export const CODE = 'code', ERASED = 'erased', IMPORT = 'imports', INERT = 'inert'
 
 const TYPES = new Set(['TSInterfaceDeclaration', 'TSTypeAliasDeclaration'])
@@ -37,8 +37,11 @@ function erased(node) {
   }
 }
 
-// A statement of a program's, as stripping leaves it. `import { type A }` from a module loads it, as
-// stripping leaves `import {}` from it; `export { type A }` leaves `export {}`.
+// A statement of a program's, as stripping leaves it. `import type` and `export type` are erased whole,
+// loading nothing; `import { type A }` from a module loads it all the same, inline `type` or not, so it
+// is a module load. A bare `export {}` is inert; `export { type A }` is code, not inert: it is `export {}`
+// only once stripping takes its specifiers out, not as the source has it, and that a stripped no-op would
+// run nothing is no reason to call the source type-only.
 export function strippedAs(statement) {
   switch (statement.type) {
     case 'ImportDeclaration': return statement.importKind === 'type' ? ERASED : IMPORT
@@ -50,7 +53,7 @@ export function strippedAs(statement) {
       if (statement.declaration) return erased(statement.declaration) ? ERASED : strippedAs(statement.declaration)
       if (statement.exportKind === 'type') return ERASED
       if (statement.source) return IMPORT
-      return statement.specifiers.every((specifier) => specifier.exportKind === 'type') ? INERT : CODE
+      return statement.specifiers.length === 0 ? INERT : CODE
     case 'ExportDefaultDeclaration': return statement.declaration.type === 'TSInterfaceDeclaration' || statement.declaration.type === 'TSDeclareFunction' ? ERASED : CODE
     // `export as namespace N` is left verbatim, invalid as JavaScript, so importing the file throws.
     case 'TSNamespaceExportDeclaration': return CODE
