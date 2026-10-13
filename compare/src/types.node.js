@@ -12,11 +12,19 @@ import { CODE, ERASED, IMPORT, INERT, leftover, strippedAs } from './erasure.js'
 const UNSUPPORTED = { proven: false, reason: 'unsupported', at: null }
 const refused = (reason, at) => ({ proven: false, reason, at })
 
-// What stripping writes in place of what it erases, unit for unit: a space, or a no-break space or a
-// byte order mark for a character of more UTF-8 bytes. Line breaks it keeps.
-const BLANKS = new Set([' ', '\u00A0', '\uFEFF'])
+// What stripping writes in place of what it erases is a blank of as many UTF-8 bytes (a space, a no-break
+// space, an en space; a space and a byte order mark for four), unit for unit; line breaks and other blanks
+// it keeps. Any blank but a line break is taken for one.
+const WRITTEN = /[^\S\n\r\u2028\u2029]/u
 const LINE_BREAK = /[\n\r\u2028\u2029]/u
 const BLANK = /\s/u
+
+// Node's stripping is one instance for the process, its loader of `.ts` files' too, and one stopped partway
+// (a stack overflowed, execution terminated) is not trusted again: one that threw here anything but its
+// refusal of a text, or that does not strip the canary as it should, as one stopped elsewhere may not.
+const untrusted = new WeakSet()
+const REFUSALS = new Set(['ERR_INVALID_TYPESCRIPT_SYNTAX', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'])
+const CANARY = ['let a: "\u00E9\u4E00\u{1F600}" = 1 // c\n', 'let a   \u00A0\u2002 \uFEFF  = 1 // c\n']
 
 function parser() {
   try {
@@ -31,7 +39,24 @@ function strip(stripTypeScriptTypes, text, mode) {
   try {
     return { code: stripTypeScriptTypes(text, { mode }) }
   } catch (error) {
-    return error?.code === 'ERR_NO_TYPESCRIPT' ? null : { error }
+    if (error?.code === 'ERR_NO_TYPESCRIPT') return null
+    if (!REFUSALS.has(error?.code)) untrusted.add(stripTypeScriptTypes)
+    return { error }
+  }
+}
+
+function trusted(stripTypeScriptTypes) {
+  if (!untrusted.has(stripTypeScriptTypes) && strip(stripTypeScriptTypes, CANARY[0], 'strip')?.code === CANARY[1]) return true
+  untrusted.add(stripTypeScriptTypes)
+  return false
+}
+
+// oxc's tree, or null where oxc throws rather than tells an error.
+function parsed(parseSync, text) {
+  try {
+    return parseSync('file.ts', text, { lang: 'ts', sourceType: 'module' })
+  } catch {
+    return null
   }
 }
 
@@ -43,7 +68,7 @@ function disagreement(text, code, { comments, program }, { erased, inert }) {
   for (const { start, end } of [...comments, ...inert, ...(program.hashbang ? [program.hashbang] : [])]) kept.fill(1, start, end)
   for (const { start, end } of erased) kept.fill(0, start, end)
   for (let i = 0; i < text.length; i++) {
-    if (code[i] === text[i] ? !kept[i] && !BLANK.test(code[i]) : !BLANKS.has(code[i]) || LINE_BREAK.test(text[i])) return i
+    if (code[i] === text[i] ? !kept[i] && !BLANK.test(code[i]) : !WRITTEN.test(code[i]) || LINE_BREAK.test(text[i])) return i
   }
   return -1
 }
@@ -52,7 +77,7 @@ function disagreement(text, code, { comments, program }, { erased, inert }) {
 export function proveWith(text, stripTypeScriptTypes) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
   const parseSync = parser()
-  if (typeof stripTypeScriptTypes !== 'function' || parseSync === null) return UNSUPPORTED
+  if (typeof stripTypeScriptTypes !== 'function' || parseSync === null || !trusted(stripTypeScriptTypes)) return UNSUPPORTED
   // Stripping drops a byte order mark the text starts with.
   const shift = text.startsWith('\uFEFF') ? 1 : 0
   const body = text.slice(shift)
@@ -63,7 +88,8 @@ export function proveWith(text, stripTypeScriptTypes) {
   const stripped = strip(stripTypeScriptTypes, body, 'strip')
   if (stripped === null) return UNSUPPORTED
   if ('error' in stripped && stripped.error?.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') return refused('unparsed', null)
-  const tree = parseSync('file.ts', body, { lang: 'ts', sourceType: 'module' })
+  const tree = parsed(parseSync, body)
+  if (tree === null) return refused('unparsed', null)
   if (tree.errors.length > 0) return refused('unparsed', shift + (tree.errors[0].labels?.[0]?.start ?? 0))
   const spans = { [ERASED]: [], [INERT]: [] }
   for (const statement of tree.program.body) {

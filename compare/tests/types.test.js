@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { stripTypeScriptTypes } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -99,17 +100,28 @@ describe('proveTypeOnly', () => {
 })
 
 describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", () => {
-  const strip = (code, transformed = '') => (text, { mode }) => (mode === 'strip' ? code : transformed)
   const text = 'declare const x: 1 // c\n'
+  // Node's stripping, but for `text`, which it strips as given; or throws, where given a function.
+  const strip = (code, transformed = '', of = text) => (t, { mode }) => {
+    if (t !== of) return stripTypeScriptTypes(t, { mode })
+    if (typeof code === 'function') return code()
+    return mode === 'strip' ? code : transformed
+  }
+  const throwing = (code, Kind = Error) => () => {
+    throw Object.assign(new Kind('stripping failed'), { code })
+  }
 
   it('proves nothing where Node strips nothing, or has no stripping', () => {
     assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true }, 'comments blanked too')
     assert.deepEqual(proveWith(text, undefined), refused('unsupported', null))
-    const missing = () => {
-      throw Object.assign(new Error('no TypeScript'), { code: 'ERR_NO_TYPESCRIPT' })
-    }
-    assert.deepEqual(proveWith(text, missing), refused('unsupported', null))
+    assert.deepEqual(proveWith(text, throwing('ERR_NO_TYPESCRIPT')), refused('unsupported', null))
     assert.deepEqual(portable(text), refused('unsupported', null), 'nor off Node')
+  })
+
+  it('takes any blank but a line break for one stripping writes, as it writes one of as many UTF-8 bytes', () => {
+    const wide = 'type A = "\u00E9\u4E00\u{1F600}" /* \u4E00 */\ninterface B { /** \u4E00\u{1F600} */ b: "\u3000" }\n'
+    assert.deepEqual(proveTypeOnly(wide), { proven: true })
+    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true })
   })
 
   it('refuses where stripping keeps what oxc finds erased, or blanks otherwise', () => {
@@ -117,20 +129,31 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, strip('                   f() \n')), refused('disagree', 19), 'a comment written over')
     assert.deepEqual(proveWith(text, strip('                   // c ')), refused('disagree', 23), 'a line break blanked')
     assert.deepEqual(proveWith(text, strip('                   // c')), refused('disagree', null), 'a unit dropped')
-    assert.deepEqual(proveWith('declare const x: 1\n/* a */', strip('                  \n/* a */f')), refused('disagree', null), 'a unit added')
+    assert.deepEqual(proveWith(text, strip('\n                  // c\n')), refused('disagree', 0), 'a line break written')
+    const added = 'declare const x: 1\n/* a */'
+    assert.deepEqual(proveWith(added, strip('                  \n/* a */f', '', added)), refused('disagree', null), 'a unit added')
     assert.deepEqual(proveWith(text, strip('                  x// c\n')), refused('disagree', 18))
   })
 
   it('refuses where stripping or its transform mode refuses the text, or leaves code', () => {
-    const refusing = () => {
-      throw Object.assign(new Error('enum'), { code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' })
-    }
-    assert.deepEqual(proveWith(text, refusing), refused('disagree', null))
-    assert.deepEqual(proveWith(text, () => {
-      throw new RangeError('Maximum call stack size exceeded')
-    }), refused('unparsed', null), 'and refuses, not for oxc to read, what it does not read whole')
+    assert.deepEqual(proveWith(text, strip(throwing('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'))), refused('disagree', null))
     assert.deepEqual(proveWith(text, strip('                   // c\n', '(function(N) {})(N || (N = {}));\nvar N;\n')), refused('disagree', null))
     assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true })
+  })
+
+  // Stopped partway, Node's stripping may throw on every text from then on: one that failed so once is
+  // trusted no more, whatever it does after.
+  it('asks nothing more of a stripping that threw anything but its refusal, or strips the canary wrong', () => {
+    const overflowing = strip(throwing(undefined, RangeError))
+    assert.deepEqual(proveWith(text, overflowing), refused('unparsed', null), 'not read whole, so not for oxc to read')
+    assert.deepEqual(proveWith('type A = 1', overflowing), refused('unsupported', null), 'nor anything after')
+    const stopped = strip(throwing('ERR_INTERNAL_ASSERTION'), '', 'type A = 1')
+    assert.deepEqual(proveWith(text, stopped), { proven: true })
+    assert.deepEqual(proveWith('type A = 1', stopped), refused('unparsed', null))
+    assert.deepEqual(proveWith(text, stopped), refused('unsupported', null))
+    const wrong = (t, options) => (t.startsWith('let a') ? t : stripTypeScriptTypes(t, options))
+    assert.deepEqual(proveWith(text, wrong), refused('unsupported', null), 'the canary kept whole')
+    assert.deepEqual(proveTypeOnly(text), { proven: true }, "and Node's own stripping still trusted")
   })
 })
 

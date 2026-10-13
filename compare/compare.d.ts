@@ -182,7 +182,8 @@ export function layoutPackageDirs(baseDirs: Map<string, string> | null, otherDir
 export function rootLabel(root: Root | null, prefix: string): { prefix: string; from: string | null; to: string | null }
 
 // Why a text is not proven to hold types alone: proving needs Node, whose type
-// stripping is held to oxc's tree, and oxc-parser, an optional peer, there
+// stripping is held to oxc's tree, and oxc-parser, an optional peer, there,
+// and is not asked of a stripping that once failed as may leave it unsound
 // (`unsupported`); Node's stripping or oxc finds an error in it, as in
 // `export const x: number`, which only a declaration file may write, or it
 // nests too deep for either (`unparsed`); a statement stripping leaves loads a

@@ -48,9 +48,14 @@ const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, ne
 // `.d.css.ts` for a `.css` file's.
 const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 
-const proven = (file) => {
+// Not proven where the proof throws, as no check should.
+function proven(file) {
   const text = textOf(file)
-  return text !== undefined && proveTypeOnly(text).proven
+  try {
+    return text !== undefined && proveTypeOnly(text).proven
+  } catch {
+    return false
+  }
 }
 
 // Stamped where each side there is a file named as a declaration file, and
