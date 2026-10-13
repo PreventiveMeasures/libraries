@@ -7,8 +7,10 @@
 import { LockfileError, attempt, quote, raise } from '../error.js'
 import { checkConflict, fail, jsonLayout } from '../lines.js'
 
-// Deeper than any lockfile npm writes, and shallow enough to walk.
-const DEPTH = 16
+// Deeper than any lockfile npm writes but one whose tree for npm 6 nests
+// packages more than 30 deep, two levels a node_modules; and shallow
+// enough to walk.
+const DEPTH = 64
 
 // Objects as mappings with a null prototype, so a key is only ever a key.
 function toRecords(value, depth) {

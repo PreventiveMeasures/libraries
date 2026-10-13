@@ -4,7 +4,7 @@ import { LockfileError, parseNpmLockfile } from '../../npm.js'
 import { at } from '../../src/error.js'
 import { random } from '../random.js'
 import { semver } from '../yarn1/semver.js'
-import { BASE, C, I, S1, edit, parse, plain, registry, write } from './base.js'
+import { BASE, BASE_V2, C, I, S1, edit, parse, plain, registry, write } from './base.js'
 
 // The small lockfile of base.js, and then one edit at a time, each refused
 // with a message that says where and why.
@@ -289,9 +289,10 @@ describe('the syntax is npm\'s', () => {
 })
 
 describe('the lockfile npm writes, and no other', () => {
-  it('lockfileVersion 3 alone', () => {
-    refuses(edit((l) => (l.lockfileVersion = 2)), 'unsupported version: expected 3, found the number 2', 'lockfileVersion')
-    refuses(edit((l) => (l.lockfileVersion = 4)), 'unsupported version: expected 3, found the number 4', 'lockfileVersion')
+  it('lockfileVersion 2 or 3 alone', () => {
+    refuses(edit((l) => (l.lockfileVersion = 1)), 'unsupported version: expected 2 or 3, found the number 1', 'lockfileVersion')
+    refuses(edit((l) => (l.lockfileVersion = 4)), 'unsupported version: expected 2 or 3, found the number 4', 'lockfileVersion')
+    refuses(edit((l) => (l.lockfileVersion = '3')), 'unsupported version: expected 2 or 3, found the string "3"', 'lockfileVersion')
   })
 
   it('no other field above the packages', () => {
@@ -623,6 +624,139 @@ describe('the flags npm writes', () => {
   })
 })
 
+describe('a lockfile of version 2, with the tree again for npm 6', () => {
+  const v2 = (change) => edit(change, BASE_V2)
+  const D = (...names) => names.reduce((where, name, index) => at(index === 0 ? where : at(where, 'dependencies'), name), 'dependencies')
+
+  it('reads to the same as of version 3', () => {
+    assert.deepEqual(plain(parse(write(BASE_V2))), { ...plain(parse(write(BASE))), lockfileVersion: 2 })
+  })
+
+  it('an entry of each package and link in packages, by its folder, and of nothing else', () => {
+    refuses(v2((l) => delete l.dependencies.b), 'expected "b", as npm writes "node_modules/b" of packages', 'dependencies')
+    refuses(v2((l) => delete l.dependencies), 'expected "@s/o", as npm writes "node_modules/@s/o" of packages', 'dependencies')
+    refuses(v2((l) => delete l.dependencies.ws.dependencies), 'expected "b", as npm writes "packages/ws/node_modules/b" of packages', `${D('ws')}.dependencies`)
+    refuses(v2((l) => (l.dependencies.z = { version: '1.0.0' })), '"node_modules/z" is not in packages', D('z'))
+    refuses(v2((l) => (l.dependencies.B = l.dependencies.b)), '"node_modules/B" is not in packages', D('B'))
+    refuses(v2((l) => (l.dependencies.ws.dependencies.c = l.dependencies.c)), '"packages/ws/node_modules/c" is not in packages', D('ws', 'c'))
+    refuses(v2((l) => (l.dependencies.dv.dependencies = {})), 'expected none, found a mapping, as npm writes it of "node_modules/dv"', `${D('dv')}.dependencies`)
+    refuses(v2((l) => (l.dependencies.b = 'x')), 'expected a mapping, found the string "x"', D('b'))
+    refuses(v2((l) => (l.dependencies.b.license = 'MIT')), 'unsupported field "license"', D('b'))
+  })
+
+  it('where each comes from, as npm writes it by what asks for it', () => {
+    refuses(v2((l) => (l.dependencies.b.version = '1.0.1')), 'expected "1.0.0", found the string "1.0.1", as npm writes it of "node_modules/b"', `${D('b')}.version`)
+    refuses(v2((l) => (l.dependencies.f.version = '4.0.0')), 'expected "https://example.com/f.tgz", found the string "4.0.0", as npm writes it of "node_modules/f"', `${D('f')}.version`)
+    refuses(v2((l) => (l.dependencies.f.resolved = 'https://example.com/f.tgz')), 'expected none, found the string "https://example.com/f.tgz", as npm writes it of "node_modules/f"', `${D('f')}.resolved`)
+    refuses(v2((l) => (l.dependencies['my-q'].version = '1.0.0')), 'expected "npm:q@1.0.0", found the string "1.0.0", as npm writes it of "node_modules/my-q"', `${D('my-q')}.version`)
+    refuses(v2((l) => delete l.dependencies.e.from), 'expected "e@github:user/e#semver:^3.0.0", found nothing, as npm writes it of "node_modules/e"', `${D('e')}.from`)
+    refuses(v2((l) => (l.dependencies.t.version = '1.0.0')), 'expected "file:vendor/t-1.0.0.tgz", found the string "1.0.0", as npm writes it of "node_modules/t"', `${D('t')}.version`)
+    refuses(v2((l) => (l.dependencies.d.version = 'file:./d')), 'expected "file:d", found the string "file:./d", as npm writes it of "node_modules/d"', `${D('d')}.version`)
+  })
+
+  it('by its own resolved, where nothing met asks for it', () => {
+    const lock = parse(v2((l) => {
+      delete l.packages[''].dependencies.e
+      l.packages['node_modules/a'].dependencies.l = '*'
+      l.packages['node_modules/a/node_modules/l'] = { resolved: 'node_modules/e', link: true }
+      l.dependencies.a.requires.l = '*'
+      l.dependencies.a.dependencies = { l: { version: 'file:node_modules/e' } }
+      l.dependencies.e.from = l.dependencies.e.version
+    }))
+    assert.equal(lock.links['node_modules/a/node_modules/l'], 'node_modules/e')
+  })
+
+  it('a URL left out of every entry, as npm can be set to, or of none', () => {
+    const omit = (dependencies) => {
+      for (const entry of Object.values(dependencies)) {
+        delete entry.resolved
+        if (entry.dependencies !== undefined) omit(entry.dependencies)
+      }
+    }
+    assert.equal(parse(v2((l) => omit(l.dependencies))).lockfileVersion, 2)
+    refuses(v2((l) => delete l.dependencies.b.resolved), `expected "${registry('b', '1.0.0')}": npm leaves it out of every entry or of none, and dependencies["@s/o"].resolved has it`, `${D('b')}.resolved`)
+    refuses(v2((l) => delete l.dependencies['@s/o'].resolved), 'expected none: npm leaves it out of every entry or of none, and dependencies["@s/o"].resolved has none', `${D('a')}.resolved`)
+  })
+
+  it('bundled, the integrity and the flags as packages has them', () => {
+    refuses(v2((l) => delete l.dependencies.t.dependencies.x.bundled), 'expected true, found nothing, as npm writes it of "node_modules/t/node_modules/x"', `${D('t', 'x')}.bundled`)
+    refuses(v2((l) => (l.dependencies.b.bundled = true)), 'expected none, found the boolean true, as npm writes it of "node_modules/b"', `${D('b')}.bundled`)
+    refuses(v2((l) => (l.dependencies.b.integrity = S1)), `expected "${I}", found the string "${S1}", as npm writes it of "node_modules/b"`, `${D('b')}.integrity`)
+    refuses(v2((l) => delete l.dependencies.dv.dev), 'expected true, found nothing, as npm writes it of "node_modules/dv"', `${D('dv')}.dev`)
+    refuses(v2((l) => (l.dependencies.dv.devOptional = true)), 'expected none, found the boolean true, as npm writes it of "node_modules/dv"', `${D('dv')}.devOptional`)
+    refuses(v2((l) => (l.dependencies.d.dev = true)), 'expected none, found the boolean true, as npm writes it of "node_modules/d"', `${D('d')}.dev`)
+  })
+
+  it('what each asks for but peers, as it asks for it', () => {
+    refuses(v2((l) => (l.dependencies.a.requires.c = '^2.0.0')), '"node_modules/a" asks for no such package, or for a peer, which npm leaves out', `${D('a')}.requires.c`)
+    refuses(v2((l) => delete l.dependencies.a.requires.b), 'expected "b", which "node_modules/a" asks for', `${D('a')}.requires`)
+    refuses(v2((l) => (l.dependencies.a.requires.b = '^1.0.1')), 'expected "^1.0.0", as "node_modules/a" asks for it, found the string "^1.0.1", which npm writes there of an override alone, not read here', `${D('a')}.requires.b`)
+    refuses(v2((l) => (l.dependencies.b.requires = {})), 'expected none, found a mapping, as npm writes it of "node_modules/b"', `${D('b')}.requires`)
+    // A package that asks for peers alone asks for nothing npm writes.
+    const peers = (requires) => v2((l) => {
+      l.packages['node_modules/b'].peerDependencies = { c: '^2.0.0' }
+      l.dependencies.b.requires = requires
+    })
+    assert.equal(parse(peers({})).packages['node_modules/b'].edges.c.type, 'peer')
+    refuses(peers(undefined), 'expected a mapping, found nothing', `${D('b')}.requires`)
+  })
+
+  it('a path in what each asks for from the directory that asks for it', () => {
+    const asks = (spec, written) => v2((l) => {
+      l.packages.d.dependencies.t = spec
+      l.dependencies.d.requires.t = written
+    })
+    assert.equal(parse(asks('file:./../vendor/./t-1.0.0.tgz', 'file:../vendor/t-1.0.0.tgz')).importers.d.edges.t.target, 'node_modules/t')
+    refuses(asks('file:./../vendor/./t-1.0.0.tgz', 'file:./../vendor/./t-1.0.0.tgz'), 'expected "file:../vendor/t-1.0.0.tgz", as "d" asks for it, found the string "file:./../vendor/./t-1.0.0.tgz", which npm writes there of an override alone, not read here', `${D('d')}.requires.t`)
+  })
+
+  it('a path by where the project is, refused', () => {
+    // What a directory out of the project asks for, npm leaves to it, and
+    // writes the path to from where it is.
+    const outside = (change) => (l) => {
+      l.packages[''].dependencies.d = 'file:../d'
+      l.packages['node_modules/d'].resolved = '../d'
+      l.packages['../d'] = { ...l.packages.d, dependencies: { z: 'file:/abs/z.tgz' } }
+      delete l.packages.d
+      change(l)
+    }
+    assert.equal(parse(edit(outside(() => {}))).importers['../d'].edges.z.target, undefined)
+    refuses(v2(outside((l) => (l.dependencies.d = { version: 'file:../d', requires: { z: 'file:/abs/z.tgz' } }))), '"file:/abs/z.tgz" is a path npm writes by where the project is, which is not supported', `${D('d')}.requires.z`)
+  })
+
+  it('a link to the project, under which npm writes the tree again', () => {
+    const lock = structuredClone(BASE_V2)
+    lock.packages[''].dependencies.self = 'file:.'
+    lock.packages['node_modules/self'] = { resolved: '', link: true }
+    const requires = { ...lock.packages[''].dependencies, ...lock.packages[''].devDependencies, ...lock.packages[''].optionalDependencies, self: 'file:', ws: 'file:packages/ws' }
+    lock.dependencies.self = { version: 'file:', requires, dependencies: structuredClone(lock.dependencies) }
+    delete lock.dependencies.self.dependencies.self
+    assert.equal(parse(write(lock)).links['node_modules/self'], '.')
+    lock.dependencies.self.dependencies.self = { version: 'file:' }
+    refuses(write(lock), '"node_modules/self" links to ".", which this is under already, and npm leaves it out', D('self', 'self'))
+  })
+
+  it('a "#" in a path as "%23", as npm 9 to 10.9.2 and 11.0.0 to 11.1.0 write it', () => {
+    const hash = (version) => v2((l) => {
+      l.packages[''].dependencies.d = 'file:d#1'
+      l.packages['node_modules/d'].resolved = 'd#1'
+      l.packages['d#1'] = l.packages.d
+      delete l.packages.d
+      l.dependencies.d.version = version
+    })
+    const options = (npm) => ({ semver, npm })
+    assert.equal(parse(hash('file:d#1')).links['node_modules/d'], 'd#1')
+    assert.equal(parse(hash('file:d%231')).links['node_modules/d'], 'd#1')
+    for (const npm of ['9.0.0', '10.9.2', '11.1.0']) {
+      assert.equal(parse(hash('file:d%231'), options(npm)).links['node_modules/d'], 'd#1', npm)
+      refuses(hash('file:d#1'), 'expected "file:d%231", found the string "file:d#1", as npm writes it of "node_modules/d"', `${D('d')}.version`, options(npm))
+    }
+    for (const npm of ['10.9.3', '11.2.0', '12.0.0']) {
+      refuses(hash('file:d%231'), 'expected "file:d#1", found the string "file:d%231", as npm writes it of "node_modules/d"', `${D('d')}.version`, options(npm))
+    }
+  })
+})
+
 describe('arguments', () => {
   it('a string, and the options this reader takes', () => {
     assert.throws(() => parseNpmLockfile(Buffer.from(write(BASE))), { name: 'TypeError', message: 'expected a string' })
@@ -657,7 +791,7 @@ describe('anything else is refused, as a LockfileError', () => {
     const rand = random(0xBAD5)
     let read = 0
     for (let i = 0; i < 5000; i++) {
-      const lock = scramble(rand, BASE)
+      const lock = scramble(rand, rand.next() < 0.5 ? BASE : BASE_V2)
       try {
         parse(write(lock))
         read++

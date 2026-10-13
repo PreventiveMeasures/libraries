@@ -22,6 +22,13 @@ function bundlerOf(node, path = new Set()) {
 
 const underBundler = ({ parent }) => parent !== undefined && (parent.bundleDependencies !== undefined || underBundler(parent))
 
+// Whether a node, a package or a link, comes in the tarball of a package:
+// inDepBundle, of a bundler other than the project.
+export function inDepBundle(node, root) {
+  const bundler = underBundler(node) ? bundlerOf(node) : undefined
+  return bundler !== undefined && bundler !== root
+}
+
 // A package bundled in another's tarball comes from it, and from nothing
 // else; the project's own it bundles are installed as any other.
 function checkBundled(node, root) {

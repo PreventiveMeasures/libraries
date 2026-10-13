@@ -2,8 +2,9 @@
 // package and one nested under another, a peer, an alias, a git repository,
 // a tarball by URL and one on disk that bundles a package, dev and optional
 // ones, a directory linked and a workspace with its own node_modules — as
-// npm writes it; and the same with an edit, as text. And what the tests
-// share: the reader with semver, and the lockfiles npm wrote.
+// npm writes it, of version 3 and of 2; and the same with an edit, as text.
+// And what the tests share: the reader with semver, and the lockfiles npm
+// wrote.
 
 import { readFileSync } from 'node:fs'
 import { parseNpmLockfile } from '../../npm.js'
@@ -60,11 +61,33 @@ export const BASE = {
   },
 }
 
+// BASE of version 2, with the tree again for npm 6 as npm writes it: by
+// the edge that asks for each package, its version, a tarball by its spec,
+// a repository with what was asked for, and a link to the directory it
+// leads to with what is in there; what each asks for but peers.
+export const BASE_V2 = {
+  ...BASE,
+  lockfileVersion: 2,
+  dependencies: {
+    '@s/o': from('@s/o', '1.0.0', { optional: true }),
+    a: from('a', '1.0.0', { requires: { b: '^1.0.0' } }),
+    b: from('b', '1.0.0'),
+    c: from('c', '2.0.0'),
+    d: { version: 'file:d', requires: { b: '*' } },
+    dv: from('dv', '1.0.0', { dev: true }),
+    e: { version: `git+ssh://git@github.com/user/e.git#${C}`, from: 'e@github:user/e#semver:^3.0.0' },
+    f: { version: 'https://example.com/f.tgz', integrity: I },
+    'my-q': { version: 'npm:q@1.0.0', resolved: registry('q', '1.0.0'), integrity: I },
+    t: { version: 'file:vendor/t-1.0.0.tgz', integrity: I, requires: { x: '1.0.0' }, dependencies: { x: { version: '1.0.0', bundled: true } } },
+    ws: { version: 'file:packages/ws', requires: { b: '^2.0.0' }, dependencies: { b: from('b', '2.0.0') } },
+  },
+}
+
 export const write = (lock, indent = 2) => `${JSON.stringify(lock, null, indent)}\n`
 
-// BASE, given to `change` to edit, as text.
-export function edit(change) {
-  const lock = structuredClone(BASE)
-  change(lock)
-  return write(lock)
+// BASE, or another, given to `change` to edit, as text.
+export function edit(change, lock = BASE) {
+  const copy = structuredClone(lock)
+  change(copy)
+  return write(copy)
 }

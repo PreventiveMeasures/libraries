@@ -29,10 +29,10 @@ const describe = (node) => quote(node.location)
 // semver, where it is given; a tag where the package came from a URL, as
 // one from the registry does. What is in the folder of the name is what
 // npm takes, an alias among them; but an alias names its package itself,
-// which npm does not check, and is held to it here.
-function registryValid(child, { name, fetchSpec, kind }, semver, alias) {
+// which npm does not check, and is held to it here where `strict`.
+function registryValid(child, { name, fetchSpec, kind }, semver, alias, strict) {
   const pkg = packageOf(child)
-  if (alias && pkg.name !== name) return `asks for ${quote(name)}, and ${describe(child)} is ${quote(pkg.name)}, which npm does not check`
+  if (alias && strict && pkg.name !== name) return `asks for ${quote(name)}, and ${describe(child)} is ${quote(pkg.name)}, which npm does not check`
   if (kind === undefined || (kind === 'range' && fetchSpec === '*')) return undefined
   if (kind === 'tag') return child.kind === 'link' || !/^https?:/u.test(child.resolution?.tarball ?? '') ? `is a tag, which npm holds met by a tarball from a URL alone, and ${describe(child)} is none` : undefined
   return semver.satisfies(pkg.version ?? '', fetchSpec, true) ? undefined : `is not satisfied by ${describe(child)}, ${pkg.version ?? 'of no version'}`
@@ -40,7 +40,7 @@ function registryValid(child, { name, fetchSpec, kind }, semver, alias) {
 
 // A repository, by the ssh URL of one on a host npm knows or else by its
 // URL, at a commit where it names one, and in a range of versions.
-function gitValid(child, requested, semver) {
+function gitValid(child, requested, semver, strict) {
   const { resolution, version } = child
   if (child.kind === 'link' || resolution?.type !== 'git') return `asks for a git repository, and ${describe(child)} is from none`
   const resolved = readResolved(`${resolution.repo}#${resolution.commit}`)
@@ -50,8 +50,8 @@ function gitValid(child, requested, semver) {
     : resolved.hosted !== undefined && sshOf(requested.hosted, commit) === sshOf(resolved.hosted, commit)
   if (!same) return `asks for another repository than ${describe(child)} is from${commit ? ', or another commit' : ''}`
   // npm passes over the commit of a repository on no host it knows, which
-  // is held to it here all the same.
-  if (commit && requested.committish.toLowerCase() !== resolution.commit) {
+  // is held to it here all the same where `strict`.
+  if (strict && commit && requested.committish.toLowerCase() !== resolution.commit) {
     return `asks for another commit than ${describe(child)} is of, which npm does not check of a repository on no host it knows`
   }
   if (requested.range === null || semver === undefined || semver.satisfies(version ?? '', requested.range, true)) return undefined
@@ -59,14 +59,15 @@ function gitValid(child, requested, semver) {
 }
 
 // Why a node does not meet a spec, or undefined where it does: depValid,
-// and the package an alias names held to it too.
-function whyNot(child, edge, spec, semver) {
+// and, where `strict`, held to the package an alias names and to the
+// commit a repository is asked at, which npm passes over.
+function whyNot(child, edge, spec, semver, strict = true) {
   const requested = readSpec(edge.name, spec, fromPath(edge.from), semver)
   switch (requested.type) {
     case 'registry':
-      return registryValid(child, requested, semver, false)
+      return registryValid(child, requested, semver, false, strict)
     case 'alias':
-      return registryValid(child, requested.sub, semver, true)
+      return registryValid(child, requested.sub, semver, true, strict)
     case 'directory':
       if (child.kind === 'link' && directoryOf(child.target) === requested.path) return undefined
       return `asks for a link to ${quote(requested.path)}, and ${describe(child)} is ${child.kind === 'link' ? `one to ${quote(directoryOf(child.target))}` : 'no link'}`
@@ -77,8 +78,24 @@ function whyNot(child, edge, spec, semver) {
       return `asks for the tarball ${quote(tarball)}, and ${describe(child)} is from another`
     }
     default:
-      return gitValid(child, requested, semver)
+      return gitValid(child, requested, semver, strict)
   }
+}
+
+// Edge#valid, as npm has it, of an edge that leads to a node: not a peer
+// in the node_modules of the package that asks for it, of the same name,
+// and met, by its spec or by acceptDependencies'. A spec this does not
+// read is taken as not met, as npm takes one it cannot read; npm reads a
+// few this does not.
+export function isValid(edge, semver) {
+  const { from, to } = edge
+  if (edge.type.startsWith('peer') && to.parent === from && from.parent !== undefined) return false
+  if (to.folder !== edge.name) return false
+  const met = (spec) => whyNot(to, edge, spec, semver, false) === undefined
+  return attempt(() => met(edge.spec) || (edge.accept !== undefined && met(edge.accept)), (error) => {
+    if (error instanceof LockfileError) return false
+    throw error
+  })
 }
 
 function check(edge, semver) {

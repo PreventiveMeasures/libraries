@@ -26,6 +26,11 @@
 // it, whose dependencies npm leaves to it. The overrides project is
 // installed with an override of what react-dom asks for, which the
 // lockfile does not record.
+//
+// The -v2 runs are the workspace, the plain project with its URLs left
+// out, and the flags and outside projects again, set to lockfileVersion 2,
+// which has the tree again for npm 6; and npm-8 is the workspace as npm 8
+// writes it by default, of version 2, the file npm 7.24.2 writes too.
 
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -122,6 +127,14 @@ const RUNS = [
   { name: 'npm-11-flags', npm: '11.12.1', manifests: FLAGS },
   { name: 'npm-11-outside', npm: '11.12.1', manifests: OUTSIDE },
   { name: 'npm-11-overrides', npm: '11.12.1', manifests: OVERRIDES },
+  { name: 'npm-12-v2', npm: '12.2.0', manifests: WORKSPACE, args: ['--allow-git=all', '--allow-remote=all', '--lockfile-version=2'] },
+  { name: 'npm-11-v2', npm: '11.12.1', manifests: WORKSPACE, args: ['--lockfile-version=2'] },
+  { name: 'npm-10-v2', npm: '10.9.9', manifests: WORKSPACE, args: ['--lockfile-version=2'] },
+  { name: 'npm-9-v2', npm: '9.9.4', manifests: WORKSPACE, args: ['--lockfile-version=2'] },
+  { name: 'npm-8', npm: '8.19.4', manifests: WORKSPACE },
+  { name: 'npm-11-plain-omitted-v2', npm: '11.12.1', manifests: PLAIN, crlf: true, args: ['--omit-lockfile-registry-resolved', '--lockfile-version=2'] },
+  { name: 'npm-11-flags-v2', npm: '11.12.1', manifests: FLAGS, args: ['--lockfile-version=2'] },
+  { name: 'npm-11-outside-v2', npm: '11.12.1', manifests: OUTSIDE, args: ['--lockfile-version=2'] },
 ]
 
 function write(dir, name, content) {
