@@ -28,12 +28,12 @@ function escapesHash(npm) {
   return major === 9 || (major === 10 && (minor < 9 || (minor === 9 && patch <= 2))) || (major === 11 && minor < 2)
 }
 
-const collator = new Intl.Collator('en')
-
 // The edges npm may write an entry by: of those met, those from a node in
 // the fewest node_modules, and of them the first by the rest of its
-// location, as string-locale-compare orders them. Of a tie npm takes the
-// one it loaded first, in an order of its own, so any of them is taken.
+// location, as string-locale-compare orders them: by Intl.Collator('en'),
+// or where there is no Intl, by localeCompare, as this does either way. Of
+// a tie npm takes the one it loaded first, in an order of its own, so any
+// of them is taken.
 function chosenEdges(node, semver) {
   let chosen = []
   let best
@@ -41,7 +41,7 @@ function chosenEdges(node, semver) {
     if (!isValid(edge, semver)) continue
     const parts = edge.from.location.split('node_modules')
     const key = [parts.length, parts.at(-1)]
-    const order = best === undefined ? -1 : key[0] - best[0] || collator.compare(key[1], best[1])
+    const order = best === undefined ? -1 : key[0] - best[0] || key[1].localeCompare(best[1], 'en')
     if (order < 0) [chosen, best] = [[edge], key]
     else if (order === 0) chosen.push(edge)
   }
@@ -92,17 +92,14 @@ function expectValue(value, expected, where, node) {
 
 const expect = (entry, key, expected, where, node) => expectValue(entry[key], expected, at(where, key), node)
 
-// A `file:` spec as npm writes it under `requires`, from the directory
-// that asks for it, `dir`: path.relative, which from a directory out of
-// the project, to one less far out, would need the names of the
-// directories the project is in.
+// A `file:` spec as npm writes it under `requires`: path.relative from the
+// directory that asks for it, `dir`, to where the spec leads from there. A
+// path from the root or a drive, or with a backslash, npm writes by where
+// the project is, or by the platform.
 function fileSpec(spec, dir, escape, where) {
   const path = spec.slice(5)
-  const climbs = (value) => value.split('/').findIndex((segment) => segment !== '..')
   if (/^(?:\/|[A-Za-z]:)|\\/u.test(path)) throw new LockfileError(`${quote(spec)} is a path npm writes by where the project is, which is not supported`, where)
-  const target = resolvePath(dir, path)
-  if (climbs(dir) > climbs(target)) throw new LockfileError(`${quote(spec)} is a path npm writes by the directories the project is in, which is not supported`, where)
-  const relative = relativeTo(dir, target)
+  const relative = relativeTo(dir, resolvePath(dir, path))
   return `file:${escape(relative === '.' ? '' : relative)}`
 }
 

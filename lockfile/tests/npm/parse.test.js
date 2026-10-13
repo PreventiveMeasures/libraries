@@ -710,18 +710,20 @@ describe('a lockfile of version 2, with the tree again for npm 6', () => {
     refuses(asks('file:./../vendor/./t-1.0.0.tgz', 'file:./../vendor/./t-1.0.0.tgz'), 'expected "file:../vendor/t-1.0.0.tgz", as "d" asks for it, found the string "file:./../vendor/./t-1.0.0.tgz", which npm writes there of an override alone, not read here', `${D('d')}.requires.t`)
   })
 
-  it('a path by where the project is, refused', () => {
+  it('a path from a directory out of the project, but one by where the project is', () => {
     // What a directory out of the project asks for, npm leaves to it, and
     // writes the path to from where it is.
-    const outside = (change) => (l) => {
+    const outside = (dependencies, requires = dependencies) => (l) => {
       l.packages[''].dependencies.d = 'file:../d'
       l.packages['node_modules/d'].resolved = '../d'
-      l.packages['../d'] = { ...l.packages.d, dependencies: { z: 'file:/abs/z.tgz' } }
+      l.packages['../d'] = { ...l.packages.d, dependencies }
       delete l.packages.d
-      change(l)
+      if (l.lockfileVersion === 2) l.dependencies.d = { version: 'file:../d', requires }
     }
-    assert.equal(parse(edit(outside(() => {}))).importers['../d'].edges.z.target, undefined)
-    refuses(v2(outside((l) => (l.dependencies.d = { version: 'file:../d', requires: { z: 'file:/abs/z.tgz' } }))), '"file:/abs/z.tgz" is a path npm writes by where the project is, which is not supported', `${D('d')}.requires.z`)
+    const up = { z: 'file:../..', y: 'file:./../d/./x', w: 'file:../../..' }
+    assert.equal(parse(v2(outside(up, { z: 'file:../..', y: 'file:x', w: 'file:../../..' }))).importers['../d'].edges.z.target, undefined)
+    assert.equal(parse(edit(outside({ z: 'file:/abs/z.tgz' }), BASE)).importers['../d'].edges.z.target, undefined)
+    refuses(v2(outside({ z: 'file:/abs/z.tgz' })), '"file:/abs/z.tgz" is a path npm writes by where the project is, which is not supported', `${D('d')}.requires.z`)
   })
 
   it('a link to the project, under which npm writes the tree again', () => {
