@@ -5,5 +5,6 @@
 // peers: on Node loaded on first use, elsewhere oxc with this module.
 // compare.js loads none. Typed and described in names.d.ts.
 
-// The diff of two such files with renamed names set aside, checked to hide no change.
-export { renamedDiff } from './src/names/diff.js'
+// The diff of two such files with renamed names set aside, checked to hide no
+// change; and the same for several whitespace settings at once.
+export { renamedDiff, renamedDiffs } from './src/names/diff.js'

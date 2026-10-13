@@ -6,12 +6,17 @@ import { changeSet } from '@preventive/diff'
 import { blocksHold } from '../blocks.js'
 import { markedBlocks } from '../marked.js'
 import { format } from '../pretty.js'
+import { checkLineOptions } from '../text.js'
 import { bindsAlike } from './binds.js'
 import { renameMap } from './rename.js'
 
 const ranges = ({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 })
 
-export async function renamedDiff(before, after, { extension = 'js', otherExtension = extension, whitespace = 'none' } = {}) {
+// The same, diffed once for each whitespace setting given, in order: the names
+// found and the old side given them once for all.
+export async function renamedDiffs(before, after, { extension = 'js', otherExtension = extension, whitespace = ['none'] } = {}) {
+  if (!Array.isArray(whitespace)) throw new TypeError(`whitespace must be an array, not ${typeof whitespace}`)
+  const settings = whitespace.map((setting) => checkLineOptions({ horizon: 0, whitespace: setting }))
   const warnings = []
   const mapped = renameMap(before, after, { extension, otherExtension })
   if (mapped.invariant) warnings.push(`a rename map check failed: ${mapped.invariant}`)
@@ -23,11 +28,20 @@ export async function renamedDiff(before, after, { extension = 'js', otherExtens
     if ('code' in formatted && !read) warnings.push("the renamed old side, formatted, read otherwise")
     renamed = read ? formatted.code : mapped.text
   }
-  const options = { horizon: 0, whitespace }
-  const blocks = changeSet(renamed, after, options).map(ranges)
-  if (!blocksHold(renamed, after, blocks, options)) throw new Error('change blocks that do not take the old side to the new')
-  // Read off the renamed text before formatting, line for line the old side's.
-  const marks = mapped.reason ? [] : markedBlocks(before, mapped.text, after, options)
-  if (marks === null) warnings.push('a renamed text with lines the old one does not have; none marked')
-  return { before: renamed, blocks, reason: mapped.reason ?? null, reads: mapped.reads ?? [], marks: marks ?? [], warnings }
+  let unmarked = false
+  const diffs = settings.map((options) => {
+    const blocks = changeSet(renamed, after, options).map(ranges)
+    if (!blocksHold(renamed, after, blocks, options)) throw new Error('change blocks that do not take the old side to the new')
+    // Read off the renamed text before formatting, line for line the old side's.
+    const marks = mapped.reason ? [] : markedBlocks(before, mapped.text, after, options)
+    unmarked ||= marks === null
+    return { whitespace: options.whitespace, blocks, marks: marks ?? [] }
+  })
+  if (unmarked) warnings.push('a renamed text with lines the old one does not have; none marked')
+  return { before: renamed, reason: mapped.reason ?? null, reads: mapped.reads ?? [], diffs, warnings }
+}
+
+export async function renamedDiff(before, after, { whitespace = 'none', ...options } = {}) {
+  const { before: renamed, reason, reads, diffs: [{ blocks, marks }], warnings } = await renamedDiffs(before, after, { ...options, whitespace: [whitespace] })
+  return { before: renamed, blocks, reason, reads, marks, warnings }
 }

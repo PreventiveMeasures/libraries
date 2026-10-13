@@ -10,7 +10,7 @@ import { changeSet } from '@preventive/diff'
 import { minifySync } from 'oxc-minify'
 import { blocksHold } from '../src/blocks.js'
 import { format } from '../pretty.js'
-import { renamedDiff } from '../names.js'
+import { renamedDiff, renamedDiffs } from '../names.js'
 import { bindsAlike } from '../src/names/binds.js'
 import { renameMap } from '../src/names/rename.js'
 import { compiles, program, run } from './programs.js'
@@ -238,5 +238,22 @@ describe('renamedDiff', () => {
     assert.deepEqual([diff.reason, diff.before, diff.marks], ['dynamic', 'var a = 1;\nwith (o) f(a);\n', []])
     assert.deepEqual(diff.blocks, [{ a0: 0, a1: 2, b0: 0, b1: 2 }])
     assert.deepEqual((await renamedDiff('f(a ,b);\n', 'f(a, b);\n', { whitespace: 'all' })).blocks, [], 'whitespace ignored as asked')
+  })
+
+  it('diffs once for each whitespace setting, from names found once, each as renamedDiff has it', async () => {
+    const after = 'function g(b) {\n  return b + 1;\n}\nconsole.log(g(2), `x y`);\n', before = 'function f(a) {\n  return a + 1;\n}\nconsole.log(f(2), `x  y`);\n'
+    const options = { extension: 'mjs' }
+    const [one, spaced, both] = await Promise.all([renamedDiff(before, after, options), renamedDiff(before, after, { ...options, whitespace: 'change' }),
+      renamedDiffs(before, after, { ...options, whitespace: ['none', 'change'] })])
+    assert.deepEqual(both.diffs.map(({ whitespace }) => whitespace), ['none', 'change'])
+    for (const [diff, { blocks, marks }] of [[one, both.diffs[0]], [spaced, both.diffs[1]]]) {
+      assert.deepEqual([diff.before, diff.reason, diff.reads, diff.warnings], [both.before, both.reason, both.reads, both.warnings])
+      assert.deepEqual([diff.blocks, diff.marks], [blocks, marks])
+    }
+    assert.deepEqual(both.diffs.map(({ blocks }) => blocks), [[{ a0: 3, a1: 4, b0: 3, b1: 4 }], []], 'the template literal\'s spaces a change unless ignored')
+    assert.deepEqual(both.diffs[1].marks, [{ a0: 0, a1: 2, b0: 0, b1: 2 }, { a0: 3, a1: 4, b0: 3, b1: 4 }], 'and its line then renamed alone')
+    assert.deepEqual((await renamedDiffs(before, after)).diffs.map(({ whitespace }) => whitespace), ['none'], 'whitespace as it is unless asked')
+    await assert.rejects(renamedDiffs(before, after, { whitespace: 'none' }), TypeError)
+    await assert.rejects(renamedDiffs(before, after, { whitespace: ['none', 'some'] }), RangeError)
   })
 })
