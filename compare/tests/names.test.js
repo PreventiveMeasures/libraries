@@ -116,6 +116,8 @@ describe('renameMap', () => {
     assert.deepEqual(reads('var a = 1, f = function e() {};', 'var b = 1, f = function g() {};'), ['name'], 'a function expression\'s own name renamed')
     assert.deepEqual(renameMap('var a = 1;\nmodule.exports = (x) => [x.toString(), a];\n', 'var b = 1;\nmodule.exports = (x) => [x.toString(), b];\n', cjs).reads, ['toString'],
       'a function\'s source read, which any name in it is part of')
+    assert.deepEqual(renameMap('function a() {}\nmodule.exports = (x) => [x.toString(), x.name, a];\n', 'function a() {}\nmodule.exports = (x) => [x.toString(), x.name, a, 1];\n', cjs).reads, [],
+      'nothing renamed, nothing a read may act otherwise for')
   })
 
   it('shows the file with its names where a check that should never fail fails, and tells what failed', () => {

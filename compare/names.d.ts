@@ -29,8 +29,8 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // they not). `reason` says why no names were given; `reads` the properties
 // either text reads names through (`name`, `toString`, `stack`, `callee`,
 // `caller`), sorted, as code reading its names may act otherwise renamed:
-// `name` only where a name renamed is a function's or class's, the one name
-// it reads (`function f`, `class f`, `f = () => {}`);
+// none where none is renamed, and `name` only where a name renamed is a
+// function's or class's, the one name it reads (`function f`, `f = () => {}`);
 // `marks` the plain diff's blocks that differ in renamed names alone; and
 // `warnings` what a check that should never fail found.
 export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: 'none' | 'all' | 'change' | 'trailing' }): Promise<{
