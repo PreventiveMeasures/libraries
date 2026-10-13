@@ -21,6 +21,7 @@ describe('sameCode', () => {
     assert.equal(sameCode('y=[1,// one\n2,// two\n]', 'y = [\n  1, // one\n  2 // two\n];\n'), true, 'and before a comment')
     assert.equal(sameCode('type P=A|B|C;let x:(A|B)[];f<A|B>();g(x as {a:1}|null)', 'type P =\n  | A\n  | B\n  | C;\nlet x: (\n  | A\n  | B\n)[];\nf<\n  | A\n  | B\n>();\ng(\n  x as\n    | { a: 1 }\n    | null\n);\n', 'ts'), true,
       'a union broken over lines, each part led by `|`')
+    assert.equal(sameCode('type I=A&B;type M={[K in A|B]:1}', 'type I =\n  & A\n  & B;\ntype M = {\n  [K in\n    | A\n    | B]: 1;\n};\n', 'ts'), true, 'an intersection led by `&`, a mapped type\'s keys by `|`')
     assert.equal(sameCode('a()// x  \nb()/* y */', 'a(); // x\nb(); /* y */\n'), true, 'blanks ending a comment')
     const members = `type T = { ${Array.from({ length: 130_000 }, (_, i) => `a${i}: 1,`).join(' ')} };\n`, statements = `${Array.from({ length: 130_000 }, (_, i) => `let a${i} = 0;`).join('\n')}\n`
     assert.equal(sameCode(statements, statements, 'ts'), true, 'more statements than a call takes arguments')
@@ -163,6 +164,7 @@ describe('format', () => {
     const { code } = await format(`import{directive,Directive,PartType,}from"./directive.js";export type Part=${union};`, 'ts')
     assert.match(code, /^import \{ directive, Directive, PartType \} from "\.\/directive\.js";\nexport type Part =\n {2}\| Part0WithALongName\n/u)
     assert.match((await format(`export function isPart(x: unknown): x is ${union} { return true }`, 'ts')).code, /x is\n {2}\| Part0WithALongName\n/u, 'and after a type predicate\'s `is`')
+    assert.match((await format(`export type M = { [P in ${union}]: 1 };`, 'ts')).code, /P in\n\s+\| Part0WithALongName\n/u, 'and a mapped type\'s `in`')
   })
 
   it('formats CSS where css-tree is there to check it', async () => {
