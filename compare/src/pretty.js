@@ -194,6 +194,8 @@ function asWritten(text, code, extension) {
     const from = blanksFrom(code, now[first].start), moved = MOVED.exec(code)
     if (moved === null || from === 0 || code[from - 1] === '\n') continue
     const [, mark] = moved
+    // One the copy has before the comment too stayed, the one after another (`a + /* c */ +b`).
+    if (code.startsWith(mark, from - mark.length)) continue
     const at = blanksFrom(text, was[first].start) - mark.length
     if (at >= 0 && text.startsWith(mark, at) && !(mark.startsWith('i') ? NAME_PART : MARK).test(text[at - 1] ?? '')) {
       edits.push([from, now[first].start, `${mark === ',' ? '' : ' '}${mark} `], [now[i].end, now[i].end + moved[0].length, ''])

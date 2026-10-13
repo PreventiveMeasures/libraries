@@ -188,6 +188,10 @@ describe('format', () => {
       ['x=a in/* c */\nb', 'x = a in /* c */ b;\n'], ['x=a&&/* c */ /* d */\nb', 'x = a && /* c */ /* d */ b;\n'],
       // One over more than one line still ends its line.
       ['x=a&&/** c\n */\nb', 'x =\n  a && /** c\n   */\n  b;\n']]) assert.deepEqual(await format(text, 'js'), { code }, text)
+    // A name's escape repaired alike, a sign after a comment is no operator it moved past.
+    for (const sign of ['+', '-']) {
+      assert.deepEqual(await format(`var ${esc('0061')}=1;x=y${sign}/* c */${sign}z`, 'js'), { code: `var ${esc('0061')} = 1;\nx = y ${sign} /* c */ ${sign}z;\n` }, sign)
+    }
   })
 
   it('formats CSS where css-tree is there to check it', async () => {
