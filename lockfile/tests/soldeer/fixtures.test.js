@@ -13,6 +13,8 @@ const FIXTURES = new URL('fixtures/', import.meta.url)
 const text = (name) => readFileSync(new URL(`${name}.lock`, FIXTURES), 'utf8')
 const config = (name) => parseToml(readFileSync(new URL(`${name}.toml`, FIXTURES), 'utf8'))
 const read = (name) => parseSoldeerLockfile(text(name), { config: config(name) })
+// A value as parseToml makes it: each object a table, of a null prototype.
+const toml = (value) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.assign(Object.create(null), Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toml(item)]))) : value)
 
 const plain = (value) => structuredClone(value)
 
@@ -82,7 +84,7 @@ describe('the config, as Soldeer 0.12 holds it to the lockfile', () => {
   const refuses = (edit, message) => {
     const dependencies = { ...config('soldeer-0.12.0').dependencies, ...edit }
     for (const [name, value] of Object.entries(dependencies)) if (value === undefined) delete dependencies[name]
-    assert.throws(() => parseSoldeerLockfile(text('soldeer-0.12.0'), { config: { dependencies } }), (error) => error instanceof LockfileError && error.message === message)
+    assert.throws(() => parseSoldeerLockfile(text('soldeer-0.12.0'), { config: toml({ dependencies }) }), (error) => error instanceof LockfileError && error.message === message)
   }
 
   it('a dependency the lockfile has no entry for, and an entry no dependency asks for', () => {

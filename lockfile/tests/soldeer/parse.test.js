@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { LockfileError, TomlError, parseSoldeerLockfile } from '../../soldeer.js'
+import { parseToml } from '../../toml.js'
 
 const H = 'a'.repeat(64)
 const C = 'b'.repeat(40)
@@ -153,11 +154,15 @@ describe('the config', () => {
     'b-git': { version: 'v1', git: 'https://example.com/b.git', branch: 'main' },
     'c-private': { version: '>=2.0.0, <3.0.0' },
   }
-  const config = (extra) => ({ soldeer: { remappings_generate: false }, dependencies: { ...DEPENDENCIES, ...extra } })
+  // A value as parseToml makes it: each object a table, of a null prototype.
+  const toml = (value) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.assign(Object.create(null), Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toml(item)]))) : value)
+  const config = (extra) => toml({ soldeer: { remappings_generate: false }, dependencies: { ...DEPENDENCIES, ...extra } })
+  const DEPS = '[dependencies]\n"a-lib" = "^1.0.0"\n"b-git" = { version = "v1", git = "https://example.com/b.git", branch = "main" }\n"c-private" = { version = ">=2.0.0, <3.0.0" }\n'
 
   it('each dependency held to its entry, and the rest of the config not read', () => {
     assert.ok(parseSoldeerLockfile(BASE, { config: config() }))
-    assert.ok(parseSoldeerLockfile('version = 2\ndependencies = []\n', { config: {} }))
+    assert.ok(parseSoldeerLockfile(BASE, { config: parseToml(`[profile.default]\nlibs = ["dependencies"]\n\n${DEPS}`) }))
+    assert.ok(parseSoldeerLockfile('version = 2\ndependencies = []\n', { config: toml({}) }))
   })
 
   it('refuses what Soldeer refuses, or warns of and ignores', () => {
@@ -167,7 +172,7 @@ describe('the config', () => {
     refuses(BASE, 'a url beside a git repository, which Soldeer refuses', 'config.dependencies["b-git"].url', { config: config({ 'b-git': { version: 'v1', git: 'https://example.com/b.git', url: 'https://example.com/b.zip' } }) })
     refuses(BASE, 'branch and tag, of which Soldeer takes one alone', 'config.dependencies["b-git"]', { config: config({ 'b-git': { version: 'v1', git: 'https://example.com/b.git', branch: 'main', tag: 'v1' } }) })
     refuses(BASE, '"=v1" has an "=", which Soldeer refuses in the version of what it does not resolve', 'config.dependencies["b-git"].version', { config: config({ 'b-git': { version: '=v1', git: 'https://example.com/b.git' } }) })
-    refuses(BASE, 'expected a string, found the number 1', 'config.dependencies["a-lib"].version', { config: config({ 'a-lib': { version: 1 } }) })
+    refuses(BASE, 'expected a string, found the integer 1', 'config.dependencies["a-lib"].version', { config: config({ 'a-lib': { version: 1 } }) })
   })
 
   it('refuses two names Soldeer installs in one folder', () => {
@@ -186,6 +191,24 @@ describe('the config', () => {
     for (const requirement of ['1.0', '1.0.0', '>=1.0, 1.0', '~1.3']) {
       refuses(BASE, `${JSON.stringify(requirement)}, which its entry's version, "1.2.0", does not satisfy`, 'config.dependencies["a-lib"].version', asking(requirement))
     }
+  })
+
+  it('refuses settings with which Soldeer installs otherwise, fails, or that it does not have', () => {
+    const settings = (lines) => ({ config: parseToml(`[soldeer]\n${lines}\n\n${DEPS}`) })
+    assert.ok(parseSoldeerLockfile(BASE, settings('remappings_generate = true\nremappings_regenerate = false\nremappings_version = true\nremappings_prefix = "@"\nremappings_location = "config"\nrecursive_deps = false')))
+    refuses(BASE, 'has Soldeer install what each dependency depends on too, which the lockfile does not have', 'config.soldeer.recursive_deps', settings('recursive_deps = true'))
+    refuses(BASE, 'expected true or false, found the string "yes"', 'config.soldeer.recursive_deps', settings('recursive_deps = "yes"'))
+    refuses(BASE, 'expected a string, found the integer 1', 'config.soldeer.remappings_prefix', settings('remappings_prefix = 1'))
+    refuses(BASE, 'expected "txt" or "config", found the string "toml"', 'config.soldeer.remappings_location', settings('remappings_location = "toml"'))
+    refuses(BASE, 'unsupported key "install_dependencies_of"', 'config.soldeer', settings('install_dependencies_of = true'))
+    refuses(BASE, 'expected a table, found the boolean true', 'config.soldeer', { config: parseToml(`soldeer = true\n${DEPS}`) })
+  })
+
+  it('refuses dependencies inline, from which Soldeer reads none, and what is no table', () => {
+    refuses(BASE, 'an inline table, from which Soldeer reads no dependency', 'config.dependencies', { config: parseToml('dependencies = { "a-lib" = "^1.0.0" }\n') })
+    refuses(BASE, 'expected a table, found the date-time 1979-05-27T07:32:00Z', 'config.dependencies', { config: parseToml('dependencies = 1979-05-27T07:32:00Z\n') })
+    refuses(BASE, 'expected a string, found the date-time 1979-05-27T07:32:00Z', 'config.dependencies["a-lib"].version', { config: parseToml('[dependencies]\n"a-lib" = { version = 1979-05-27T07:32:00Z }\n') })
+    refuses(BASE, 'expected a table, found a table', 'config', { config: { dependencies: {} } })
   })
 
   it('refuses a private entry for a URL the config names', () => {
