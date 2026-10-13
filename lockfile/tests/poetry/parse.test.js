@@ -151,7 +151,14 @@ describe('packages', () => {
   it('refuses a marker of a group the package is not in, and no group', () => {
     refuses(edit(['markers = {dev', 'markers = {test']), '"test" is not one of the package\'s groups', 'package[1].markers.test')
     refuses(edit(['groups = ["main"]', 'groups = []']), 'expected a group at least', 'package[0].groups')
-    refuses(edit(['groups = ["main"]', 'groups = ["main", "Main"]']), '"Main" is listed twice', 'package[0].groups')
+    refuses(edit(['groups = ["main"]', 'groups = ["main", "main"]']), '"main" is listed twice', 'package[0].groups')
+    // An extra, too: two Poetry reads as one, it keeps the last of.
+    refuses(edit(['socks = ["PySocks (>=1.5.6,!=1.5.7)"]', 'socks = ["PySocks (>=1.5.6,!=1.5.7)"]\nSocks = ["win-inet-pton"]']), '"Socks" is not a name in normal form, "socks"', 'package[0].extras.Socks')
+    refuses(edit(['[extras]\ngit = ["b"]', '[extras]\nGit_Things = ["b"]']), '"Git_Things" is not a name in normal form, "git-things"', 'extras.Git_Things')
+    refuses(edit(['c = ">=1.0,<2.0 || >2.1"', 'c = {version = ">=1.0,<2.0 || >2.1", extras = ["Fast"]}']), '"Fast" is not a name in normal form, "fast"', 'package[0].dependencies.c.extras[0]')
+    // Poetry writes a group's name in normal form, and reads another as that.
+    refuses(edit(['groups = ["main"]', 'groups = ["main", "Main"]']), '"Main" is not a name in normal form, "main"', 'package[0].groups[1]')
+    refuses(edit(['groups = ["main", "dev"]', 'groups = ["main", "Dev_Tools"]']), '"Dev_Tools" is not a name in normal form, "dev-tools"', 'package[1].groups[1]')
   })
 
   it('refuses develop but of a directory or git, and its absence there', () => {

@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { LockfileError } from '../../npm.js'
+import { isName } from '../../src/names.js'
 import { random } from '../random.js'
-import { BASE, fixture, parse, registry, write } from './base.js'
+import { BASE, C, I, fixture, legacyEntries, parse, plain, published, registry, write } from './base.js'
 import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 
 // Arborist, from the npm beside node, against this reader, over lockfiles
@@ -13,10 +14,41 @@ import { Arborist, calcDepFlags, resetDepFlags } from './reference.js'
 // package.json files npm reads beside it, loaded into npm's tree, and
 // given the flags npm works out for it. Where npm finds every dependency
 // met, and nothing extraneous, this reads the lockfile to the same edges
-// and flags; where it does not, this refuses it. The seed is fixed, so a
-// failure names its lockfile and comes back on a rerun.
+// and flags; where it does not, this refuses it. And the lockfile of
+// version 2 npm writes of the tree, with the tree again for npm 6, reads to
+// the same, and is refused with any one field of that tree changed. The
+// seed is fixed, so a failure names its lockfile and comes back on a
+// rerun.
 
-const SOURCES = [BASE, ...['npm-11', 'npm-11-flags', 'npm-11-outside'].map((name) => JSON.parse(fixture(name)))]
+// A project linked from its own node_modules, which npm writes the tree for
+// npm 6 again under; two packages a node_modules deep, of one name, that
+// ask for one package otherwise, which npm writes it by either of; a
+// repository and a tarball reached by a link alone; and a directory with a
+// "#" in its name, whose tarball npm writes from it.
+const SELF = { ...BASE, packages: { ...BASE.packages, '': { ...BASE.packages[''], dependencies: { ...BASE.packages[''].dependencies, self: 'file:.' } }, 'node_modules/self': { resolved: '', link: true } } }
+const TIES = {
+  name: 'ties',
+  version: '1.0.0',
+  lockfileVersion: 3,
+  requires: true,
+  packages: {
+    '': { name: 'ties', version: '1.0.0', dependencies: { a: '1.0.0', b: '1.0.0', l: 'file:#dir', t: 'file:vendor/t-1.0.0.tgz' } },
+    '#dir': { version: '1.0.0', dependencies: { t: 'file:./../vendor/./t-1.0.0.tgz' } },
+    'node_modules/a': published('a', '1.0.0', { dependencies: { x: '1.0.0', ln: '*', lt: '*' } }),
+    'node_modules/a/node_modules/ln': { resolved: 'node_modules/e', link: true },
+    'node_modules/a/node_modules/lt': { resolved: 'node_modules/u', link: true },
+    'node_modules/a/node_modules/x': published('x', '1.0.0', { dependencies: { y: 'github:user/y' } }),
+    'node_modules/b': published('b', '1.0.0', { dependencies: { x: '2.0.0' } }),
+    'node_modules/b/node_modules/x': published('x', '2.0.0', { dependencies: { y: '^1.0.0' } }),
+    'node_modules/e': { version: '3.0.0', resolved: `git+ssh://git@github.com/user/e.git#${C}` },
+    'node_modules/l': { resolved: '#dir', link: true },
+    'node_modules/t': { version: '1.0.0', resolved: 'file:vendor/t-1.0.0.tgz', integrity: I },
+    'node_modules/u': { version: '1.0.0', resolved: 'file:vendor/u-1.0.0.tgz', integrity: I },
+    'node_modules/y': { version: '1.0.0', resolved: `git+ssh://git@github.com/user/y.git#${C}` },
+  },
+}
+
+const SOURCES = [BASE, SELF, TIES, ...['npm-11', 'npm-11-flags', 'npm-11-outside'].map((name) => JSON.parse(fixture(name)))]
 
 const LISTS = ['dependencies', 'optionalDependencies', 'peerDependencies']
 const FLAGS = ['dev', 'optional', 'devOptional', 'peer', 'extraneous', 'inBundle']
@@ -40,14 +72,14 @@ function unlist(entry, list, name) {
   if (Object.keys(entry[list]).length === 0 && list !== 'devDependencies') delete entry[list]
 }
 
-// An edit of the dependencies of one entry: one added, of a name the
-// lockfile has, one dropped, or one moved to another list.
+// An edit of the dependencies of one entry: one added, of a name of a
+// folder the lockfile has, one dropped, or one moved to another list.
 function changeDependencies({ next, pick }, lock) {
   const locations = Object.keys(lock.packages).filter((location) => !lock.packages[location].link)
   const location = pick(locations)
   const entry = lock.packages[location]
   const lists = isImporter(location) ? [...LISTS, 'devDependencies'] : LISTS
-  const names = [...new Set(locations.filter((other) => other !== '').map(folderOf))]
+  const names = [...new Set(locations.filter((other) => other !== '').map(folderOf))].filter(isName)
   const listed = lists.flatMap((list) => Object.keys(entry[list] ?? {}).map((name) => [list, name]))
   const r = next()
   if (r < 0.4 || listed.length === 0) {
@@ -198,10 +230,16 @@ function flagged(lock, nodes) {
       delete entry.integrity
     }
   }
+  // The project's flags, which a link to it gives it, npm writes above the
+  // packages too.
+  for (const flag of ['dev', 'optional', 'devOptional', 'peer']) {
+    if (flags.packages['']?.[flag]) flags[flag] = true
+    else delete flags[flag]
+  }
   return flags
 }
 
-const targetOf = (to) => (to === null ? undefined : to.isLink ? `link:${to.target.location}` : to.location)
+const targetOf = (to) => (to === null ? undefined : to.isLink ? `link:${to.target.location || '.'}` : to.location)
 
 function compare(lock, { nodes, met }) {
   let read
@@ -230,16 +268,62 @@ function compare(lock, { nodes, met }) {
   return true
 }
 
+// One field of one entry of the tree for npm 6 changed, or an entry taken
+// out or put in, none of which npm writes.
+function changeLegacy({ next, pick }, dependencies) {
+  const [holder, name, entry] = pick(legacyEntries(dependencies))
+  const toggle = (key, value) => {
+    if (entry[key] === undefined) entry[key] = value
+    else delete entry[key]
+  }
+  const r = next()
+  if (r < 0.15) entry.version = `${entry.version}-x`
+  else if (r < 0.35) toggle(pick(['dev', 'optional', 'devOptional', 'peer', 'bundled']), true)
+  else if (r < 0.5) {
+    const required = Object.keys(entry.requires ?? {})
+    if (required.length === 0) entry.requires = { ...entry.requires, 'zz-extra': '1.0.0' }
+    else {
+      const key = pick(required)
+      entry.requires[key] = `${entry.requires[key]} || 9`
+    }
+  } else if (r < 0.6) delete holder[name]
+  else if (r < 0.7) holder['zz-extra'] = { version: '1.0.0' }
+  else if (r < 0.8) toggle('integrity', I)
+  else if (r < 0.9) entry.resolved = entry.resolved === undefined ? 'https://example.com/zz.tgz' : `${entry.resolved}?x`
+  else toggle('from', `${name}@*`)
+}
+
+// What npm writes of the tree as a lockfile of version 2, with nothing of
+// where a package a tarball bundles comes from, as flagged has it: read to
+// the same as it is of version 3, and refused with its tree for npm 6
+// changed.
+function compareLegacy(rand, tree) {
+  for (const node of tree.inventory.values()) {
+    if (node.inDepBundle && !node.isLink) Object.assign(node, { resolved: null, integrity: null })
+  }
+  tree.meta.lockfileVersion = 2
+  const text = tree.meta.toString()
+  const lock = JSON.parse(text)
+  const { dependencies, ...rest } = lock
+  assert.deepEqual(plain(parse(text)), { ...plain(parse(write({ ...rest, lockfileVersion: 3 }))), lockfileVersion: 2 })
+  if (dependencies === undefined) return
+  changeLegacy(rand, lock.dependencies)
+  assert.throws(() => parse(write(lock)), LockfileError, 'a tree for npm 6 npm does not write, read')
+}
+
 describe('whatever npm installs as the lockfile says, is read to the same tree here', () => {
   it('the lockfiles as npm flags them', async () => {
+    const rand = random(0xA4B1)
     for (const source of SOURCES) {
       const npm = await npmOf(source)
       assert.equal(compare(flagged(source, npm.nodes), npm), true)
+      compareLegacy(rand, npm.tree)
     }
   })
 
   it('the lockfiles with their dependencies edited', async () => {
     const rand = random(0xA4B0)
+    const legacy = random(0xA4B2)
     let read = 0
     for (let i = 0; i < 150; i++) {
       const lock = structuredClone(rand.pick(SOURCES))
@@ -252,7 +336,9 @@ describe('whatever npm installs as the lockfile says, is read to the same tree h
         assert.throws(() => parse(write(lock)), LockfileError, error.message)
         continue
       }
-      if (compare(flagged(lock, npm.nodes), npm)) read++
+      if (!compare(flagged(lock, npm.nodes), npm)) continue
+      compareLegacy(legacy, npm.tree)
+      read++
     }
     assert.ok(read > 30, `only ${read} lockfiles were read`)
   })

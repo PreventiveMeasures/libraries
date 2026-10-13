@@ -110,6 +110,8 @@ describe('parseCargoChecksum', () => {
   // against a sum that is not a string would pass it.
   const refused = [
     ['a file given twice', `{"package":null,"files":{"a.rs":"${SUM}","a.rs":"${OTHER}"}}`, 'a key is given twice'],
+    // Nested deeper than a count that recursed could go.
+    ['a file of arrays nested deep', `{"files":{"a":${'['.repeat(100000)}${']'.repeat(100000)}},"package":null}`, 'expected a sha256 for "a"'],
     ['a file checksum that is not a string', checksum(null, { 'a.rs': null }), 'expected a sha256 for "a.rs"'],
     ['a path out of the directory', checksum(null, { '../a.rs': SUM }), '"../a.rs" is not a path within the package'],
     ['no files', JSON.stringify({ package: null }), 'expected "files" and "package", and nothing else'],

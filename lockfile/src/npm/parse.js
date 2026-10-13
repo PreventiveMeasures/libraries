@@ -1,8 +1,9 @@
 // A package-lock.json of `lockfileVersion: 3`, as npm 9 to 12 write it
-// by default: every field checked, the tree laid out as npm loads it, each
-// dependency found where npm finds it, and held to what it asks for and to
-// the flags npm writes of it. Any other version, any field not read here,
-// and a package with a shrinkwrap of its own are refused.
+// by default, or 2, as npm 7 and 8 do: every field checked, the tree laid
+// out as npm loads it, each dependency found where npm finds it, and held
+// to what it asks for and to the flags npm writes of it; and of version
+// 2, the tree again for npm 6 held to it. Any other version, any field not
+// read here, and a package with a shrinkwrap of its own are refused.
 
 import { LockfileError, quote } from '../error.js'
 import { checkOptions, checkSemver, flag, kind, record, refuse, text } from '../shape.js'
@@ -10,6 +11,7 @@ import { checkBundles } from './bundles.js'
 import { FLAGS } from './entries.js'
 import { checkFlags } from './flags.js'
 import { readJson } from './json.js'
+import { checkLegacy } from './legacy.js'
 import { directoryOf, loadGraph, readNodes, readWorkspaces } from './tree.js'
 import { checkEdges } from './valid.js'
 
@@ -26,12 +28,15 @@ function readOptions(options) {
   return { semver: checkVersions ? semver : undefined, legacyPeerDeps, npm }
 }
 
-// lockfileVersion 2 is the same with the tree again beside it, as npm 6
-// reads one, and 1 that alone.
+// lockfileVersion 2 is 3 with the tree again under `dependencies`, as npm
+// 6 reads one; 1 is that tree alone, which npm 7 and later make packages
+// of from what is installed, and the registry.
 function readVersion(doc) {
-  if (record(doc, undefined).lockfileVersion !== 3) throw new LockfileError(`unsupported version: expected 3, found ${kind(doc.lockfileVersion)}`, 'lockfileVersion')
-  record(doc, undefined, FIELDS)
+  const version = record(doc, undefined).lockfileVersion
+  if (version !== 2 && version !== 3) throw new LockfileError(`unsupported version: expected 2 or 3, found ${kind(version)}`, 'lockfileVersion')
+  record(doc, undefined, version === 2 ? [...FIELDS, 'dependencies'] : FIELDS)
   if (doc.requires !== true) throw refuse('true', doc.requires, 'requires')
+  return version
 }
 
 // The name, version and flags npm writes above the packages are the
@@ -86,7 +91,7 @@ export function parseNpmLockfile(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
   const { semver, legacyPeerDeps, npm } = readOptions(options)
   const doc = readJson(source)
-  readVersion(doc)
+  const lockfileVersion = readVersion(doc)
   const nodes = readNodes(doc.packages)
   const root = nodes.get('')
   const workspaces = readWorkspaces(nodes)
@@ -94,6 +99,7 @@ export function parseNpmLockfile(source, options = {}) {
   checkEdges(nodes, semver)
   checkFlags(nodes, npm)
   checkBundles(nodes)
+  if (lockfileVersion === 2) checkLegacy(doc.dependencies, nodes, semver, npm)
   const header = readHeader(doc, root)
   const workspaceOf = new Set(workspaces.values())
   const importers = Object.create(null)
@@ -105,5 +111,5 @@ export function parseNpmLockfile(source, options = {}) {
     else if (node.kind === 'package') packages[node.location] = { ...manifestOf(node), resolution: node.resolution, inBundle: node.inBundle }
     else importers[directoryOf(node)] = { ...manifestOf(node), workspace: workspaceOf.has(node), workspaces: node.workspaces ?? [] }
   }
-  return { lockfileVersion: 3, ...header, importers, packages, links }
+  return { lockfileVersion, ...header, importers, packages, links }
 }

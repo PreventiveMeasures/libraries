@@ -53,6 +53,9 @@ function readOne(section, name) {
   return section.lines[0].text
 }
 
+// Bundler 2.2 to 2.7, and 4.0; there is no Bundler 3.
+const BUNDLERS = /^(?:2\.[2-7]|4\.0)\./u
+
 // Either may be left out: Bundler compares a lockfile without them when it
 // would write it, and leaves one without them so where nothing else changes.
 function readVersions(sections) {
@@ -60,6 +63,7 @@ function readVersions(sections) {
   const [ruby, bundled] = [read('RUBY VERSION'), read('BUNDLED WITH')]
   if (ruby !== undefined && !RUBY.test(ruby)) throw new LockfileError(`${quote(ruby)} is not a Ruby as Bundler writes one, "ruby 3.3.6p108"`, 'rubyVersion')
   if (bundled !== undefined && !isVersion(bundled)) throw new LockfileError(`${quote(bundled)} is not a version as RubyGems writes one`, 'bundledWith')
+  if (bundled !== undefined && !BUNDLERS.test(bundled)) throw new LockfileError(`${quote(bundled)} is not a version of Bundler from 2.2 to 4.0, which this reader reads`, 'bundledWith')
   return { rubyVersion: ruby, bundledWith: bundled }
 }
 

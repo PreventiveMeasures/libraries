@@ -8,8 +8,12 @@ export function parseSoldeerLockfile(text: string, options?: SoldeerOptions): So
 
 export interface SoldeerOptions {
   // soldeer.toml, or foundry.toml where Soldeer reads that, parsed with
-  // parseToml. Each of its `dependencies` then needs an entry that Soldeer
-  // 0.12 would install it from, and each entry a dependency.
+  // parseToml. Each of its `dependencies`, a table not inline, from which
+  // Soldeer reads none, then needs an entry that Soldeer 0.12 would install
+  // it from, and each entry a dependency. Its [soldeer] settings are held
+  // to Soldeer 0.12's: recursive_deps, with which Soldeer installs what
+  // each dependency depends on too, and a setting it does not have, are
+  // refused.
   config?: object
 }
 

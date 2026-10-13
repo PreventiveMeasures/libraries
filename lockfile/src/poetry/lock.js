@@ -6,7 +6,7 @@
 import { LockfileError, at, quote } from '../error.js'
 import { isHexSha256 } from '../names.js'
 import { checkVersion, versionKeyOf } from '../python/pep440.js'
-import { checkMarker, checkName, normalName } from '../python/pep508.js'
+import { checkMarker, checkName, checkNormalName, normalName } from '../python/pep508.js'
 import { field, repeated } from '../shape.js'
 import { array, boolean, checkListedOnce, checker, entries, kind, string, strings, stringsOf, table, tableOf, text } from '../toml/shape.js'
 import { parseToml } from '../toml/parse.js'
@@ -48,10 +48,12 @@ function readMarkers(value, groups, where) {
   return markers
 }
 
+// A group's name, as Poetry writes it, in normal form; another it reads
+// as that, which would be read here as another group.
 function readGroups(value, where) {
-  const groups = strings(value, where, checkName)
+  const groups = strings(value, where, checkNormalName)
   if (groups.length === 0) throw new LockfileError('expected a group at least', where)
-  const twice = repeated(groups, normalName)
+  const twice = repeated(groups)
   if (twice !== undefined) throw new LockfileError(`${quote(twice)} is listed twice`, where)
   return groups
 }
@@ -85,7 +87,7 @@ function readRootExtras(value, names) {
     if (!names.has(normalName(checkName(name, where)))) throw new LockfileError(`${quote(name)} names no package in the lockfile`, where)
     return name
   }
-  return tableOf(value, 'extras', checkName, stringsOf(known))
+  return tableOf(value, 'extras', checkNormalName, stringsOf(known))
 }
 
 // Poetry's identity of a package: its name, version and source.

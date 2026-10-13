@@ -32,12 +32,17 @@ function checkLibs(doc) {
 }
 
 const BOOLEANS = ['remappings_generate', 'remappings_regenerate', 'remappings_version', 'recursive_deps']
+const SETTINGS = new Set([...BOOLEANS, 'remappings_prefix', 'remappings_location'])
 
-// read_soldeer_config's SoldeerConfig, by serde; unknown fields passed over.
+// read_soldeer_config's SoldeerConfig, by serde, which passes over a field
+// it does not have; one is refused here, as a later Soldeer may install
+// otherwise by it.
 function checkSettings(settings, file) {
   if (settings === undefined) return
   const where = `${file}: soldeer`
   if (!isTable(settings)) throw new DeptreeError('not a table, which Soldeer fails on', where)
+  const other = Object.keys(settings).find((key) => !SETTINGS.has(key))
+  if (other !== undefined) throw new DeptreeError('a setting Soldeer 0.12 does not have, which is not supported', `${where}.${other}`)
   for (const key of BOOLEANS) {
     if (settings[key] !== undefined && typeof settings[key] !== 'boolean') throw new DeptreeError('not true or false, which Soldeer fails on', `${where}.${key}`)
   }

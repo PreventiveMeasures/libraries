@@ -28,11 +28,9 @@ const describe = (node) => quote(node.location)
 // A version, a range or a tag of the registry: a version or a range by
 // semver, where it is given; a tag where the package came from a URL, as
 // one from the registry does. What is in the folder of the name is what
-// npm takes, an alias among them; but an alias names its package itself,
-// which npm does not check, and is held to it here.
-function registryValid(child, { name, fetchSpec, kind }, semver, alias) {
+// npm takes, an alias among them.
+function registryValid(child, { fetchSpec, kind }, semver) {
   const pkg = packageOf(child)
-  if (alias && pkg.name !== name) return `asks for ${quote(name)}, and ${describe(child)} is ${quote(pkg.name)}, which npm does not check`
   if (kind === undefined || (kind === 'range' && fetchSpec === '*')) return undefined
   if (kind === 'tag') return child.kind === 'link' || !/^https?:/u.test(child.resolution?.tarball ?? '') ? `is a tag, which npm holds met by a tarball from a URL alone, and ${describe(child)} is none` : undefined
   return semver.satisfies(pkg.version ?? '', fetchSpec, true) ? undefined : `is not satisfied by ${describe(child)}, ${pkg.version ?? 'of no version'}`
@@ -49,24 +47,18 @@ function gitValid(child, requested, semver) {
     ? resolved.hosted === undefined && resolved.fetchSpec === requested.fetchSpec
     : resolved.hosted !== undefined && sshOf(requested.hosted, commit) === sshOf(resolved.hosted, commit)
   if (!same) return `asks for another repository than ${describe(child)} is from${commit ? ', or another commit' : ''}`
-  // npm passes over the commit of a repository on no host it knows, which
-  // is held to it here all the same.
-  if (commit && requested.committish.toLowerCase() !== resolution.commit) {
-    return `asks for another commit than ${describe(child)} is of, which npm does not check of a repository on no host it knows`
-  }
   if (requested.range === null || semver === undefined || semver.satisfies(version ?? '', requested.range, true)) return undefined
   return `asks for a version of the repository ${describe(child)} is not, ${version ?? 'of no version'}`
 }
 
-// Why a node does not meet a spec, or undefined where it does: depValid,
-// and the package an alias names held to it too.
-function whyNot(child, edge, spec, semver) {
-  const requested = readSpec(edge.name, spec, fromPath(edge.from), semver)
+// depValid: why a node does not meet what a spec asks for, or undefined
+// where it does.
+function depValid(child, requested, semver) {
   switch (requested.type) {
     case 'registry':
-      return registryValid(child, requested, semver, false)
+      return registryValid(child, requested, semver)
     case 'alias':
-      return registryValid(child, requested.sub, semver, true)
+      return registryValid(child, requested.sub, semver)
     case 'directory':
       if (child.kind === 'link' && directoryOf(child.target) === requested.path) return undefined
       return `asks for a link to ${quote(requested.path)}, and ${describe(child)} is ${child.kind === 'link' ? `one to ${quote(directoryOf(child.target))}` : 'no link'}`
@@ -81,25 +73,59 @@ function whyNot(child, edge, spec, semver) {
   }
 }
 
-function check(edge, semver) {
+// What npm passes over of a node that meets a spec, and this holds it to:
+// the package an alias names, and the commit a repository on no host npm
+// knows is asked at, which npm compares of one on a host alone.
+function passedOver(child, requested) {
+  const { name } = packageOf(child)
+  if (requested.type === 'alias' && name !== requested.sub.name) return `asks for ${quote(requested.sub.name)}, and ${describe(child)} is ${quote(name)}, which npm does not check`
+  const { committish } = requested
+  if (requested.type === 'git' && COMMIT.test(committish ?? '') && committish.toLowerCase() !== child.resolution.commit) {
+    return `asks for another commit than ${describe(child)} is of, which npm does not check of a repository on no host it knows`
+  }
+  return undefined
+}
+
+// Why npm does not take an edge as met by the node it leads to, as a
+// refusal, or undefined where it does: Edge#valid, of the edge's spec or
+// else acceptDependencies', and where `strict`, what npm passes over too.
+// A spec not read here throws a LockfileError of no place.
+function problem(edge, semver, strict) {
   const { from, to, spec } = edge
+  if (edge.type.startsWith('peer') && to.parent === from && from.parent !== undefined) {
+    return `${quote(spec)} is met in the node_modules of the package that asks for it, which npm holds a peer not to be`
+  }
+  if (to.folder !== edge.name) return `is met by ${describe(to)}, which npm takes for it, though the names are in other cases`
+  const whyNot = (asked) => {
+    const requested = readSpec(edge.name, asked, fromPath(from), semver)
+    return depValid(to, requested, semver) ?? (strict ? passedOver(to, requested) : undefined)
+  }
+  const first = whyNot(spec)
+  if (first === undefined || (edge.accept !== undefined && whyNot(edge.accept) === undefined)) return undefined
+  return `${quote(spec)} ${first}, so npm would install another`
+}
+
+// Edge#valid, as npm has it, of an edge that leads to a node. A spec this
+// does not read is taken as not met, as npm takes one it cannot read; npm
+// reads a few this does not.
+export function isValid(edge, semver) {
+  return attempt(() => problem(edge, semver, false) === undefined, (error) => {
+    if (error instanceof LockfileError) return false
+    throw error
+  })
+}
+
+function check(edge, semver) {
   const where = edgeAt(edge)
   if (edge.type === 'peerOptional') return
-  if (to === undefined) {
-    throw new LockfileError(`${quote(spec)} is met by nothing where npm looks for ${quote(edge.name)}, so npm would install it`, where)
+  if (edge.to === undefined) {
+    throw new LockfileError(`${quote(edge.spec)} is met by nothing where npm looks for ${quote(edge.name)}, so npm would install it`, where)
   }
-  if (edge.type.startsWith('peer') && to.parent === from && from.parent !== undefined) {
-    throw new LockfileError(`${quote(spec)} is met in the node_modules of the package that asks for it, which npm holds a peer not to be`, where)
-  }
-  if (to.folder !== edge.name) throw new LockfileError(`is met by ${describe(to)}, which npm takes for it, though the names are in other cases`, where)
-  const why = attempt(() => {
-    const first = whyNot(to, edge, spec, semver)
-    return first !== undefined && edge.accept !== undefined && whyNot(to, edge, edge.accept, semver) === undefined ? undefined : first
-  }, (error) => {
+  const why = attempt(() => problem(edge, semver, true), (error) => {
     if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
     throw error
   })
-  if (why !== undefined) throw new LockfileError(`${quote(spec)} ${why}, so npm would install another`, where)
+  if (why !== undefined) throw new LockfileError(why, where)
 }
 
 // What npm's Edge#valid and buildIdealTree's problem edges are, from the

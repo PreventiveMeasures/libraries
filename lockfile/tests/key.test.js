@@ -28,20 +28,20 @@ describe('refToKey reads a reference as pnpm does', () => {
 })
 
 describe('a snapshot key splits where pnpm splits it', () => {
-  for (const [key, base, patchHash] of [
+  for (const [key, base, patchHash, peers = []] of [
     ['a@1.0.0', 'a@1.0.0', undefined],
-    ['a@1.0.0(b@2.0.0)', 'a@1.0.0', undefined],
-    ['a@1.0.0(b@2.0.0(c@3.0.0))(c@3.0.0)', 'a@1.0.0', undefined],
+    ['a@1.0.0(b@2.0.0)', 'a@1.0.0', undefined, ['b@2.0.0']],
+    ['a@1.0.0(b@2.0.0(c@3.0.0))(c@3.0.0)', 'a@1.0.0', undefined, ['b@2.0.0(c@3.0.0)', 'c@3.0.0']],
     ['a@1.0.0(patch_hash=abc)', 'a@1.0.0', 'abc'],
-    ['a@1.0.0(patch_hash=abc)(b@2.0.0)', 'a@1.0.0', 'abc'],
-    ['a@1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)', 'a@1.0.0', undefined],
-    ['ws@file:packages/ws(react@18.2.0)', 'ws@file:packages/ws', undefined],
+    ['a@1.0.0(patch_hash=abc)(b@2.0.0)', 'a@1.0.0', 'abc', ['b@2.0.0']],
+    ['a@1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)', 'a@1.0.0', undefined, ['3c43e3b4d70b446a2aae7f4f7fbeccdd']],
+    ['ws@file:packages/ws(react@18.2.0)', 'ws@file:packages/ws', undefined, ['react@18.2.0']],
     // Not a suffix: the key does not end in a balanced group.
     ['a@1.0.0)', 'a@1.0.0)', undefined],
     ['a@1.0.0((b)', 'a@1.0.0((b)', undefined],
   ]) {
     it(key, () => {
-      assert.deepEqual(splitSnapshotKey(key, 'here'), { base, patchHash })
+      assert.deepEqual(splitSnapshotKey(key, 'here'), { base, patchHash, peers })
       assert.equal(packageKeyOf(key), base)
     })
   }

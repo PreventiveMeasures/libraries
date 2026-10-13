@@ -118,6 +118,13 @@ describe('the layout', () => {
     refuses(edit(['\n  4.0.22\n', '\n    4.0.22\n']), 'expected 2 or 3 spaces of indentation, found 4 at line 46')
   })
 
+  it('as Bundler 2.2 to 4.0 write it, and no other', () => {
+    for (const version of ['2.2.0', '2.7.2', '4.0.0.beta1', '4.0.22']) assert.equal(parseGemfileLock(edit(['\n  4.0.22\n', `\n  ${version}\n`])).bundledWith, version)
+    for (const version of ['1.17.3', '2.1.4', '2.10.0', '3.0.0', '4.1.0', '99.0.0']) {
+      refuses(edit(['\n  4.0.22\n', `\n  ${version}\n`]), `"${version}" is not a version of Bundler from 2.2 to 4.0, which this reader reads`, 'bundledWith')
+    }
+  })
+
   it('each line ended alike, LF or CRLF, the last one too, and no blank line but between sections', () => {
     assert.deepEqual(parseGemfileLock(BASE.replaceAll('\n', '\r\n')).platforms, ['ruby', 'x86_64-linux'])
     refuses(BASE.replace('\n', '\r\n'), 'a LF line end, after CRLF ones at line 2')

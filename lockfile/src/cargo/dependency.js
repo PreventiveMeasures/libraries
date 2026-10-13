@@ -5,6 +5,7 @@ import { checkRepo } from '../names.js'
 import { field, optional, orEmpty } from '../shape.js'
 import { isTable } from '../toml/value.js'
 import { boolean, checkCrateName, checkFeature, entries, refuse, string, strings, stringsOf, table, tableOf } from './shape.js'
+import { isBase } from './lock.js'
 import { differ, sourceOf } from './sources.js'
 
 export const NIGHTLY = 'which only a nightly cargo reads, is not supported'
@@ -40,6 +41,7 @@ export function dashed(value, where, key, edition) {
 function checkUrl(value, where) {
   const url = URL.parse(string(value, where))
   if (url === null) throw new LockfileError(`${quote(value)} is not a URL`, where)
+  if (!isBase(url)) throw new LockfileError(`${quote(value)} is a URL with no path, which cargo refuses`, where)
   return url
 }
 

@@ -53,9 +53,12 @@ export function readGit(value, where) {
   }
 }
 
-// A local registry is named by a path, a remote one by a URL.
+// A local registry is named by a path, a remote one by a URL: whatever
+// starts with a scheme, as uv's split_scheme finds one, of two characters
+// or more, as one is a drive's. A URL not in normal form is refused, rather
+// than read as a path, as `https:/x` would be.
 function readRegistry(value, where) {
-  if (/^[A-Za-z][\w+.-]*:\/\//u.test(string(value, where))) return { type: 'registry', url: checkUrl(value, where).href, path: undefined }
+  if (/^[A-Za-z][\dA-Za-z+.-]+:/u.test(string(value, where))) return { type: 'registry', url: checkUrl(value, where).href, path: undefined }
   return { type: 'registry', url: undefined, path: checkPath(value, where) }
 }
 

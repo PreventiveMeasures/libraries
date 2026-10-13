@@ -187,6 +187,8 @@ describe('the top of the file', () => {
     refuses(edit((doc) => (doc._readme = README.slice(1))), 'expected the three lines Composer writes', '_readme')
     refuses(edit((doc) => (doc['content-hash'] = 'ABCDEF0123456789abcdef0123456789')), '"ABCDEF0123456789abcdef0123456789" is not an md5 in lowercase hex', 'content-hash')
     refuses(edit((doc) => (doc['minimum-stability'] = 'rc')), 'expected one of stable, RC, beta, alpha, dev, found the string "rc"', 'minimum-stability')
+    refuses(edit((doc) => (doc['minimum-stability'] = ['dev'])), 'expected one of stable, RC, beta, alpha, dev, found a sequence', 'minimum-stability')
+    refuses(edit((doc) => (doc['minimum-stability'] = { k: 'v' })), 'expected one of stable, RC, beta, alpha, dev, found a mapping', 'minimum-stability')
     refuses(edit((doc) => (doc['prefer-stable'] = 1)), 'expected true or false, found the number 1', 'prefer-stable')
   })
 
@@ -221,11 +223,13 @@ describe('the top of the file', () => {
     assert.deepEqual(plain(lock.platformOverrides), { php: '8.3.0', 'ext-xdebug': false })
     refuses(edit((doc) => put(doc, 'platform-overrides', { php: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.php')
     refuses(edit((doc) => put(doc, 'platform-overrides', { php: true }, TOP)), 'expected a version, or false, found the boolean true', 'platform-overrides.php')
-    // PlatformRepository refuses `false` of "php" as written, and keys the
-    // rest in lowercase, the last of a name counting.
+    // PlatformRepository refuses `false` of "php", in any case, and keys
+    // each override in lowercase, the last of a name counting: two of a
+    // name are refused, as either could be read as the one.
     refuses(edit((doc) => put(doc, 'platform-overrides', { PHP: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.PHP')
-    refuses(edit((doc) => put(doc, 'platform-overrides', { php: '8.3.0', Php: false }, TOP)), 'false, which Composer refuses of php, as it cannot be missing', 'platform-overrides.Php')
-    assert.deepEqual(plain(parseComposerLock(edit((doc) => put(doc, 'platform-overrides', { PHP: false, php: '8.3.0' }, TOP))).platformOverrides), { PHP: false, php: '8.3.0' })
+    refuses(edit((doc) => put(doc, 'platform-overrides', { php: '8.3.0', Php: false }, TOP)), '"php" too, of which Composer takes the last, as it takes a name in any case', 'platform-overrides.Php')
+    refuses(edit((doc) => put(doc, 'platform-overrides', { PHP: '8.2.0', php: '8.3.0' }, TOP)), '"PHP" too, of which Composer takes the last, as it takes a name in any case', 'platform-overrides.php')
+    refuses(edit((doc) => put(doc, 'platform-overrides', { 'ext-foo': '1.0.0', 'EXT-FOO': false }, TOP)), '"ext-foo" too, of which Composer takes the last, as it takes a name in any case', 'platform-overrides["EXT-FOO"]')
   })
 })
 
@@ -374,6 +378,7 @@ describe('the packages together', () => {
     refuses(edit((doc) => (doc.aliases[0].version = '2.0.x-dev')), '"2.0.x-dev" is not a version normalized, as Composer writes it', 'aliases[0].version')
     refuses(edit((doc) => (doc.aliases[0].version = 'dev-master')), '"dev-master", which Composer writes as 9999999-dev', 'aliases[0].version')
     refuses(edit((doc) => (doc.aliases[0].alias_normalized = '2.0.1')), 'expected "2.0.1.0", the alias normalized', 'aliases[0].alias_normalized')
+    refuses(edit((doc) => (doc.aliases[0].alias = ' 2.0.1 ')), '" 2.0.1 " has a space, which Composer\'s alias of a requirement cannot', 'aliases[0].alias')
     refuses(edit((doc) => doc.aliases.unshift({ ...doc.aliases[0], package: 'd/tool' })), 'out of the order Composer sorts aliases in, by package, after "d/tool"', 'aliases[1]')
     // Of a package in require and in require-dev both, and of its branch
     // alias's version: each an alias of the package, whatever its version.

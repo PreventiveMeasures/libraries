@@ -1,6 +1,8 @@
-// Records what npm writes for the projects below into tests/npm/fixtures/,
-// each package-lock.json as <name>.json. Needs npm, git and network access
-// to the npm registry and github.com:
+// Records what npm writes for the projects below into
+// tests/npm/fixtures.json.br, each package-lock.json by its run's name: one
+// JSON object of their texts, compressed with brotli, which
+// tests/npm/base.js reads. Needs npm, git and network access to the npm
+// registry and github.com:
 //
 //     node lockfile/scripts/record-npm.js [name...]
 //
@@ -26,14 +28,30 @@
 // it, whose dependencies npm leaves to it. The overrides project is
 // installed with an override of what react-dom asks for, which the
 // lockfile does not record.
+//
+// The -v2 runs are the workspace, the plain project with its URLs left
+// out, and the flags and outside projects again, set to lockfileVersion 2,
+// which has the tree again for npm 6; and npm-8 is the workspace as npm 8
+// writes it by default, of version 2, the file npm 7.24.2 writes too.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib'
 
-const OUT = fileURLToPath(new URL('../tests/npm/fixtures/', import.meta.url))
+const OUT = new URL('../tests/npm/fixtures.json.br', import.meta.url)
+
+// The fixtures there already, which a run named replaces its own of.
+const fixtures = existsSync(OUT) ? JSON.parse(brotliDecompressSync(readFileSync(OUT)).toString('utf8')) : {}
+
+// By name, at brotli's best, with a window wide enough to take the
+// lockfiles of one project as the near copies they are.
+function save() {
+  const text = JSON.stringify(Object.fromEntries(Object.entries(fixtures).sort(([a], [b]) => (a < b ? -1 : 1))))
+  const params = { [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT, [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: text.length }
+  writeFileSync(OUT, brotliCompressSync(text, { params }))
+}
 
 const ODD = 'https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz'
 const GIT = 'git+https://github.com/juliangruber/isarray.git#v2.0.5'
@@ -122,6 +140,14 @@ const RUNS = [
   { name: 'npm-11-flags', npm: '11.12.1', manifests: FLAGS },
   { name: 'npm-11-outside', npm: '11.12.1', manifests: OUTSIDE },
   { name: 'npm-11-overrides', npm: '11.12.1', manifests: OVERRIDES },
+  { name: 'npm-12-v2', npm: '12.2.0', manifests: WORKSPACE, args: ['--allow-git=all', '--allow-remote=all', '--lockfile-version=2'] },
+  { name: 'npm-11-v2', npm: '11.12.1', manifests: WORKSPACE, args: ['--lockfile-version=2'] },
+  { name: 'npm-10-v2', npm: '10.9.9', manifests: WORKSPACE, args: ['--lockfile-version=2'] },
+  { name: 'npm-9-v2', npm: '9.9.4', manifests: WORKSPACE, args: ['--lockfile-version=2'] },
+  { name: 'npm-8', npm: '8.19.4', manifests: WORKSPACE },
+  { name: 'npm-11-plain-omitted-v2', npm: '11.12.1', manifests: PLAIN, crlf: true, args: ['--omit-lockfile-registry-resolved', '--lockfile-version=2'] },
+  { name: 'npm-11-flags-v2', npm: '11.12.1', manifests: FLAGS, args: ['--lockfile-version=2'] },
+  { name: 'npm-11-outside-v2', npm: '11.12.1', manifests: OUTSIDE, args: ['--lockfile-version=2'] },
 ]
 
 function write(dir, name, content) {
@@ -162,7 +188,8 @@ for (const run of RUNS.filter(({ name }) => only.length === 0 || only.includes(n
   try {
     lay(dir, run)
     npm(...INSTALL, ...run.args ?? [])
-    write(OUT, `${run.name}.json`, readFileSync(join(dir, 'package-lock.json'), 'utf8'))
+    fixtures[run.name] = readFileSync(join(dir, 'package-lock.json'), 'utf8')
+    save()
   } finally {
     rmSync(top, { recursive: true, force: true })
     rmSync(`${top}.cache`, { recursive: true, force: true })

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError, parseSoldeerLockfile } from '../../soldeer.js'
 import { parseToml } from '../../toml.js'
+import { toml } from './toml.js'
 
 // Real lockfiles, each with the soldeer.toml it was written for: Soldeer
 // 0.12, 0.11 and 0.5 locking one config of every kind of dependency;
@@ -82,7 +83,7 @@ describe('the config, as Soldeer 0.12 holds it to the lockfile', () => {
   const refuses = (edit, message) => {
     const dependencies = { ...config('soldeer-0.12.0').dependencies, ...edit }
     for (const [name, value] of Object.entries(dependencies)) if (value === undefined) delete dependencies[name]
-    assert.throws(() => parseSoldeerLockfile(text('soldeer-0.12.0'), { config: { dependencies } }), (error) => error instanceof LockfileError && error.message === message)
+    assert.throws(() => parseSoldeerLockfile(text('soldeer-0.12.0'), { config: toml({ dependencies }) }), (error) => error instanceof LockfileError && error.message === message)
   }
 
   it('a dependency the lockfile has no entry for, and an entry no dependency asks for', () => {

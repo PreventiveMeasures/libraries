@@ -8,7 +8,8 @@ import { LockfileError, at, quote } from '../error.js'
 import { readLists } from '../graph.js'
 import { checkName, checkRegistryTarball, checkVersion, isVersion, joinRelative } from '../names.js'
 import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
-import { refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
+import { fromHex } from '@exodus/bytes/hex.js'
+import { fromBase32Bare, isHash, packageKeyOf, refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readRelative, readResolution } from './resolution.js'
 
 const INFO = ['resolution', 'version', 'name', 'engines', 'cpu', 'os', 'libc', 'deprecated', 'hasBin', 'bundledDependencies', 'peerDependencies', 'peerDependenciesMeta']
@@ -128,8 +129,71 @@ function readSnapshot(entry, where, snapshots) {
   }
 }
 
-// `prefix` is where the document is, for messages; `patches` the hashes its
-// patchedDependencies hold, which a snapshot's patch hash has to be one of.
+// pnpm's createPeerDepGraphHash past peersSuffixMaxLength: an md5 in base32
+// from pnpm 9, a sha256 in hex cut to 16 bytes from pnpm 10.
+const isPeersHash = (group) => isHash(group, 16, fromBase32Bare) || isHash(group, 16, fromHex)
+
+// The name a peer group starts with, before its version or source; `''`
+// where it has none.
+function nameOf(group) {
+  const sep = group.indexOf('@', 1)
+  return sep === -1 ? '' : group.slice(0, sep)
+}
+
+// The peers a snapshot key ends in, as pnpm's resolvePeers writes them:
+// each a dependency of the snapshot, by its key, by its name and version as
+// dedupePeers and a cycle of peers write it, or a link by its alias and
+// the directory, `/` made `+`; else a peer it resolves for its
+// dependencies, where it has transitivePeerDependencies, by the key of a
+// snapshot or a package, by a name and version, or by the alias of one
+// among them and a directory, which no version is; or one hash in place
+// of them all. Whatever else the key would say it was resolved with, the
+// lockfile does not have.
+function checkPeers(groups, snapshot, infos, known, where) {
+  if (groups.length === 0 || (groups.length === 1 && isPeersHash(groups[0]))) return
+  // A dependency in a group: by its key, or name and version; by a name
+  // alone, with no peers of its own, a link or a package of no version.
+  const keys = new Set()
+  const bare = new Set()
+  for (const [alias, to] of Object.entries({ ...snapshot.dependencies, ...snapshot.optionalDependencies })) {
+    if (to.startsWith('link:')) {
+      bare.add(alias)
+      continue
+    }
+    keys.add(to)
+    // A snapshot whose package is missing is refused where it is read.
+    const info = infos.get(packageKeyOf(to))
+    if (info === undefined) continue
+    if (info.version === undefined) bare.add(info.name)
+    else keys.add(`${info.name}@${info.version}`)
+  }
+  const transitive = snapshot.transitivePeerDependencies
+  for (const group of groups) {
+    const name = nameOf(group)
+    if (name === '') throw new LockfileError(`${quote(group)} is not a peer, as pnpm writes one in a key`, where)
+    const plain = !group.includes('(')
+    if (keys.has(group) || (plain && bare.has(name))) continue
+    const linked = plain && transitive.includes(name) && !isVersion(group.slice(name.length + 1))
+    if (transitive.length > 0 && (known().has(group) || linked)) continue
+    throw new LockfileError(`the peer ${quote(group)} is not one of its dependencies, nor a peer of theirs it resolves`, where)
+  }
+}
+
+// The selector of the patch pnpm applies to a package, as getPatchInfo
+// finds it: its name and version, else its name alone. A package of no
+// version a selector of a version may name is not decided here.
+function patchOf(info, patches, where) {
+  if (info.version === undefined && [...patches.keys()].some((selector) => selector.startsWith(`${info.name}@`))) {
+    throw new LockfileError(`a package of no version in the lockfile, which a patch of a version of ${quote(info.name)} may be of`, where)
+  }
+  const exact = `${info.name}@${info.version}`
+  if (info.version !== undefined && patches.has(exact)) return exact
+  return patches.has(info.name) ? info.name : undefined
+}
+
+// `prefix` is where the document is, for messages; `patches` its
+// patchedDependencies, by selector, each of which patches a package, and
+// a package with a patch hash is patched by one.
 export function readPackages(doc, prefix, patches) {
   const infos = new Map()
   // Where a registry package has its version in a field too, until a
@@ -144,19 +208,34 @@ export function readPackages(doc, prefix, patches) {
   }
   const snapshotsAt = at(prefix, 'snapshots')
   const snapshots = record(orEmpty(doc.snapshots), snapshotsAt)
+  // What a peer of a peer may be named by: a snapshot, a package, or a
+  // package's name and version; made where first asked for.
+  let named
+  const known = () => (named ??= new Set([...Object.keys(snapshots), ...infos.keys(), ...[...infos.values()].map((info) => `${info.name}@${info.version}`)]))
   const seen = new Set()
+  const used = new Set()
   const packages = mapping(snapshots, snapshotsAt, (entry, where, key) => {
-    const { base, patchHash } = splitSnapshotKey(key, where)
+    const { base, patchHash, peers } = splitSnapshotKey(key, where)
     const info = infos.get(base)
     if (info === undefined) throw new LockfileError(`${quote(base)} is not in packages`, where)
-    if (patchHash !== undefined && !patches.has(patchHash)) throw new LockfileError(`the patch hash ${quote(patchHash)} is not in patchedDependencies`, where)
+    const selector = patchOf(info, patches, where)
+    if (selector !== undefined) used.add(selector)
+    const expected = selector === undefined ? undefined : patches.get(selector).hash
+    if (expected !== patchHash) {
+      const wanted = selector === undefined ? 'none, as patchedDependencies patches no such package' : `${quote(expected)}, of patchedDependencies[${quote(selector)}]`
+      throw new LockfileError(`expected the patch hash ${wanted}, found ${patchHash === undefined ? 'none' : quote(patchHash)}`, where)
+    }
     seen.add(base)
     if (key.includes(':')) versioned.delete(base)
-    return { ...info, patchHash, ...readSnapshot(entry, where, snapshots) }
+    const snapshot = readSnapshot(entry, where, snapshots)
+    checkPeers(peers, snapshot, infos, known, where)
+    return { ...info, patchHash, ...snapshot }
   })
   for (const key of infos.keys()) {
     if (!seen.has(key)) throw new LockfileError('no snapshot is of this package', at(packagesAt, key))
   }
+  const unused = [...patches.keys()].find((selector) => !used.has(selector))
+  if (unused !== undefined) throw new LockfileError('patches no package in the lockfile, which pnpm refuses to install with', at(at(prefix, 'patchedDependencies'), unused))
   for (const where of versioned.values()) {
     throw new LockfileError('a registry package has its version in its key, except where a snapshot of it has a source in its peers', where)
   }

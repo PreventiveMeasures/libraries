@@ -37,7 +37,9 @@ export interface PnpmLockfile {
   catalogs: Record<string, Record<string, PnpmCatalogEntry>>
   // By selector (`foo`, `foo@1`, `bar>foo`), what to install instead.
   overrides: Record<string, string>
-  // By selector; `path` is from the lockfile's directory, absent from pnpm 11.
+  // By selector, `foo@1.0.0` or `foo`, each of which patches a package; a
+  // range, which pnpm matches by semver, is refused. `path` is from the
+  // lockfile's directory, absent from pnpm 11.
   patchedDependencies: Record<string, { hash: string, path: string | undefined }>
   // Set where packageExtensions or a pnpmfile rewrote manifests: then a
   // package's dependencies here may not be what it publishes.
@@ -98,7 +100,8 @@ export interface PnpmPackage {
   // Undefined for a directory.
   version: string | undefined
   resolution: PnpmResolution
-  // Where patched, one of the hashes in patchedDependencies.
+  // Where patched: the hash of the patch its name and version, or its name,
+  // selects in patchedDependencies, as pnpm finds it.
   patchHash: string | undefined
   // By alias, the peers resolved for this snapshot among them.
   dependencies: Record<string, Target>

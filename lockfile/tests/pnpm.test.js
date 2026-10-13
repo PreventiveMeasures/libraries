@@ -196,7 +196,13 @@ describe('what else pnpm writes is read', () => {
       ['      c: 2.0.0\n\n  b@1.0.0', '      c: 2.0.0\n      d: file:d\n\n  b@1.0.0'],
     ]
     assert.equal(read(...peers, ['  a@1.0.0(c@2.0.0):\n', '  a@1.0.0(d@file:d):\n']).packages['a@1.0.0(d@file:d)'].version, '1.0.0')
-    const nested = read(...peers, ['  a@1.0.0(c@2.0.0):\n', '  a@1.0.0(c@2.0.0(d@file:d)):\n'], ['        version: 1.0.0(d@file:d)', '        version: 1.0.0(c@2.0.0(d@file:d))'])
+    // c resolved with d, as a key nesting it says.
+    const nestedPeers = [
+      ['  c@2.0.0: {}\n', '  c@2.0.0(d@file:d):\n    dependencies:\n      d: file:d\n'],
+      ['      c: 2.0.0\n      d: file:d\n', '      c: 2.0.0(d@file:d)\n      d: file:d\n'],
+      ['tarball: https://registry.npmjs.org/c/-/c-2.0.0.tgz}\n', "tarball: https://registry.npmjs.org/c/-/c-2.0.0.tgz}\n    peerDependencies:\n      d: '*'\n"],
+    ]
+    const nested = read(...peers, ...nestedPeers, ['  a@1.0.0(c@2.0.0):\n', '  a@1.0.0(c@2.0.0(d@file:d)):\n'], ['        version: 1.0.0(d@file:d)', '        version: 1.0.0(c@2.0.0(d@file:d))'])
     assert.equal(nested.packages['a@1.0.0(c@2.0.0(d@file:d))'].version, '1.0.0')
   })
 
@@ -253,11 +259,28 @@ describe('what else pnpm writes is read', () => {
     assert.deepEqual(pkg.transitivePeerDependencies, ['x', '@s/y'])
   })
 
+  it('peers a key names, each a dependency of the snapshot or a peer of theirs it resolves', () => {
+    // c, of the project's too, resolved for a dependency of a's, as pnpm
+    // lists it among a's transitivePeerDependencies.
+    const transitive = read(['      c: 2.0.0\n\n  b@1.0.0', '\n    transitivePeerDependencies:\n      - c\n\n  b@1.0.0'], ['    devDependencies:\n', '      c:\n        specifier: 2.0.0\n        version: 2.0.0\n    devDependencies:\n'])
+    assert.deepEqual(transitive.packages['a@1.0.0(c@2.0.0)'].transitivePeerDependencies, ['c'])
+    const where = 'snapshots["a@1.0.0(c@2.0.0)"]'
+    refuses(edit(['      c: 2.0.0\n\n  b@1.0.0', '\n  b@1.0.0']), `${where}: the peer "c@2.0.0" is not one of its dependencies, nor a peer of theirs it resolves`)
+    refuses(edit(['      c: 2.0.0\n\n  b@1.0.0', '\n    transitivePeerDependencies:\n      - c\n\n  b@1.0.0'], ['1.0.0(c@2.0.0)', '1.0.0(c@9.0.0)'], ['  a@1.0.0(c@2.0.0):', '  a@1.0.0(c@9.0.0):']), 'snapshots["a@1.0.0(c@9.0.0)"]: the peer "c@9.0.0" is not one of its dependencies, nor a peer of theirs it resolves')
+    refuses(edit(['1.0.0(c@2.0.0)', '1.0.0(not a peer)'], ['  a@1.0.0(c@2.0.0):', "  'a@1.0.0(not a peer)':"]), 'snapshots["a@1.0.0(not a peer)"]: "not a peer" is not a peer, as pnpm writes one in a key')
+    // A dependency before the peer whose package is missing: refused as
+    // that, not a TypeError.
+    refuses(edit(['    dependencies:\n      b: 1.0.0(patch_hash', '    dependencies:\n      y: 1.0.0\n      b: 1.0.0(patch_hash'], ['  c@2.0.0: {}\n', '  c@2.0.0: {}\n\n  y@1.0.0: {}\n']), 'snapshots["y@1.0.0"]: "y@1.0.0" is not in packages')
+  })
+
   it('peers past peersSuffixMaxLength, as the one hash pnpm puts in their place', () => {
     const hashed = 'a@1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)'
     const lock = read(['1.0.0(c@2.0.0)', '1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)'], ['a@1.0.0(c@2.0.0):', `${hashed}:`])
     assert.equal(lock.importers['.'].dependencies.a, hashed)
     assert.equal(lock.packages[hashed].name, 'a')
+    // pnpm 9's, an md5 in base32.
+    const base32 = 'a@1.0.0(zrvjrhdgfsy5o3tngjlyoyyjce)'
+    assert.equal(read(['1.0.0(c@2.0.0)', '1.0.0(zrvjrhdgfsy5o3tngjlyoyyjce)'], ['a@1.0.0(c@2.0.0):', `${base32}:`]).packages[base32].name, 'a')
   })
 
   it('an importer\'s links, from its own directory, over and past the lockfile\'s', () => {
@@ -329,6 +352,8 @@ describe('what else pnpm writes is read', () => {
       checkEnv(env)
       assert.equal(lockfile, undefined)
     }
+    // What the YAML refuses is not passed over as blank after it.
+    for (const tail of ['\t\n', '\uFEFF', '\u00A0\n', '\u2028']) assert.throws(() => parsePnpmLockfile(`${ENV}${tail}`), (error) => error instanceof YamlError || error instanceof LockfileError, JSON.stringify(tail))
   })
 })
 
@@ -412,7 +437,14 @@ describe('the header is held to what pnpm writes', () => {
     refuses(edit([`  b@1.0.0: ${P}`, `  b@1.0.0:\n    hash: ${P}`]), 'patchedDependencies["b@1.0.0"].path: expected a string, found nothing')
     refuses(edit([`  b@1.0.0: ${P}`, `  b@1.0.0:\n    hash: ${P}\n    path: /abs.patch`]), 'patchedDependencies["b@1.0.0"].path: "/abs.patch" is not a relative path in normal form')
     refuses(edit([`  b@1.0.0: ${P}`, `  b@1.0.0:\n    hash: ${P}\n    path: p\n    extra: 1`]), 'patchedDependencies["b@1.0.0"]: unsupported field "extra"')
-    refuses(edit([`  b@1.0.0: ${P}`, `  b@1.0.0: ${P2}`]), `snapshots["b@1.0.0(patch_hash=${P})"]: the patch hash "${P}" is not in patchedDependencies`)
+    refuses(edit([`  b@1.0.0: ${P}`, `  b@1.0.0: ${P2}`]), `snapshots["b@1.0.0(patch_hash=${P})"]: expected the patch hash "${P2}", of patchedDependencies["b@1.0.0"], found "${P}"`)
+    // As pnpm finds a package's patch: by its name and version, else its
+    // name; a package with none patched, and a patch of no package, refused.
+    assert.equal(parse(edit([`  b@1.0.0: ${P}`, `  b: ${P}`])).packages[`b@1.0.0(patch_hash=${P})`].patchHash, P)
+    refuses(edit([`b: 1.0.0(patch_hash=${P})`, 'b: 1.0.0'], [`  b@1.0.0(patch_hash=${P}): {}`, '  b@1.0.0: {}']), `snapshots["b@1.0.0"]: expected the patch hash "${P}", of patchedDependencies["b@1.0.0"], found none`)
+    refuses(edit([`  b@1.0.0: ${P}`, `  b@1.0.0: ${P}\n  x@9.9.9: ${P}`]), 'patchedDependencies["x@9.9.9"]: patches no package in the lockfile, which pnpm refuses to install with')
+    refuses(edit([`  b@1.0.0: ${P}`, `  x@9.9.9: ${P}`]), `snapshots["b@1.0.0(patch_hash=${P})"]: expected the patch hash none, as patchedDependencies patches no such package, found "${P}"`)
+    refuses(edit([`  b@1.0.0: ${P}`, `  b@^1.0.0: ${P}`]), 'patchedDependencies["b@^1.0.0"]: "b@^1.0.0" is not a name and a version, or a name alone, which is not supported')
   })
 
   it('checksums and ignored optional dependencies', () => {

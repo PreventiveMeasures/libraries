@@ -9,7 +9,8 @@
 // which nest (`(react-dom@18.2.0(react@18.2.0))`), or one hash in their
 // place where they would run past `peersSuffixMaxLength`.
 
-import { LockfileError, quote } from '../error.js'
+import { fromBase32 } from '@exodus/bytes/base32.js'
+import { LockfileError, attempt, quote } from '../error.js'
 import { checkName } from '../names.js'
 
 const PATCH = '(patch_hash='
@@ -40,19 +41,22 @@ export function packageKeyOf(key) {
 }
 
 // Groups one after the other, each balanced and not empty, none of them a
-// second patch hash; the scan above has only found where they start.
-function checkGroups(groups, key, where) {
-  let open = 0
-  for (let i = 0; i < groups.length; i++) {
-    if (open === 0 && (groups[i] !== '(' || groups[i + 1] === ')' || groups.startsWith(PATCH, i))) {
+// second patch hash; the scan above has only found where they start. Each,
+// without its parentheses.
+function readGroups(suffix, key, where) {
+  const groups = []
+  let [open, start] = [0, 0]
+  for (let i = 0; i < suffix.length; i++) {
+    if (open === 0 && (suffix[i] !== '(' || suffix[i + 1] === ')' || suffix.startsWith(PATCH, i))) {
       throw new LockfileError(`${quote(key)} does not end in peers in parentheses`, where)
     }
-    if (groups[i] === '(') open++
-    else if (groups[i] === ')') open--
+    if (suffix[i] === '(' && open++ === 0) start = i + 1
+    else if (suffix[i] === ')' && --open === 0) groups.push(suffix.slice(start, i))
   }
+  return groups
 }
 
-// The package key, and the patch hash when there is one.
+// The package key, the patch hash when there is one, and the peers.
 export function splitSnapshotKey(key, where) {
   const { start, peers } = suffixOf(key)
   let hash
@@ -61,9 +65,14 @@ export function splitSnapshotKey(key, where) {
     hash = /^\(patch_hash=([\da-z]+)\)$/u.exec(group)?.[1]
     if (hash === undefined) throw new LockfileError(`${quote(group)} is not a patch hash`, where)
   }
-  checkGroups(key.slice(peers), key, where)
-  return { base: key.slice(0, start), patchHash: hash }
+  return { base: key.slice(0, start), patchHash: hash, peers: readGroups(key.slice(peers), key, where) }
 }
+
+// A bare hash as pnpm writes one: lowercase hex, or base32 unpadded, of so
+// many bytes. Either decoder takes either case, and refuses all else.
+export const fromBase32Bare = (hash) => fromBase32(hash, { padding: false })
+
+export const isHash = (hash, bytes, decode) => attempt(() => hash === hash.toLowerCase() && decode(hash).length === bytes, () => false)
 
 // A package key's name, checked, and what follows its `@`.
 export function splitPackageKey(key, where) {

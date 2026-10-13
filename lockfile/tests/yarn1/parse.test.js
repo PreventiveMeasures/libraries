@@ -316,6 +316,8 @@ describe('with the manifests', () => {
     refuses(BASE, 'unsupported field "x"', ws, withRoot({ workspaces: { packages: ['w'], x: [] } }))
     refuses(BASE, 'expected a string, found the number 1', `${ws}.nohoist[0]`, withRoot({ workspaces: { packages: ['w'], nohoist: [1] } }))
     refuses(BASE, '"{w,v}" is a glob not read here', `${ws}[0]`, withRoot({ workspaces: ['{w,v}'] }))
+    // yarn 1 reads a glob a "#" starts as a comment, which finds nothing.
+    refuses(BASE, '"#w" is a glob not read here', `${ws}[0]`, withRoot({ workspaces: ['#w'] }))
     const found = "not a workspace the root's `workspaces` finds"
     refuses(BASE, found, 'manifests.v', { ...MANIFESTS, v: { name: 'v', version: '1.0.0' } })
     refuses(BASE, found, 'manifests[".v"]', { ...withRoot({ workspaces: ['*'] }), '.v': { name: 'v', version: '1.0.0' } })

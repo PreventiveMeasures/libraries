@@ -160,7 +160,7 @@ describe('buildSoldeerTree', () => {
   it('holds the [soldeer] settings to what Soldeer reads', async () => {
     const zip = dependency('solady', '0.0.238', [{ name: 'a', data: 'a' }])
     const withSettings = (settings) => build([zip], { soldeer: `${settings}\n${configOf([zip])}` })
-    await withSettings('[soldeer]\nremappings_generate = false\nremappings_location = "config"\nremappings_prefix = "@"\nother = [1]')
+    await withSettings('[soldeer]\nremappings_generate = false\nremappings_location = "config"\nremappings_prefix = "@"')
     await withSettings('soldeer = { recursive_deps = false }')
     const refused = (settings, message) => assert.rejects(withSettings(settings), message)
     await refused('[soldeer]\nremappings_version = "yes"', /^DeptreeError: soldeer\.toml: soldeer\.remappings_version: not true or false, which Soldeer fails on$/u)
@@ -168,6 +168,7 @@ describe('buildSoldeerTree', () => {
     await refused('[soldeer]\nremappings_prefix = 1', /^DeptreeError: soldeer\.toml: soldeer\.remappings_prefix: not a string/u)
     await refused('soldeer = 1', /^DeptreeError: soldeer\.toml: soldeer: not a table, which Soldeer fails on$/u)
     await refused('[soldeer]\nrecursive_deps = true', /^DeptreeError: soldeer\.toml: soldeer\.recursive_deps: has Soldeer install what each dependency depends on too, which is not supported$/u)
+    await refused('[soldeer]\nother = [1]', /^DeptreeError: soldeer\.toml: soldeer\.other: a setting Soldeer 0\.12 does not have, which is not supported$/u)
   })
 
   it('refuses in a zip what Soldeer fails on, or the zip crate reads otherwise', async () => {

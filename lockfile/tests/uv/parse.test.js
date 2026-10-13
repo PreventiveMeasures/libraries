@@ -163,6 +163,11 @@ describe('sources', () => {
   it('refuses a URL out of normal form, or with credentials', () => {
     refuses(edit([`source = { ${PYPI} }\ndependencies`, 'source = { registry = "https://PyPI.org/simple" }\ndependencies']), '"https://PyPI.org/simple" is not a URL in normal form, of https, http, file', 'package[0].source.registry')
     refuses(edit([`source = { ${PYPI} }\ndependencies`, 'source = { registry = "https://u:p@pypi.org/simple" }\ndependencies']), '"https://u:p@pypi.org/simple" has credentials in it, which uv does not write', 'package[0].source.registry')
+    // What starts with a scheme is a URL to uv, though not in normal form,
+    // and is refused rather than read as a path.
+    for (const registry of ['https:/pypi.org/simple', 'file:/srv/index']) {
+      refuses(edit([`source = { ${PYPI} }\ndependencies`, `source = { registry = "${registry}" }\ndependencies`]), `"${registry}" is not a URL in normal form, of https, http, file`, 'package[0].source.registry')
+    }
   })
 
   it('a local registry by its path, its files by path or URL, and not both', () => {

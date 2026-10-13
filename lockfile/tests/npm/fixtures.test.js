@@ -8,8 +8,11 @@ import { fixture, parse, plain } from './base.js'
 // project indented with a tab, with CRLF line ends, once more with the
 // registry's URLs left out; a project of peers and of packages both dev and
 // optional; one that asks for a directory out of it; and one an override
-// gives a version of a package its dependent does not ask for.
-// scripts/record-npm.js builds them; its header says what is in them.
+// gives a version of a package its dependent does not ask for. Each but
+// the plain one and the override's again as lockfileVersion 2, as npm 9 to
+// 12 write it when set to, and the workspace as npm 8 writes it by default.
+// scripts/record-npm.js records them into fixtures.json.br; its header
+// says what is in them.
 
 const read = (name, options) => parse(fixture(name), options)
 const VERSIONS = ['npm-9', 'npm-10', 'npm-11', 'npm-12']
@@ -160,5 +163,31 @@ describe('an override, which the lockfile does not record', () => {
   it('refused where versions are checked, and read where not', () => {
     assert.throws(() => read('npm-11-overrides'), (error) => error instanceof LockfileError && error.message === 'packages["node_modules/react-dom"].dependencies.scheduler: "^0.23.0" is not satisfied by "node_modules/scheduler", 0.20.2, so npm would install another')
     assert.equal(read('npm-11-overrides', { checkVersions: false }).packages['node_modules/scheduler'].version, '0.20.2')
+  })
+})
+
+describe('a lockfile of version 2, as npm writes it beside one of version 3', () => {
+  const PAIRS = [
+    ['npm-9-v2', 'npm-9'], ['npm-10-v2', 'npm-10'], ['npm-11-v2', 'npm-11'], ['npm-12-v2', 'npm-12'], ['npm-8', 'npm-9'],
+    ['npm-11-plain-omitted-v2', 'npm-11-plain-omitted'], ['npm-11-flags-v2', 'npm-11-flags'], ['npm-11-outside-v2', 'npm-11-outside'],
+  ]
+
+  it('reads to the same project, packages and links', () => {
+    for (const [v2, v3] of PAIRS) assert.deepEqual(plain(read(v2)), { ...plain(read(v3)), lockfileVersion: 2 }, v2)
+  })
+
+  it('as npm 8 writes it by default, npm 9 when set to', () => {
+    assert.equal(fixture('npm-8'), fixture('npm-9-v2'))
+  })
+
+  it('a repository with what was asked for, and a tarball by URL by its URL', () => {
+    const { dependencies } = JSON.parse(fixture('npm-11-v2'))
+    assert.deepEqual(dependencies.isarray, { version: 'git+ssh://git@github.com/juliangruber/isarray.git#63ea4ca0a0d6b0574d6a470ebd26880c3026db4a', from: 'isarray@git+https://github.com/juliangruber/isarray.git#v2.0.5' })
+    assert.equal(dependencies['odd-alias'].version, 'https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz')
+  })
+
+  it('refused with the tree for npm 6 otherwise than npm writes it', () => {
+    const text = fixture('npm-11-v2').replace('"from": "isarray@git+https://github.com/juliangruber/isarray.git#v2.0.5"', '"from": "isarray@*"')
+    assert.throws(() => parse(text), (error) => error instanceof LockfileError && error.where === 'dependencies.isarray.from')
   })
 })

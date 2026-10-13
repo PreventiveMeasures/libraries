@@ -45,7 +45,7 @@ function readVersion(node) {
   if (node === undefined) throw new LockfileError('expected COCOAPODS, the version of CocoaPods that wrote the file, which it always writes')
   const version = textOf(node, 'COCOAPODS')
   const m = /^(\d+)\.(\d+)\.\d+(?:\.(?:beta|rc)\.\d+)?$/u.exec(version)
-  if (m === null || Number(m[1]) !== 1 || Number(m[2]) < 5) throw new LockfileError(`${quote(version)} is not a version of CocoaPods from 1.5 to 1.x, which this reader reads`, 'COCOAPODS')
+  if (m === null || Number(m[1]) !== 1 || Number(m[2]) < 5 || Number(m[2]) > 17) throw new LockfileError(`${quote(version)} is not a version of CocoaPods from 1.5 to 1.17, which this reader reads`, 'COCOAPODS')
   return { version, rules: rulesOf(Number(m[2])) }
 }
 

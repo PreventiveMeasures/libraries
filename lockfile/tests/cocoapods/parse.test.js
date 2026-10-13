@@ -210,9 +210,9 @@ describe('the sections', () => {
     refuses(edit(['    - "A+B"\n', '    - "A+B"\n  other:\n    []\n']), 'no pod of the spec repo, where CocoaPods leaves it out', '["SPEC REPOS"].other')
   })
 
-  it('refuses a CocoaPods before 1.5 or after 1.x', () => {
-    for (const version of ['1.4.0', '2.0.0', '0.39.0', '1.17.0.1', 'nope']) {
-      refuses(edit(['COCOAPODS: 1.17.0', `COCOAPODS: ${version}`]), `"${version}" is not a version of CocoaPods from 1.5 to 1.x, which this reader reads`, 'COCOAPODS')
+  it('refuses a CocoaPods before 1.5 or after 1.17, whose quoting is not known', () => {
+    for (const version of ['1.4.0', '1.18.0', '1.99.0', '2.0.0', '0.39.0', '1.17.0.1', 'nope']) {
+      refuses(edit(['COCOAPODS: 1.17.0', `COCOAPODS: ${version}`]), `"${version}" is not a version of CocoaPods from 1.5 to 1.17, which this reader reads`, 'COCOAPODS')
     }
     assert.equal(parsePodfileLock(edit(['COCOAPODS: 1.17.0', 'COCOAPODS: 1.16.0.rc.1'])).cocoapods, '1.16.0.rc.1')
   })
@@ -221,7 +221,7 @@ describe('the sections', () => {
     refuses(edit(['COCOAPODS: 1.17.0', 'COCOAPODS:\n  - 1.17.0']), 'expected a string, found a sequence', 'COCOAPODS')
     refuses(edit([`PODFILE CHECKSUM: ${sha('f')}`, 'PODFILE CHECKSUM: F00']), '"F00" is not a sha1 in lowercase hex', '["PODFILE CHECKSUM"]')
     refuses(BASE.replace(/^PODS:\n[^]*?\n\n/u, 'PODS:\n  A: B\n\n'), 'expected a sequence, found a mapping', 'PODS')
-    refuses(edit(['COCOAPODS: 1.17.0', "COCOAPODS: '1.17'"]), '"1.17" is not a version of CocoaPods from 1.5 to 1.x, which this reader reads', 'COCOAPODS')
+    refuses(edit(['COCOAPODS: 1.17.0', "COCOAPODS: '1.17'"]), '"1.17" is not a version of CocoaPods from 1.5 to 1.17, which this reader reads', 'COCOAPODS')
   })
 })
 

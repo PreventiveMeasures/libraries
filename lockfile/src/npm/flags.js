@@ -153,9 +153,9 @@ function calcOf(npm) {
 
 // Each node's flags as npm sets them: all as `npm` does, where given; else
 // as one version of npm does, and where none, the refusal is the latest
-// version's.
-export function checkFlags(nodes, npm) {
+// version's. `name` names the npm in a refusal.
+export function checkFlags(nodes, npm, name = npm === undefined ? 'npm' : `npm ${npm}`) {
   const calc = npm === undefined ? VERSIONS[0] : calcOf(npm)
-  const error = mismatch(nodes, calc(nodes), npm === undefined ? 'npm' : `npm ${npm}`)
+  const error = mismatch(nodes, calc(nodes), name)
   if (error !== undefined && (npm !== undefined || VERSIONS.slice(1).every((other) => mismatch(nodes, other(nodes), 'npm') !== undefined))) throw error
 }

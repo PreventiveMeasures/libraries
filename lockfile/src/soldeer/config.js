@@ -1,10 +1,15 @@
 // The config's dependencies, soldeer.toml's or foundry.toml's, each held to
-// its entry as Soldeer 0.12 holds it before it installs from the lockfile.
+// its entry as Soldeer 0.12 holds it before it installs from the lockfile;
+// and its [soldeer] settings, none of which may have it install otherwise.
+// The config is parseToml's: a table is one with a null prototype, so a
+// date-time or a float, an object of its own, is none.
 
 import { sanitizeWithOptions } from '../crate/sanitize-filename.js'
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, quote } from '../error.js'
-import { entries, orEmpty, record, string } from '../shape.js'
+import { field, orEmpty } from '../shape.js'
+import { boolean, entries, kind as kindOf, string, table } from '../toml/shape.js'
+import { isInlineTable } from '../toml/value.js'
 
 const OPTIONS = new Set(['version', 'url', 'git', 'rev', 'branch', 'tag', 'project_root'])
 
@@ -28,7 +33,7 @@ function readVersion(value, where) {
 // Soldeer's parse_dependency; what it would warn of and ignore is refused.
 function readDependency(value, where) {
   if (typeof value === 'string') return { kind: 'registry', version: readVersion(value, where) }
-  record(value, where)
+  table(value, where)
   const other = Object.keys(value).find((key) => !OPTIONS.has(key))
   if (other !== undefined) throw new LockfileError('a field Soldeer does not read', at(where, other))
   for (const key of OPTIONS) if (key !== 'version' && value[key] !== undefined) string(value[key], at(where, key))
@@ -67,15 +72,41 @@ function checkEntry(entry, dependency, where) {
   if (fixed ? entry.version !== dependency.version : !satisfies(entry.version, dependency.version)) {
     throw new LockfileError(`${quote(dependency.version)}, which its entry's version, ${quote(entry.version)}, ${fixed ? 'is not' : 'does not satisfy'}`, at(where, 'version'))
   }
-  for (const field of ['url', 'git', 'rev']) {
-    if (dependency[field] !== undefined && dependency[field] !== entry[field]) throw new LockfileError(`${quote(dependency[field])}, where its entry has ${quote(entry[field])}`, at(where, field))
+  for (const key of ['url', 'git', 'rev']) {
+    if (dependency[key] !== undefined && dependency[key] !== entry[key]) throw new LockfileError(`${quote(dependency[key])}, where its entry has ${quote(entry[key])}`, at(where, key))
   }
 }
 
+const BOOLEANS = ['remappings_generate', 'remappings_regenerate', 'remappings_version', 'recursive_deps']
+const SETTINGS = [...BOOLEANS, 'remappings_prefix', 'remappings_location']
+
+// read_soldeer_config's SoldeerConfig, by serde: a value Soldeer fails on
+// is refused; and recursive_deps, with which it installs what each
+// dependency depends on too, which the lockfile does not have, and any
+// setting it does not have, which a later Soldeer may install otherwise by.
+function checkSettings(settings, where) {
+  if (settings === undefined) return
+  table(settings, where, SETTINGS)
+  for (const key of BOOLEANS) field(settings, key, where, boolean)
+  field(settings, 'remappings_prefix', where, string)
+  const location = settings.remappings_location
+  if (![undefined, 'txt', 'config'].includes(location)) throw new LockfileError(`expected "txt" or "config", found ${kindOf(location)}`, at(where, 'remappings_location'))
+  if (settings.recursive_deps === true) throw new LockfileError('has Soldeer install what each dependency depends on too, which the lockfile does not have', at(where, 'recursive_deps'))
+}
+
+// read_config_deps: a table from a header or dotted keys, as toml_edit
+// gives one; from an inline one Soldeer reads no dependency.
+function readDependencies(value, where) {
+  if (value !== undefined && isInlineTable(table(value, where))) throw new LockfileError('an inline table, from which Soldeer reads no dependency', where)
+  return orEmpty(value)
+}
+
 export function checkConfig(config, dependencies) {
-  const table = orEmpty(record(config, 'config').dependencies)
+  table(config, 'config')
+  checkSettings(config.soldeer, 'config.soldeer')
+  const asked = readDependencies(config.dependencies, 'config.dependencies')
   const named = new Map()
-  for (const [name, value, here] of entries(table, 'config.dependencies')) {
+  for (const [name, value, here] of entries(asked, 'config.dependencies')) {
     const dependency = readDependency(value, here)
     // Soldeer refuses two names it would install in one folder.
     claimFolder(named, name, name, here)
@@ -84,6 +115,6 @@ export function checkConfig(config, dependencies) {
     checkEntry(entry, dependency, here)
   }
   for (const name of Object.keys(dependencies)) {
-    if (!Object.hasOwn(table, name)) throw new LockfileError('nothing in the config asks for it, and Soldeer drops it', at('dependencies', name))
+    if (!Object.hasOwn(asked, name)) throw new LockfileError('nothing in the config asks for it, and Soldeer drops it', at('dependencies', name))
   }
 }

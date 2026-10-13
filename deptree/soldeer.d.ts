@@ -49,8 +49,9 @@ export interface SoldeerProject {
 // config's [soldeer] settings, a value of a type Soldeer fails on is
 // refused, and so is recursive_deps = true, which has Soldeer install what
 // each dependency depends on too; the others change nothing beneath
-// dependencies/, and any other key is passed over, as Soldeer passes it
-// over. A config whose `dependencies` is inline, which Soldeer reads none
+// dependencies/. A setting Soldeer 0.12 does not have is refused, though
+// Soldeer passes it over, as a later Soldeer may install otherwise by it.
+// A config whose `dependencies` is inline, which Soldeer reads none
 // from, is refused.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
