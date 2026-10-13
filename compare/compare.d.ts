@@ -229,15 +229,16 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 //   either, holds nothing else;
 // - nor does what its transform mode (--experimental-transform-types) leaves.
 // `runtime` is the stripped text of those run statements, the hashbang first,
-// joined by newlines -- empty where the file erases whole. A change is types only
-// where both sides prove and leave the same `runtime`: it then touches erased
-// types and comments alone. A bare `export {}` runs nothing as a module but emits
-// a marker transpiled to CommonJS, and a module load runs as one format and
-// throws as the other, so a non-empty `runtime` cancels only within one module
-// format (see compareTrees' `typeOnly`). `at` is where in `text` what is found
-// begins, where it has a place. Throws a TypeError where `text` is not a
+// joined by newlines -- empty where the file erases whole. `loads` is whether any
+// of them is a module load or a bare `export {}`: the runtime that runs as one
+// module format and throws, or emits a different marker, as the other. A change is
+// types only where both sides prove and leave the same `runtime`: it then touches
+// erased types and comments alone. Where `loads`, a rename across module formats
+// does not cancel (see compareTrees' `typeOnly`); a hashbang-only runtime, which
+// runs the same either way, cancels across them. `at` is where in `text` what is
+// found begins, where it has a place. Throws a TypeError where `text` is not a
 // well-formed string. Node warns once that stripTypeScriptTypes is experimental.
-export function proveTypeOnly(text: string): { proven: true; runtime: string } | { proven: false; reason: TypeOnlyReason; at: number | null }
+export function proveTypeOnly(text: string): { proven: true; runtime: string; loads: boolean } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.

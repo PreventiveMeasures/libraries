@@ -71,20 +71,20 @@ describe('proveTypeOnly', () => {
     for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export type { A }\nexport type * from "m"\n',
       'import type { A } from "m"\nexport declare const x: A\n', 'declare const x = 1, y: 2\n',
       'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) {
-      assert.deepEqual(proveTypeOnly(text), { proven: true, runtime: '' }, text)
+      assert.deepEqual(proveTypeOnly(text), { proven: true, runtime: '', loads: false }, text)
     }
   })
 
   // The run statements stripping leaves -- module loads and `export {}` -- are the file's `runtime`, which a
   // change must leave untouched to be types only. Imports load their module inline `type` or not.
   it("proves a file's module loads and `export {}` as its runtime", () => {
-    assert.deepEqual(proveTypeOnly('export {};\n'), { proven: true, runtime: 'export {};' })
-    assert.deepEqual(proveTypeOnly('declare const x: 1\nexport {}\n'), { proven: true, runtime: 'export {}' })
-    assert.deepEqual(proveTypeOnly("import { X } from 'a'\nexport declare const y: X\n"), { proven: true, runtime: "import { X } from 'a'" })
-    assert.deepEqual(proveTypeOnly("export { X } from 'a'\n"), { proven: true, runtime: "export { X } from 'a'" })
-    assert.deepEqual(proveTypeOnly("export * from 'a'\n"), { proven: true, runtime: "export * from 'a'" })
-    assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node\n' })
-    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: 'export {};' })
+    assert.deepEqual(proveTypeOnly('export {};\n'), { proven: true, runtime: 'export {};', loads: true })
+    assert.deepEqual(proveTypeOnly('declare const x: 1\nexport {}\n'), { proven: true, runtime: 'export {}', loads: true })
+    assert.deepEqual(proveTypeOnly("import { X } from 'a'\nexport declare const y: X\n"), { proven: true, runtime: "import { X } from 'a'", loads: true })
+    assert.deepEqual(proveTypeOnly("export { X } from 'a'\n"), { proven: true, runtime: "export { X } from 'a'", loads: true })
+    assert.deepEqual(proveTypeOnly("export * from 'a'\n"), { proven: true, runtime: "export * from 'a'", loads: true })
+    assert.deepEqual(proveTypeOnly('#!/usr/bin/env node\ndeclare const x: 1\n'), { proven: true, runtime: '#!/usr/bin/env node\n', loads: false })
+    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: 'export {};', loads: true })
     // A type-only specifier within a kept import blanks; the module still loads, so it is runtime.
     const r = proveTypeOnly("import { type A, B } from 'b'\nexport declare const x: A\n")
     assert.equal(r.proven, true)
@@ -167,7 +167,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
   }
 
   it('proves nothing where Node strips nothing, or has no stripping', () => {
-    assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true, runtime: '' }, 'comments blanked too')
+    assert.deepEqual(proveWith(text, strip(text.replace(/[^\n]/gu, ' '))), { proven: true, runtime: '', loads: false }, 'comments blanked too')
     assert.deepEqual(proveWith(text, undefined), refused('unsupported', null))
     assert.deepEqual(proveWith(text, throwing('ERR_NO_TYPESCRIPT')), refused('unsupported', null))
     assert.deepEqual(portable(text), refused('unsupported', null), 'nor off Node')
@@ -177,8 +177,8 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
 
   it('takes any blank but a line break for one stripping writes, as it writes one of as many UTF-8 bytes', () => {
     const wide = 'type A = "\u00E9\u4E00\u{1F600}" /* \u4E00 */\ninterface B { /** \u4E00\u{1F600} */ b: "\u3000" }\n'
-    assert.deepEqual(proveTypeOnly(wide), { proven: true, runtime: '' })
-    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true, runtime: '' })
+    assert.deepEqual(proveTypeOnly(wide), { proven: true, runtime: '', loads: false })
+    assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true, runtime: '', loads: false })
   })
 
   it('refuses where stripping keeps what oxc finds erased, or blanks otherwise', () => {
@@ -195,7 +195,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
   it('refuses where stripping or its transform mode refuses the text, or leaves code', () => {
     assert.deepEqual(proveWith(text, strip(throwing('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'))), refused('disagree', null))
     assert.deepEqual(proveWith(text, strip('                   // c\n', '(function(N) {})(N || (N = {}));\nvar N;\n')), refused('disagree', null))
-    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true, runtime: '' })
+    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true, runtime: '', loads: false })
   })
 
   // Stopped partway, Node's stripping may throw on every text from then on: one that failed so once is
@@ -205,12 +205,12 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, overflowing), refused('unparsed', null), 'not read whole, so not for oxc to read')
     assert.deepEqual(proveWith('type A = 1', overflowing), refused('unsupported', null), 'nor anything after')
     const stopped = strip(throwing('ERR_INTERNAL_ASSERTION'), '', 'type A = 1')
-    assert.deepEqual(proveWith(text, stopped), { proven: true, runtime: '' })
+    assert.deepEqual(proveWith(text, stopped), { proven: true, runtime: '', loads: false })
     assert.deepEqual(proveWith('type A = 1', stopped), refused('unparsed', null))
     assert.deepEqual(proveWith(text, stopped), refused('unsupported', null))
     const wrong = (t, options) => (t.startsWith('let a') ? t : stripTypeScriptTypes(t, options))
     assert.deepEqual(proveWith(text, wrong), refused('unsupported', null), 'the canary kept whole')
-    assert.deepEqual(proveTypeOnly(text), { proven: true, runtime: '' }, "and Node's own stripping still trusted")
+    assert.deepEqual(proveTypeOnly(text), { proven: true, runtime: '', loads: false }, "and Node's own stripping still trusted")
   })
 })
 

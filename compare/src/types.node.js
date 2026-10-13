@@ -129,10 +129,11 @@ export function proveWith(text, stripTypeScriptTypes) {
   const after = parsed(parseSync, transformed.code)
   if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
   // The runtime a change must leave untouched to be types only: the hashbang, module loads and `export {}`
-  // stripping leaves, as it leaves them. Empty where the file erases whole.
+  // stripping leaves, as it leaves them. Empty where the file erases whole. `loads` is whether any of it is
+  // a module load or `export {}`, the runtime that runs differently per module format -- a hashbang does not.
   const signature = (tree.program.hashbang ? `${stripped.code.slice(tree.program.hashbang.start, tree.program.hashbang.end)}\n` : '') +
     runtime.map((statement) => stripped.code.slice(statement.start, statement.end)).join('\n')
-  return { proven: true, runtime: signature }
+  return { proven: true, runtime: signature, loads: runtime.length > 0 }
 }
 
 export const proveTypeOnly = (text) => proveWith(text, nodeModule.stripTypeScriptTypes)

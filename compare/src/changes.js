@@ -54,16 +54,13 @@ const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 // a change across them is not types only.
 const fixedModule = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith('.cts') ? 'commonjs' : null)
 
-// Whether a runtime runs differently as an ES module than as CommonJS: only a module load or a bare
-// `export {}` does, each a signature line that begins with `import` or `export`. A hashbang, a directive
-// or a pragma runs the same either way, so a runtime holding only those cancels across module formats.
-const loads = (runtime) => /(?:^|\n)(?:import|export)\b/u.test(runtime)
-
 // A file's proof: that it holds types alone but for its `runtime` -- a hashbang, the module loads and
-// `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only. A
+// `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only.
+// `loads` is whether that runtime holds a module load or `export {}`, the part that runs differently per
+// module format; a hashbang, a directive or a pragma does not, so a runtime of only those is format-free. A
 // side not there has none. Not proven where the proof throws, as no check should.
 function proven(file) {
-  if (file === null) return { proven: true, runtime: '' }
+  if (file === null) return { proven: true, runtime: '', loads: false }
   const text = textOf(file)
   try {
     return text === undefined ? { proven: false } : proveTypeOnly(text)
@@ -92,7 +89,7 @@ function stamped(change) {
   if (change.old && change.new && change.old.mode !== change.new.mode) return change
   const fresh = proven(change.new), old = proven(change.old)
   if (!old.proven || !fresh.proven || old.runtime !== fresh.runtime) return change
-  if (loads(old.runtime) && change.old && change.new && change.old.path !== change.new.path) {
+  if (old.loads && change.old && change.new && change.old.path !== change.new.path) {
     const format = fixedModule(change.old.path)
     if (format === null || format !== fixedModule(change.new.path)) return change
   }
