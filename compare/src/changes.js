@@ -48,11 +48,13 @@ const status = (kind, old, fresh, similarity = null) => ({ status: kind, old, ne
 // `.d.css.ts` for a `.css` file's.
 const DECLARATION = /\.d\.(?:[^./]+\.)?[cm]?ts$/u
 
-// Not proven where the proof throws, as no check should.
+// Not proven where the proof throws, as no check should. A `.mts` is an ES module, where a retained
+// `export {}` runs nothing; a `.cts` or a `.ts` (its module system is the package's, not known here) may
+// be CommonJS, where it throws, so one is proven only where it erases whole.
 function proven(file) {
   const text = textOf(file)
   try {
-    return text !== undefined && proveTypeOnly(text).proven
+    return text !== undefined && proveTypeOnly(text, file.path.endsWith('.mts')).proven
   } catch {
     return false
   }

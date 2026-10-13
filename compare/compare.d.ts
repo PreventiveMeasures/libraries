@@ -38,7 +38,10 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // change whose every side there is a file named as a declaration file
 // (`.d.ts`, `.d.mts`, `.d.cts`, `.d.css.ts`) and holds types alone, as
 // proveTypeOnly proves: one that runs nothing on either side, as a side not
-// there runs nothing. Absent elsewhere, and without oxc-parser.
+// there runs nothing. A `.d.mts` is proven as an ES module; a `.d.cts` or a
+// `.d.ts`, whose module system is the package's and not known here, only where
+// it erases whole, since a retained `export {}` throws in CommonJS. Absent
+// elsewhere, and without oxc-parser.
 export interface FileStatus {
   status: Status
   old: TreeFile | null
@@ -198,19 +201,22 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'imports' | 'code' | '
 // - oxc's tree has no statement but those stripping erases whole -- interfaces,
 //   type aliases, anything `declare`d (bodies and initializers with it), a
 //   function's signature, `import type` and `export type`, a namespace of types
-//   alone -- and a bare `export {}`, left as valid JavaScript that loads and runs
-//   nothing. `import { type A }` loads its module like any import, inline `type`
-//   or not, so it is not type-only; nor is `export { type A }`, which is only
-//   `export {}` once stripping takes its specifiers out; nor `export as namespace
-//   N`, left as invalid JavaScript that throws when the file is imported;
+//   alone -- and, where `esm`, a bare `export {}`, left as valid JavaScript that
+//   loads and runs nothing. `import { type A }` loads its module like any import,
+//   inline `type` or not, so it is not type-only; nor is `export { type A }`,
+//   which is only `export {}` once stripping takes its specifiers out; nor
+//   `export as namespace N`, left as invalid JavaScript that throws when imported;
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
 //   and leaves nothing it does not, but comments, the hashbang and that one;
 // - what it leaves, read token by token apart from either, holds nothing else;
 // - nor does what its transform mode (--experimental-transform-types) leaves.
-// `at` is where in `text` what is found begins, where it has a place. Throws a
-// TypeError where `text` is not a well-formed string. Node warns once that
+// `esm` says the text is an ES module (a `.mts`, or a `.ts` known to resolve as
+// one): a retained `export {}` runs nothing only as a module, and throws in
+// CommonJS, so it is kept only then; false, the default, keeps none. `at` is
+// where in `text` what is found begins, where it has a place. Throws a TypeError
+// where `text` is not a well-formed string. Node warns once that
 // stripTypeScriptTypes is experimental.
-export function proveTypeOnly(text: string): { proven: true } | { proven: false; reason: TypeOnlyReason; at: number | null }
+export function proveTypeOnly(text: string, esm?: boolean): { proven: true } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree
 // holds it.

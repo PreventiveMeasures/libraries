@@ -67,22 +67,37 @@ describe('Node runs a .d.ts as the .ts it is named', () => {
 })
 
 describe('proveTypeOnly', () => {
-  it('proves declaration files of types alone, as tsc writes them and as written by hand', () => {
-    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true })
-    for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export {};\n', 'export type { A }\nexport type * from "m"\n',
+  it('proves declaration files that erase whole, as tsc writes them and as written by hand', () => {
+    // No retained statement, so proven whatever the module system.
+    for (const text of ['', '// nothing\n', '\uFEFFdeclare const x: 1\n', 'export type { A }\nexport type * from "m"\n',
       'import type { A } from "m"\nexport declare const x: A\n', 'declare const x = 1, y: 2\n',
-      'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) assert.deepEqual(proveTypeOnly(text), { proven: true }, text)
+      'export declare class A extends f() { static { g() } }\n', 'declare namespace N { const x = 1 }\n']) {
+      assert.deepEqual(proveTypeOnly(text), { proven: true }, text)
+      assert.deepEqual(proveTypeOnly(text, true), { proven: true }, text)
+    }
+  })
+
+  // `export {}` runs nothing only as a module; in CommonJS Node throws importing it. It is kept only for a
+  // file known to be ESM (`esm`), a `.d.mts`; a `.d.cts` or a `.d.ts` of unknown module system keeps none.
+  it('proves a retained `export {}` only where the file is known ESM', () => {
+    assert.deepEqual(proveTypeOnly('export {};\n', true), { proven: true })
+    assert.deepEqual(proveTypeOnly(EMITTED, true), { proven: true })
+    for (const esm of [undefined, false]) {
+      assert.deepEqual(proveTypeOnly('export {};\n', esm), refused('code', 0), String(esm))
+      assert.equal(proveTypeOnly(EMITTED, esm).proven, false, String(esm))
+    }
   })
 
   // `export { type A }` is `export {}` only after stripping removes its specifiers; the source is a value
-  // export declaration, so proving it would rest on stripping emitting a no-op, not on the source. `export
-  // {}` as the source writes it stays inert. (`import { type A }` loads its module -- see the imports test.)
-  it('refuses an inline-type export, inert only once stripped, not the bare `export {}` the source writes', () => {
+  // export declaration, so proving it would rest on stripping emitting a no-op, not on the source. It is
+  // refused even as ESM. (`import { type A }` loads its module -- see the imports test.)
+  it('refuses an inline-type export, inert only once stripped, even as a module', () => {
     for (const text of ['export { type A }', 'export { type A as B }', 'export { type A, type B }', 'declare const A: 1\nexport { type A }']) {
-      assert.equal(proveTypeOnly(text).proven, false, text)
-      assert.equal(proveTypeOnly(text).reason, 'code', text)
+      for (const esm of [true, false, undefined]) {
+        assert.equal(proveTypeOnly(text, esm).proven, false, text)
+        assert.equal(proveTypeOnly(text, esm).reason, 'code', text)
+      }
     }
-    assert.deepEqual(proveTypeOnly('export {}\n'), { proven: true })
   })
 
   // Node leaves `export as namespace N` verbatim; as JavaScript it is a syntax error, so importing the
@@ -234,5 +249,14 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
       assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const a: 1\n' }, { [`a.${ext}`]: 'export as namespace A\n' }, { renames: false }), [[`modified a.${ext}`, undefined]])
     }
     assert.deepEqual(stamps({}, { 'a.d.ts': 'export as namespace A\n' }, { renames: false }), [['added a.d.ts', undefined]])
+  })
+
+  // A retained `export {}` runs nothing as a module but throws in CommonJS, which a `.d.cts` is and a
+  // `.d.ts` may be: stamped only for a `.d.mts`. A file that erases whole is stamped whatever the extension.
+  it('a retained `export {}` stamped only for a .d.mts, an erased file for any', () => {
+    for (const [ext, stamp] of [['d.mts', true], ['d.cts', undefined], ['d.ts', undefined]]) {
+      assert.deepEqual(stamps({ [`a.${ext}`]: 'export {}\n' }, { [`a.${ext}`]: 'declare const x: 1\nexport {}\n' }, { renames: false }), [[`modified a.${ext}`, stamp]])
+      assert.deepEqual(stamps({ [`a.${ext}`]: 'declare const x: 1\n' }, { [`a.${ext}`]: 'export declare const x: 2\n' }, { renames: false }), [[`modified a.${ext}`, true]])
+    }
   })
 })
