@@ -74,6 +74,8 @@ function proven(file) {
 function stamped(change) {
   const sides = [change.old, change.new].filter((file) => file !== null)
   if (!sides.every((file) => file.type === 'file' && DECLARATION.test(file.path))) return change
+  // A mode changed, an executable bit set or cleared, is a change in its own right, types aside.
+  if (change.old && change.new && change.old.mode !== change.new.mode) return change
   const fresh = proven(change.new), old = proven(change.old)
   if (!old.proven || !fresh.proven || Boolean(old.inert) !== Boolean(fresh.inert)) return change
   if (old.inert) {

@@ -153,6 +153,8 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, undefined), refused('unsupported', null))
     assert.deepEqual(proveWith(text, throwing('ERR_NO_TYPESCRIPT')), refused('unsupported', null))
     assert.deepEqual(portable(text), refused('unsupported', null), 'nor off Node')
+    // A fresh result each call, never a shared object a caller could mutate into another's.
+    assert.notStrictEqual(proveWith(text, undefined), proveWith(text, undefined))
   })
 
   it('takes any blank but a line break for one stripping writes, as it writes one of as many UTF-8 bytes', () => {
@@ -228,6 +230,15 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
       ['added d.js', undefined], ['modified e.d.ts', undefined], ['modified f.d.ts', undefined]])
     const link = compareTrees(tree({ 'a.d.ts': 'declare const a: 1\n' }), [{ name: 'a.d.ts', type: 'symlink', linkname: 'a.js' }])
     assert.equal(link[0].typeOnly, undefined, 'a link, which may lead anywhere')
+  })
+
+  // A mode changing, an executable bit set, is a change even where the content is types alone: a `.d.ts`
+  // with a Node hashbang goes from denied to running once executable, which a consumer must not miss.
+  it('none where the mode changed, stamped where it held and only types did', () => {
+    const entry = (mode) => [{ name: 'a.d.ts', data: '#!/usr/bin/env node\nexport declare const a: 1\n', mode }]
+    assert.equal(compareTrees(entry(0o644), entry(0o755))[0].typeOnly, undefined, 'the mode changed')
+    const typed = (c) => [{ name: 'a.d.ts', data: `#!/usr/bin/env node\nexport declare const a: ${c}\n`, mode: 0o644 }]
+    assert.equal(compareTrees(typed(1), typed(2))[0].typeOnly, true, 'the mode held, only types changed')
   })
 
   it('a rename where both are declaration files', () => {

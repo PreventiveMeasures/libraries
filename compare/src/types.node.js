@@ -9,7 +9,8 @@ import * as nodeModule from 'node:module'
 import { getParser } from '#oxc'
 import { CODE, ERASED, IMPORT, INERT, leftover, strippedAs } from './erasure.js'
 
-const UNSUPPORTED = { proven: false, reason: 'unsupported', at: null }
+// Each a fresh result, never a shared object a caller could mutate into another's.
+const unsupported = () => ({ proven: false, reason: 'unsupported', at: null })
 const refused = (reason, at) => ({ proven: false, reason, at })
 
 // What stripping writes in place of what it erases is a blank of as many UTF-8 bytes (a space, a no-break
@@ -80,7 +81,7 @@ export function proveWith(text, stripTypeScriptTypes) {
   if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
   if (!text.isWellFormed()) throw new TypeError('a text must be a well-formed string')
   const parseSync = parser()
-  if (typeof stripTypeScriptTypes !== 'function' || parseSync === null || !trusted(stripTypeScriptTypes)) return UNSUPPORTED
+  if (typeof stripTypeScriptTypes !== 'function' || parseSync === null || !trusted(stripTypeScriptTypes)) return unsupported()
   // Stripping drops a byte order mark the text starts with.
   const shift = text.startsWith('\uFEFF') ? 1 : 0
   const body = text.slice(shift)
@@ -88,7 +89,7 @@ export function proveWith(text, stripTypeScriptTypes) {
   // process, where stripping throws first, at less than half the depth on an 8 MB stack. oxc reads only
   // what stripping read whole: it either strips it, or refuses what it does not erase once it has read it all.
   const stripped = strip(stripTypeScriptTypes, body, 'strip')
-  if (stripped === null) return UNSUPPORTED
+  if (stripped === null) return unsupported()
   if ('error' in stripped && stripped.error?.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') return refused('unparsed', null)
   const tree = parsed(parseSync, body)
   if (tree === null) return refused('unparsed', null)
@@ -104,7 +105,7 @@ export function proveWith(text, stripTypeScriptTypes) {
   const left = at === -1 ? leftover(stripped.code) : at
   if (left !== -1) return refused('disagree', shift + left)
   const transformed = strip(stripTypeScriptTypes, body, 'transform')
-  if (transformed === null) return UNSUPPORTED
+  if (transformed === null) return unsupported()
   // A retained `export {}` runs nothing as a module but emits a marker transpiled to CommonJS, so the file
   // is types-but-for-it: `inert`, stamped by compareTrees only where both sides of a change match.
   return 'code' in transformed && leftover(transformed.code) === -1 ? { proven: true, inert: spans[INERT].length > 0 } : refused('disagree', null)
