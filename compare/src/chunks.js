@@ -10,6 +10,42 @@ const HASH = /^[\w-]{6,}$/u
 const RANDOM = /[\dA-Z]/u
 const SEPARATORS = '-._'
 
+// A name's readings as one a build gave a hash, `[name]-[hash]` or
+// `[name].[contenthash]`, the shortest hash first: `[name, hash, extensions]`,
+// the hash 8 to 32 of base64url's characters after a `-` or `.`, with a
+// letter, and a digit or a capital, and only extensions after it, a `-` in
+// one too (`main.AbCd1234.hot-update.js`). None for a date
+// (`migration-20240101.js`) or a word (`lodash.debounce.js`).
+const EXTENSIONS = /^(?:\.[\w-]+)+$/u, HASHED = /^[\w-]{8,32}$/u
+function readings(name) {
+  const found = []
+  for (let at = name.length - 1; at > 0; at--) {
+    if (name[at] !== '-' && name[at] !== '.') continue
+    const end = name.indexOf('.', at + 1), extensions = name.slice(end), hash = name.slice(at + 1, end)
+    if (end !== -1 && HASHED.test(hash) && EXTENSIONS.test(extensions) && /[A-Za-z]/u.test(hash) && RANDOM.test(hash)) found.push([name.slice(0, at), hash, extensions])
+  }
+  return found
+}
+
+// Whether two names are one but for a hash: the shortest reading of one whose
+// hash the other's reading with those extensions does not share, its name
+// theirs. A part both share is an extension's (`index-AbCd1234.production2024.js`);
+// a `-` in a hash is the hash's (`index-CyWAfh-p.js`, `codeMirrorModule--QdMvsKi.css`)
+// and one before eight more the name's (`vendor-react-dom-AbCd1234.js`). Two
+// with a character of a kind in each place, a digit for a digit, a capital for
+// a capital, are of one format, a time's or a version's
+// (`migration-20240101T120000.js`, `migration-2024-Oct-14.js`), as two hashes
+// all but never are.
+const shape = (text) => text.replaceAll(/\d/gu, '0').replaceAll(/[a-z]/gu, 'a').replaceAll(/[A-Z]/gu, 'A')
+function oneButHash(a, b) {
+  const others = readings(b)
+  for (const [name, hash, extensions] of readings(a)) {
+    const other = others.find((reading) => reading[2] === extensions)
+    if (other && other[1] !== hash) return other[0] === name && shape(other[1]) !== shape(hash)
+  }
+  return false
+}
+
 function nameOf(path) {
   const slash = path.lastIndexOf('/')
   const name = path.slice(slash + 1)
@@ -33,8 +69,9 @@ function oneChunk(a, b) {
 
 // Chunks git's scored pass has yet to claim, by directory, extension and
 // name's length, each pair at least `bar` -- or however it scores, where each
-// is the other's only such chunk, as a pair by path is: the build's own chunk,
-// rewritten (playwright's dashboard `index-*.js`, 31% alike from 1.61 to 1.62):
+// is the other's only such chunk and their names are one but for a hash
+// (oneButHash), as a pair by path is: the build's own chunk, rewritten
+// (playwright's dashboard `index-*.js`, 31% alike from 1.61 to 1.62):
 // the best first, as git takes its candidates, but for a pair `outdone` by a
 // file's other candidate, set aside and returned, best first, for git to pair
 // that candidate with another file: it holds its files, so that a later pair
@@ -52,7 +89,7 @@ export function chunkRenames({ sources, dests, pairs, used, record, punctuatedSc
   const byDest = Map.groupBy(chunks, ({ d }) => d), bySource = Map.groupBy(chunks, ({ s }) => s)
   const candidates = []
   for (const { s, d } of chunks) {
-    const only = bySource.get(s).length === 1 && byDest.get(d).length === 1
+    const only = bySource.get(s).length === 1 && byDest.get(d).length === 1 && oneButHash(sourceNames.get(s).name, destNames.get(d).name)
     const score = punctuatedScoreOf(s, d, only ? 0 : bar)
     if (only || score >= bar) candidates.push({ s, d, score })
   }

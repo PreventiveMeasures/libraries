@@ -62,6 +62,31 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': kept(60) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 51%'])
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': statements(7000, 7100) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 0%'], 'nothing alike')
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': NEW }, { renames: 100 }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js'], 'none under -M100%')
+    assert.deepEqual(renames({ 'a/codeMirrorModule--QdMvsKi.css': OLD }, { 'a/codeMirrorModule-DYBRYzYX.css': kept(60) }), ['a/codeMirrorModule--QdMvsKi.css -> a/codeMirrorModule-DYBRYzYX.css 51%'], 'a hash that starts with `-`')
+    assert.deepEqual(renames({ 'a/index-AbCd1234.production.js': OLD }, { 'a/index-hRvO4yU2.production.js': kept(60) }), ['a/index-AbCd1234.production.js -> a/index-hRvO4yU2.production.js 51%'],
+      'an extension a hash\'s length after it')
+    assert.deepEqual(renames({ 'a/index-AbCd1234.production2024.js': OLD }, { 'a/index-hRvO4yU2.production2024.js': kept(60) }),
+      ['a/index-AbCd1234.production2024.js -> a/index-hRvO4yU2.production2024.js 51%'], 'and one that reads as a hash, both names alike in it')
+    assert.deepEqual(renames({ 'a/main.AbCd1234.hot-update.js': OLD }, { 'a/main.hRvO4yU2.hot-update.js': kept(60) }), ['a/main.AbCd1234.hot-update.js -> a/main.hRvO4yU2.hot-update.js 51%'],
+      'and one with a `-`, webpack\'s hot update')
+  })
+
+  it('holds to git\'s stricter score the only other of a name its hash alone does not tell', () => {
+    // A hash's last 8 to 32 characters with a letter, and a digit or a capital: a date has none, a time or a
+    // date with its month named keeps a character of a kind in each place, and a `-` before eight more is the
+    // name's, two chunks named apart (`vendor-react-dom`, `vendor-lodash-es`).
+    for (const [from, to] of [
+      ['a/migration-20240101.js', 'a/migration-20250101.js'],
+      ['a/migration-20240101T120000.js', 'a/migration-20250101T120000.js'],
+      ['a/migration-2024-Oct-14.js', 'a/migration-2025-Nov-15.js'],
+      ['a/vendor-react-dom-AbCd1234.js', 'a/vendor-lodash-es-hRvO4yU2.js'],
+      ['a/vendor-ui-AbCdEf12-GhIjKl34.js', 'a/vendor-db-Zy98XwVu-TsRq7654.js'],
+      ['a/index-AbCdEf12-GhIjKl34.js', 'a/index-Zy98XwVu-TsRq7654.js'],
+      ['a/main_3f9a2c1d.js', 'a/main_b87e6a5f.js'],
+    ]) {
+      assert.deepEqual(renames({ [from]: OLD }, { [to]: kept(60) }).toSorted(), [`added ${to}`, `deleted ${from}`].toSorted(), `${from} -> ${to}, 51%`)
+      assert.deepEqual(renames({ [from]: OLD }, { [to]: NEW }), [`${from} -> ${to} 86%`], `${from} -> ${to}, 86%`)
+    }
   })
 
   it('holds chunks of a name either side has more of to git\'s stricter score, halfway from -M to 100%, as their names alone put them forward', () => {

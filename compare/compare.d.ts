@@ -121,13 +121,16 @@ export interface LineOptions {
 // are, or `main.3f9a2c1d.chunk.js` and `main.8b7e6a5f.chunk.js`. Minified onto
 // a line, such a chunk scores little as git splits it, so it is scored with
 // its spans ending after `,` `;` `=` `{` `}` too, and taken however it scores
-// where each is the other's only such chunk, as a pair by path is (a build's
-// chunk rewritten: playwright's dashboard `index-*.js`, 31% alike from 1.61.1
-// to 1.62.0), else at git's stricter score for a basename, halfway from -M's
-// to 100%: the best pairs first, its similarity that score, giving way as a
-// pair by path does but only where git takes the candidate it gives way to,
-// and none past the rename limit, as they are scored. git has no such passes,
-// so false is git's own -M.
+// where each is the other's only such chunk and their names are one but for a
+// hash as a build writes one -- the last 8 to 32 of those characters after a
+// `-` or `.`, with a letter, and a digit or a capital, no date nor a name's
+// part, nor two of one format, a character of a kind in each place -- as a
+// pair by path is (a build's chunk rewritten: playwright's
+// dashboard `index-*.js`, 31% alike from 1.61.1 to 1.62.0), else at git's
+// stricter score for a basename, halfway from -M's to 100%: the best pairs
+// first, its similarity that score, giving way as a pair by path does but only
+// where git takes the candidate it gives way to, and none past the rename
+// limit, as they are scored. git has no such passes, so false is git's own -M.
 //
 // `renameLimit` is git's diff.renameLimit: when more deleted files times added
 // files are left, in a group, after the renames that need no scoring than its
