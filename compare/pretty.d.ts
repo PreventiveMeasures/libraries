@@ -1,9 +1,11 @@
 // `text` formatted by oxfmt as a file with `extension`, changing what is written
 // no more than layout needs (keys keep their quotes, names their escapes, a comment
 // its place after an operator; no trailing commas or arrow parentheses are added,
-// template literals stay), but for an untyped script's (`js`, `mjs`, `cjs`, `jsx`)
-// `!0` and `!1`, as a minifier writes `true` and `false`, written so, as TypeScript
-// types them otherwise; the copy used only where checks of oxfmt's output, apart
+// template literals stay), but for what an untyped script (`js`, `mjs`, `cjs`, `jsx`)
+// writes as a minifier may write a literal, written as the literal, as TypeScript
+// types them otherwise: `!0` and `!1` as `true` and `false`, and a template without
+// substitutions on one line, but for a tagged one's text or a statement, as a string
+// (`\`div\`` as `"div"`); the copy used only where checks of oxfmt's output, apart
 // from oxfmt, find it changes the layout alone:
 // - a script's (`js`, `mjs`, `cjs`, `jsx`, `ts`, `mts`, `cts`, `tsx`) syntax tree as
 //   oxc parses it, its comments and its text;
