@@ -23,7 +23,9 @@ export { renameParts } from './src/paths.js'
 
 // Two trees taken from different roots lined up: the root between them and
 // each old path, directory and package directory as the new tree lays it out.
-export { layoutDir, layoutPackageDirs, rootLabel, treeLayout } from './src/layout.js'
+// The line and path helpers a view reads alone are in view.js too.
+export { layoutPackageDirs, treeLayout } from './src/layout.js'
+export { layoutDir, rootLabel } from './src/root.js'
 
 // Whether a TypeScript text holds types alone, so that Node runs nothing of it,
 // as compareTrees stamps a declaration file's change: proven on Node alone, where
