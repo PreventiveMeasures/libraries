@@ -78,6 +78,7 @@
     {
       "files": [
         "ai/tests/**",
+        "grid/tests/**",
         "compare/tests/**",
         "diff/tests/**",
         "archive/tests/**",
