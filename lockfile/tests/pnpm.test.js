@@ -291,6 +291,94 @@ describe('what else pnpm writes is read', () => {
     refuses(edit(['    dependencies:\n      b: 1.0.0(patch_hash', '    dependencies:\n      y: 1.0.0\n      b: 1.0.0(patch_hash'], ['  c@2.0.0: {}\n', '  c@2.0.0: {}\n\n  y@1.0.0: {}\n']), 'snapshots["y@1.0.0"]: "y@1.0.0" is not in packages')
   })
 
+  // As pnpm 9, 10 and 12 write @sentry/nextjs beside next in a workspace,
+  // where next has @babel/core as a peer in one project and none in the
+  // other: dedupePeerDependents merges a snapshot of n into the one with b,
+  // and leads a there, but writes a's key with the n it resolved.
+  it('a peer merged into another snapshot of its package, which dedupePeerDependents leaves in a key', () => {
+    const into = 'n@1.0.0(b@1.0.0)(r@1.0.0(q@1.0.0)(s@1.0.0))'
+    const doc = (peer) => `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      a:
+        specifier: 1.0.0
+        version: 1.0.0(${peer})
+      b:
+        specifier: 1.0.0
+        version: 1.0.0
+      n:
+        specifier: 1.0.0
+        version: ${into.slice(2)}
+
+packages:
+
+  a@1.0.0:
+    resolution: {integrity: ${I}}
+    peerDependencies:
+      n: 1.0.0
+
+  b@1.0.0:
+    resolution: {integrity: ${I}}
+
+  n@1.0.0:
+    resolution: {integrity: ${I}}
+    peerDependencies:
+      b: 1.0.0
+    peerDependenciesMeta:
+      b:
+        optional: true
+
+  q@1.0.0:
+    resolution: {integrity: ${I}}
+
+  r@1.0.0:
+    resolution: {integrity: ${I}}
+    peerDependencies:
+      q: 1.0.0
+      s: 1.0.0
+
+  s@1.0.0:
+    resolution: {integrity: ${I}}
+
+snapshots:
+
+  a@1.0.0(${peer}):
+    dependencies:
+      n: ${into.slice(2)}
+
+  b@1.0.0: {}
+
+  ${into}:
+    dependencies:
+      b: 1.0.0
+      r: 1.0.0(q@1.0.0)(s@1.0.0)
+
+  q@1.0.0: {}
+
+  r@1.0.0(q@1.0.0)(s@1.0.0):
+    dependencies:
+      q: 1.0.0
+      s: 1.0.0
+
+  s@1.0.0: {}
+`
+    // Without b; and with an r without s, itself merged into the r with it.
+    for (const peer of ['n@1.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(r@1.0.0(q@1.0.0))']) {
+      assert.equal(parse(doc(peer)).packages[`a@1.0.0(${peer})`].dependencies.n, into, peer)
+    }
+    // pnpm merges a snapshot into one of its package with a peer of every
+    // name it has one of, each resolved alike: not one of another version,
+    // nor one with a peer of another name, nor one whose r, or r's q, is of
+    // another version, which leads elsewhere, nor one whose r has a peer the
+    // r n has does not, which no r in the lockfile has both of.
+    for (const peer of ['n@2.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(x@1.0.0)', 'n@1.0.0(r@2.0.0)', 'n@1.0.0(r@1.0.0(q@2.0.0))', 'n@1.0.0(r@1.0.0(z@1.0.0))']) {
+      refuses(doc(peer), `snapshots["a@1.0.0(${peer})"]: the peer "${peer}" is not one of its dependencies, nor a peer of theirs it resolves`)
+    }
+  })
+
   it('peers past peersSuffixMaxLength, as the one hash pnpm puts in their place', () => {
     const hashed = 'a@1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)'
     const lock = read(['1.0.0(c@2.0.0)', '1.0.0(3c43e3b4d70b446a2aae7f4f7fbeccdd)'], ['a@1.0.0(c@2.0.0):', `${hashed}:`])
