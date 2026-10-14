@@ -172,6 +172,9 @@ describe('renameMap', () => {
     const reading = (text) => text.replace('export function f(e) {\n', 'export function f(e) {\n  m(arguments);\n')
     assert.equal(renameMap(reading(before), reading(after)).text, reading(before).replaceAll(/\be\b/gu, 'i'))
     assert.equal(renameMap(before.replace('n(e);', 'n(e, arguments);'), after.replace('n(e);', 'n(e, arguments);')).text, before.replace('n(e);', 'n(e, arguments);'))
+    // Outside strict code a `var arguments` is its function's `arguments` still.
+    const sloppy = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  var arguments;\n  arguments.length;\n')}module.exports = f;\n`
+    assert.equal(renameMap(sloppy(before), sloppy(after)).text, sloppy(before).replaceAll(/\be\b/gu, 'i'))
     // A variable set again may be a minifier's two in one (moment's `i` a regular expression, then a
     // prototype), its declaration telling of the first alone: its lines say.
     const merged = (a, b, set) => lines(['export function f(q, h) {', `  var ${a} = /\\d/,`, `    ${b} = /^[1-9]\\d?/;`, `  h("Q", ${a});`, `  h("D", ${b});`, `  ${set} = q.prototype;`,

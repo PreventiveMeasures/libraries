@@ -243,8 +243,9 @@ function resolved(program, s) {
   }
   // Set again (`reassigned`): written, or declared more than once, or a
   // parameter of a function that reads `arguments`, which may write it
-  // (`arguments[0] = x`, outside strict code) -- an arrow's its function's.
-  for (const [node, where] of globals) {
+  // (`arguments[0] = x`, outside strict code) -- an arrow's its function's,
+  // and a `var arguments` its function's own `arguments` still.
+  for (const [node, where] of [...globals, ...occurrences.map(([named, , at]) => [named, at])]) {
     if (node.name !== 'arguments') continue
     let at = where
     while (at && !(at.parameter && !at.arrow)) at = at.parent
