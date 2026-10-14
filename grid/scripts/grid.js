@@ -24,7 +24,7 @@ for one request against a table. Both read the response cache, so a rerun of eit
       --search <id>     select: the page model (default: --strong)
       --cheap <id>      select: the whole-dataset model (default: --search)
   -p, --provider <name> anthropic, openai, openrouter, moonshot, ollama, chrome; inferred from the
-                        model's namespace when omitted
+                        models' namespace when omitted, which every model of a run must then share
       --cache-dir <dir> the response cache (default: ./grid-cache)
       --concurrency <n> calls in flight at once (default: 20)
       --top <n>         select: how many results to print (default: all finalists)
@@ -107,11 +107,9 @@ async function selectOne(values, common) {
   if (!values.table || !values.request) fail(`select needs --table and --request\n\n${USAGE}`)
   const table = readJSON(values.table)
   const request = { id: values.id ?? values.request, text: readFileSync(values.request, 'utf8').trim() }
-  const strong = values.strong ?? common.model
   const started = Date.now()
   const result = await select({
     ...common, ...table, request,
-    models: { strong, search: values.search ?? strong, cheap: values.cheap ?? values.search ?? strong },
     topK: values.top === undefined ? undefined : number(values.top, 'top'),
     final: number(values.final, 'final', 0.01),
     useGate: !values['no-gate'],
@@ -136,13 +134,22 @@ async function main(argv) {
   if (command !== 'build' && command !== 'select') fail(`expected build or select\n\n${USAGE}`)
 
   const model = values.model ?? DEFAULT_MODEL
-  const provider = values.provider ?? PROVIDER_FOR[model.split('/')[0]] ?? 'openrouter'
+  const strong = values.strong ?? model
+  const models = { strong, search: values.search ?? strong, cheap: values.cheap ?? values.search ?? strong }
+  // One provider serves a whole run (the layer's is process-wide), so it is inferred from the
+  // models the command will actually send -- select's three, not the --model they default from --
+  // and a run whose models would need two is refused rather than routed through the wrong one.
+  const used = command === 'build' ? [model] : Object.values(models)
+  const inferred = [...new Set(used.map((id) => PROVIDER_FOR[id.split('/')[0]] ?? 'openrouter'))]
+  if (values.provider === undefined && inferred.length > 1) {
+    fail(`the models would need ${inferred.join(' and ')}; name one --provider that serves them all (openrouter serves every hosted model)`)
+  }
   const concurrency = number(values.concurrency, 'concurrency', 20)
   setCacheDir(values['cache-dir'] ?? './grid-cache')
   setFetchConcurrency(concurrency)
-  try { setProvider(provider) } catch (err) { return fail(err.message) }
+  try { setProvider(values.provider ?? inferred[0]) } catch (err) { return fail(err.message) }
 
-  const common = { model, concurrency, think: Boolean(values.think), effort: values.effort }
+  const common = { model, models, concurrency, think: Boolean(values.think), effort: values.effort }
   try {
     if (command === 'build') await build(values, common)
     else await selectOne(values, common)
