@@ -19,13 +19,15 @@ const renames = (old, fresh, options) => compareTrees(tree(old), tree(fresh), { 
   .map(({ status, old: from, new: to, similarity }) => (status === 'renamed' ? `${from.path} -> ${to.path} ${similarity}%` : `${status} ${(to ?? from).path}`))
 
 describe('bundle chunks', () => {
-  it('pairs a chunk whose hash changed, in its directory, scored split at punctuation', () => {
+  it('pairs a chunk whose hash changed, in its directory, whatever extensions follow the hash, scored split at punctuation', () => {
     for (const [from, to] of [
       ['assets/index-CyWAfh-p.js', 'assets/index-hRvO4yU2.js'],
       ['assets/codeMirrorModule--QdMvsKi.js', 'assets/codeMirrorModule-CVQWJZAA.js'],
       ['traceViewer/uiMode.Dzuouizj.js', 'traceViewer/uiMode.CU5KtEkS.js'],
       ['static/chunks/main_3f9a2c1d.js', 'static/chunks/main_8b7e6a5f.js'],
       ['index-AbCdEf12.mjs', 'index-ZyXwVu98.mjs'],
+      ['static/js/main.3f9a2c1d.chunk.js', 'static/js/main.8b7e6a5f.chunk.js'],
+      ['assets/index-CyWAfh-p.js.map', 'assets/index-hRvO4yU2.js.map'],
     ]) assert.deepEqual(renames({ [from]: OLD }, { [to]: NEW }), [`${from} -> ${to} 86%`], `${from} -> ${to}`)
   })
 
@@ -49,6 +51,8 @@ describe('bundle chunks', () => {
       ['a/CyWAfh-p.js', 'a/hRvO4yU2.js'],
       ['a/index.CyWAfh+p.js', 'a/index.hRvO4y+2.js'],
       ['a/index+CyWAfh-p.js', 'a/index+hRvO4yU2.js'],
+      ['a/main.AbCdEf12.chunk.js', 'a/main.ZyXwVu98.lazy0.js'],
+      ['a/index-CyWAfh-p.cjs.map', 'a/index-hRvO4yU2.mjs.map'],
     ]) assert.deepEqual(renames({ [from]: OLD }, { [to]: NEW }).toSorted(), [`added ${to}`, `deleted ${from}`].toSorted(), `${from} -> ${to}`)
   })
 
@@ -73,8 +77,44 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames(old, fresh, { renameLimit: 2 }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'b/index-CyWAfh-p.js -> b/index-hRvO4yU2.js 86%'])
   })
 
-  it('pairs only what no other pass claimed', () => {
+  it('pairs a chunk before git scores the files left, so that no file elsewhere takes its other version', () => {
+    // Most of it as git splits it, against none of the chunk's other version.
+    const legacy = `x=1;${statements(0, 70)}${statements(5000, 5030)}`
+    assert.deepEqual(renames({ 'a/index-CyWAfh-p.js': OLD, 'b/legacy.js': legacy }, { 'a/index-hRvO4yU2.js': NEW }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'deleted b/legacy.js'])
+    assert.deepEqual(renames({ 'a/index-CyWAfh-p.js': OLD }, { 'a/index-hRvO4yU2.js': NEW, 'b/legacy.js': legacy }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'added b/legacy.js'])
+    assert.deepEqual(renames({ 'a/index-CyWAfh-p.js': OLD, 'b/legacy.js': legacy }, { 'a/index-hRvO4yU2.js': NEW }, { renamesByPath: false }), ['deleted a/index-CyWAfh-p.js', 'b/legacy.js -> a/index-hRvO4yU2.js 62%'])
+  })
+
+  it('gives way to identical content, or to a candidate halfway closer to 100% than the pair, as a pair by path does', () => {
     const old = { 'a/index-CyWAfh-p.js': OLD }
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': NEW, 'b/copy.js': OLD }), ['added a/index-hRvO4yU2.js', 'a/index-CyWAfh-p.js -> b/copy.js 100%'])
+    // 86% for the chunk, against 94% for another deleted file, past 93, or 90%, short of it.
+    const near = (k) => `x=1;${statements(0, 90)}${statements(1000, 1000 + k)}${statements(5000, 5010 - k)}`
+    assert.deepEqual(renames({ ...old, 'b/near.js': near(6) }, { 'a/index-hRvO4yU2.js': NEW }), ['deleted a/index-CyWAfh-p.js', 'b/near.js -> a/index-hRvO4yU2.js 94%'])
+    assert.deepEqual(renames({ ...old, 'b/near.js': near(3) }, { 'a/index-hRvO4yU2.js': NEW }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'deleted b/near.js'])
+  })
+
+  it('pairs a chunk after all where git pairs the candidate it gave way to with another file', () => {
+    // 95% for the old chunk against another added file, which git gives a deleted one 97% like it.
+    const other = `S${OLD.slice(1)}`
+    const fresh = { 'a/index-hRvO4yU2.js': NEW, 'b/other.js': other }, old = { 'a/index-CyWAfh-p.js': OLD, 'c/legacy.js': `${other.slice(0, -1)}#` }
+    assert.deepEqual(renames(old, fresh), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'c/legacy.js -> b/other.js 97%'])
+  })
+
+  it('keeps the files of a chunk that gave way from a worse pair of either until git has paired the rest', () => {
+    // 86% and 76% for the old chunk; the first gives way to a deleted file 94% like the new one, which git
+    // gives an added file 97% like it, or else takes.
+    const rival = `x=1;${statements(0, 90)}${statements(1000, 1006)}${statements(5000, 5004)}`
+    const fresh = { 'a/index-BBBB2222.js': NEW, 'a/index-CCCC3333.js': kept(82) }, old = { 'a/index-AAAA1111.js': OLD, 'b/rival.js': rival }
+    assert.deepEqual(renames(old, { ...fresh, 'c/closer.js': `${rival.slice(0, -1)}#` }), ['a/index-AAAA1111.js -> a/index-BBBB2222.js 86%', 'added a/index-CCCC3333.js', 'b/rival.js -> c/closer.js 97%'])
+    assert.deepEqual(renames(old, fresh), ['b/rival.js -> a/index-BBBB2222.js 94%', 'a/index-AAAA1111.js -> a/index-CCCC3333.js 76%'])
+  })
+
+  it('takes a chunk that gave way before git pairs either of its files at a score that could not outdo it', () => {
+    // As above, with an added file elsewhere that git scores 62% like the old chunk.
+    const rival = `x=1;${statements(0, 90)}${statements(1000, 1006)}${statements(5000, 5004)}`
+    const fresh = { 'a/index-BBBB2222.js': NEW, 'e/part.js': `${statements(0, 70)}${statements(8000, 8030)}` }, old = { 'a/index-AAAA1111.js': OLD, 'b/rival.js': rival }
+    assert.deepEqual(renames(old, { ...fresh, 'c/closer.js': `${rival.slice(0, -1)}#` }), ['a/index-AAAA1111.js -> a/index-BBBB2222.js 86%', 'b/rival.js -> c/closer.js 97%', 'added e/part.js'])
+    assert.deepEqual(renames(old, fresh), ['b/rival.js -> a/index-BBBB2222.js 94%', 'a/index-AAAA1111.js -> e/part.js 62%'])
   })
 })
