@@ -1,6 +1,6 @@
 // git's -M pairing (diffcore_rename_extended): identical content, then a
 // basename unique among both sides' leftovers at a stricter score, then every
-// pair left scored; between the first two and after the last, ours, renames
+// pair left scored; between the first two and before the last, ours, renames
 // told by path, and bundle chunks (chunks.js).
 
 import { crc32 } from '@exodus/bytes/crc.js'
@@ -71,9 +71,9 @@ function familyKeys(path) {
   return keys
 }
 
-// Whether either file of a pair by path has a candidate that is a rename by
-// itself and scores at least halfway from the pair's score to 100%: sizes too
-// far apart for that go unread.
+// Whether either file of a pair by path or a chunk's has a candidate that is a
+// rename by itself and scores at least halfway from the pair's score to 100%:
+// sizes too far apart for that go unread.
 function outdone({ pairs, used, scoreOf }, { remaining, open }, { s, d, score }, minimum) {
   const better = Math.max(minimum, score + Math.trunc((MAX_SCORE - score) / 2))
   return open.some((o) => o !== d && !pairs.has(o) && scoreOf(s, o, better) >= better)
@@ -210,7 +210,7 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
   basenameRenames(context, unpaired(context), stricter(minimum))
   const left = unpaired(context)
   if (left.remaining.length * left.open.length > limit * limit) return pairs
-  scoredRenames(context, left, minimum)
-  if (byPath) chunkRenames(context, unpaired(context), stricter(minimum))
+  if (byPath) chunkRenames(context, left, stricter(minimum), (pair) => outdone(context, left, pair, minimum))
+  scoredRenames(context, unpaired(context), minimum)
   return pairs
 }
