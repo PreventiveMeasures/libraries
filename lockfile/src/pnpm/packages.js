@@ -161,16 +161,23 @@ const DEEPEST = 32
 // and a peer of every name it has one of, and leads every dependency on it
 // there, but leaves the keys it was a peer in as they were written. Such a
 // peer, `key`, is of the package and patch of the snapshot `into` it was
-// merged into, with no peer of a name `into` has none of, and each peer the
-// same as `into`'s of its name but for merges of their own: both of one
-// package and patch, and each peer they both have the same so, but where a
-// hash stands in for them.
-function mergedInto(key, into, depth = 0) {
+// merged into, a snapshot of `packages`, with no peer of a name `into` has
+// none of, and each peer the dependency of its name of `into`, or merged
+// into it so; one `into` resolved for its own dependencies, the same as in
+// its key. Where one hash stands in for the peers of either, it is taken on
+// the package and patch.
+function mergedInto(key, into, packages, depth = 0) {
   if (key === into) return true
   const [merged, kept] = [variantOf(key), variantOf(into)]
   if (depth > DEEPEST || merged === undefined || kept === undefined || merged.unpeered !== kept.unpeered) return false
   if (merged.peers === undefined || kept.peers === undefined) return true
-  return [...merged.peers].every(([name, peer]) => (kept.peers.has(name) ? mergedInto(peer, kept.peers.get(name), depth + 1) : depth > 0))
+  const { dependencies, optionalDependencies } = packages[into]
+  return [...merged.peers].every(([name, peer]) => {
+    if (!kept.peers.has(name)) return false
+    const to = dependencies[name] ?? optionalDependencies[name]
+    if (to === undefined) return peer === kept.peers.get(name)
+    return !to.startsWith('link:') && mergedInto(peer, to, packages, depth + 1)
+  })
 }
 
 // The peers a snapshot key ends in, as pnpm's resolvePeers writes them:
@@ -180,10 +187,10 @@ function mergedInto(key, into, depth = 0) {
 // dependencies, where it has transitivePeerDependencies, by the key of a
 // snapshot or a package, by a name and version, or by the alias of one
 // among them and a directory, which no version is; or one hash in place
-// of them all; or a snapshot of a dependency's package merged into it.
-// Whatever else the key would say it was resolved with, the lockfile does
-// not have.
-function checkPeers(groups, snapshot, infos, known, where) {
+// of them all; or a snapshot merged into a dependency, which is held so in
+// `merges` once every snapshot is read. Whatever else the key would say it
+// was resolved with, the lockfile does not have.
+function checkPeers(groups, snapshot, infos, known, merges, where) {
   if (groups.length === 0 || (groups.length === 1 && isPeersHash(groups[0]))) return
   // A dependency in a group: by its key, or name and version; by a name
   // alone, with no peers of its own, a link or a package of no version.
@@ -202,23 +209,25 @@ function checkPeers(groups, snapshot, infos, known, where) {
     else keys.add(`${info.name}@${info.version}`)
   }
   const transitive = snapshot.transitivePeerDependencies
-  // The keys of the dependencies by package and patch, for a peer merged
-  // into one; made where first asked for.
-  let byPackage
-  const merged = (group) => {
-    const unpeered = variantOf(group)?.unpeered
-    if (unpeered === undefined) return false
-    byPackage ??= Map.groupBy([...keys].filter((key) => key.includes('(')), (key) => variantOf(key)?.unpeered)
-    return (byPackage.get(unpeered) ?? []).some((key) => mergedInto(group, key))
-  }
   for (const group of groups) {
     const name = nameOf(group)
     if (name === '') throw new LockfileError(`${quote(group)} is not a peer, as pnpm writes one in a key`, where)
     const plain = !group.includes('(')
-    if (keys.has(group) || (plain && bare.has(name)) || (!plain && merged(group))) continue
+    if (keys.has(group) || (plain && bare.has(name))) continue
     const linked = plain && transitive.includes(name) && !isVersion(group.slice(name.length + 1))
     if (transitive.length > 0 && (known().has(group) || linked)) continue
-    throw new LockfileError(`the peer ${quote(group)} is not one of its dependencies, nor a peer of theirs it resolves`, where)
+    if (plain) throw unexplained(group, where)
+    merges.push({ group, snapshot, where })
+  }
+}
+
+const unexplained = (group, where) => new LockfileError(`the peer ${quote(group)} is not one of its dependencies, nor a peer of theirs it resolves`, where)
+
+// Each peer checkPeers left for a dependency it was merged into.
+function checkMerges(merges, packages) {
+  for (const { group, snapshot, where } of merges) {
+    const into = Object.values({ ...snapshot.dependencies, ...snapshot.optionalDependencies })
+    if (!into.some((to) => !to.startsWith('link:') && mergedInto(group, to, packages))) throw unexplained(group, where)
   }
 }
 
@@ -257,6 +266,7 @@ export function readPackages(doc, prefix, patches) {
   const known = () => (named ??= new Set([...Object.keys(snapshots), ...infos.keys(), ...[...infos.values()].map((info) => `${info.name}@${info.version}`)]))
   const seen = new Set()
   const used = new Set()
+  const merges = []
   const packages = mapping(snapshots, snapshotsAt, (entry, where, key) => {
     const { base, patchHash, peers } = splitSnapshotKey(key, where)
     const info = infos.get(base)
@@ -271,9 +281,10 @@ export function readPackages(doc, prefix, patches) {
     seen.add(base)
     if (key.includes(':')) versioned.delete(base)
     const snapshot = readSnapshot(entry, where, snapshots)
-    checkPeers(peers, snapshot, infos, known, where)
+    checkPeers(peers, snapshot, infos, known, merges, where)
     return { ...info, patchHash, ...snapshot }
   })
+  checkMerges(merges, packages)
   for (const key of infos.keys()) {
     if (!seen.has(key)) throw new LockfileError('no snapshot is of this package', at(packagesAt, key))
   }

@@ -372,8 +372,9 @@ snapshots:
     // pnpm merges a snapshot into one of its package with a peer of every
     // name it has one of, each resolved alike: not one of another version,
     // nor one with a peer of another name, nor one whose r, or r's q, is of
-    // another version, which leads elsewhere.
-    for (const peer of ['n@2.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(x@1.0.0)', 'n@1.0.0(r@2.0.0)', 'n@1.0.0(r@1.0.0(q@2.0.0))']) {
+    // another version, which leads elsewhere, nor one whose r has a peer the
+    // r n has does not, which no r in the lockfile has both of.
+    for (const peer of ['n@2.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(x@1.0.0)', 'n@1.0.0(r@2.0.0)', 'n@1.0.0(r@1.0.0(q@2.0.0))', 'n@1.0.0(r@1.0.0(z@1.0.0))']) {
       refuses(doc(peer), `snapshots["a@1.0.0(${peer})"]: the peer "${peer}" is not one of its dependencies, nor a peer of theirs it resolves`)
     }
   })
