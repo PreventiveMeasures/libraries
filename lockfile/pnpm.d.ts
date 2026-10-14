@@ -106,8 +106,19 @@ export interface PnpmPackage {
   // By alias, the peers resolved for this snapshot among them.
   dependencies: Record<string, Target>
   optionalDependencies: Record<string, Target>
-  // Installed only as an optional dependency.
+  // How it is depended on, as npm's flags say, by what reaches it from the
+  // importers: `dev` where no dependency or optional dependency of one
+  // does, which `pnpm install --prod` leaves out; `optional` where none but
+  // an optional dependency does, a devDependency counting as required,
+  // which --no-optional leaves out; `devOptional` where none but a
+  // devDependency or an optional one does, which both together leave out.
+  // `optional` is as pnpm writes it, which in a pnpm-lock.yaml is so; in
+  // the lockfile pnpm keeps in node_modules/.pnpm after an install that
+  // left some out, it is still of the whole graph. In the env document,
+  // all are required.
+  dev: boolean
   optional: boolean
+  devOptional: boolean
   transitivePeerDependencies: string[]
   // As the manifest says: absent `os`, `cpu` or `libc` means any, and
   // `bundledDependencies` true means all.

@@ -27,3 +27,28 @@ export function unreached(starts, packages) {
   }
   return Object.keys(packages).find((key) => !reached.has(key))
 }
+
+// The flags npm writes of how each package is depended on, by the kinds
+// of the importers' lists that are `required`, `dev` and `optional`: `dev`
+// where no required or optional dependency of an importer reaches it,
+// which an install of no devDependencies leaves out; `optional` where no
+// required or dev one does but through an optional dependency, which an
+// install of no optional ones leaves out; `devOptional` where no required
+// one does but through either, which an install of neither leaves out. A
+// `link:` is no package: an importer it leads to is reached as one. By
+// package, so that the keys of one share its flags.
+export function flagsOf(packages, importers, { required = ['dependencies'], dev = ['devDependencies'], optional = ['optionalDependencies'] } = {}) {
+  const reach = (kinds, through) => {
+    const reached = new Set()
+    const visit = (targets) => {
+      for (const key of Object.values(targets)) if (!key.startsWith('link:')) reached.add(packages[key])
+    }
+    for (const importer of Object.values(importers)) for (const kind of kinds) visit(importer[kind])
+    for (const pkg of reached) for (const kind of through) visit(pkg[kind])
+    return reached
+  }
+  const prod = reach([...required, ...optional], ['dependencies', 'optionalDependencies'])
+  const plain = reach([...required, ...dev], ['dependencies'])
+  const needed = reach(required, ['dependencies'])
+  return (pkg) => ({ dev: !prod.has(pkg), optional: !plain.has(pkg), devOptional: !needed.has(pkg) })
+}

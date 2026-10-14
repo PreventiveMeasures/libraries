@@ -65,6 +65,18 @@ export interface Yarn1Package {
   resolution: Yarn1Resolution | undefined
   dependencies: Record<string, Target>
   optionalDependencies: Record<string, Target>
+  // How it is depended on, as npm's flags say, by what reaches it from the
+  // importers: `dev` where no dependency or optional dependency of one
+  // does, which `yarn install --production` leaves out; `optional` where
+  // none but an optional dependency does, a devDependency counting as
+  // required, which --ignore-optional leaves out; `devOptional` where none
+  // but a devDependency or an optional one does, which both together leave
+  // out. A package only a resolution asks for, which yarn does not
+  // install, has all three; peers, which yarn installs none of, lead
+  // nowhere. Undefined without `manifests`, which alone say what is dev.
+  dev: boolean | undefined
+  optional: boolean | undefined
+  devOptional: boolean | undefined
 }
 
 // `tarball` is an http(s) URL, or `file:` and a path from the lockfile's

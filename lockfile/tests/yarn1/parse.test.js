@@ -114,6 +114,9 @@ describe('the base lockfile', () => {
       resolution: { type: 'tarball', tarball: 'https://registry.yarnpkg.com/a/-/a-1.1.0.tgz', sha1: H, integrity: I },
       dependencies: { '@s/c': '@s/c@^2.0.0', b: 'b@1.0.0' },
       optionalDependencies: {},
+      dev: false,
+      optional: false,
+      devOptional: false,
     })
   })
 
@@ -146,10 +149,11 @@ describe('the base lockfile', () => {
     }
   })
 
-  it('without the manifests, no importers', () => {
+  it('without the manifests, no importers, nor flags', () => {
     const alone = parse(BASE)
     assert.equal(alone.importers, undefined)
-    assert.deepEqual(plain(alone.packages), plain(lock.packages))
+    const unflagged = { dev: undefined, optional: undefined, devOptional: undefined }
+    assert.deepEqual(plain(alone.packages), plain(Object.fromEntries(Object.entries(lock.packages).map(([key, pkg]) => [key, { ...pkg, ...unflagged }]))))
   })
 
   it('refuses a line longer than 2^20 characters, as yarn writes none', () => {
@@ -365,6 +369,37 @@ describe('with the manifests', () => {
   it('refuses a dependency not given what a resolution resolves it to', () => {
     const text = edit(['b@1.0.0:', `b@2.0.0:\n  version "2.0.0"\n  resolved "https://registry.yarnpkg.com/b/-/b-2.0.0.tgz#${H}"\n\nb@1.0.0:`])
     refuses(text, '"b@1.0.0" is not given "b@2.0.0", which the resolution "**/b" resolves it to', '["d@file:./d"].dependencies.b', withRoot({ resolutions: { '**/b': '2.0.0' } }))
+  })
+
+  // b asked for by x and by the root's devDependencies, under a pattern
+  // each; q by an optional dependency and a devDependency; s by a workspace
+  // the root asks for as an optional dependency, which is a project of its
+  // own all the same; r by a resolution alone, which yarn does not install.
+  it('how each package is depended on, as npm\'s flags say', () => {
+    const entry = (keys, name, lists = '') => `${keys}:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/${name}/-/${name}-1.0.0.tgz#${H}"\n  integrity ${I}\n${lists}`
+    const one = (name, lists) => entry(`${name}@1.0.0`, name, lists)
+    const text = `${HEADER}\n\n${[
+      entry('b@1.0.0, b@^1.0.0', 'b'),
+      one('o', '  dependencies:\n    q "1.0.0"\n'),
+      one('p', '  dependencies:\n    q "1.0.0"\n'),
+      one('q'),
+      one('r'),
+      one('s'),
+      one('v'),
+      one('x', '  dependencies:\n    b "^1.0.0"\n    y "1.0.0"\n'),
+      one('y', '  optionalDependencies:\n    z "1.0.0"\n'),
+      one('z'),
+    ].join('\n')}`
+    const manifests = {
+      '.': { name: 'root', private: true, workspaces: ['w'], dependencies: { x: '1.0.0' }, devDependencies: { b: '1.0.0', p: '1.0.0' }, optionalDependencies: { o: '1.0.0', w: '1.0.0' }, resolutions: { r: '1.0.0' } },
+      w: { name: 'w', version: '1.0.0', dependencies: { s: '1.0.0' }, devDependencies: { v: '1.0.0' } },
+    }
+    const flags = Object.entries(lock(text, manifests).packages).map(([key, pkg]) => [key, pkg.dev, pkg.optional, pkg.devOptional])
+    const [required, dev, optional, either, none] = [[false, false, false], [true, false, true], [false, true, true], [false, false, true], [true, true, true]]
+    assert.deepEqual(flags, [
+      ['b@1.0.0', ...required], ['b@^1.0.0', ...required], ['o@1.0.0', ...optional], ['p@1.0.0', ...dev], ['q@1.0.0', ...either], ['r@1.0.0', ...none],
+      ['s@1.0.0', ...required], ['v@1.0.0', ...dev], ['x@1.0.0', ...required], ['y@1.0.0', ...required], ['z@1.0.0', ...optional],
+    ])
   })
 })
 
