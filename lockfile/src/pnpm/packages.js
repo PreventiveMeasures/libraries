@@ -4,7 +4,7 @@
 // and its patch are in its key -- and the entry is what the package is
 // wherever it is. Every snapshot has its entry and every entry a snapshot.
 
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, attempt, quote } from '../error.js'
 import { readLists } from '../graph.js'
 import { checkName, checkRegistryTarball, checkVersion, isVersion, joinRelative } from '../names.js'
 import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
@@ -140,6 +140,30 @@ function nameOf(group) {
   return sep === -1 ? '' : group.slice(0, sep)
 }
 
+// A key's peers by name, or undefined where one hash stands in for them.
+const peerNames = (peers) => (peers.length === 1 && isPeersHash(peers[0]) ? undefined : peers.map(nameOf))
+
+// A snapshot key but for its peers, and the names of those, `peers`; or
+// undefined for what does not read as one.
+function variantOf(key) {
+  const split = attempt(() => splitSnapshotKey(key), () => undefined)
+  if (split === undefined) return undefined
+  const unpeered = split.patchHash === undefined ? split.base : `${split.base}(patch_hash=${split.patchHash})`
+  return { unpeered, peers: peerNames(split.peers) }
+}
+
+// pnpm's dedupePeerDependents, on by default: of two snapshots of a package
+// and patch, it merges one into another that has all its dependencies and
+// peers, and leads every dependency on it there, but leaves the keys it was
+// a peer in as they were written. Such a peer is of a dependency's package
+// and patch, with no peer the dependency has not, and is in the lockfile no
+// more.
+function mergedInto(group, variants) {
+  const peer = variantOf(group)
+  if (peer === undefined) return false
+  return variants.some(({ unpeered, peers }) => unpeered === peer.unpeered && (peers === undefined || peer.peers === undefined || peer.peers.every((name) => peers.includes(name))))
+}
+
 // The peers a snapshot key ends in, as pnpm's resolvePeers writes them:
 // each a dependency of the snapshot, by its key, by its name and version as
 // dedupePeers and a cycle of peers write it, or a link by its alias and
@@ -147,20 +171,25 @@ function nameOf(group) {
 // dependencies, where it has transitivePeerDependencies, by the key of a
 // snapshot or a package, by a name and version, or by the alias of one
 // among them and a directory, which no version is; or one hash in place
-// of them all. Whatever else the key would say it was resolved with, the
-// lockfile does not have.
+// of them all; or a snapshot of a dependency's package merged into it.
+// Whatever else the key would say it was resolved with, the lockfile does
+// not have.
 function checkPeers(groups, snapshot, infos, known, where) {
   if (groups.length === 0 || (groups.length === 1 && isPeersHash(groups[0]))) return
   // A dependency in a group: by its key, or name and version; by a name
   // alone, with no peers of its own, a link or a package of no version.
   const keys = new Set()
   const bare = new Set()
+  const variants = []
   for (const [alias, to] of Object.entries({ ...snapshot.dependencies, ...snapshot.optionalDependencies })) {
     if (to.startsWith('link:')) {
       bare.add(alias)
       continue
     }
     keys.add(to)
+    // A key that does not read as one is refused where it is read.
+    const variant = variantOf(to)
+    if (variant !== undefined) variants.push(variant)
     // A snapshot whose package is missing is refused where it is read.
     const info = infos.get(packageKeyOf(to))
     if (info === undefined) continue
@@ -172,7 +201,7 @@ function checkPeers(groups, snapshot, infos, known, where) {
     const name = nameOf(group)
     if (name === '') throw new LockfileError(`${quote(group)} is not a peer, as pnpm writes one in a key`, where)
     const plain = !group.includes('(')
-    if (keys.has(group) || (plain && bare.has(name))) continue
+    if (keys.has(group) || (plain && bare.has(name)) || (!plain && mergedInto(group, variants))) continue
     const linked = plain && transitive.includes(name) && !isVersion(group.slice(name.length + 1))
     if (transitive.length > 0 && (known().has(group) || linked)) continue
     throw new LockfileError(`the peer ${quote(group)} is not one of its dependencies, nor a peer of theirs it resolves`, where)
