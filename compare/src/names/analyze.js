@@ -246,13 +246,19 @@ function resolved(program, s) {
   // parameter of a function that reads `arguments`, which may write it
   // (`arguments[0] = x`, outside strict code) -- an arrow's its function's,
   // and a `var arguments` its function's own `arguments` still, unlike one a
-  // `let`, a parameter or a `catch` declares.
-  for (const [node, where] of [...globals, ...occurrences.filter(([, variable]) => variable.byVar).map(([named, , at]) => [named, at])]) {
+  // `let`, a parameter, a `catch` or an arrow's `var` declares.
+  const setting = new Set()
+  for (const [node, where] of globals) {
     if (node.name !== 'arguments') continue
     let at = where
     while (at && !(at.parameter && !at.arrow)) at = at.parent
-    for (const variable of at?.names.values() ?? []) variable.reassigned = true
+    setting.add(at)
   }
+  for (const variable of s.variables) {
+    const at = variable.scope.parameters ?? variable.scope
+    if (variable.name === 'arguments' && variable.byVar && at.parameter && !at.arrow) setting.add(at)
+  }
+  for (const at of setting) for (const variable of at?.names.values() ?? []) variable.reassigned = true
   const declaredAlready = new Set()
   for (const [node, variable] of occurrences) {
     if (s.keeping.has(node)) variable.kept = true
