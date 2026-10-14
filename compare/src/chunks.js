@@ -32,25 +32,29 @@ function oneChunk(a, b) {
 }
 
 // Chunks git's scored pass has yet to claim, by directory, extension and
-// name's length, each pair at least `bar`: the best first, as git takes its
-// candidates, but for a pair `outdone` by a file's other candidate, set aside
-// and returned, best first, for git to pair that candidate with another file:
-// it holds its files, so that a later pair of either is set aside behind it.
+// name's length, each pair at least `bar` -- or however it scores, where each
+// is the other's only such chunk, as a pair by path is: the build's own chunk,
+// rewritten (playwright's dashboard `index-*.js`, 31% alike from 1.61 to 1.62):
+// the best first, as git takes its candidates, but for a pair `outdone` by a
+// file's other candidate, set aside and returned, best first, for git to pair
+// that candidate with another file: it holds its files, so that a later pair
+// of either is set aside behind it.
 export function chunkRenames({ sources, dests, pairs, used, record, punctuatedScoreOf }, { remaining, open }, bar, outdone) {
   const names = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, nameOf(files[i].path)]))
   const destNames = names(dests, open), sourceNames = names(sources, remaining)
   const byKey = Map.groupBy(sourceNames.keys(), (s) => sourceNames.get(s).key)
   const opens = Map.groupBy(destNames.keys(), (d) => destNames.get(d).key)
-  const candidates = []
+  const chunks = []
   for (const [key, ds] of opens) {
     const ss = byKey.get(key) ?? []
-    for (const d of ds) {
-      for (const s of ss) {
-        if (!oneChunk(sourceNames.get(s).name, destNames.get(d).name)) continue
-        const score = punctuatedScoreOf(s, d, bar)
-        if (score >= bar) candidates.push({ s, d, score })
-      }
-    }
+    for (const d of ds) for (const s of ss) if (oneChunk(sourceNames.get(s).name, destNames.get(d).name)) chunks.push({ s, d })
+  }
+  const byDest = Map.groupBy(chunks, ({ d }) => d), bySource = Map.groupBy(chunks, ({ s }) => s)
+  const candidates = []
+  for (const { s, d } of chunks) {
+    const only = bySource.get(s).length === 1 && byDest.get(d).length === 1
+    const score = punctuatedScoreOf(s, d, only ? 0 : bar)
+    if (only || score >= bar) candidates.push({ s, d, score })
   }
   const aside = [], heldDests = new Set(), heldSources = new Set()
   for (const pair of candidates.sort((x, y) => y.score - x.score)) {
