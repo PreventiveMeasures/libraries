@@ -84,7 +84,9 @@ export interface FileChange extends FileStatus {
 // `diff -U0` and the normal format, the context to match `diff -u` (diff's
 // --horizon-lines); `whitespace` (-w as 'all', -b as 'change', -Z as
 // 'trailing') and `ignoreCase` (-i) say which lines are the same, so that a
-// file changed in nothing else has no blocks.
+// file changed in nothing else has no blocks. Ignoring blanks or case never
+// shows more lines than minding them, and where it shows no fewer, its blocks
+// are those minding them: it does nothing there.
 export interface LineOptions {
   horizon?: number
   whitespace?: 'none' | 'all' | 'change' | 'trailing'
