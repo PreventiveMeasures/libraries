@@ -24,6 +24,7 @@ describe('sameCode', () => {
     assert.equal(sameCode('const x:number=(a as any)+1', 'const x: number = (a as any) + 1;\n', 'ts'), true)
     assert.equal(sameCode('import{a,b,}from"m";f(a,b,);x={a,b,};y=[a,b,]', 'import { a, b } from "m";\nf(a, b);\nx = { a, b };\ny = [a, b];\n'), true, 'trailing commas dropped')
     assert.equal(sameCode('y=[1,// one\n2,// two\n]', 'y = [\n  1, // one\n  2 // two\n];\n'), true, 'and before a comment')
+    for (const end of ['\r', '\r\n', '\u2028', '\u2029']) assert.equal(sameCode(`f(a,// c${end})`, 'f(\n  a // c\n);\n'), true, `a line comment ended by ${JSON.stringify(end)}`)
     assert.equal(sameCode('type P=A|B|C;let x:(A|B)[];f<A|B>();g(x as {a:1}|null)', 'type P =\n  | A\n  | B\n  | C;\nlet x: (\n  | A\n  | B\n)[];\nf<\n  | A\n  | B\n>();\ng(\n  x as\n    | { a: 1 }\n    | null\n);\n', 'ts'), true,
       'a union broken over lines, each part led by `|`')
     assert.equal(sameCode('type I=A&B;type M={[K in A|B]:1}', 'type I =\n  & A\n  & B;\ntype M = {\n  [K in\n    | A\n    | B]: 1;\n};\n', 'ts'), true, 'an intersection led by `&`, a mapped type\'s keys by `|`')
