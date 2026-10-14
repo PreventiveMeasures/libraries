@@ -13,6 +13,7 @@ import { format } from '../pretty.js'
 import { renamedDiff, renamedDiffs } from '../names.js'
 import { bindsAlike } from '../src/names/binds.js'
 import { renameMap } from '../src/names/rename.js'
+import { without } from './peers.js'
 import { compiles, program, run } from './programs.js'
 import { random } from './random.js'
 
@@ -238,6 +239,12 @@ describe('renamedDiff', () => {
     assert.deepEqual([diff.reason, diff.before, diff.marks], ['dynamic', 'var a = 1;\nwith (o) f(a);\n', []])
     assert.deepEqual(diff.blocks, [{ a0: 0, a1: 2, b0: 0, b1: 2 }])
     assert.deepEqual((await renamedDiff('f(a ,b);\n', 'f(a, b);\n', { whitespace: 'all' })).blocks, [], 'whitespace ignored as asked')
+  })
+
+  it('imports oxc where it can not be required, as on Vercel', () => {
+    const call = `const diff = await (await import(${JSON.stringify(new URL('../names.js', import.meta.url).href)})).renamedDiff('function f(a){return a+1}', 'function f(b){return b+2}')
+      return { before: diff.before, reason: diff.reason, blocks: diff.blocks }`
+    assert.deepEqual(without(['oxc-parser', 'oxc-minify'], call, { imported: true }), { before: 'function f(b) {\n  return b + 1;\n}\n', reason: null, blocks: [{ a0: 0, a1: 3, b0: 0, b1: 1 }] })
   })
 
   it('diffs once for each whitespace setting, from names found once, each as renamedDiff has it', async () => {

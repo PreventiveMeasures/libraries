@@ -3,6 +3,7 @@
 // still binds alike, diffed, and the diff checked to hide no change.
 
 import { changeSet } from '@preventive/diff'
+import { loadOxc } from '#oxc'
 import { blocksHold } from '../blocks.js'
 import { markedBlocks } from '../marked.js'
 import { format } from '../pretty.js'
@@ -17,6 +18,7 @@ const ranges = ({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 })
 export async function renamedDiffs(before, after, { extension = 'js', otherExtension = extension, whitespace = ['none'] } = {}) {
   if (!Array.isArray(whitespace)) throw new TypeError(`whitespace must be an array, not ${typeof whitespace}`)
   const settings = whitespace.map((setting) => checkLineOptions({ horizon: 0, whitespace: setting }))
+  await loadOxc()
   const warnings = []
   const mapped = renameMap(before, after, { extension, otherExtension })
   if (mapped.invariant) warnings.push(`a rename map check failed: ${mapped.invariant}`)

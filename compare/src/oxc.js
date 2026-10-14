@@ -6,3 +6,6 @@ import { parseSync } from 'oxc-parser'
 
 export const getOxc = () => ({ parseSync, minifySync })
 export const getParser = () => parseSync
+// Loaded with this module already, as the Node twin loads them on first use.
+export const loadParser = async () => {}
+export const loadOxc = async () => {}

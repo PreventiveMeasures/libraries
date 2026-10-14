@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import * as csstree from 'css-tree'
 import { minifySync } from 'oxc-minify'
 import { format } from '../pretty.js'
 import { sameCode } from '../src/pretty.js'
+import { without } from './peers.js'
 
 const sameCss = (text, formatted) => sameCode(text, formatted, 'css', csstree)
 // A name's escape as a file writes it.
@@ -196,14 +196,10 @@ describe('format', () => {
   })
 
   it('needs no minifier, and rejects where the parser checking a script is missing, as where oxfmt is', () => {
-    // format in a process of its own, where one peer does not resolve.
-    const without = (peer) => JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', `
-      import { registerHooks } from 'node:module'
-      registerHooks({ resolve: (specifier, context, next) => { if (specifier === '${peer}') throw new Error('gone'); return next(specifier, context) } })
-      const { format } = await import(${JSON.stringify(new URL('../pretty.js', import.meta.url).href)})
-      console.log(JSON.stringify(await format('a=1', 'js').catch((err) => ({ thrown: err.message }))))`], { encoding: 'utf8' }))
-    assert.deepEqual(without('oxc-minify'), { code: 'a = 1;\n' })
-    assert.match(without('oxc-parser').thrown, /needs the optional 'oxc-parser' peer/u, 'not a copy refused as changed')
+    const formatted = `return (await import(${JSON.stringify(new URL('../pretty.js', import.meta.url).href)})).format('a=1', 'js')`
+    assert.deepEqual(without(['oxc-minify'], formatted), { code: 'a = 1;\n' })
+    assert.match(without(['oxc-parser'], formatted).thrown, /needs the optional 'oxc-parser' peer/u, 'not a copy refused as changed')
+    assert.deepEqual(without(['oxc-parser', 'oxc-minify'], formatted, { imported: true }), { code: 'a = 1;\n' }, 'where they can be imported but not required')
   })
 
   it('formats CSS where css-tree is there to check it', async () => {
