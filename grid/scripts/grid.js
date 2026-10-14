@@ -6,7 +6,10 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
-import { DEFAULT_MODEL, closeProvider, setCacheDir, setFetchConcurrency, setProvider } from '@preventive/ai'
+import {
+  DEFAULT_MODEL, closeProvider, isRecognizedModel, resolveModel, resolveThinkEffort, setCacheDir, setFetchConcurrency,
+  setProvider,
+} from '@preventive/ai'
 import { buildTable, select } from '../index.js'
 
 const USAGE = `Usage: scripts/grid.js build  --task <task.json> --entries <entries.jsonl> --out <table.json>
@@ -133,13 +136,23 @@ async function main(argv) {
   const command = positionals[0]
   if (command !== 'build' && command !== 'select') fail(`expected build or select\n\n${USAGE}`)
 
-  const model = values.model ?? DEFAULT_MODEL
-  const strong = values.strong ?? model
-  const models = { strong, search: values.search ?? strong, cheap: values.cheap ?? values.search ?? strong }
+  // Aliases resolved at the boundary, as ai's own script does, so an id reaches the layer under the
+  // row that prices and caps it, and the provider is inferred from the namespace that row carries.
+  const model = resolveModel(values.model ?? DEFAULT_MODEL)
+  const strong = resolveModel(values.strong ?? model)
+  const models = { strong, search: resolveModel(values.search ?? strong), cheap: resolveModel(values.cheap ?? values.search ?? strong) }
   // One provider serves a whole run (the layer's is process-wide), so it is inferred from the
   // models the command will actually send -- select's three, not the --model they default from --
   // and a run whose models would need two is refused rather than routed through the wrong one.
-  const used = command === 'build' ? [model] : Object.values(models)
+  const used = command === 'build' ? [model] : [...new Set(Object.values(models))]
+  for (const id of used) {
+    // A typo would otherwise reach the wire as an unknown id and come back as a provider error.
+    if (!isRecognizedModel(id)) fail(`unknown model ${id}; check the spelling, or add a row for it to ai's model table`)
+    // --think on a model that cannot reason, or --effort without --think, is refused here by name
+    // rather than dropped on the way to the wire, which is what the pipeline's own normalisation
+    // would do for a run that mixes models.
+    try { resolveThinkEffort(id, values.think, values.effort) } catch (err) { fail(`${err.message} (${id})`) }
+  }
   const inferred = [...new Set(used.map((id) => PROVIDER_FOR[id.split('/')[0]] ?? 'openrouter'))]
   if (values.provider === undefined && inferred.length > 1) {
     fail(`the models would need ${inferred.join(' and ')}; name one --provider that serves them all (openrouter serves every hosted model)`)
