@@ -39,10 +39,13 @@ describe('search', () => {
     await search({ ...common(log), rows: rowsOf(5), rounds: 1 })
     assert.match(log[0].userContent[0], /^Page of 5 rows; pick at most 1\.\nColumns: q1 = Colour\?; q2 = Size\?\nRows:\n1\. Summary of e\d+/u)
     assert.match(log[0].userContent[1], /^Request:\nred things$/u)
+    // Joined as a marker-free route sends them, the blocks still read apart.
+    assert.match(log[0].userContent.join(''), /\n\d+\. Summary of e\d+ \|\| q1: red \| q2: big\n\nRequest:\nred things$/u)
     const again = []
     await search({ ...common(again), rows: rowsOf(5), rounds: 1, requestFirst: true })
     assert.match(again[0].userContent[0], /^Request:/u)
     assert.match(again[0].userContent[1], /^Page of/u)
+    assert.match(again[0].userContent.join(''), /^Request:\nred things\n\nPage of/u)
   })
 
   it('shows ordinals and answers by column, never the row id', async () => {

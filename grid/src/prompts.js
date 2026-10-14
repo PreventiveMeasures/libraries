@@ -10,6 +10,13 @@ import { oneLine } from './json.js'
 
 const taskLines = (task) => `Task: ${task.prompt.trim()}\nMain question: ${task.question.trim()}`
 
+// The blocks of one user message, in order. Every block but the last ends in a blank line, because
+// on a route that reads no cache marker the layer joins the blocks with nothing between them, and
+// a request glued to the last row of a page reads as part of that row. The separator sits at the
+// end of the earlier block rather than the start of the later one so the shared prefix -- the page
+// in the first stage, the request after -- stays byte-identical whatever follows it.
+export const blocks = (...parts) => parts.map((part, i) => (i < parts.length - 1 ? `${part}\n\n` : part))
+
 const questionLines = (questions) => questions.map((q) => `${q.id}. ${q.text}`).join('\n')
 
 // Phase 0: the questions the compaction answers per entry, decided once per task before any entry

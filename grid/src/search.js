@@ -1,7 +1,7 @@
 import { call } from './call.js'
 import { expectObject, extractJSON } from './json.js'
 import { mapLimit } from './pool.js'
-import { pageBlock, requestBlock, searchSystem } from './prompts.js'
+import { blocks, pageBlock, requestBlock, searchSystem } from './prompts.js'
 import { hashSeed, paginate, random, shuffle } from './random.js'
 
 // Phases 2 to 4: the rows against the request, a page at a time, interlaced over several shuffles
@@ -44,7 +44,7 @@ function readPicks(size, cap) {
 // Which block is the shared prompt-cache prefix. The page first when many requests will read the
 // same pages -- the first stage, whose shuffles are seeded from the rows alone so every request
 // renders the same pages -- and the request first once the pages are this request's own.
-const blocks = (page, request, requestFirst) => (requestFirst ? [requestBlock(request), page] : [page, requestBlock(request)])
+const layout = (page, request, requestFirst) => (requestFirst ? blocks(requestBlock(request), page) : blocks(page, requestBlock(request)))
 
 // One stage: `rounds` shuffles of the rows, paged, every page asked once; returns the rows that
 // gathered enough votes, best first. `seed` fixes the shuffles; `mode` is 'summary' for the table
@@ -61,7 +61,7 @@ export async function search({ task, request, rows, columns = [], model, mode = 
     await mapLimit(paged, concurrency, async (page, index) => {
       const cap = Math.max(1, Math.ceil(page.length * pick))
       const { picks } = await call({
-        type: 'grid.search', model, systemPrompt, userContent: blocks(pageBlock({ page, columns, mode, cap }), request, requestFirst),
+        type: 'grid.search', model, systemPrompt, userContent: layout(pageBlock({ page, columns, mode, cap }), request, requestFirst),
         parse: readPicks(page.length, cap), think, effort, tally, ask, label: `${label} round ${round} page ${index}`,
       })
       for (const { n, score } of picks) {

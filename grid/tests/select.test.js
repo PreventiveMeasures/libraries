@@ -45,6 +45,9 @@ describe('buildTable and select', () => {
     assert.deepEqual(gate, { extraQuestions: [], fullScan: false, reason: 'enough' })
     assert.deepEqual(stages.map((s) => [s.rows, s.survivors]), [[50, 5]])
     assert.deepEqual(fullStages, [])
+    // The finalist's call: the request as the shared prefix, the candidate after a blank line.
+    const scoring = log.find((r) => r.systemPrompt.startsWith('You judge'))
+    assert.match(scoring.userContent.join(''), /^Request:\na red thing\n\nCandidate:\ne\d+: entry number \d+ MATCH$/u)
     // One gate, three rounds of five pages, five finalists: and each on the model for its work.
     const models = log.map((r) => r.model)
     assert.equal(models.filter((m) => m === MODELS.strong).length, 6)

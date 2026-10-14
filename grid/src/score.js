@@ -1,7 +1,7 @@
 import { call } from './call.js'
 import { expectObject, extractJSON } from './json.js'
 import { mapLimit } from './pool.js'
-import { candidateBlock, requestBlock, scoreSystem } from './prompts.js'
+import { blocks, candidateBlock, requestBlock, scoreSystem } from './prompts.js'
 
 // Phase 5: the finalists, each in full against the request in full, on an absolute scale. The
 // search ranked them on relative judgements over summaries; this is the one reading of the actual
@@ -23,7 +23,7 @@ export async function score({ task, request, candidates, model, concurrency = 20
   const systemPrompt = scoreSystem(task)
   const scored = await mapLimit(candidates, concurrency, async ({ row, votes }) => {
     const { score: value, reason } = await call({
-      type: 'grid.score', model, systemPrompt, userContent: [requestBlock(request), candidateBlock(row)],
+      type: 'grid.score', model, systemPrompt, userContent: blocks(requestBlock(request), candidateBlock(row)),
       parse: readScore, think, effort, tally, ask, label: `score ${request.id} ${row.id}`,
     })
     return { id: row.id, score: value, reason, votes, summary: row.summary }
