@@ -12,7 +12,7 @@
 import { parseYamlStream } from '../yaml/parse.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
-import { KINDS, unreached } from '../graph.js'
+import { KINDS, flagsOf, unreached } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative, isVersion } from '../names.js'
 import { boolean, count, field, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
@@ -95,6 +95,19 @@ function checkReached(importers, packages, where, kinds) {
   if (stray !== undefined) throw new LockfileError('no importer depends on it, directly or not', at(at(where, 'snapshots'), stray))
 }
 
+// `dev` and `devOptional`, which pnpm does not write, as the graph has them.
+// `optional` is as pnpm writes it, which in a pnpm-lock.yaml is as the graph
+// has it too, but in the one pnpm keeps in node_modules/.pnpm, of what an
+// install with some kinds left out took, is still of the whole graph. What
+// the env document locks is all required.
+function setFlags(importers, packages, env) {
+  const flags = flagsOf(packages, importers, env ? { required: ENV_KINDS, dev: [], optional: [] } : undefined)
+  for (const pkg of Object.values(packages)) {
+    const { dev, devOptional } = flags(pkg)
+    Object.assign(pkg, { dev, devOptional })
+  }
+}
+
 function readDocument(doc, prefix, env) {
   const where = prefix === '' ? undefined : prefix
   const version = record(doc, where).lockfileVersion
@@ -104,6 +117,7 @@ function readDocument(doc, prefix, env) {
   const { packages, snapshots } = readPackages(doc, prefix, new Map(Object.entries(patchedDependencies)))
   const importers = readImporters(doc.importers, at(prefix, 'importers'), snapshots, env)
   checkReached(importers, packages, prefix, env ? ENV_KINDS : KINDS)
+  setFlags(importers, packages, env)
   if (env) return { lockfileVersion: version, importers, packages }
   return {
     lockfileVersion: version,

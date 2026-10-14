@@ -259,6 +259,24 @@ describe('what else pnpm writes is read', () => {
     assert.deepEqual(pkg.transitivePeerDependencies, ['x', '@s/y'])
   })
 
+  it('how each package is depended on, as npm\'s flags say', () => {
+    const flags = (text) => Object.entries(parse(text).packages).map(([key, pkg]) => [key, pkg.dev, pkg.optional, pkg.devOptional])
+    const required = [false, false, false]
+    const [a, b, c, d, e, f] = ['a@1.0.0(c@2.0.0)', `b@1.0.0(patch_hash=${P})`, 'c@2.0.0', 'd@file:d', `e@git+https://example.com/e.git#${C}`, 'f@https://example.com/f.tgz']
+    assert.deepEqual(flags(BASE), [[a, ...required], [b, ...required], [c, ...required], [d, true, false, true], [e, ...required], [f, ...required]])
+    // d asked for by a as an optional dependency too, so that only an
+    // install of neither kind leaves it out; f an optional dependency of the
+    // project's.
+    const f1 = '      f:\n        specifier: https://example.com/f.tgz\n        version: https://example.com/f.tgz\n'
+    const text = edit(
+      ['      c: 2.0.0\n', '      c: 2.0.0\n    optionalDependencies:\n      d: file:d\n'],
+      [f1, ''],
+      ['        version: file:d\n', `        version: file:d\n    optionalDependencies:\n${f1}`],
+      ['  f@https://example.com/f.tgz: {}', '  f@https://example.com/f.tgz:\n    optional: true'],
+    )
+    assert.deepEqual(flags(text), [[a, ...required], [b, ...required], [c, ...required], [d, false, false, true], [e, ...required], [f, false, true, true]])
+  })
+
   it('peers a key names, each a dependency of the snapshot or a peer of theirs it resolves', () => {
     // c, of the project's too, resolved for a dependency of a's, as pnpm
     // lists it among a's transitivePeerDependencies.
