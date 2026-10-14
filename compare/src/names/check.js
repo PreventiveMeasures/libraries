@@ -24,12 +24,14 @@ export function checkAnalysis(text, { scopes, variables, occurrences, globals })
   for (const at of scopes) for (const [name, variable] of at.names) holds(known.has(variable) && variable.name === name, `a scope's ${name} no variable of its name`)
 }
 
-// Renamable variables alone paired, each new one once, the weak among them.
-export function checkPairing(a, b, { map, weak }) {
+// Renamable variables alone paired, each new one once and by some line, the
+// weak among them.
+export function checkPairing(a, b, { map, support, weak }) {
   const news = new Set(b.variables), taken = new Set()
   for (const [variable, to] of map) {
     holds(variable.aside && to.aside && news.has(to), `${variable.name} paired with ${to.name}, the two not both renamable`)
     holds(!taken.has(to), `two variables paired with ${to.name}`)
+    holds(support.get(variable) > 0, `${variable.name} paired with ${to.name} by no line`)
     taken.add(to)
   }
   for (const variable of weak) holds(map.has(variable), `${variable.name} weak, and paired with none`)
