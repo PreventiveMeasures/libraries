@@ -24,6 +24,7 @@ describe('sameCode', () => {
     assert.equal(sameCode('const x:number=(a as any)+1', 'const x: number = (a as any) + 1;\n', 'ts'), true)
     assert.equal(sameCode('import{a,b,}from"m";f(a,b,);x={a,b,};y=[a,b,]', 'import { a, b } from "m";\nf(a, b);\nx = { a, b };\ny = [a, b];\n'), true, 'trailing commas dropped')
     assert.equal(sameCode('y=[1,// one\n2,// two\n]', 'y = [\n  1, // one\n  2 // two\n];\n'), true, 'and before a comment')
+    for (const end of ['\r', '\r\n', '\u2028', '\u2029']) assert.equal(sameCode(`f(a,// c${end})`, 'f(\n  a // c\n);\n'), true, `a line comment ended by ${JSON.stringify(end)}`)
     assert.equal(sameCode('type P=A|B|C;let x:(A|B)[];f<A|B>();g(x as {a:1}|null)', 'type P =\n  | A\n  | B\n  | C;\nlet x: (\n  | A\n  | B\n)[];\nf<\n  | A\n  | B\n>();\ng(\n  x as\n    | { a: 1 }\n    | null\n);\n', 'ts'), true,
       'a union broken over lines, each part led by `|`')
     assert.equal(sameCode('type I=A&B;type M={[K in A|B]:1}', 'type I =\n  & A\n  & B;\ntype M = {\n  [K in\n    | A\n    | B]: 1;\n};\n', 'ts'), true, 'an intersection led by `&`, a mapped type\'s keys by `|`')
@@ -126,13 +127,16 @@ describe('sameCode', () => {
       ['a{b:"x\n}', 'a {\n  b: "x\n}\n', 'text css-tree finds an error in']]) assert.equal(sameCss(before, after), false, what)
   })
 
-  it('reads text in time linear in its length', () => {
+  it('reads text in time linear in its length', { timeout: 20_000 }, () => {
     const start = performance.now()
     for (const text of ['a:b'.repeat(12_500) + '{c:d}', `a{${'b:c;'.repeat(12_500)}}`, '/*'.repeat(25_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`,
       `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(5000)}}`, `a{${'b:#ABC;'.repeat(5000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(2500)}red}`, `a{--x:${'.5 '.repeat(25_000)}}`]) {
       sameCss(text, text)
     }
     for (const text of ['/*'.repeat(100_000), `['"${'\\"'.repeat(100_000)}']`, '"'.repeat(100_000)]) sameCode(text, text, 'json')
+    // A comma, comments after it, and no bracket: each comment read one way, not split every way, which
+    // for these takes seconds, doubling with each comment more.
+    for (const text of [`f(a,${'/* x */ '.repeat(29)}b)`, `f(a,${'// x // y\n'.repeat(17)}b)`]) assert.ok(sameCode(text, text, 'js'))
     assert.ok(performance.now() - start < 5000)
   })
 

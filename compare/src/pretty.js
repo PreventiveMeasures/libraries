@@ -31,8 +31,10 @@ const sorted = (flags) => [...flags].toSorted().join('')
 // A script's text but for what the formatter may respell, beside the syntax tree compared after:
 // blanks, parentheses, semicolons, quotes and numbers, and a comma before a closing bracket, past any
 // comments (`import { a, b, }`). A regular expression's flags it may reorder are sorted where the
-// syntax tree has them (respelled).
-const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/,(?=(?:\s|\/\/[^\n]*|\/\*[^]*?\*\/)*[\])}>])/gu, '')
+// syntax tree has them (respelled). Each comment read one way alone, to its line's end (any line
+// terminator's) or its first `*/`: one that might end anywhere tries, where no bracket follows, every
+// way to split a run of them.
+const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/,(?=(?:\s|\/\/[^\n\r\u2028\u2029]*(?![^\n\r\u2028\u2029])|\/\*(?:[^*]|\*(?!\/))*\*\/)*[\])}>])/gu, '')
   .replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
 
 // JSON has no point without a digit either side: such a number is kept as written, or a copy would read as
