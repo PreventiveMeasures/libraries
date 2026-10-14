@@ -1,6 +1,6 @@
 {
   "name": "@preventive/compare",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "Git-compatible file tree diffs and minified JavaScript comparison",
   "type": "module",
   "main": "./compare.js",
