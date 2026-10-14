@@ -11,9 +11,10 @@ import { pairing } from './pairing.js'
 import { APART, Broken, holds } from './syntax.js'
 
 // Each old variable's name: its counterpart's, else its own, or one apart where
-// the new side has its own. Those misread yield, weak pairs first; null where
-// none can.
-function givenNames(a, b, { map, weak }) {
+// the new side has its own. Those misread yield, weak pairs first, else those
+// fewest lines pair: a pair that a few lines alone say gives way to one most
+// do. null where none can.
+function givenNames(a, b, { map, support, weak }) {
   const apart = (name) => {
     let named = name + APART
     for (let n = 2; a.names.has(named) || b.names.has(named); n++) named = `${name}${APART}${n}`
@@ -27,7 +28,9 @@ function givenNames(a, b, { map, weak }) {
     }
     const wrong = [...misread(a, given)]
     if (wrong.length === 0) return given
-    const yielding = wrong.some((variable) => weak.has(variable) && map.has(variable)) ? wrong.filter((variable) => weak.has(variable)) : wrong
+    const paired = wrong.filter((variable) => map.has(variable))
+    const least = paired.reduce((n, variable) => Math.min(n, support.get(variable)), Infinity)
+    const yielding = paired.some((variable) => weak.has(variable)) ? paired.filter((variable) => weak.has(variable)) : paired.filter((variable) => support.get(variable) === least)
     if (yielding.filter((variable) => map.delete(variable)).length === 0) return null
   }
 }

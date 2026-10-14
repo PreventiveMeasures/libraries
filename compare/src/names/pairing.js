@@ -151,13 +151,13 @@ function moves(ka, kb, blocks, alike) {
   }
 }
 
-// Pairs of lines counted, a long run of unchanged ones apart from the rest, and
-// apart from both the variables a change's tokens pair (`tokened`) and those of
-// code moved (`moved`). Lines reading variables one side has and the other not
-// say nothing. In a change of unlike lengths, lines alike but for a final `;` or
-// `,` pair (a declaration others now follow: `let t = ...;` -> `let t = ...,`).
+// Pairs of lines counted, a long run of unchanged ones apart from the rest, as
+// is code moved, and apart from both the variables a change's tokens pair
+// (`tokened`). Lines reading variables one side has and the other not say
+// nothing. In a change of unlike lengths, lines alike but for a final `;` or `,`
+// pair (a declaration others now follow: `let t = ...;` -> `let t = ...,`).
 function tallied(ka, kb) {
-  const changed = tallies(), moved = tallies(), tokened = tallies(), unchanged = tallies()
+  const changed = tallies(), tokened = tallies(), unchanged = tallies()
   const counted = ({ backward, forward }, variable, other) => {
     count(forward, variable, other)
     count(backward, other, variable)
@@ -182,8 +182,19 @@ function tallied(ka, kb) {
     i = block.a1
     j = block.b1
   }
-  moves(ka, kb, blocks, (olds, news) => alike(moved, olds, news))
-  return { changed, moved, tokened, unchanged }
+  // Code moved counts a pair once a line, so that a moved line reading a variable
+  // often outweighs no lines in place reading it once each.
+  const once = (olds, news) => {
+    if (olds.length !== news.length) return
+    const seen = new Map()
+    olds.forEach((variable, k) => {
+      const others = seen.get(variable) ?? seen.set(variable, new Set()).get(variable)
+      if (!others.has(news[k])) counted(unchanged, variable, news[k])
+      others.add(news[k])
+    })
+  }
+  moves(ka, kb, blocks, once)
+  return { changed, tokened, unchanged }
 }
 
 // The most counted of those not yet paired, none where two tie.
@@ -199,8 +210,9 @@ function best(counts, taken) {
   return found
 }
 
-// Pairs each the other's best, into `map`, until none more pair.
-function matched({ backward, forward }, { map, paired }, eligible = () => true) {
+// Pairs each the other's best, into `map`, until none more pair: each pair's
+// count its `support`.
+function matched({ backward, forward }, { map, paired, support }, eligible = () => true) {
   const chosen = []
   for (let more = true; more;) {
     more = false
@@ -209,6 +221,7 @@ function matched({ backward, forward }, { map, paired }, eligible = () => true) 
       const to = best(counts, (other) => paired.has(other))
       if (!to || best(backward.get(to), (other) => map.has(other)) !== variable || !eligible(variable, to)) continue
       map.set(variable, to)
+      support.set(variable, counts.get(to))
       paired.add(to)
       chosen.push(variable)
       more = true
@@ -217,23 +230,25 @@ function matched({ backward, forward }, { map, paired }, eligible = () => true) 
   return chosen
 }
 
-// Unchanged lines pair first; changed ones then pair only what those say
-// nothing of, and a change's tokens only what no line says anything of: lines
-// reordered, a change's tokens may line up across them. Both are `weak` pairs,
-// the first to give way where names read wrongly. A second pass reads the
-// pairs found as names, so lines alike with every name set aside and diffed
-// against the wrong one line up by those.
+// Unchanged lines pair first, and code moved counted with them: a function's
+// code moved into a helper reads its variables as the helper's, the function's
+// own lines as its own, and the most lines decide. Changed ones then pair only
+// what those say nothing of, and a change's tokens only what no line says
+// anything of: lines reordered, a change's tokens may line up across them. Both
+// are `weak` pairs, the first to give way where names read wrongly. A second
+// pass reads the pairs found as names, so lines alike with every name set aside
+// and diffed against the wrong one line up by those.
 export function pairing(before, after, a, b) {
-  const found = { map: new Map(), paired: new Set() }, said = new Set(), weak = new Set()
+  const found = { map: new Map(), paired: new Set(), support: new Map() }, said = new Set(), weak = new Set()
   const passes = [[() => null, () => null], [(variable) => found.map.get(variable)?.name ?? null, (variable) => (found.paired.has(variable) ? variable.name : null)]]
   for (const [old, now] of passes) {
     // A pass pairs nothing where every variable of a side is paired already.
     if (!a.variables.some((variable) => variable.aside && !found.map.has(variable)) || !b.variables.some((variable) => variable.aside && !found.paired.has(variable))) break
-    const { changed, moved, tokened, unchanged } = tallied(keyed(before, a, old), keyed(after, b, now))
-    for (const [counts, tier] of [[unchanged, false], [changed, true], [tokened, true], [moved, true]]) {
+    const { changed, tokened, unchanged } = tallied(keyed(before, a, old), keyed(after, b, now))
+    for (const [counts, tier] of [[unchanged, false], [changed, true], [tokened, true]]) {
       for (const variable of matched(counts, found, (from, to) => !said.has(from) && !said.has(to))) if (tier) weak.add(variable)
       for (const variable of [...counts.forward.keys(), ...counts.backward.keys()]) said.add(variable)
     }
   }
-  return { map: found.map, weak }
+  return { map: found.map, support: found.support, weak }
 }

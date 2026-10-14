@@ -128,6 +128,28 @@ describe('renameMap', () => {
     assert.equal(renameMap(before, after).text, renamed)
   })
 
+  it('pairs a function\'s variables as its own lines say, where its loop moved into a helper reads one as the helper\'s', () => {
+    // playwright-core's htmlReport, 1.62.1 to 1.63.0: the loop's one line kept alike paired `i` with the
+    // helper's `t`, and `t` then read as two, so that neither, nor the callback's `t`, kept a name.
+    const head = ['  let o = g(t);', '  if (i) {', '    let e = !!i && rs(t, i),', '      n = !!i && is(t, i);', '    if (!e && !n) return null;']
+    const loop = (e, n, r) => [`      let ${e} = t.title.split(i),`, `        ${n} = [],`, `        ${r} = 0;`, `      for (let a = 0; a < ${e}.length; a++)`,
+      `        (a && (${n}.push(t.title.substring(${r}, ${r} + i.length)), (${r} += i.length)),`, `          ${n}.push(${e}[a]),`, `          (${r} += ${e}[a].length));`, `      o = ${n};`]
+    const before = (e, n, r) => lines(['export var f = ({ step: t, filterText: i }) => {', ...head, '    if (e) {', ...loop(e, n, r), '    }', '  }',
+      '  return t.steps.map((t, a) => f({ step: t, filterText: i }, a));', '};'])
+    const after = lines(['function h(e, t) {', '  let n = e.split(t),', '    r = [],', '    i = 0;', '  for (let a = 0; a < n.length; a++)',
+      '    (a && (r.push(e.substring(i, i + t.length)), (i += t.length)),', '      r.push(e.substring(i, i + n[a].length)),', '      (i += n[a].length));', '  return r;', '}',
+      'export var f = ({ step: t, filterText: i, waterfall: w }) => {', ...head, '    e && (o = h(t.title, i));', '  }',
+      '  return t.steps.map((t, a) => f({ step: t, filterText: i, waterfall: w }, a));', '};'])
+    // The loop's counter, the helper's `i`, apart: the function's `i` is read beside it.
+    assert.equal(renameMap(before('e', 'n', 'r'), after).text, before('n', 'r', 'r_old'))
+    // A moved line reading `i` often counts it once, as its lines in place each do.
+    const calls = ['  b(t);', '  if (i) {', '    a1(i);', '    a2(i);', '    a3(i);', '    a4(i);', '    a5(i);', '  }']
+    const dense = (n) => lines(['export var f = (t, i) => {', '  let o = g(t);', ...calls, '  if (t) {', `    let ${n} = t.split(i);`, '    q(i, i, i, i, i, i, i, i);', `    r(${n});`, `    o = ${n};`, '  }', '  return o;', '};'])
+    const helped = lines(['function h(e, s) {', '  let n = e.split(s);', '  q(s, s, s, s, s, s, s, s);', '  r(n);', '  return n;', '}',
+      'export var f = (t, i, w) => {', '  let o = g(t);', ...calls, '  t && (o = h(t, i));', '  return o;', '};'])
+    assert.equal(renameMap(dense('m'), helped).text, dense('n'))
+  })
+
   it('tells the properties through which either side reads names, as a rename may change what it then does', () => {
     const text = (name, read) => `function ${name}() {}\nmodule.exports = ${read};\n`
     assert.deepEqual(renameMap(text('a', 'a'), text('b', 'b'), cjs).reads, [])
