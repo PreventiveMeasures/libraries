@@ -6,6 +6,7 @@ import { after, before, describe, it } from 'node:test'
 
 import { setCacheDir } from '@preventive/ai'
 import { buildTable, newTally, select } from '../index.js'
+import { union } from '../src/select.js'
 import { TASK, entriesOf, fakeAsk } from './fake.js'
 
 const CACHE_DIR = join(tmpdir(), `grid-select-test-${process.pid}`)
@@ -75,11 +76,22 @@ describe('buildTable and select', () => {
     const extra = log.filter((r) => r.systemPrompt.startsWith('You compact'))
     assert.equal(extra.length, 50)
     assert.ok(extra.every((r) => r.model === MODELS.cheap && r.systemPrompt.includes('x1. Weight?\nx2. Age?') && !r.systemPrompt.includes('"summary"')))
-    const page = log.find((r) => r.systemPrompt.startsWith('You select')).userContent[0]
+    // The pages now carry this request's own columns, so the request is the shared prefix from the
+    // first stage on, and the page follows it.
+    const [prefix, page] = log.find((r) => r.systemPrompt.startsWith('You select')).userContent
+    assert.match(prefix, /^Request:\na heavy old thing\n\n$/u)
     assert.match(page, /^Page of 10 rows; pick at most 5\.\nColumns: q1 = Colour\?; q2 = Size\?; x1 = Weight\?; x2 = Age\?\n/u)
     assert.match(page, /\| x1: a1 of e\d+ \| x2: a2 of e\d+\n/u)
     assert.deepEqual(results.map((r) => r.id).sort(), [...MATCHES].sort())
     assert.ok(table.rows.every((row) => row.answers.length === 2), 'the shared table is untouched')
+  })
+
+  it('keeps the page first on a supplemented table when the caller says so', async () => {
+    const log = []
+    const table = await buildTable({ task: TASK, entries: ENTRIES, model: MODELS.strong, ask: fakeAsk() })
+    const request = { id: 'r-extra-page-first', text: 'a heavy thing, page first' }
+    await run(table, { log, request, gate: { extraQuestions: ['Weight?'] }, search: { ...SEARCH, requestFirst: false } })
+    assert.match(log.find((r) => r.systemPrompt.startsWith('You select')).userContent[0], /^Page of 10 rows/u)
   })
 
   it('runs a full-text pass on the cheap model when the gate asks, and scores the union', async () => {
@@ -109,5 +121,16 @@ describe('buildTable and select', () => {
     const { results, stages } = await run(table, { log })
     assert.deepEqual(stages, [])
     assert.deepEqual(results.map((r) => [r.id, r.score]), [['e2', 90], ['e1', 10], ['e3', 10], ['e4', 10]])
+  })
+})
+
+describe('union', () => {
+  const candidate = (id, votes, score) => ({ row: { id }, votes, score })
+
+  it('keeps every row of either list once, and for a row in both the reading with more votes, then the higher score', () => {
+    const first = [candidate('a', 3, 9), candidate('b', 2, 8), candidate('c', 2, 6), candidate('d', 1, 9)]
+    const second = [candidate('b', 3, 5), candidate('c', 2, 7), candidate('d', 1, 4), candidate('e', 1, 8)]
+    const merged = union(first, second)
+    assert.deepEqual(merged.map(({ row, votes, score }) => [row.id, votes, score]), [['a', 3, 9], ['b', 3, 5], ['c', 2, 7], ['d', 1, 9], ['e', 1, 8]])
   })
 })

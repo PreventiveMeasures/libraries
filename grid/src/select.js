@@ -30,12 +30,17 @@ async function supplement({ task, rows, extraQuestions, model, ...rest }) {
   return rows.map((row) => ({ ...row, answers: [...row.answers, ...byId.get(row.id)] }))
 }
 
-// Two candidate lists into one, by id: a row in both keeps the entry it ranks higher in. The lists
-// are ranked on different evidence (summaries by one model, entries by a cheaper one), so nothing
-// is summed; the scoring stage ranks the union on its own scale.
-function union(first, second) {
+// Two candidate lists into one, by id. The lists are ranked on different evidence (summaries by one
+// model, entries by a cheaper one), so nothing is summed: a row in both keeps whichever reading
+// gave it more votes, then the higher mean score, since that is the tie-break the scoring stage
+// reads back. The scoring stage ranks the union on its own scale either way.
+export function union(first, second) {
   const byId = new Map(first.map((entry) => [entry.row.id, entry]))
-  for (const entry of second) if (!byId.has(entry.row.id)) byId.set(entry.row.id, entry)
+  for (const entry of second) {
+    const held = byId.get(entry.row.id)
+    const stronger = !held || entry.votes > held.votes || (entry.votes === held.votes && entry.score > held.score)
+    if (stronger) byId.set(entry.row.id, entry)
+  }
   return [...byId.values()]
 }
 
@@ -55,7 +60,13 @@ export async function select({ task, focus, questions, rows, request, models, to
     table = await supplement({ task, rows, extraQuestions: routing.extraQuestions, model: cheap, concurrency, think, effort, tally, ask })
   }
 
-  const narrowed = await narrow({ ...shared, ...searchOpts, rows: table, columns, model: searchModel, target, mode: 'summary', label: 'search' })
+  // Extra columns make every page this request's own, so there is no shared page prefix left to
+  // keep and the request is the prefix from the first stage on; a caller's explicit choice still wins.
+  const supplemented = table !== rows
+  const narrowed = await narrow({
+    ...shared, ...searchOpts, requestFirst: searchOpts.requestFirst ?? supplemented,
+    rows: table, columns, model: searchModel, target, mode: 'summary', label: 'search',
+  })
   let candidates = narrowed.candidates
   let fullStages = []
   if (routing.fullScan) {
