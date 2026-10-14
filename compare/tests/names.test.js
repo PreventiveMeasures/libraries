@@ -13,6 +13,7 @@ import { format } from '../pretty.js'
 import { renamedDiff, renamedDiffs } from '../names.js'
 import { bindsAlike } from '../src/names/binds.js'
 import { renameMap } from '../src/names/rename.js'
+import { shortestChangeSet } from '../src/text.js'
 import { compiles, program, run } from './programs.js'
 import { random } from './random.js'
 
@@ -305,6 +306,12 @@ describe('renamedDiff', () => {
     const { blocks } = await renamedDiff(before, after)
     assert.deepEqual(blocks, changeSet(before, after, { horizon: 0, minimal: true }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 })))
     assert.ok(edits(blocks) < edits(changeSet(before, after, { horizon: 0 })), 'shorter than past the cutoff')
+    // As many lines again alike before them: the search's work, as the square of the lines changed, is no more.
+    const alike = lines(Array.from({ length: 14000 }, (_, i) => `g(${i});`))
+    const [longer, later] = [alike + before, alike + after]
+    const shortest = shortestChangeSet(longer, later, { horizon: 0 })
+    assert.equal(edits(shortest), edits(blocks))
+    assert.ok(edits(shortest) < edits(changeSet(longer, later, { horizon: 0 })), 'shorter than past the cutoff')
   })
 
   it('diffs once for each whitespace setting, from names found once, each as renamedDiff has it', async () => {
