@@ -65,6 +65,8 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames({ 'a/codeMirrorModule--QdMvsKi.css': OLD }, { 'a/codeMirrorModule-DYBRYzYX.css': kept(60) }), ['a/codeMirrorModule--QdMvsKi.css -> a/codeMirrorModule-DYBRYzYX.css 51%'], 'a hash that starts with `-`')
     assert.deepEqual(renames({ 'a/index-AbCd1234.production.js': OLD }, { 'a/index-ZyXw5678.production.js': kept(60) }), ['a/index-AbCd1234.production.js -> a/index-ZyXw5678.production.js 51%'],
       'an extension a hash\'s length after it')
+    assert.deepEqual(renames({ 'a/index-AbCd1234.production2024.js': OLD }, { 'a/index-ZyXw5678.production2024.js': kept(60) }),
+      ['a/index-AbCd1234.production2024.js -> a/index-ZyXw5678.production2024.js 51%'], 'and one that reads as a hash, both names alike in it')
   })
 
   it('holds to git\'s stricter score the only other of a name its hash alone does not tell', () => {
