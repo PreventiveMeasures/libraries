@@ -108,6 +108,18 @@ describe('renameMap', () => {
     assert.equal(renameMap(before, after.replace('export { a as n };\n', '')).text, before)
   })
 
+  it('renames a script\'s top level that a minifier renamed throughout: many names there, every one short', () => {
+    // playwright-core's htmlReport, 1.62.1 to 1.63.0: a module by how its page loads it, with no `import`
+    // or `export` to say so, its 465 top-level names shifted along by those put in front.
+    const names = 'abcdefghijklmnopq'
+    const script = (count, shift, extra = []) => lines([...(shift ? ['var a = RegExp(`y`);'] : []), ...Array.from({ length: count }, (_, i) => `var ${names[i + shift]} = fn(${i}, ${i ? names[i + shift - 1] : 0});`), `use(${names[count - 1 + shift]});`, ...extra])
+    assert.equal(renameMap(script(16, 0), script(16, 1)).text, script(16, 1).replace('var a = RegExp(`y`);\n', ''))
+    // Fewer, or a long one among them: globals another script may read, which keep their names.
+    assert.equal(renameMap(script(14, 0), script(14, 1)).text, script(14, 0))
+    const long = ['var config = 1;']
+    assert.equal(renameMap(script(16, 0, long), script(16, 1, long)).text, script(16, 0, long))
+  })
+
   it('pairs the names of code moved out of order with the rest, as a run of lines alike', () => {
     // `b` moved after `c`: the diff keeps `c` in place, so `b`'s lines are taken out and put in again.
     const before = lines(['export function main(q) {', '  function b(t, n) {', '    let r = t + n;', '    return r * q;', '  }', '  function c(e) {', '    let y = e.map((x) => x + q);', '    return y.length;', '  }', '  return [b, c];', '}'])
@@ -260,6 +272,17 @@ describe('renamedDiff', () => {
     assert.deepEqual([diff.reason, diff.before, diff.marks], ['dynamic', 'var a = 1;\nwith (o) f(a);\n', []])
     assert.deepEqual(diff.blocks, [{ a0: 0, a1: 2, b0: 0, b1: 2 }])
     assert.deepEqual((await renamedDiff('f(a ,b);\n', 'f(a, b);\n', { whitespace: 'all' })).blocks, [], 'whitespace ignored as asked')
+  })
+
+  it('gives the shortest diff where it costs little, which the search past its cutoff may not', async () => {
+    // Long texts sharing little: the search gives up on the shortest.
+    const next = random(7).next
+    const statements = () => lines(Array.from({ length: 3000 }, () => `f(${Math.floor(next() * 100000)});`))
+    const [before, after] = [statements(), statements()]
+    const edits = (blocks) => blocks.reduce((n, block) => n + block.a1 - block.a0 + block.b1 - block.b0, 0)
+    const { blocks } = await renamedDiff(before, after)
+    assert.deepEqual(blocks, changeSet(before, after, { horizon: 0, minimal: true }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 })))
+    assert.ok(edits(blocks) < edits(changeSet(before, after, { horizon: 0 })), 'shorter than past the cutoff')
   })
 
   it('diffs once for each whitespace setting, from names found once, each as renamedDiff has it', async () => {

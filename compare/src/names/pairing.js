@@ -2,24 +2,14 @@
 // their keys (names set aside) pairs them, counts its variables as standing for
 // each other, and two each the other's most counted pair, a tie pairing neither.
 
-import { changeSet } from '@preventive/diff'
+import { shortestChangeSet } from '../text.js'
 import { RESERVED } from './syntax.js'
 
 // Unchanged lines between changes that pair as unchanged ones, not as changed.
 const ANCHORED_RUN = 3
 
 // Whitespace alone never tells a name apart.
-const changes = (a, b, minimal = false) => changeSet(a, b, { horizon: 0, whitespace: 'all', minimal })
-
-// The search's cutoff can face a run with lines alike far from its own: old code
-// that a block of new code now comes before, its lines faced with that block's
-// braces. The shortest diff instead, where its cost, lines by lines changed, allows.
-const MINIMAL_COST = 2e8
-function linedUp(a, b, lines) {
-  const quick = changes(a, b)
-  const changed = quick.reduce((n, { a0, a1, b0, b1 }) => n + a1 - a0 + b1 - b0, 0)
-  return lines * changed > MINIMAL_COST ? quick : changes(a, b, true)
-}
+const KEYS = { horizon: 0, whitespace: 'all' }
 
 // A text's lines with its renamable variables' names set aside (`key`), but
 // those `written` names (a pair found), each line's variables set aside in
@@ -79,7 +69,7 @@ const reading = (k, from = 0) => (x, y) => {
 // The pairs of lines a diff of `a` and `b` keeps, each told whether slack.
 function* kept(a, b, sameA, sameB) {
   const text = (lines) => lines.map((line) => `${line}\n`).join('')
-  const blocks = linedUp(text(a), text(b), a.length + b.length)
+  const blocks = shortestChangeSet(text(a), text(b), KEYS, a.length + b.length)
   const [looseA, looseB] = slack(a, b, blocks, sameA, sameB)
   let i = 0, j = 0
   for (const { a0, a1, b1 } of [...blocks, { a0: a.length, a1: a.length, b1: b.length }]) {
@@ -174,7 +164,7 @@ function tallied(ka, kb) {
   }
   const alike = (counts, olds, news) => olds.length === news.length && olds.forEach((variable, k) => counted(counts, variable, news[k]))
   const trimmed = (lines, from, to) => plain(lines.slice(from, to).map((line) => line.replace(/[;,]\s*$/u, '')))
-  const blocks = linedUp(ka.key, kb.key, ka.keys.length + kb.keys.length)
+  const blocks = shortestChangeSet(ka.key, kb.key, KEYS, ka.keys.length + kb.keys.length)
   const [looseA, looseB] = slack(plain(ka.keys), plain(kb.keys), blocks, reading(ka), reading(kb))
   let i = 0, j = 0
   for (const block of [...blocks, { a0: ka.lines.length, a1: ka.lines.length, b0: kb.lines.length, b1: kb.lines.length }]) {

@@ -3,7 +3,7 @@
 // to read wrongly, and the result checked again by oxc (bindsAlike).
 
 import { getOxc } from '#oxc'
-import { analyze, ownTopLevel } from './analyze.js'
+import { analyze, minifiedTopLevel, ownTopLevel } from './analyze.js'
 import { bindsAlike } from './binds.js'
 import { checkAnalysis, checkGiven, checkPairing, checkRenamed } from './check.js'
 import { misread } from './misread.js'
@@ -36,9 +36,10 @@ function renamedNames(before, after, { extension = 'js', otherExtension = extens
   let a = analyze(before, extension), b = analyze(after, otherExtension)
   if (a.reason || b.reason) return { reason: a.reason ?? b.reason }
   // A file is a module by how it is loaded, which its versions share, more than
-  // by its syntax: a bundle's chunk that one version exports from, the other not.
-  // Where its other version is a module, a script's top level is its own too.
-  if (a.module || b.module) [a, b] = [ownTopLevel(a), ownTopLevel(b)]
+  // by its syntax: a bundle's chunk that one version exports from, the other not,
+  // or that neither does, its top level renamed by a minifier as a module's is.
+  // Where either version is one, a script's top level is its own too.
+  if ([a, b].some((side) => side.module || minifiedTopLevel(side))) [a, b] = [ownTopLevel(a), ownTopLevel(b)]
   checkAnalysis(before, a)
   checkAnalysis(after, b)
   const paired = pairing(before, after, a, b)
