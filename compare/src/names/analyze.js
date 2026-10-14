@@ -53,6 +53,7 @@ const fnOf = (where) => (where.fn ? where : fnOf(where.parent))
 function join(s, kept, gone) {
   if (kept === gone || !s.variables.includes(gone)) return
   for (const path of gone.through ?? []) (kept.through ??= []).push(path)
+  kept.varIn ??= gone.varIn
   for (const at of s.scopes) for (const [name, variable] of at.names) if (variable === gone) at.names.set(name, kept)
   for (const [node, [variable, where]] of s.declarations) if (variable === gone) s.declarations.set(node, [kept, where])
   s.variables.splice(s.variables.indexOf(gone), 1)
@@ -64,6 +65,7 @@ function declareVariables(node, where, s) {
   for (const id of node.declarations.flatMap((declarator) => declared(declarator.id))) {
     const variable = declare(s, node.kind === 'var' ? fnOf(where) : where, id)
     if (node.kind !== 'var') continue
+    variable.varIn = fnOf(where)
     const path = []
     for (let at = where; !at.fn; at = at.parent) path.push(at)
     if (path.length > 0) (variable.through ??= []).push(path)
@@ -107,6 +109,17 @@ function namingNames(node, s) {
     case 'VariableDeclarator': if (node.id.type === 'Identifier' && anonymous(node.init)) s.naming.add(node.id); break
     case 'AssignmentPattern': if (node.left.type === 'Identifier' && anonymous(node.right)) s.naming.add(node.left); break
     case 'AssignmentExpression': if (NAMING_ASSIGNMENTS.has(node.operator) && node.left.type === 'Identifier' && anonymous(node.right)) s.naming.add(node.left); break
+    default: break
+  }
+}
+
+// Names a variable is set by after its declaration: an assignment's, an
+// update's, or a loop's that declares none.
+function writtenNames(node, s) {
+  switch (node.type) {
+    case 'AssignmentExpression': for (const id of declared(node.left)) s.writing.add(id); break
+    case 'UpdateExpression': for (const id of declared(node.argument)) s.writing.add(id); break
+    case 'ForInStatement': case 'ForOfStatement': if (node.left.type !== 'VariableDeclaration') for (const id of declared(node.left)) s.writing.add(id); break
     default: break
   }
 }
@@ -166,7 +179,7 @@ function enterFunction(node, where, s) {
     for (const child of [node.superClass, node.body, ...node.decorators ?? []]) if (child) s.work.push([child, named])
     return
   }
-  const parameters = scope(s, named, true)
+  const parameters = Object.assign(scope(s, named, true), { arrow: node.type === 'ArrowFunctionExpression', parameter: true })
   if (node.body?.type === 'BlockStatement' && saysStrict(node.body.body)) parameters.strict = true
   for (const parameter of node.params) {
     for (const id of declared(parameter)) declare(s, parameters, id)
@@ -202,7 +215,7 @@ function enter(node, where, s) {
 
 // A work list rather than a recursion: a minified file's expressions nest deeply.
 function walk(program) {
-  const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), naming: new Set(), reads: new Set(), references: [], work: [] }
+  const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), naming: new Set(), writing: new Set(), reads: new Set(), references: [], work: [] }
   s.root = Object.assign(scope(s, null, true), { strict: program.sourceType === 'module' || saysStrict(program.body) })
   s.work.push([program, s.root])
   while (s.work.length > 0) {
@@ -212,6 +225,7 @@ function walk(program) {
       continue
     }
     namingNames(node, s)
+    writtenNames(node, s)
     const reason = visit(node, where, s)
     if (reason) return { reason }
     enter(node, where, s)
@@ -229,9 +243,29 @@ function resolved(program, s) {
     if (variable) occurrences.push([node, variable, where])
     else globals.push([node, where])
   }
+  // Set again (`reassigned`): written, or declared more than once, or a
+  // parameter of a function that reads `arguments`, which may write it
+  // (`arguments[0] = x`, outside strict code) -- an arrow's its function's,
+  // and a `var arguments` its function's own `arguments` still, unlike one a
+  // `let`, a parameter, a `catch` or an arrow's `var` declares.
+  const setting = new Set()
+  for (const [node, where] of globals) {
+    if (node.name !== 'arguments') continue
+    let at = where
+    while (at && !(at.parameter && !at.arrow)) at = at.parent
+    setting.add(at)
+  }
+  for (const variable of s.variables) {
+    const at = variable.varIn?.parameters ?? variable.varIn
+    if (variable.name === 'arguments' && at?.parameter && !at.arrow) setting.add(at)
+  }
+  for (const at of setting) for (const variable of at?.names.values() ?? []) variable.reassigned = true
+  const declaredAlready = new Set()
   for (const [node, variable] of occurrences) {
     if (s.keeping.has(node)) variable.kept = true
     if (s.naming.has(node)) variable.naming = true
+    if (s.writing.has(node) || (s.declarations.has(node) && declaredAlready.has(variable))) variable.reassigned = true
+    if (s.declarations.has(node)) declaredAlready.add(variable)
   }
   const own = program.sourceType === 'module' || program.sourceType === 'commonjs' || globals.some(([node]) => COMMONJS.has(node.name))
   for (const variable of s.variables) variable.aside = renamable(variable) && (own || variable.scope !== s.root)
@@ -245,7 +279,7 @@ function resolved(program, s) {
   }
   const deduplicated = occurrences.filter((entry, i) => i === 0 || entry[0].start !== occurrences[i - 1][0].start)
   const names = new Set([...s.variables.map(({ name }) => name), ...globals.map(([node]) => node.name)])
-  return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
+  return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, declaring: new Set(s.declarations.keys()), globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
 }
 
 const minified = (name) => name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(name)

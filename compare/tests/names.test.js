@@ -161,6 +161,34 @@ describe('renameMap', () => {
     assert.equal(renameMap(dense('m'), helped).text, dense('n'))
   })
 
+  it('pairs a variable set once as its declaration says, where most of its uses now read another', () => {
+    // axios 1.6.8 to 1.7.9: `config` read as `_config = resolveConfig(config)` on most lines. Paired by those,
+    // the old `config` would take `_config`'s name, and each line now reading it would read as unchanged.
+    const before = lines(['export function f(e) {', '  return new Promise(function (t, n) {', '    let r = e.data,', '      o = e.headers,', '      s = e.timeout;', '    n(e);', '  });', '}'])
+    const after = lines(['export function f(e) {', '  return new Promise(function (t, n) {', '    const i = g(e);', '    let r = i.data,', '      o = i.headers,', '      s = i.timeout;', '    n(e);', '  });', '}'])
+    assert.equal(renameMap(before, after).text, before)
+    // A parameter of a function reading `arguments`, which may set it again (`arguments[0] = x`): its lines
+    // say, as they would of any variable set again. An inner function's `arguments` is its own.
+    const reading = (text) => text.replace('export function f(e) {\n', 'export function f(e) {\n  m(arguments);\n')
+    assert.equal(renameMap(reading(before), reading(after)).text, reading(before).replaceAll(/\be\b/gu, 'i'))
+    assert.equal(renameMap(before.replace('n(e);', 'n(e, arguments);'), after.replace('n(e);', 'n(e, arguments);')).text, before.replace('n(e);', 'n(e, arguments);'))
+    // Outside strict code a `var arguments` is its function's `arguments` still.
+    const sloppy = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  var arguments;\n  arguments.length;\n')}module.exports = f;\n`
+    assert.equal(renameMap(sloppy(before), sloppy(after)).text, sloppy(before).replaceAll(/\be\b/gu, 'i'))
+    const rejoined = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  try {\n    m();\n  } catch (arguments) {\n    var arguments;\n  }\n  arguments.length;\n')}module.exports = f;\n`
+    assert.equal(renameMap(rejoined(before), rejoined(after)).text, rejoined(before).replaceAll(/\be\b/gu, 'i'), 'past the `catch` its `var` names')
+    // One a `catch`, a `let`, a parameter or an arrow's `var` declares is not.
+    const caught = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  try {\n    m();\n  } catch (arguments) {\n    m(arguments);\n  }\n')}module.exports = f;\n`
+    assert.equal(renameMap(caught(before), caught(after)).text, caught(before))
+    const arrow = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  (() => {\n    var arguments;\n    m(arguments);\n  })();\n')}module.exports = f;\n`
+    assert.equal(renameMap(arrow(before), arrow(after)).text, arrow(before))
+    // A variable set again may be a minifier's two in one (moment's `i` a regular expression, then a
+    // prototype), its declaration telling of the first alone: its lines say.
+    const merged = (a, b, set) => lines(['export function f(q, h) {', `  var ${a} = /\\d/,`, `    ${b} = /^[1-9]\\d?/;`, `  h("Q", ${a});`, `  h("D", ${b});`, `  ${set} = q.prototype;`,
+      ...['add', 'sub', 'mul', 'div'].map((key, k) => `  ${set}.${key} = ${k};`), '}'])
+    assert.equal(renameMap(merged('i', 'u', 'i'), merged('d', 'u', 'u')).text, merged('u', 'u_old', 'u'))
+  })
+
   it('tells the properties through which either side reads names, as a rename may change what it then does', () => {
     const text = (name, read) => `function ${name}() {}\nmodule.exports = ${read};\n`
     assert.deepEqual(renameMap(text('a', 'a'), text('b', 'b'), cjs).reads, [])
