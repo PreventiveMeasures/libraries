@@ -29,7 +29,8 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // every name as before by this package's scope analysis and again by oxc's
 // minifier; formatted again where that changes its layout alone and still binds
 // alike; diffed as diff -U0 has it, and as --minimal does where that is cheap
-// (lines by lines changed up to 2e8); and the blocks checked to take `before` to
+// (the square of the lines changed up to 2e8, or 10,000 a line of the two
+// texts); and the blocks checked to take `before` to
 // the new side (thrown should they not). `reason` says why no names were given;
 // `reads` the properties either text reads names through (`name`, `toString`,
 // `stack`, `callee`, `caller`), sorted, as code reading its names may act

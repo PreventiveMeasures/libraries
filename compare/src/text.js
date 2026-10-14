@@ -31,15 +31,21 @@ export function checkLineOptions({ horizon = Infinity, whitespace = 'none', igno
   return { horizon, whitespace, ignoreCase }
 }
 
-// The shortest diff where its cost, lines by lines changed, allows, as --minimal
-// has it; past that the search's cutoff, which can face a run with lines alike
-// far from its own: old code that new code now comes before, faced with its braces.
-const SHORTEST_COST = 2e8
+// The shortest diff where its cost allows, as --minimal has it; past that the
+// search's cutoff, which can face a run with lines alike far from its own: old
+// code that new code now comes before, faced with its braces. The search's work
+// grows as the square of the lines it changes: at most the quick diff's, or one
+// minding blanks and case, which changes no fewer. It may cost 2e8, or 10,000 a
+// line of the two texts, as their lines cost already to read.
+const SHORTEST_A_LINE = 1e4, SHORTEST_COST = 2e8
 const lineCount = (text) => text.split('\n').length
+const changes = (blocks) => blocks.reduce((n, { a0, a1, b0, b1 }) => n + a1 - a0 + b1 - b0, 0)
 export function shortestChangeSet(a, b, options, lines = lineCount(a) + lineCount(b)) {
-  const quick = changeSet(a, b, options)
-  const changed = quick.reduce((n, { a0, a1, b0, b1 }) => n + a1 - a0 + b1 - b0, 0)
-  return lines * changed > SHORTEST_COST ? quick : changeSet(a, b, { ...options, minimal: true })
+  const budget = Math.max(SHORTEST_COST, SHORTEST_A_LINE * lines), quick = changeSet(a, b, options)
+  let changed = changes(quick)
+  const strict = (options.whitespace ?? 'none') === 'none' && !options.ignoreCase
+  if (changed ** 2 > budget && !strict) changed = Math.min(changed, changes(changeSet(a, b, { ...options, ignoreCase: false, whitespace: 'none' })))
+  return changed ** 2 > budget ? quick : changeSet(a, b, { ...options, minimal: true })
 }
 
 // Binary content has no blocks and no counts, as --numstat prints `-` for it.
