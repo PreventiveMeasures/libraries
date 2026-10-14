@@ -29,7 +29,7 @@ function givenNames(a, b, { map, support, weak }) {
     const wrong = [...misread(a, given)]
     if (wrong.length === 0) return given
     const paired = wrong.filter((variable) => map.has(variable))
-    const least = Math.min(...paired.map((variable) => support.get(variable)))
+    const least = paired.reduce((n, variable) => Math.min(n, support.get(variable)), Infinity)
     const yielding = paired.some((variable) => weak.has(variable)) ? paired.filter((variable) => weak.has(variable)) : paired.filter((variable) => support.get(variable) === least)
     if (yielding.filter((variable) => map.delete(variable)).length === 0) return null
   }
