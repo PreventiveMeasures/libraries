@@ -10,6 +10,19 @@ const HASH = /^[\w-]{6,}$/u
 const RANDOM = /[\dA-Z]/u
 const SEPARATORS = '-._'
 
+// A name a build gave a hash, `[name]-[hash]` or `[name].[contenthash]`, as
+// its name and extensions but the hash: its last 8 to 32 of base64url's
+// characters after a `-` or `.`, with a letter, and a digit or a capital --
+// the fewest, so that a `-` in a hash is the hash's (`index-CyWAfh-p.js`,
+// `codeMirrorModule--QdMvsKi.css`) and one before eight more is the name's
+// (`vendor-react-dom-AbCd1234.js`, `index-AbCdEf12-GhIjKl34.js`). None for a
+// date (`migration-20240101.js`) or a word (`lodash.debounce.js`).
+const HASHED = /^(.+)[-.]([\w-]{8,32})((?:\.[A-Za-z\d]+)+)$/u
+function unhashed(name) {
+  const [, stem, hash, extensions] = HASHED.exec(name) ?? []
+  return hash !== undefined && /[A-Za-z]/u.test(hash) && RANDOM.test(hash) ? `${stem}\0${extensions}` : null
+}
+
 function nameOf(path) {
   const slash = path.lastIndexOf('/')
   const name = path.slice(slash + 1)
@@ -33,8 +46,9 @@ function oneChunk(a, b) {
 
 // Chunks git's scored pass has yet to claim, by directory, extension and
 // name's length, each pair at least `bar` -- or however it scores, where each
-// is the other's only such chunk, as a pair by path is: the build's own chunk,
-// rewritten (playwright's dashboard `index-*.js`, 31% alike from 1.61 to 1.62):
+// is the other's only such chunk and their names are one but for a hash
+// (unhashed), as a pair by path is: the build's own chunk, rewritten
+// (playwright's dashboard `index-*.js`, 31% alike from 1.61 to 1.62):
 // the best first, as git takes its candidates, but for a pair `outdone` by a
 // file's other candidate, set aside and returned, best first, for git to pair
 // that candidate with another file: it holds its files, so that a later pair
@@ -52,7 +66,8 @@ export function chunkRenames({ sources, dests, pairs, used, record, punctuatedSc
   const byDest = Map.groupBy(chunks, ({ d }) => d), bySource = Map.groupBy(chunks, ({ s }) => s)
   const candidates = []
   for (const { s, d } of chunks) {
-    const only = bySource.get(s).length === 1 && byDest.get(d).length === 1
+    const name = unhashed(sourceNames.get(s).name)
+    const only = bySource.get(s).length === 1 && byDest.get(d).length === 1 && name !== null && name === unhashed(destNames.get(d).name)
     const score = punctuatedScoreOf(s, d, only ? 0 : bar)
     if (only || score >= bar) candidates.push({ s, d, score })
   }

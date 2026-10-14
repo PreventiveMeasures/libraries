@@ -62,6 +62,22 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': kept(60) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 51%'])
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': statements(7000, 7100) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 0%'], 'nothing alike')
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': NEW }, { renames: 100 }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js'], 'none under -M100%')
+    assert.deepEqual(renames({ 'a/codeMirrorModule--QdMvsKi.css': OLD }, { 'a/codeMirrorModule-DYBRYzYX.css': kept(60) }), ['a/codeMirrorModule--QdMvsKi.css -> a/codeMirrorModule-DYBRYzYX.css 51%'], 'a hash that starts with `-`')
+  })
+
+  it('holds to git\'s stricter score the only other of a name its hash alone does not tell', () => {
+    // A hash's last 8 to 32 characters with a letter, and a digit or a capital: a date has none, and a `-`
+    // before eight more is the name's, two chunks named apart (`vendor-react-dom`, `vendor-lodash-es`).
+    for (const [from, to] of [
+      ['a/migration-20240101.js', 'a/migration-20250101.js'],
+      ['a/vendor-react-dom-AbCd1234.js', 'a/vendor-lodash-es-XyZw5678.js'],
+      ['a/vendor-ui-AbCdEf12-GhIjKl34.js', 'a/vendor-db-Zy98XwVu-TsRq7654.js'],
+      ['a/index-AbCdEf12-GhIjKl34.js', 'a/index-Zy98XwVu-TsRq7654.js'],
+      ['a/main_3f9a2c1d.js', 'a/main_8b7e6a5f.js'],
+    ]) {
+      assert.deepEqual(renames({ [from]: OLD }, { [to]: kept(60) }).toSorted(), [`added ${to}`, `deleted ${from}`].toSorted(), `${from} -> ${to}, 51%`)
+      assert.deepEqual(renames({ [from]: OLD }, { [to]: NEW }), [`${from} -> ${to} 86%`], `${from} -> ${to}, 86%`)
+    }
   })
 
   it('holds chunks of a name either side has more of to git\'s stricter score, halfway from -M to 100%, as their names alone put them forward', () => {
