@@ -118,8 +118,9 @@ export interface LineOptions {
 // `index-hRvO4yU2.js` are. Minified onto a line, such a chunk scores little
 // as git splits it, so it is scored with its spans ending after `,` `;` `=`
 // `{` `}` too, and taken at git's stricter score for a basename, halfway from
-// -M's to 100%: the best pairs first, its similarity that score. git has no
-// such passes, so false is git's own -M.
+// -M's to 100%: the best pairs first, its similarity that score, and none
+// past the rename limit, as they are scored. git has no such passes, so false
+// is git's own -M.
 //
 // `renameLimit` is git's diff.renameLimit: when more deleted files times added
 // files are left, in a group, after the renames that need no scoring than its

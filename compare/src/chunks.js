@@ -29,7 +29,7 @@ function oneChunk(a, b) {
 
 // Chunks no other pass claimed, by directory, extension and name's length,
 // each pair at least `bar`: the best first, as git takes its candidates.
-export function chunkRenames({ sources, dests, pairs, used, record, punctuatedScoreOf }, { remaining, open }, bar, limit) {
+export function chunkRenames({ sources, dests, pairs, used, record, punctuatedScoreOf }, { remaining, open }, bar) {
   const names = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, nameOf(files[i].path)]))
   const destNames = names(dests, open), sourceNames = names(sources, remaining)
   const byKey = Map.groupBy(sourceNames.keys(), (s) => sourceNames.get(s).key)
@@ -37,7 +37,6 @@ export function chunkRenames({ sources, dests, pairs, used, record, punctuatedSc
   const candidates = []
   for (const [key, ds] of opens) {
     const ss = byKey.get(key) ?? []
-    if (ss.length * ds.length > limit * limit) continue
     for (const d of ds) {
       for (const s of ss) {
         if (!oneChunk(sourceNames.get(s).stem, destNames.get(d).stem)) continue

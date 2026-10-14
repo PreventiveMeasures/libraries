@@ -183,7 +183,7 @@ const stricter = (minimum) => minimum + Math.trunc(0.5 * (MAX_SCORE - minimum))
 
 // Each added file's rename by its index in `dests`: { source, score }. A
 // `minimum` of MAX_SCORE takes identical content alone, but for `byPath`, and
-// more than `limit` squared pairs left skips the scoring.
+// more than `limit` squared pairs left skips the scoring, chunks' too.
 export function findRenames(sources, dests, { minimum, limit, byPath }) {
   const pairs = new Map(), used = new Set()
   if (sources.length === 0 || dests.length === 0) return pairs
@@ -209,7 +209,8 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
   if (minimum >= MAX_SCORE) return pairs
   basenameRenames(context, unpaired(context), stricter(minimum))
   const left = unpaired(context)
-  if (left.remaining.length * left.open.length <= limit * limit) scoredRenames(context, left, minimum)
-  if (byPath) chunkRenames(context, unpaired(context), stricter(minimum), limit)
+  if (left.remaining.length * left.open.length > limit * limit) return pairs
+  scoredRenames(context, left, minimum)
+  if (byPath) chunkRenames(context, unpaired(context), stricter(minimum))
   return pairs
 }

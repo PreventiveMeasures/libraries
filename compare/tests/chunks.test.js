@@ -67,6 +67,12 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames(old, fresh), ['a/index-BBBB2222.js -> a/index-CCCC3333.js 99%', 'a/index-AAAA1111.js -> a/index-DDDD4444.js 86%'])
   })
 
+  it('looks for none past the rename limit, which counts every file left in a group, as git scores none', () => {
+    const fresh = { 'a/index-hRvO4yU2.js': NEW, 'b/index-hRvO4yU2.js': NEW }, old = { 'a/index-CyWAfh-p.js': OLD, 'b/index-CyWAfh-p.js': OLD }
+    assert.deepEqual(renames(old, fresh, { renameLimit: 1 }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js', 'deleted b/index-CyWAfh-p.js', 'added b/index-hRvO4yU2.js'])
+    assert.deepEqual(renames(old, fresh, { renameLimit: 2 }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'b/index-CyWAfh-p.js -> b/index-hRvO4yU2.js 86%'])
+  })
+
   it('pairs only what no other pass claimed', () => {
     const old = { 'a/index-CyWAfh-p.js': OLD }
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': NEW, 'b/copy.js': OLD }), ['added a/index-hRvO4yU2.js', 'a/index-CyWAfh-p.js -> b/copy.js 100%'])
