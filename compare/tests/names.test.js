@@ -13,7 +13,7 @@ import { format } from '../pretty.js'
 import { renamedDiff, renamedDiffs } from '../names.js'
 import { bindsAlike } from '../src/names/binds.js'
 import { renameMap } from '../src/names/rename.js'
-import { shortestChangeSet } from '../src/text.js'
+import { shortestChangeSet, shownChangeSet } from '../src/text.js'
 import { compiles, program, run } from './programs.js'
 import { random } from './random.js'
 
@@ -107,6 +107,12 @@ describe('renameMap', () => {
     assert.equal(renameMap(after, before).text, lines(['var a_old = RegExp(`y`),', '  a = `system`,', '  b = window.matchMedia(`x`);', 'function c() {', '  return b.matches ? a : `light`;', '}', 'c();', 'export { a_old as n };']))
     // Neither a module: a script's top level is globals another script may read, and keeps its names.
     assert.equal(renameMap(before, after.replace('export { a as n };\n', '')).text, before)
+  })
+
+  it('pairs names by lines alike but for their blanks, where minding blanks lines up as many', () => {
+    // Ignoring blanks, `let v` stays `let x` and `let w` becomes `let y`; minding them, `let w` lines up
+    // with `let x`: two lines changed either way, the first all a pair can be read from.
+    assert.equal(renameMap(' let v = 1;\nlet w = 1;\n', 'let x = 1;\nlet y = 2;\n', { extension: 'mjs' }).text, ' let x = 1;\nlet y = 1;\n')
   })
 
   it('renames a script\'s top level that a minifier renamed throughout: many names there, every one short', () => {
@@ -313,7 +319,7 @@ describe('renamedDiff', () => {
     assert.equal(edits(shortest), edits(blocks))
     assert.ok(edits(shortest) < edits(changeSet(longer, later, { horizon: 0 })), 'shorter than past the cutoff')
     // Ignoring blanks shows two lines here, as minding them does: the blocks minding them.
-    assert.deepEqual(shortestChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0, whitespace: 'all' }), shortestChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0 }))
+    assert.deepEqual(shownChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0, whitespace: 'all' }), shownChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0 }))
   })
 
   it('diffs once for each whitespace setting, from names found once, each as renamedDiff has it', async () => {

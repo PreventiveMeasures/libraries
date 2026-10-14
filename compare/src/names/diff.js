@@ -6,7 +6,7 @@
 import { blocksHold } from '../blocks.js'
 import { markedBlocks } from '../marked.js'
 import { format } from '../pretty.js'
-import { checkLineOptions, shortestChangeSet } from '../text.js'
+import { checkLineOptions, shownChangeSet } from '../text.js'
 import { bindsAlike } from './binds.js'
 import { renameMap } from './rename.js'
 
@@ -30,7 +30,7 @@ export async function renamedDiffs(before, after, { extension = 'js', otherExten
   }
   let unmarked = false
   const diffs = settings.map((options) => {
-    const blocks = shortestChangeSet(renamed, after, options).map(ranges)
+    const blocks = shownChangeSet(renamed, after, options).map(ranges)
     if (!blocksHold(renamed, after, blocks, options)) throw new Error('change blocks that do not take the old side to the new')
     // Read off the renamed text before formatting, line for line the old side's.
     const marks = mapped.reason ? [] : markedBlocks(before, mapped.text, after, options)

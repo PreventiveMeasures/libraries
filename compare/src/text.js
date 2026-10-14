@@ -66,12 +66,20 @@ const SHORTEST_A_LINE = 1e4, SHORTEST_COST = 2e8
 const lineCount = (text) => text.split('\n').length
 function shortest(a, b, options, lines, bound) {
   const budget = Math.max(SHORTEST_COST, SHORTEST_A_LINE * lines), quick = changeSet(a, b, options)
-  return Math.min(changes(quick), bound) ** 2 > budget ? quick : changeSet(a, b, { ...options, minimal: true })
+  let changed = changes(quick)
+  if (changed ** 2 > budget) changed = Math.min(changed, bound())
+  return changed ** 2 > budget ? quick : changeSet(a, b, { ...options, minimal: true })
 }
+// For lines read, as names are paired by: ignoring blanks or case, what it
+// finds, its lines alike kept where minding them ties.
 export function shortestChangeSet(a, b, options, lines = lineCount(a) + lineCount(b)) {
-  if (!ignoring(options)) return shortest(a, b, options, lines, Infinity)
+  return shortest(a, b, options, lines, () => (ignoring(options) ? changes(changeSet(a, b, minding(options))) : Infinity))
+}
+// For lines shown: ignoring blanks or case, never more than minding them.
+export function shownChangeSet(a, b, options, lines = lineCount(a) + lineCount(b)) {
+  if (!ignoring(options)) return shortestChangeSet(a, b, options, lines)
   const minded = shortestChangeSet(a, b, minding(options), lines)
-  return noLonger(a, b, options, shortest(a, b, options, lines, changes(minded)), minded)
+  return noLonger(a, b, options, shortest(a, b, options, lines, () => changes(minded)), minded)
 }
 
 // Binary content has no blocks and no counts, as --numstat prints `-` for it.
