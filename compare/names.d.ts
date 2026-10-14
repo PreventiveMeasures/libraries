@@ -36,22 +36,30 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // `stack`, `callee`, `caller`), sorted, as code reading its names may act
 // otherwise renamed: none where none is renamed, and `name` only where a name
 // renamed is a function's or class's, the one name it reads (`function f`,
-// `f = () => {}`); `marks` the plain diff's blocks that differ in renamed names
-// alone; and `warnings` what a check that should never fail found.
+// `f = () => {}`); `assumed` whether a script's top level was taken as its own,
+// a name there changed or given one from there, and on what: 'module' where the
+// file's other version is one, 'minified' where its top level declares 16 names
+// or more, every one short (null where neither); `marks` the plain diff's blocks
+// that differ in renamed names alone; and `warnings` what a check that should
+// never fail found.
 export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: Whitespace }): Promise<{
   before: string
   blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
   reason: RenameReason | null
   reads: string[]
+  assumed: TopLevelAssumption | null
   marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
   warnings: string[]
 }>
+
+// What a script's top level renamed as a module's is taken to be on.
+export type TopLevelAssumption = 'module' | 'minified'
 
 export type Whitespace = 'none' | 'all' | 'change' | 'trailing'
 
 // renamedDiff for each of `whitespace`'s settings (`['none']` unless given),
 // `diffs` in their order: the names found and the old side given them once
-// for all, as are `before`, `reason`, `reads` and `warnings`; each setting's
+// for all, as are `before`, `reason`, `reads`, `assumed` and `warnings`; each setting's
 // `blocks` checked as renamedDiff's are, and its `marks` read as they are. A
 // setting ignoring blanks never shows more lines than 'none', and where it
 // shows no fewer, its blocks are those of 'none': it does nothing there.
@@ -59,6 +67,7 @@ export function renamedDiffs(before: string, after: string, options?: RenameOpti
   before: string
   reason: RenameReason | null
   reads: string[]
+  assumed: TopLevelAssumption | null
   diffs: { whitespace: Whitespace; blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]; marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] }[]
   warnings: string[]
 }>

@@ -30,7 +30,7 @@ function diffsOf(before, after, { extension = 'js', otherExtension = extension, 
     return { whitespace: options.whitespace, blocks, marks: marks ?? [] }
   })
   if (unmarked) warnings.push('a renamed text with lines the old one does not have; none marked')
-  return { before: renamed, reason: mapped.reason ?? null, reads: mapped.reads ?? [], diffs, warnings }
+  return { before: renamed, reason: mapped.reason ?? null, reads: mapped.reads ?? [], assumed: mapped.assumed ?? null, diffs, warnings }
 }
 
 // A promise still, as callers await it: what goes wrong rejects it.
@@ -41,6 +41,6 @@ export function renamedDiffs(before, after, options) {
 }
 
 export async function renamedDiff(before, after, { whitespace = 'none', ...options } = {}) {
-  const { before: renamed, reason, reads, diffs: [{ blocks, marks }], warnings } = await renamedDiffs(before, after, { ...options, whitespace: [whitespace] })
-  return { before: renamed, blocks, reason, reads, marks, warnings }
+  const { before: renamed, reason, reads, assumed, diffs: [{ blocks, marks }], warnings } = await renamedDiffs(before, after, { ...options, whitespace: [whitespace] })
+  return { before: renamed, blocks, reason, reads, assumed, marks, warnings }
 }
