@@ -21,6 +21,10 @@
     "./pretty.js": {
       "types": "./pretty.d.ts",
       "default": "./pretty.js"
+    },
+    "./view.js": {
+      "types": "./view.d.ts",
+      "default": "./view.js"
     }
   },
   "imports": {
@@ -46,6 +50,8 @@
     "names.js",
     "pretty.d.ts",
     "pretty.js",
+    "view.d.ts",
+    "view.js",
     "src/blocks.js",
     "src/changes.js",
     "src/chunks.js",
@@ -71,6 +77,7 @@
     "src/pretty.js",
     "src/quote.js",
     "src/renames.js",
+    "src/root.js",
     "src/same-bytes.js",
     "src/same-bytes.node.js",
     "src/script.js",

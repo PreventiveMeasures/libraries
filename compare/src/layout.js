@@ -1,14 +1,7 @@
 // Two trees taken from different roots lined up: the directory one's files sit
 // under in the other (`root`), and each old path as the new tree lays it out.
 
-function throughRoot(root, path) {
-  if (!root) return path
-  if (root.base === '') return `${root.other}${path}`
-  return path.startsWith(root.base) ? path.slice(root.base.length) : null
-}
-
-// A path outside a root as one inside it reaches it.
-const outside = (root, path) => `${'../'.repeat(root.base.split('/').length - 1)}${path}`
+import { layoutDir, outside, throughRoot } from './root.js'
 
 // Each old path as the new tree lays it out: through the root where the new
 // tree has it there, else as it is where it has that, else through the root,
@@ -70,25 +63,9 @@ export function treeLayout(basePaths, otherPaths) {
   return { root, paths: rootPaths(base, other, root).paths }
 }
 
-export function layoutDir({ root, paths }, dir, files) {
-  if (!root || dir === '.') return dir
-  for (const file of files) {
-    const to = paths.get(`${dir}/${file}`)
-    if (to?.endsWith(`/${file}`)) return to.slice(0, -file.length - 1)
-  }
-  const to = throughRoot(root, `${dir}/`)
-  return to === null ? outside(root, dir) : to.slice(0, -1) || '.'
-}
-
 export function layoutPackageDirs(baseDirs, otherDirs, layout) {
   if (!baseDirs && !otherDirs) return null
   const files = Map.groupBy([...baseDirs ?? []], ([, dir]) => dir)
   const dirs = new Map([...files].map(([dir, entries]) => [dir, layoutDir(layout, dir, entries.map(([path]) => path.slice(dir.length + 1)))]))
   return new Map([...[...baseDirs ?? []].map(([path, dir]) => [layout.paths.get(path) ?? path, dirs.get(dir)]), ...otherDirs ?? []])
-}
-
-export function rootLabel(root, prefix) {
-  if (!root) return { prefix, from: null, to: null }
-  const kept = prefix.startsWith(root.other) ? prefix : ''
-  return { prefix: kept, from: `./${root.base}${kept.slice(root.other.length)}`, to: `./${kept || root.other}` }
 }
