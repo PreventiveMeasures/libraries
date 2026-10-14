@@ -106,6 +106,31 @@ export function slowed(ms, now = () => undefined) {
   return count
 }
 
+// The stubbed fetch, each answer held until `at` fetches are coming at once,
+// or a second has gone by, and `ms` more; counts them as slowed does. A limit
+// of `at` reads as `at` however busy the machine, where a timer alone lets the
+// first answer come before the last of them is asked for.
+export function gathered(at, ms = 5) {
+  const served = globalThis.fetch
+  const count = { open: 0, most: 0 }
+  const { promise: together, resolve } = Promise.withResolvers()
+  const timer = setTimeout(resolve, 1000)
+  globalThis.fetch = async (input) => {
+    count.most = Math.max(count.most, ++count.open)
+    if (count.open >= at) {
+      clearTimeout(timer)
+      resolve()
+    }
+    await together
+    await new Promise((resolved) => {
+      setTimeout(resolved, ms)
+    })
+    count.open--
+    return await served(input)
+  }
+  return count
+}
+
 // `name`@`version` is not found at once, while every other tarball comes
 // late; what is returned tells how many are still coming.
 export function stubFailingRegistry(tarballs, name, version) {
