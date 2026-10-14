@@ -64,6 +64,7 @@ function declareVariables(node, where, s) {
   for (const id of node.declarations.flatMap((declarator) => declared(declarator.id))) {
     const variable = declare(s, node.kind === 'var' ? fnOf(where) : where, id)
     if (node.kind !== 'var') continue
+    variable.byVar = true
     const path = []
     for (let at = where; !at.fn; at = at.parent) path.push(at)
     if (path.length > 0) (variable.through ??= []).push(path)
@@ -244,8 +245,9 @@ function resolved(program, s) {
   // Set again (`reassigned`): written, or declared more than once, or a
   // parameter of a function that reads `arguments`, which may write it
   // (`arguments[0] = x`, outside strict code) -- an arrow's its function's,
-  // and a `var arguments` its function's own `arguments` still.
-  for (const [node, where] of [...globals, ...occurrences.map(([named, , at]) => [named, at])]) {
+  // and a `var arguments` its function's own `arguments` still, unlike one a
+  // `let`, a parameter or a `catch` declares.
+  for (const [node, where] of [...globals, ...occurrences.filter(([, variable]) => variable.byVar).map(([named, , at]) => [named, at])]) {
     if (node.name !== 'arguments') continue
     let at = where
     while (at && !(at.parameter && !at.arrow)) at = at.parent

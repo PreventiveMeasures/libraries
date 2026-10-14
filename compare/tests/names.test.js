@@ -175,6 +175,9 @@ describe('renameMap', () => {
     // Outside strict code a `var arguments` is its function's `arguments` still.
     const sloppy = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  var arguments;\n  arguments.length;\n')}module.exports = f;\n`
     assert.equal(renameMap(sloppy(before), sloppy(after)).text, sloppy(before).replaceAll(/\be\b/gu, 'i'))
+    // One a `catch`, a `let` or a parameter declares is not.
+    const caught = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  try {\n    m();\n  } catch (arguments) {\n    m(arguments);\n  }\n')}module.exports = f;\n`
+    assert.equal(renameMap(caught(before), caught(after)).text, caught(before))
     // A variable set again may be a minifier's two in one (moment's `i` a regular expression, then a
     // prototype), its declaration telling of the first alone: its lines say.
     const merged = (a, b, set) => lines(['export function f(q, h) {', `  var ${a} = /\\d/,`, `    ${b} = /^[1-9]\\d?/;`, `  h("Q", ${a});`, `  h("D", ${b});`, `  ${set} = q.prototype;`,
