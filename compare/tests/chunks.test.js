@@ -100,4 +100,13 @@ describe('bundle chunks', () => {
     const fresh = { 'a/index-hRvO4yU2.js': NEW, 'b/other.js': other }, old = { 'a/index-CyWAfh-p.js': OLD, 'c/legacy.js': `${other.slice(0, -1)}#` }
     assert.deepEqual(renames(old, fresh), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'c/legacy.js -> b/other.js 97%'])
   })
+
+  it('keeps the files of a chunk that gave way from a worse pair of either until git has paired the rest', () => {
+    // 86% and 76% for the old chunk; the first gives way to a deleted file 94% like the new one, which git
+    // gives an added file 97% like it, or else takes.
+    const rival = `x=1;${statements(0, 90)}${statements(1000, 1006)}${statements(5000, 5004)}`
+    const fresh = { 'a/index-BBBB2222.js': NEW, 'a/index-CCCC3333.js': kept(82) }, old = { 'a/index-AAAA1111.js': OLD, 'b/rival.js': rival }
+    assert.deepEqual(renames(old, { ...fresh, 'c/closer.js': `${rival.slice(0, -1)}#` }), ['a/index-AAAA1111.js -> a/index-BBBB2222.js 86%', 'added a/index-CCCC3333.js', 'b/rival.js -> c/closer.js 97%'])
+    assert.deepEqual(renames(old, fresh), ['b/rival.js -> a/index-BBBB2222.js 94%', 'a/index-AAAA1111.js -> a/index-CCCC3333.js 76%'])
+  })
 })

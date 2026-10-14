@@ -34,7 +34,8 @@ function oneChunk(a, b) {
 // Chunks git's scored pass has yet to claim, by directory, extension and
 // name's length, each pair at least `bar`: the best first, as git takes its
 // candidates, but for a pair `outdone` by a file's other candidate, set aside
-// and returned, best first, for git to pair that candidate with another file.
+// and returned, best first, for git to pair that candidate with another file:
+// it holds its files, so that a later pair of either is set aside behind it.
 export function chunkRenames({ sources, dests, pairs, used, record, punctuatedScoreOf }, { remaining, open }, bar, outdone) {
   const names = (files, indices) => new Map(indices.filter((i) => files[i].type === 'file').map((i) => [i, nameOf(files[i].path)]))
   const destNames = names(dests, open), sourceNames = names(sources, remaining)
@@ -51,11 +52,14 @@ export function chunkRenames({ sources, dests, pairs, used, record, punctuatedSc
       }
     }
   }
-  const aside = []
+  const aside = [], heldDests = new Set(), heldSources = new Set()
   for (const pair of candidates.sort((x, y) => y.score - x.score)) {
     if (pairs.has(pair.d) || used.has(pair.s)) continue
-    if (outdone(pair)) aside.push(pair)
-    else record(pair.d, pair.s, pair.score)
+    if (heldSources.has(pair.s) || heldDests.has(pair.d) || outdone(pair)) {
+      aside.push(pair)
+      heldSources.add(pair.s)
+      heldDests.add(pair.d)
+    } else record(pair.d, pair.s, pair.score)
   }
   return aside
 }
