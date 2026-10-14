@@ -193,7 +193,8 @@ const unpaired = ({ sources, dests, pairs, used }) => ({
 })
 
 // git's stricter score, halfway from -M's to 100%, for a pair that names alone
-// put forward: a basename both sides have once, or a chunk's.
+// put forward: a basename both sides have once, or a chunk's of a name either
+// side has more of.
 const stricter = (minimum) => minimum + Math.trunc(0.5 * (MAX_SCORE - minimum))
 
 // Each added file's rename by its index in `dests`: { source, score }. A

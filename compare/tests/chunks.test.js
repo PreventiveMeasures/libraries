@@ -56,12 +56,21 @@ describe('bundle chunks', () => {
     ]) assert.deepEqual(renames({ [from]: OLD }, { [to]: NEW }).toSorted(), [`added ${to}`, `deleted ${from}`].toSorted(), `${from} -> ${to}`)
   })
 
-  it('holds a chunk to git\'s stricter score, halfway from -M to 100%, as its name alone puts it forward', () => {
+  it('pairs a chunk with the only other of its name however it scores, as a pair by path', () => {
+    // playwright-core's dashboard `index-*.js`, 31% alike from 1.61.1 to 1.62.0: the build's own chunk, rewritten.
     const old = { 'a/index-CyWAfh-p.js': OLD }
-    assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': kept(60) }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js'], '51% is short of 75%')
-    assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': kept(70) }, { renames: 30 }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js'], '62% is short of 65%')
-    assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': kept(70) }, { renames: 20 }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 62%'], '62% is past 60%')
+    assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': kept(60) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 51%'])
+    assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': statements(7000, 7100) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 0%'], 'nothing alike')
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': NEW }, { renames: 100 }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js'], 'none under -M100%')
+  })
+
+  it('holds chunks of a name either side has more of to git\'s stricter score, halfway from -M to 100%, as their names alone put them forward', () => {
+    const old = { 'a/index-AAAA1111.js': OLD, 'a/index-BBBB2222.js': statements(5000, 5100) }
+    const fresh = (n) => ({ 'a/index-CCCC3333.js': kept(n), 'a/index-DDDD4444.js': statements(7000, 7100) })
+    const none = ['deleted a/index-AAAA1111.js', 'deleted a/index-BBBB2222.js', 'added a/index-CCCC3333.js', 'added a/index-DDDD4444.js']
+    assert.deepEqual(renames(old, fresh(60)).toSorted(), none.toSorted(), '51% is short of 75%')
+    assert.deepEqual(renames(old, fresh(70), { renames: 30 }).toSorted(), none.toSorted(), '62% is short of 65%')
+    assert.deepEqual(renames(old, fresh(70), { renames: 20 }).toSorted(), ['a/index-AAAA1111.js -> a/index-CCCC3333.js 62%', 'deleted a/index-BBBB2222.js', 'added a/index-DDDD4444.js'].toSorted(), '62% is past 60%')
   })
 
   it('takes the best pairs first among chunks of one name', () => {
