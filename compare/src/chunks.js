@@ -32,14 +32,16 @@ function readings(name) {
 // theirs. A part both share is an extension's (`index-AbCd1234.production2024.js`);
 // a `-` in a hash is the hash's (`index-CyWAfh-p.js`, `codeMirrorModule--QdMvsKi.css`)
 // and one before eight more the name's (`vendor-react-dom-AbCd1234.js`). Two
-// that differ in digits alone are numbers, a time's or a version's
-// (`migration-20240101T120000.js`), as two hashes all but never are.
-const digitless = (text) => text.replaceAll(/\d/gu, '0')
+// with a character of a kind in each place, a digit for a digit, a capital for
+// a capital, are of one format, a time's or a version's
+// (`migration-20240101T120000.js`, `migration-2024-Oct-14.js`), as two hashes
+// all but never are.
+const shape = (text) => text.replaceAll(/\d/gu, '0').replaceAll(/[a-z]/gu, 'a').replaceAll(/[A-Z]/gu, 'A')
 function oneButHash(a, b) {
   const others = readings(b)
   for (const [name, hash, extensions] of readings(a)) {
     const other = others.find((reading) => reading[2] === extensions)
-    if (other && other[1] !== hash) return other[0] === name && digitless(other[1]) !== digitless(hash)
+    if (other && other[1] !== hash) return other[0] === name && shape(other[1]) !== shape(hash)
   }
   return false
 }

@@ -124,7 +124,8 @@ export interface LineOptions {
 // where each is the other's only such chunk and their names are one but for a
 // hash as a build writes one -- the last 8 to 32 of those characters after a
 // `-` or `.`, with a letter, and a digit or a capital, no date nor a name's
-// part -- as a pair by path is (a build's chunk rewritten: playwright's
+// part, nor two of one format, a character of a kind in each place -- as a
+// pair by path is (a build's chunk rewritten: playwright's
 // dashboard `index-*.js`, 31% alike from 1.61.1 to 1.62.0), else at git's
 // stricter score for a basename, halfway from -M's to 100%: the best pairs
 // first, its similarity that score, giving way as a pair by path does but only
