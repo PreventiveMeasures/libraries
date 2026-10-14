@@ -42,9 +42,10 @@ function renamedNames(before, after, { extension = 'js', otherExtension = extens
   // by its syntax: a bundle's chunk that one version exports from, the other not,
   // or that neither does, its top level renamed by a minifier as a module's is.
   // Where either version is one, a script's top level is its own too.
+  // Each says so apart: a version a module; a script's top level a minifier's throughout.
   const scripts = [a, b].map((side) => !side.own)
-  const why = [a, b].some((side) => side.module) ? 'module' : [a, b].some(minifiedTopLevel) ? 'minified' : null
-  if (why) [a, b] = [ownTopLevel(a), ownTopLevel(b)]
+  const why = [[a, b].some((side) => side.module) && 'module', [a, b].some((side, i) => scripts[i] && minifiedTopLevel(side)) && 'minified'].filter(Boolean)
+  if (why.length > 0) [a, b] = [ownTopLevel(a), ownTopLevel(b)]
   checkAnalysis(before, a)
   checkAnalysis(after, b)
   const paired = pairing(before, after, a, b)
@@ -67,9 +68,9 @@ function renamedNames(before, after, { extension = 'js', otherExtension = extens
   // class's alone: one only where a name renamed is one's.
   const naming = changed.some((variable) => variable.naming || paired.map.get(variable)?.naming)
   const reads = changed.length === 0 ? [] : [...new Set([...a.reads, ...b.reads])].filter((read) => read !== 'name' || naming).toSorted()
-  // A script's top level taken as its own, as `why` says, where a name there changed or took one from there.
+  // A script's top level taken as its own, as all `why` says, where a name there changed or took one from there.
   const root = (variable) => variable.scope.parent === null
-  const assumed = changed.some((variable) => (scripts[0] && root(variable)) || (scripts[1] && paired.map.has(variable) && root(paired.map.get(variable)))) ? why : null
+  const assumed = changed.some((variable) => (scripts[0] && root(variable)) || (scripts[1] && paired.map.has(variable) && root(paired.map.get(variable)))) ? why : []
   return { text, renamed, apart: changed.length - renamed, kind: { module: a.module, commonjs: a.commonjs, own: a.own }, reads, assumed }
 }
 

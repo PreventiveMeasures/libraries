@@ -102,12 +102,12 @@ describe('renameMap', () => {
     const before = lines(['var a = `system`,', '  b = window.matchMedia(`x`);', 'function c() {', '  return b.matches ? a : `light`;', '}', 'c();'])
     const after = lines(['var a = RegExp(`y`),', '  b = `system`,', '  c = window.matchMedia(`x`);', 'function d() {', '  return c.matches ? b : `light`;', '}', 'd();', 'export { a as n };'])
     const renamed = lines(['var b = `system`,', '  c = window.matchMedia(`x`);', 'function d() {', '  return c.matches ? b : `light`;', '}', 'd();'])
-    assert.deepEqual([renameMap(before, after).text, renameMap(before, after).assumed], [renamed, 'module'], 'its top level taken as its own')
-    assert.equal(renameMap(after, before).assumed, 'module', 'given names from a script\'s top level')
+    assert.deepEqual([renameMap(before, after).text, renameMap(before, after).assumed], [renamed, ['module']], 'its top level taken as its own')
+    assert.deepEqual(renameMap(after, before).assumed, ['module'], 'given names from a script\'s top level')
     // The other way, the module given the script's names, its own `a` none of them: apart, as `a_old`.
     assert.equal(renameMap(after, before).text, lines(['var a_old = RegExp(`y`),', '  a = `system`,', '  b = window.matchMedia(`x`);', 'function c() {', '  return b.matches ? a : `light`;', '}', 'c();', 'export { a_old as n };']))
     // Neither a module: a script's top level is globals another script may read, and keeps its names.
-    assert.deepEqual([renameMap(before, after.replace('export { a as n };\n', '')).text, renameMap(before, after.replace('export { a as n };\n', '')).assumed], [before, null])
+    assert.deepEqual([renameMap(before, after.replace('export { a as n };\n', '')).text, renameMap(before, after.replace('export { a as n };\n', '')).assumed], [before, []])
   })
 
   it('pairs names by lines alike but for their blanks, where minding blanks lines up as many', () => {
@@ -122,9 +122,11 @@ describe('renameMap', () => {
     const names = 'abcdefghijklmnopq'
     const script = (count, shift, extra = []) => lines([...(shift ? ['var a = RegExp(`y`);'] : []), ...Array.from({ length: count }, (_, i) => `var ${names[i + shift]} = fn(${i}, ${i ? names[i + shift - 1] : 0});`), `use(${names[count - 1 + shift]});`, ...extra])
     const throughout = renameMap(script(16, 0), script(16, 1))
-    assert.deepEqual([throughout.text, throughout.assumed], [script(16, 1).replace('var a = RegExp(`y`);\n', ''), 'minified'])
+    assert.deepEqual([throughout.text, throughout.assumed], [script(16, 1).replace('var a = RegExp(`y`);\n', ''), ['minified']])
+    // And its other version a module: both said, each apart.
+    assert.deepEqual(renameMap(script(16, 0), `${script(16, 1)}export { a as n };\n`).assumed, ['module', 'minified'])
     // Fewer, or a long one among them: globals another script may read, which keep their names.
-    assert.deepEqual([renameMap(script(14, 0), script(14, 1)).text, renameMap(script(14, 0), script(14, 1)).assumed], [script(14, 0), null])
+    assert.deepEqual([renameMap(script(14, 0), script(14, 1)).text, renameMap(script(14, 0), script(14, 1)).assumed], [script(14, 0), []])
     const long = ['var config = 1;']
     assert.equal(renameMap(script(16, 0, long), script(16, 1, long)).text, script(16, 0, long))
   })
@@ -134,7 +136,7 @@ describe('renameMap', () => {
     const before = lines(['export function main(q) {', '  function b(t, n) {', '    let r = t + n;', '    return r * q;', '  }', '  function c(e) {', '    let y = e.map((x) => x + q);', '    return y.length;', '  }', '  return [b, c];', '}'])
     const after = lines(['export function main(q) {', '  function d(e) {', '    let o = e.map((x) => x + q);', '    return o.length;', '  }', '  function f(i, s) {', '    let a = i + s;', '    return a * q;', '  }', '  return [f, d];', '}'])
     const renamed = lines(['export function main(q) {', '  function f(i, s) {', '    let a = i + s;', '    return a * q;', '  }', '  function d(e) {', '    let o = e.map((x) => x + q);', '    return o.length;', '  }', '  return [f, d];', '}'])
-    assert.deepEqual([renameMap(before, after).text, renameMap(before, after).assumed], [renamed, null], 'a module\'s top level its own, assuming nothing')
+    assert.deepEqual([renameMap(before, after).text, renameMap(before, after).assumed], [renamed, []], 'a module\'s top level its own, assuming nothing')
   })
 
   it('pairs a function\'s variables as its own lines say, where its loop moved into a helper reads one as the helper\'s', () => {

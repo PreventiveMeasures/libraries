@@ -36,23 +36,23 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // `stack`, `callee`, `caller`), sorted, as code reading its names may act
 // otherwise renamed: none where none is renamed, and `name` only where a name
 // renamed is a function's or class's, the one name it reads (`function f`,
-// `f = () => {}`); `assumed` whether a script's top level was taken as its own,
-// a name there changed or given one from there, and on what: 'module' where the
-// file's other version is one, 'minified' where its top level declares 16 names
-// or more, every one short (null where neither); `marks` the plain diff's blocks
-// that differ in renamed names alone; and `warnings` what a check that should
-// never fail found.
+// `f = () => {}`); `assumed` all a script's top level was taken as its own on,
+// where a name there changed or was given to one from there (none where
+// none): 'module' where a version of the file is one, 'minified' where a
+// script's top level declares 16 names or more, every one short; `marks` the
+// plain diff's blocks that differ in renamed names alone; and `warnings` what
+// a check that should never fail found.
 export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: Whitespace }): Promise<{
   before: string
   blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
   reason: RenameReason | null
   reads: string[]
-  assumed: TopLevelAssumption | null
+  assumed: TopLevelAssumption[]
   marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]
   warnings: string[]
 }>
 
-// What a script's top level renamed as a module's is taken to be on.
+// What a script's top level renamed as a module's is taken to be on, each one apart.
 export type TopLevelAssumption = 'module' | 'minified'
 
 export type Whitespace = 'none' | 'all' | 'change' | 'trailing'
@@ -67,7 +67,7 @@ export function renamedDiffs(before: string, after: string, options?: RenameOpti
   before: string
   reason: RenameReason | null
   reads: string[]
-  assumed: TopLevelAssumption | null
+  assumed: TopLevelAssumption[]
   diffs: { whitespace: Whitespace; blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]; marks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[] }[]
   warnings: string[]
 }>

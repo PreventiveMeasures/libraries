@@ -30,7 +30,7 @@ function diffsOf(before, after, { extension = 'js', otherExtension = extension, 
     return { whitespace: options.whitespace, blocks, marks: marks ?? [] }
   })
   if (unmarked) warnings.push('a renamed text with lines the old one does not have; none marked')
-  return { before: renamed, reason: mapped.reason ?? null, reads: mapped.reads ?? [], assumed: mapped.assumed ?? null, diffs, warnings }
+  return { before: renamed, reason: mapped.reason ?? null, reads: mapped.reads ?? [], assumed: mapped.assumed ?? [], diffs, warnings }
 }
 
 // A promise still, as callers await it: what goes wrong rejects it.
