@@ -46,6 +46,12 @@ describe('sameCode', () => {
       ['x=!0n', 'x = true;\n', 'a BigInt'], ['x="!0"', 'x = "true";\n', 'a string'], ['x=!!0', 'x = true;\n', 'one `!` more'],
       ['function f(){return!0}', 'function f() {\n  returntrue;\n}\n', 'run on into the word before']]) assert.equal(sameCode(text, formatted), false, what)
     assert.equal(sameCode('const a=!0', 'const a = true;\n', 'ts'), false, 'nor in a typed script, as TypeScript types `true` otherwise')
+    assert.equal(sameCode('x=`a`;f(`b`,`c"d`,`e\\``,{[`k`]:1})', 'x = "a";\nf("b", \'c"d\', "e`", { ["k"]: 1 });\n'), true, 'a template without substitutions as its string')
+    for (const [text, formatted, what] of [['x=`a`', 'x = "b";\n', 'another string'], ['x=`a${b}`', 'x = "a${b}";\n', 'a template with a substitution'],
+      ['x=tag`a`', 'x = tag("a");\n', 'a tagged template'], ['function f(){`use strict`;return this}', 'function f() {\n  "use strict";\n  return this;\n}\n', 'a statement, which may be a directive'],
+      ['x=`a\nb`', 'x = "a\\nb";\n', 'one over more than one line'], ['const a=`x`', 'const a = "x";\n', 'one in a typed script']]) {
+      assert.equal(sameCode(text, formatted, text.startsWith('const') ? 'ts' : 'js'), false, what)
+    }
     assert.equal(sameCode('x=a/ig;b', 'x = a / gi;\nb;\n'), false, 'a name\'s letters sorted as flags would be')
     assert.equal(sameCode(`var ${esc('0061')}=1`, 'var a = 1;\n'), false, 'a name\'s escape read')
     assert.equal(sameCode('x=a&&/* c */\nb', 'x = a /* c */ && b;\n'), false, 'a comment moved before the operator it followed')
@@ -183,6 +189,16 @@ describe('format', () => {
     assert.match((await format(`export type M = { [P in ${union}]: 1 };`, 'ts')).code, /P in\n\s+\| Part0WithALongName\n/u, 'and a mapped type\'s `in`')
   })
 
+  it('writes a template without substitutions as its string, its escapes as written', async () => {
+    assert.deepEqual(await format('function f(){var e=k(`div`);return`oncopy`in e?!0:(e.setAttribute(`oncopy`,`return;`),typeof e.oncopy==`function`)}', 'js'),
+      { code: 'function f() {\n  var e = k("div");\n  return "oncopy" in e\n    ? true\n    : (e.setAttribute("oncopy", "return;"), typeof e.oncopy == "function");\n}\n' })
+    assert.deepEqual(await format('x=`a"b`;y=`it\\\'s`;z=`a\\`b`;w=`\\${x}`;v=`\\u00e9\\n`', 'js'),
+      { code: 'x = \'a"b\';\ny = "it\'s";\nz = "a`b";\nw = "${x}";\nv = "\\u00e9\\n";\n' }, 'quoted as oxfmt quotes a string')
+    assert.deepEqual(await format('x=tag`a`;y=`a${b}`;z=`a\nb`;function g(){`use strict`}', 'js'),
+      { code: 'x = tag`a`;\ny = `a${b}`;\nz = `a\nb`;\nfunction g() {\n  `use strict`;\n}\n' }, 'a tagged one, one with a substitution, one over two lines and a statement kept')
+    assert.deepEqual(await format('const a=`x`', 'ts'), { code: 'const a = `x`;\n' }, 'and one in a typed script')
+  })
+
   it('writes `!0` and `!1` as `true` and `false`, as they read', async () => {
     assert.deepEqual(await format('x=!0,y=!1;f(!0,typeof!1,-!0,!!0);r=()=>a?!0:!1', 'js'),
       { code: '((x = true), (y = false));\nf(true, typeof false, -true, !true);\nr = () => (a ? true : false);\n' })
@@ -190,7 +206,7 @@ describe('format', () => {
     assert.deepEqual(await format('function f(a){switch(a){case!1:return!0}return void!0}', 'js'),
       { code: 'function f(a) {\n  switch (a) {\n    case false:\n      return true;\n  }\n  return void true;\n}\n' }, 'set apart from a word it follows')
     assert.deepEqual(await format('x="!0";y=`!1`;z=/!0/;w=[!0n,!00,!0.5,!2];v=!/* c */0', 'js'),
-      { code: 'x = "!0";\ny = `!1`;\nz = /!0/;\nw = [!0n, !00, !0.5, !2];\nv = !(/* c */ 0);\n' }, 'anything else kept, a comment within one too')
+      { code: 'x = "!0";\ny = "!1";\nz = /!0/;\nw = [!0n, !00, !0.5, !2];\nv = !(/* c */ 0);\n' }, 'anything else kept, a comment within one too')
   })
 
   it('writes a name as the file does, escapes and all', async () => {

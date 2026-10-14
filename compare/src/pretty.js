@@ -71,30 +71,53 @@ const BOOLEANS = new Map([['0', true], ['1', false]])
 const BOOLEAN_LITERALS = new Map([...BOOLEANS].map(([raw, value]) => [raw, { type: 'Literal', value }]))
 const booleanRaw = (node) => (node?.type === 'UnaryExpression' && node.operator === '!' && node.argument?.type === 'Literal'
   && typeof node.argument.value === 'number' && BOOLEANS.has(node.argument.raw) ? node.argument.raw : null)
-const literal = (node) => BOOLEAN_LITERALS.get(booleanRaw(node)) ?? node
+// A template without substitutions on one line, as a minifier may write a string (`\`div\``): the string it
+// reads as, in double quotes, its escapes as written but for a backtick's, a `$`'s and a `'`'s, which a
+// string in double quotes needs none of. Null for any other, and for one over more than one line, whose line breaks a string would escape.
+const plainTemplate = (node) => node?.type === 'TemplateLiteral' && node.expressions.length === 0 && typeof node.quasis[0]?.value.cooked === 'string'
+  && !/[\n\r\u{2028}\u{2029}]/u.test(node.quasis[0].value.raw)
+function templateString(node) {
+  if (!plainTemplate(node)) return null
+  const { raw } = node.quasis[0].value
+  return `"${raw.replaceAll(/\\([^])|"/gu, (match, escaped) => (escaped === undefined ? '\\"' : '`$\''.includes(escaped) ? escaped : match))}"`
+}
+// What a tagged template's text, which its tag reads as written, or a statement, which as a string may be a
+// directive (`"use strict"`), is held as: no template there is read as a string.
+const HOLDERS = new Set(['TaggedTemplateExpression', 'ExpressionStatement'])
+const holds = (node, key) => (node.type === 'TaggedTemplateExpression' && key === 'quasi') || (node.type === 'ExpressionStatement' && key === 'expression')
+// A node as the literal it reads as, where `reads` says the text may write one otherwise: `!0` and `!1`
+// (`booleans`), a template (`templates`) but where `held`.
+function literal(node, reads, held) {
+  const raw = reads.booleans ? booleanRaw(node) : null
+  if (raw !== null) return BOOLEAN_LITERALS.get(raw)
+  return reads.templates && !held && plainTemplate(node) ? { type: 'Literal', value: node.quasis[0].value.cooked } : node
+}
 const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))
 
-function sameTree(a, b, booleans) {
-  const work = [[a, b]]
+function sameTree(a, b, reads) {
+  const work = [[a, b, false]]
   while (work.length > 0) {
-    let [x, y] = work.pop()
-    if (booleans) {
-      x = literal(x)
-      y = literal(y)
+    let [x, y, held] = work.pop()
+    // Read as literals where the two differ in kind alone: one alike compares as it is.
+    if ((reads.booleans || reads.templates) && x?.type !== y?.type) {
+      x = literal(x, reads, held)
+      y = literal(y, reads, held)
     }
     if (x === y) continue
     if (typeof x !== 'object' || typeof y !== 'object' || x === null || y === null || Array.isArray(x) !== Array.isArray(y)) return false
-    let pairs
+    let keys = [], pairs
     if (Array.isArray(x)) pairs = [x, y].map((list) => list.filter((node) => node?.type !== 'EmptyStatement'))
     else if (x.type === 'LogicalExpression' && y.type === 'LogicalExpression' && x.operator === y.operator) pairs = [chain(x, x.operator), chain(y, y.operator)]
     else {
-      const [keys, others] = [fields(x), fields(y)]
+      const others = fields(y)
+      keys = fields(x)
       if (keys.join() !== others.join()) return false
       if (x.type === 'Literal' && x.regex && (x.regex.pattern !== y.regex?.pattern || sorted(x.regex.flags) !== sorted(y.regex.flags))) return false
       pairs = [keys.map((key) => x[key]), keys.map((key) => y[key])]
     }
     if (pairs[0].length !== pairs[1].length) return false
-    pairs[0].forEach((node, i) => work.push([node, pairs[1][i]]))
+    const holder = reads.templates && keys.length > 0 && (HOLDERS.has(x.type) || HOLDERS.has(y.type))
+    pairs[0].forEach((node, i) => work.push([node, pairs[1][i], holder && (holds(x, keys[i]) || holds(y, keys[i]))]))
   }
   return true
 }
@@ -123,24 +146,40 @@ function edited(text, edits) {
   return out + text.slice(from)
 }
 
+// Each node of a syntax tree that reads as a literal written otherwise, as `reads` says the text may write
+// one (literal), `[node, literal]`: `!0` and `!1` as `true` and `false`, a template as its string.
+// `also` is given every node, as one walk serves both.
+function readings(program, reads, also = () => {}) {
+  const found = [], held = new Set()
+  visit(program, (node) => {
+    also(node)
+    if (node.type === 'TaggedTemplateExpression') held.add(node.quasi)
+    else if (node.type === 'ExpressionStatement') held.add(node.expression)
+    const raw = reads.booleans ? booleanRaw(node) : null
+    const string = raw === null && reads.templates && !held.has(node) ? templateString(node) : null
+    if (raw !== null) found.push([node, String(BOOLEANS.get(raw))])
+    else if (string !== null) found.push([node, string])
+  })
+  return found
+}
+
 // A script as the formatter may write it, read off its syntax tree: each regular expression's flags
-// sorted (`/x/yu` as `/x/uy`), `!0` and `!1` as `true` and `false` where it reads `booleans` so, and
+// sorted (`/x/yu` as `/x/uy`), what reads as a literal written so where `reads` says (readings), and
 // where it has `types`, a member's separator `;` where it was `,` (`{ a: string, b: number }`), and
 // no `|` or `&` before a union's or an intersection's first type (`type P =\n  | A\n  | B`,
 // `[K in\n  | A\n  | B]`). oxc reads a member with the separator ending it and a union from the mark
 // leading it, so each is taken where it is, in whatever context.
-function respelled(text, program, types, booleans) {
+function respelled(text, program, types, reads) {
   const edits = []
-  visit(program, (node) => {
+  const found = readings(program, reads, (node) => {
     if (node.regex) edits.push([node.end - node.regex.flags.length, node.end, sorted(node.regex.flags)])
-    const raw = booleans ? booleanRaw(node) : null
-    if (raw !== null) edits.push([node.start, node.end, String(BOOLEANS.get(raw))])
     if (!types) return
     const members = node.type === 'TSTypeLiteral' ? node.members : node.type === 'TSInterfaceBody' ? node.body : []
     for (const member of members) if (text[member.end - 1] === ',') edits.push([member.end - 1, member.end, ';'])
     const mark = node.type === 'TSUnionType' ? '|' : node.type === 'TSIntersectionType' ? '&' : null
     if (mark && text[node.start] === mark && node.types[0]?.start > node.start) edits.push([node.start, node.start + 1, ''])
   })
+  for (const [node, put] of found) edits.push([node.start, node.end, put])
   return edited(text, edits)
 }
 
@@ -153,12 +192,12 @@ export function sameCode(text, formatted, extension = 'js', csstree = null, tree
   if (!SCRIPTS.has(extension)) return false
   const [before, after] = [tree, parsed(formatted, extension)]
   if (before === null || after === null) return false
-  // `!0` and `!1` read as `true` and `false` only where the text writes one so: format() writes them so
-  // nowhere else, so a copy of any other has none.
+  // `!0` and `!1`, and templates, read as literals only where the text writes one so: format() writes
+  // literals for them nowhere else, so a copy of any other has none.
   const types = typed(extension)
-  const booleans = !types && /![01]/u.test(text)
-  const form = (code, { program }) => scriptForm(respelled(code, program, types, booleans))
-  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program, booleans)
+  const reads = { booleans: !types && /![01]/u.test(text), templates: !types && text.includes('`') }
+  const form = (code, { program }) => scriptForm(respelled(code, program, types, reads))
+  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program, reads)
 }
 
 // A name as written from where it starts, escapes and all.
@@ -227,16 +266,17 @@ function asWritten(text, code, extension, tree) {
   return edited(code, edits)
 }
 
-// A script's `!0` and `!1` written as `true` and `false`, where it writes them so, as they read, from its
-// syntax tree as parsed (`tree`): set apart from a word it follows, as a minifier writes `return!0`.
-function withBooleans(text, tree) {
-  if (tree === null || !/![01]/u.test(text)) return text
+// A script's `!0` and `!1`, where it writes them so, and templates written as the literals they read as
+// (readings), from its syntax tree as parsed (`tree`): a word set apart from a word it follows, as a
+// minifier writes `return!0`.
+function asLiterals(text, tree) {
+  const reads = { booleans: /![01]/u.test(text), templates: text.includes('`') }
+  if (tree === null || !(reads.booleans || reads.templates)) return text
   const edits = []
-  visit(tree.program, (node) => {
-    const raw = booleanRaw(node)
-    if (raw === null || text.slice(node.start, node.end) !== `!${raw}`) return
-    edits.push([node.start, node.end, `${NAME_PART.test(text[node.start - 1] ?? '') ? ' ' : ''}${BOOLEANS.get(raw)}`])
-  })
+  for (const [node, put] of readings(tree.program, reads)) {
+    if (node.type === 'UnaryExpression' && text.slice(node.start, node.end) !== `!${node.argument.raw}`) continue
+    edits.push([node.start, node.end, `${put.startsWith('"') || !NAME_PART.test(text[node.start - 1] ?? '') ? '' : ' '}${put}`])
+  }
   return edited(text, edits)
 }
 
@@ -267,16 +307,16 @@ export async function format(text, extension) {
   const csstree = extension === 'css' ? await loadCssTree() : null
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
   const oxfmt = await loadFormatter()
-  // A script's syntax tree, read once for its copy's check: its `!0` and `!1` written as `true` and
-  // `false` before oxfmt formats it, where it has no types. A check that fails in itself, its stack say, refuses the copy as
-  // one that finds it changed would.
+  // A script's syntax tree, read once for its copy's check: its `!0`, `!1` and templates written as the
+  // literals they read as before oxfmt formats it, where it has no types (asLiterals). A check that fails
+  // in itself, its stack say, refuses the copy as one that finds it changed would.
   let tree
   try {
     tree = SCRIPTS.has(extension) ? parsed(text, extension) : null
   } catch {
     return { error: 'pretty-mismatch' }
   }
-  const result = await oxfmt(`pretty.${extension}`, withBooleans(text, typed(extension) ? null : tree), PRETTY_OPTIONS).catch(() => null)
+  const result = await oxfmt(`pretty.${extension}`, asLiterals(text, typed(extension) ? null : tree), PRETTY_OPTIONS).catch(() => null)
   if (result === null || result.errors.length > 0) return { error: 'unformattable' }
   // oxfmt's copy as it is, or where the check refuses it, as the file writes what oxfmt respelled: a
   // copy the check takes respelled nothing so, as its text would differ.
