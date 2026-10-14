@@ -3,7 +3,7 @@
 // first 8000 bytes, so a file git diffs as bytes may be binary here.
 
 import { utf8toString } from '@exodus/bytes/utf8.js'
-import { changeSet } from '@preventive/diff'
+import { DiffError, changeSet, formatChangeSet } from '@preventive/diff'
 
 // A link's content is its target, as git stores it; a missing side is empty.
 export function textOf(file) {
@@ -46,7 +46,17 @@ function noLonger(a, b, options, blocks, minded) {
   const again = minded.flatMap(({ a0, a1, b0, b1 }) => (a0 === a1 || b0 === b1
     ? [block(a0, a1, b0, b1)]
     : changeSet(A.slice(a0, a1).join(''), B.slice(b0, b1).join(''), options).map((part) => block(a0 + part.a0, a0 + part.a1, b0 + part.b0, b0 + part.b1))))
-  const best = changes(again) < changes(blocks) ? again : blocks
+  // Blocks put together from diffs of their own are held to what diff holds its own to.
+  const holds = (set) => {
+    try {
+      formatChangeSet(a, b, set, { format: 'normal', ignoreCase: options.ignoreCase, whitespace: options.whitespace })
+      return true
+    } catch (error) {
+      if (error instanceof DiffError) return false
+      throw error
+    }
+  }
+  const best = changes(again) < changes(blocks) && holds(again) ? again : blocks
   return changes(best) < changes(minded) ? best : minded
 }
 

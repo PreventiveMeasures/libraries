@@ -289,11 +289,21 @@ describe('renamedDiff', () => {
     assert.equal(diff.reason, null)
     assert.deepEqual(diff.warnings, [])
     assert.ok(blocksHold(diff.before, after, diff.blocks), 'the blocks take the old side, renamed, to the new')
+    // Its lines the old side's, each where it was, so that its line numbers are the old file's.
+    assert.equal(diff.before.split('\n').length, before.split('\n').length)
+    assert.deepEqual(diff.before.split('\n').map((line) => line.replace(/[\w$]+/gu, '_')), before.split('\n').map((line) => line.replace(/[\w$]+/gu, '_')))
     const shownLines = diff.blocks.reduce((n, block) => n + block.a1 - block.a0 + block.b1 - block.b0, 0)
     assert.ok(shownLines >= 4 && shownLines <= 12, `the helper shown, ${shownLines} lines`)
     assert.ok(diff.marks.length > 0, 'the plain diff\'s renamed lines marked')
     const plain = changeSet(before, after, { horizon: 0 })
     for (const mark of diff.marks) assert.ok(plain.some((block) => ['a0', 'a1', 'b0', 'b1'].every((end) => block[end] === mark[end])), 'each mark a block of the plain diff')
+  })
+
+  it('keeps the old side line for line, its line numbers the old file\'s, though longer names would wrap a line', async () => {
+    const names = [...'abcdeghijk']
+    const text = (n) => `export function f(${n.join(', ')}) {\n  return x(${[...n, ...n].join(', ')});\n}\n`
+    const diff = await renamedDiff(text(names), text(names.map((name) => name.repeat(3))))
+    assert.deepEqual([diff.before, diff.blocks], [text(names.map((name) => name.repeat(3))), []])
   })
 
   it('keeps the old side as it is where names can not be given, and says why', async () => {

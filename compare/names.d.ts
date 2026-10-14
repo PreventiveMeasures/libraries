@@ -27,8 +27,8 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // other script reads it: the same file loaded alike -- a name exported or
 // imported as itself, or a shorthand property's), checked to bind
 // every name as before by this package's scope analysis and again by oxc's
-// minifier; formatted again where that changes its layout alone and still binds
-// alike; diffed as diff -U0 has it, and as --minimal does where that is cheap
+// minifier, line for line the old side's (`before`, each line where it was);
+// diffed as diff -U0 has it, and as --minimal does where that is cheap
 // (the square of the lines changed up to 2e8, or 10,000 a line of the two
 // texts); and the blocks checked to take `before` to
 // the new side (thrown should they not). `reason` says why no names were given;
