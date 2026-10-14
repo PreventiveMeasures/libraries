@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { packageKeyOf, parsePnpmLockfile } from '../pnpm.js'
+import { flagsOf, npmFlags } from './flags.js'
 
 // The baseline: real lockfiles, written by pnpm 9, 10, 11 and 12 from one
 // workspace that pulls in every kind of dependency a v9 lockfile records;
@@ -186,6 +187,16 @@ describe('a pnpm 10 lockfile, spot-checked', () => {
     assert.equal(lock.packages['is-odd@3.0.1'].optional, false)
   })
 
+  it('how each is depended on: one by a devDependency alone, the optional packages by optional ones', () => {
+    const flagged = Object.entries(lock.packages).filter(([, pkg]) => pkg.dev || pkg.optional || pkg.devOptional)
+    assert.deepEqual(flagged.map(([key, pkg]) => [key, plain(flagsOf(pkg))]), [
+      ['@img/sharp-libvips-linux-x64@1.0.4', { dev: false, optional: true, devOptional: true }],
+      ['@img/sharp-linux-x64@0.33.5', { dev: false, optional: true, devOptional: true }],
+      ['fsevents@2.3.3', { dev: false, optional: true, devOptional: true }],
+      ['mkdirp@1.0.4', { dev: true, optional: false, devOptional: true }],
+    ])
+  })
+
   it('what the manifest says, as pnpm records it', () => {
     assert.equal(lock.packages['loose-envify@1.4.0'].hasBin, true)
     assert.equal(lock.packages['react@18.2.0'].hasBin, false)
@@ -301,5 +312,25 @@ describe('what rewrote the manifests, as pnpm 9 and 12 record it', () => {
     assert.equal(v12.settings.peersSuffixMaxLength, 0)
     assert.match(v12.importers['.'].dependencies['react-dom'], /^react-dom@18\.2\.0\([\da-f]{32}\)$/u)
     assert.equal(v9.importers['.'].dependencies['react-dom'], 'react-dom@18.2.0(react@18.2.0)')
+  })
+})
+
+describe('how each package is depended on, as npm\'s flags say', () => {
+  it('as npm works them out, pnpm\'s own `optional` among them', () => {
+    for (const name of [...VERSIONS, 'pnpm-9-hooks', 'pnpm-12-hooks']) {
+      const lock = read(name).lockfile
+      const expected = npmFlags(lock)
+      for (const [key, pkg] of Object.entries(lock.packages)) assert.deepEqual(flagsOf(pkg), expected.get(pkg), `${name} ${key}`)
+    }
+  })
+
+  it('in the env document, all of it required but the bindings of the package manager', () => {
+    for (const name of ['pnpm-11-config', 'pnpm-12-env', 'pnpm-12-env-only']) {
+      const { env } = read(name)
+      const expected = npmFlags(env, { configDependencies: 'dependencies', packageManagerDependencies: 'dependencies' })
+      for (const [key, pkg] of Object.entries(env.packages)) assert.deepEqual(flagsOf(pkg), expected.get(pkg), `${name} ${key}`)
+    }
+    const flags = Object.values(read('pnpm-12-env').env.packages).map(flagsOf)
+    assert.deepEqual([flags.filter((pkg) => pkg.dev).length, flags.filter((pkg) => pkg.optional).length, flags.filter((pkg) => pkg.devOptional).length], [0, 14, 14])
   })
 })

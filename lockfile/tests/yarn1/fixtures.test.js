@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 import { semver } from './semver.js'
+import { flagsOf, npmFlags } from '../flags.js'
 
 // The baseline: real lockfiles, each with the manifests it was written
 // for, by directory. yarn 1.22.22 and 1.22.19 wrote one workspace that
@@ -250,5 +251,29 @@ describe('resolutions to tarballs, where yarn applies them to every request', ()
 
   it('without the manifests, refused, as it cannot say what is a resolution', () => {
     assert.throws(() => parse(text('yarn-1.22.22-resolutions')), /which only a resolution may, as the manifests would say$/u)
+  })
+})
+
+describe('how each package is depended on, as npm\'s flags say', () => {
+  it('as npm works them out, in every lockfile read', () => {
+    const names = [
+      'yarn-1.22.22', 'yarn-1.9.4-plain', 'yarn-1.22.19-plain', 'yarn-1.22.22-plain', 'yarn-1.22.22-aliases', 'yarn-1.22.22-linked',
+      'yarn-1.22.22-resolution-aggregated', 'yarn-1.22.22-resolution-nested', 'yarn-1.22.22-resolution-workspace', 'yarn-1.22.22-resolutions',
+    ]
+    for (const name of names) {
+      const lock = read(name)
+      const expected = npmFlags(lock)
+      for (const [key, pkg] of Object.entries(lock.packages)) assert.deepEqual(flagsOf(pkg), expected.get(pkg), `${name} ${key}`)
+    }
+  })
+
+  it('in the workspace: mkdirp by devDependencies alone, two of them, and the optional packages by optional ones', () => {
+    const flagged = unique(read('yarn-1.22.22')).filter((pkg) => pkg.dev || pkg.optional || pkg.devOptional)
+    assert.deepEqual(flagged.map((pkg) => [pkg.patterns, flagsOf(pkg)]), [
+      [['@img/sharp-libvips-linux-x64@1.0.4'], { dev: false, optional: true, devOptional: true }],
+      [['@img/sharp-linux-x64@0.33.5'], { dev: false, optional: true, devOptional: true }],
+      [['fsevents@2.3.3'], { dev: false, optional: true, devOptional: true }],
+      [['mkdirp@1.0.4', 'mkdirp@^1.0.0'], { dev: true, optional: false, devOptional: true }],
+    ])
   })
 })
