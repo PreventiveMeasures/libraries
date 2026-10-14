@@ -126,13 +126,16 @@ describe('sameCode', () => {
       ['a{b:"x\n}', 'a {\n  b: "x\n}\n', 'text css-tree finds an error in']]) assert.equal(sameCss(before, after), false, what)
   })
 
-  it('reads text in time linear in its length', () => {
+  it('reads text in time linear in its length', { timeout: 20_000 }, () => {
     const start = performance.now()
     for (const text of ['a:b'.repeat(12_500) + '{c:d}', `a{${'b:c;'.repeat(12_500)}}`, '/*'.repeat(25_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`,
       `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(5000)}}`, `a{${'b:#ABC;'.repeat(5000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(2500)}red}`, `a{--x:${'.5 '.repeat(25_000)}}`]) {
       sameCss(text, text)
     }
     for (const text of ['/*'.repeat(100_000), `['"${'\\"'.repeat(100_000)}']`, '"'.repeat(100_000)]) sameCode(text, text, 'json')
+    // A comma, comments after it, and no bracket: each comment read one way, not split every way, which
+    // for these takes seconds, doubling with each comment more.
+    for (const text of [`f(a,${'/* x */ '.repeat(29)}b)`, `f(a,${'// x // y\n'.repeat(17)}b)`]) assert.ok(sameCode(text, text, 'js'))
     assert.ok(performance.now() - start < 5000)
   })
 
