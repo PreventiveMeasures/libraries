@@ -70,10 +70,14 @@ const booleanRaw = (node) => (node?.type === 'UnaryExpression' && node.operator 
 const literal = (node) => BOOLEAN_LITERALS.get(booleanRaw(node)) ?? node
 const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))
 
-function sameTree(a, b) {
+function sameTree(a, b, booleans) {
   const work = [[a, b]]
   while (work.length > 0) {
-    const [x, y] = work.pop().map(literal)
+    let [x, y] = work.pop()
+    if (booleans) {
+      x = literal(x)
+      y = literal(y)
+    }
     if (x === y) continue
     if (typeof x !== 'object' || typeof y !== 'object' || x === null || y === null || Array.isArray(x) !== Array.isArray(y)) return false
     let pairs
@@ -116,15 +120,16 @@ function edited(text, edits) {
 }
 
 // A script as the formatter may write it, read off its syntax tree: each regular expression's flags
-// sorted (`/x/yu` as `/x/uy`), `!0` and `!1` as `true` and `false`, and where it has `types`, a member's separator `;` where it was `,`
-// (`{ a: string, b: number }`), and no `|` or `&` before a union's or an intersection's first type
-// (`type P =\n  | A\n  | B`, `[K in\n  | A\n  | B]`). oxc reads a member with the separator ending it
-// and a union from the mark leading it, so each is taken where it is, in whatever context.
-function respelled(text, program, types) {
+// sorted (`/x/yu` as `/x/uy`), `!0` and `!1` as `true` and `false` where it reads `booleans` so, and
+// where it has `types`, a member's separator `;` where it was `,` (`{ a: string, b: number }`), and
+// no `|` or `&` before a union's or an intersection's first type (`type P =\n  | A\n  | B`,
+// `[K in\n  | A\n  | B]`). oxc reads a member with the separator ending it and a union from the mark
+// leading it, so each is taken where it is, in whatever context.
+function respelled(text, program, types, booleans) {
   const edits = []
   visit(program, (node) => {
     if (node.regex) edits.push([node.end - node.regex.flags.length, node.end, sorted(node.regex.flags)])
-    const raw = booleanRaw(node)
+    const raw = booleans ? booleanRaw(node) : null
     if (raw !== null) edits.push([node.start, node.end, String(BOOLEANS.get(raw))])
     if (!types) return
     const members = node.type === 'TSTypeLiteral' ? node.members : node.type === 'TSInterfaceBody' ? node.body : []
@@ -144,8 +149,11 @@ export function sameCode(text, formatted, extension = 'js', csstree = null, tree
   if (!SCRIPTS.has(extension)) return false
   const [before, after] = [tree, parsed(formatted, extension)]
   if (before === null || after === null) return false
-  const form = (code, { program }) => scriptForm(respelled(code, program, /^[cm]?tsx?$/u.test(extension)))
-  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
+  // `!0` and `!1` read as `true` and `false` only where the text writes one so: format() writes them so
+  // nowhere else, so a copy of any other has none.
+  const booleans = /![01]/u.test(text)
+  const form = (code, { program }) => scriptForm(respelled(code, program, /^[cm]?tsx?$/u.test(extension), booleans))
+  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program, booleans)
 }
 
 // A name as written from where it starts, escapes and all.
