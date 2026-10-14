@@ -248,8 +248,18 @@ function resolved(program, s) {
   return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
 }
 
+const minified = (name) => name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(name)
 // A short minified name, declared, and kept by no export, import or shorthand.
-const renamable = (variable) => variable.name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(variable.name) && !variable.kept
+const renamable = (variable) => minified(variable.name) && !variable.kept
+
+// A script whose top level a minifier renamed: many names there, every one short.
+// A minifier renames a script's top level only told that no other script reads
+// it, as a bundle's chunk loaded as a module is; globals others read are few.
+const MANY_TOP_LEVEL = 16
+export function minifiedTopLevel(analysis) {
+  const top = analysis.variables.filter((variable) => variable.scope.parent === null)
+  return top.length >= MANY_TOP_LEVEL && top.every((variable) => minified(variable.name))
+}
 
 // A script's analysis with its top level its own, as a module's: renamable there
 // too. Still read as a script, `this` and all, but no global of it set aside.

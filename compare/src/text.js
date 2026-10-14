@@ -31,6 +31,17 @@ export function checkLineOptions({ horizon = Infinity, whitespace = 'none', igno
   return { horizon, whitespace, ignoreCase }
 }
 
+// The shortest diff where its cost, lines by lines changed, allows, as --minimal
+// has it; past that the search's cutoff, which can face a run with lines alike
+// far from its own: old code that new code now comes before, faced with its braces.
+const SHORTEST_COST = 2e8
+const lineCount = (text) => text.split('\n').length
+export function shortestChangeSet(a, b, options, lines = lineCount(a) + lineCount(b)) {
+  const quick = changeSet(a, b, options)
+  const changed = quick.reduce((n, { a0, a1, b0, b1 }) => n + a1 - a0 + b1 - b0, 0)
+  return lines * changed > SHORTEST_COST ? quick : changeSet(a, b, { ...options, minimal: true })
+}
+
 // Binary content has no blocks and no counts, as --numstat prints `-` for it.
 export function contentOf(old, fresh, options) {
   const a = textOf(old), b = textOf(fresh)

@@ -21,12 +21,15 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // The diff of two JavaScript files minified on both sides with renamed names
 // set aside. The old side is given the new side's names wherever a minifier
 // renamed a variable alike throughout (a declared variable's short ASCII name,
-// not a script's top level -- but where the file's other version is a module,
-// as a bundle's chunk is once it exports, the same file loaded alike -- a name
-// exported or imported as itself, or a shorthand property's), checked to bind
+// not a script's top level -- but where either version of the file is a module,
+// as a bundle's chunk is once it exports, or declares 16 names or more there,
+// every one short, as a minifier renames a script's top level only told that no
+// other script reads it: the same file loaded alike -- a name exported or
+// imported as itself, or a shorthand property's), checked to bind
 // every name as before by this package's scope analysis and again by oxc's
 // minifier; formatted again where that changes its layout alone and still binds
-// alike; diffed as diff -U0 has it; and the blocks checked to take `before` to
+// alike; diffed as diff -U0 has it, and as --minimal does where that is cheap
+// (lines by lines changed up to 2e8); and the blocks checked to take `before` to
 // the new side (thrown should they not). `reason` says why no names were given;
 // `reads` the properties either text reads names through (`name`, `toString`,
 // `stack`, `callee`, `caller`), sorted, as code reading its names may act
