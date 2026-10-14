@@ -1,6 +1,8 @@
-// Which old variable became which new one: each pair of lines, as the diff of
-// their keys (names set aside) pairs them, counts its variables as standing for
-// each other, and two each the other's most counted pair, a tie pairing neither.
+// Which old variable became which new one: a variable declared on a line each
+// side holds once is the one declared there on the other; each pair of lines,
+// as the diff of their keys (names set aside) pairs them, counts its variables
+// as standing for each other, and two each the other's most counted pair, a tie
+// pairing neither.
 
 import { shortestChangeSet } from '../text.js'
 import { RESERVED } from './syntax.js'
@@ -8,17 +10,22 @@ import { RESERVED } from './syntax.js'
 // Unchanged lines between changes that pair as unchanged ones, not as changed.
 const ANCHORED_RUN = 3
 
+// Where a name stood in a key with a slot for each.
+const SLOT = '\0'
+
 // Whitespace alone never tells a name apart.
 const KEYS = { horizon: 0, whitespace: 'all' }
 
 // A text's lines with its renamable variables' names set aside (`key`), but
 // those `written` names (a pair found), each line's variables set aside in
-// order (`lines`), and where in its key each stood (`places`).
-function keyed(text, { occurrences }, written = () => null) {
+// order (`lines`), where in its key each stood (`places`), and with `slots`,
+// whether it is declared there (`declares`) and the key with a slot where each
+// stood (`slotted`), so that two keys alike stand for names alike.
+function keyed(text, { occurrences, declaring }, written = () => null, slots = false) {
   const starts = [0]
   for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) starts.push(at + 1)
-  const lines = starts.map(() => []), places = starts.map(() => [])
-  let at = 0, key = '', line = 0, removed = 0
+  const declares = starts.map(() => []), lines = starts.map(() => []), places = starts.map(() => [])
+  let at = 0, key = '', line = 0, removed = 0, slotted = ''
   for (const [node, variable] of occurrences) {
     if (!variable.aside) continue
     const name = written(variable)
@@ -26,17 +33,19 @@ function keyed(text, { occurrences }, written = () => null) {
     if (name === null) {
       lines[line].push(variable)
       places[line].push(node.start - starts[line] - removed)
+      if (slots) declares[line].push(declaring.has(node))
     }
     key += text.slice(at, node.start) + (name ?? '')
+    if (slots) slotted += text.slice(at, node.start) + (name ?? SLOT)
     removed += node.end - node.start - (name?.length ?? 0)
     at = node.end
   }
   key += text.slice(at)
-  return { key, keys: key.split('\n'), lines, places }
+  return { key, keys: key.split('\n'), lines, places, declares, slotted: slots ? slotted + text.slice(at) : null }
 }
 
 // Lines as a diff that sets whitespace aside compares them.
-const SPACE = /[ \t\n\v\f\r]/gu
+const BLANKS = /[ \t\v\f\r]/gu, SPACE = /[ \t\n\v\f\r]/gu
 const plain = (lines) => lines.map((line) => line.replace(SPACE, ''))
 
 // The kept lines of each side a run of changes could stand in place of: a run
@@ -230,21 +239,67 @@ function matched({ backward, forward }, { map, paired, support }, eligible = () 
   return chosen
 }
 
+// A variable set once is where it is declared, as its uses may come to read
+// another: `function(e) { ...e.data... }` -> `function(e) { const i = f(e);
+// ...i.data... }`, where more lines read the new `i` as the old `e` did than
+// read `e` still. A line each side holds once, names set aside, is the same
+// line, as patience diff has it, wherever a diff puts it: each variable
+// declared there is the one declared in its place on the other side -- where
+// lines counted say so too, as a short line may stand once on each side for
+// code that is not the same, and where nothing else declared once says
+// otherwise. One set again may be two variables a minifier made one, its
+// declaration the first's alone (`var i = /\d/; ... i = q.prototype`): its
+// lines say.
+function declaredOnce(ka, kb, { changed, tokened, unchanged }) {
+  const once = (k) => {
+    const where = new Map()
+    k.slotted.replace(BLANKS, '').split('\n').forEach((key, line) => where.set(key, where.has(key) ? -1 : line))
+    return where
+  }
+  const from = new Map(), news = once(kb), olds = once(ka), to = new Map()
+  const add = (map, x, y) => map.set(x, map.has(x) && map.get(x) !== y ? null : y)
+  for (const [key, i] of olds) {
+    const j = news.get(key)
+    if (i === -1 || j === undefined || j === -1) continue
+    ka.lines[i].forEach((variable, n) => {
+      if (!ka.declares[i][n] || !kb.declares[j][n] || variable.reassigned || kb.lines[j][n].reassigned) return
+      add(to, variable, kb.lines[j][n])
+      add(from, kb.lines[j][n], variable)
+    })
+  }
+  // The first tier counting the pair, as were it found there: its count, and whether that tier's pairs are weak.
+  const tiers = [unchanged, changed, tokened]
+  return [...to].flatMap(([variable, other]) => {
+    const tier = tiers.findIndex(({ forward }) => forward.get(variable)?.has(other))
+    return other === null || from.get(other) !== variable || tier === -1 ? [] : [[variable, other, tiers[tier].forward.get(variable).get(other), tier > 0]]
+  })
+}
+
 // Unchanged lines pair first, and code moved counted with them: a function's
 // code moved into a helper reads its variables as the helper's, the function's
 // own lines as its own, and the most lines decide. Changed ones then pair only
 // what those say nothing of, and a change's tokens only what no line says
 // anything of: lines reordered, a change's tokens may line up across them. Both
-// are `weak` pairs, the first to give way where names read wrongly. A second
-// pass reads the pairs found as names, so lines alike with every name set aside
-// and diffed against the wrong one line up by those.
+// are `weak` pairs, the first to give way where names read wrongly; a pair
+// declared once on each side, found before them all, gives way as the tier
+// first counting it would have it. A second pass reads the pairs found as
+// names, so lines alike with every name set aside and diffed against the wrong
+// one line up by those.
 export function pairing(before, after, a, b) {
   const found = { map: new Map(), paired: new Set(), support: new Map() }, said = new Set(), weak = new Set()
   const passes = [[() => null, () => null], [(variable) => found.map.get(variable)?.name ?? null, (variable) => (found.paired.has(variable) ? variable.name : null)]]
-  for (const [old, now] of passes) {
+  for (const [pass, [old, now]] of passes.entries()) {
     // A pass pairs nothing where every variable of a side is paired already.
     if (!a.variables.some((variable) => variable.aside && !found.map.has(variable)) || !b.variables.some((variable) => variable.aside && !found.paired.has(variable))) break
-    const { changed, tokened, unchanged } = tallied(keyed(before, a, old), keyed(after, b, now))
+    // Lines declaring once, read in the first pass: the second finds few more, at a cost.
+    const ka = keyed(before, a, old, pass === 0), kb = keyed(after, b, now, pass === 0), lines = tallied(ka, kb)
+    const { changed, tokened, unchanged } = lines
+    for (const [variable, other, support, weakly] of pass === 0 ? declaredOnce(ka, kb, lines) : []) {
+      found.map.set(variable, other)
+      found.paired.add(other)
+      found.support.set(variable, support)
+      if (weakly) weak.add(variable)
+    }
     for (const [counts, tier] of [[unchanged, false], [changed, true], [tokened, true]]) {
       for (const variable of matched(counts, found, (from, to) => !said.has(from) && !said.has(to))) if (tier) weak.add(variable)
       for (const variable of [...counts.forward.keys(), ...counts.backward.keys()]) said.add(variable)

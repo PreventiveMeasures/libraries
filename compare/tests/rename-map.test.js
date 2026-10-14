@@ -236,10 +236,15 @@ test('a rename is all or nothing: every line it is on reads with the new name, r
 
 test('an old variable no new one stands for reads apart, never as the new one of its name', () => {
   const ignoring = (before, after) => lineDiff(asModule(text(before)), asModule(text(after)), { ignoreRenames: true })
-  // `abc` and `x` swapped their values: `f(abc)` reads the other one now.
-  const swapped = ignoring(['var abc = 1,', '  x = 2;', 'f(abc);'], ['var x = 1,', '  abc = 2;', 'f(abc);'])
+  // `abc` and `x` swapped their values, on lines alike with names set aside: nothing tells which is which.
+  const swapped = ignoring(['let abc = g();', 'let x = g();', 'f(abc);'], ['let x = g();', 'let abc = g();', 'f(abc);'])
   assert.deepEqual(swapped.blocks, [{ a0: 0, a1: 3, b0: 0, b1: 3 }], 'the same text reading another variable is a change')
-  assert.deepEqual(swapped.a.slice(0, 3), ['var abc_old = 1,', '  x_old = 2;', 'f(abc_old);'])
+  assert.deepEqual(swapped.a.slice(0, 3), ['let abc_old = g();', 'let x_old = g();', 'f(abc_old);'])
+  // Each declared on a line each side holds once: the one declared `= 1` is the other's, and `f(abc)` reads
+  // the other one now.
+  const declared = ignoring(['var abc = 1,', '  x = 2;', 'f(abc);'], ['var x = 1,', '  abc = 2;', 'f(abc);'])
+  assert.deepEqual(declared.blocks, [{ a0: 2, a1: 3, b0: 2, b1: 3 }], 'the same text reading another variable is a change')
+  assert.deepEqual(declared.a.slice(0, 3), ['var x = 1,', '  abc = 2;', 'f(x);'])
   // One removed, a new one of its name added: no line reads the old as the new.
   const replaced = ignoring(['let n = f();', 'g(n);', 'h(1);'], ['h(1);', 'let n = k();', 'g(n);'])
   assert.ok(replaced.a.includes('g(n_old);'))

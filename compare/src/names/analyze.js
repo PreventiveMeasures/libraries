@@ -111,6 +111,17 @@ function namingNames(node, s) {
   }
 }
 
+// Names a variable is set by after its declaration: an assignment's, an
+// update's, or a loop's that declares none.
+function writtenNames(node, s) {
+  switch (node.type) {
+    case 'AssignmentExpression': for (const id of declared(node.left)) s.writing.add(id); break
+    case 'UpdateExpression': for (const id of declared(node.argument)) s.writing.add(id); break
+    case 'ForInStatement': case 'ForOfStatement': if (node.left.type !== 'VariableDeclaration') for (const id of declared(node.left)) s.writing.add(id); break
+    default: break
+  }
+}
+
 // Names that are no variable's (keys, labels), names kept, and the properties
 // names are read through.
 function otherNames(node, s) {
@@ -202,7 +213,7 @@ function enter(node, where, s) {
 
 // A work list rather than a recursion: a minified file's expressions nest deeply.
 function walk(program) {
-  const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), naming: new Set(), reads: new Set(), references: [], work: [] }
+  const s = { declarations: new Map(), scopes: [], variables: [], keeping: new Set(), others: new Set(), naming: new Set(), writing: new Set(), reads: new Set(), references: [], work: [] }
   s.root = Object.assign(scope(s, null, true), { strict: program.sourceType === 'module' || saysStrict(program.body) })
   s.work.push([program, s.root])
   while (s.work.length > 0) {
@@ -212,6 +223,7 @@ function walk(program) {
       continue
     }
     namingNames(node, s)
+    writtenNames(node, s)
     const reason = visit(node, where, s)
     if (reason) return { reason }
     enter(node, where, s)
@@ -229,9 +241,13 @@ function resolved(program, s) {
     if (variable) occurrences.push([node, variable, where])
     else globals.push([node, where])
   }
+  // Set again (`reassigned`): written, or declared more than once.
+  const declaredAlready = new Set()
   for (const [node, variable] of occurrences) {
     if (s.keeping.has(node)) variable.kept = true
     if (s.naming.has(node)) variable.naming = true
+    if (s.writing.has(node) || (s.declarations.has(node) && declaredAlready.has(variable))) variable.reassigned = true
+    if (s.declarations.has(node)) declaredAlready.add(variable)
   }
   const own = program.sourceType === 'module' || program.sourceType === 'commonjs' || globals.some(([node]) => COMMONJS.has(node.name))
   for (const variable of s.variables) variable.aside = renamable(variable) && (own || variable.scope !== s.root)
@@ -245,7 +261,7 @@ function resolved(program, s) {
   }
   const deduplicated = occurrences.filter((entry, i) => i === 0 || entry[0].start !== occurrences[i - 1][0].start)
   const names = new Set([...s.variables.map(({ name }) => name), ...globals.map(([node]) => node.name)])
-  return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
+  return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, declaring: new Set(s.declarations.keys()), globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
 }
 
 const minified = (name) => name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(name)

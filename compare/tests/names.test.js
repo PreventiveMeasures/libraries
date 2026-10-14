@@ -161,6 +161,19 @@ describe('renameMap', () => {
     assert.equal(renameMap(dense('m'), helped).text, dense('n'))
   })
 
+  it('pairs a variable set once as its declaration says, where most of its uses now read another', () => {
+    // axios 1.6.8 to 1.7.9: `config` read as `_config = resolveConfig(config)` on most lines. Paired by those,
+    // the old `config` would take `_config`'s name, and each line now reading it would read as unchanged.
+    const before = lines(['export function f(e) {', '  return new Promise(function (t, n) {', '    let r = e.data,', '      o = e.headers,', '      s = e.timeout;', '    n(e);', '  });', '}'])
+    const after = lines(['export function f(e) {', '  return new Promise(function (t, n) {', '    const i = g(e);', '    let r = i.data,', '      o = i.headers,', '      s = i.timeout;', '    n(e);', '  });', '}'])
+    assert.equal(renameMap(before, after).text, before)
+    // A variable set again may be a minifier's two in one (moment's `i` a regular expression, then a
+    // prototype), its declaration telling of the first alone: its lines say.
+    const merged = (a, b, set) => lines(['export function f(q, h) {', `  var ${a} = /\\d/,`, `    ${b} = /^[1-9]\\d?/;`, `  h("Q", ${a});`, `  h("D", ${b});`, `  ${set} = q.prototype;`,
+      ...['add', 'sub', 'mul', 'div'].map((key, k) => `  ${set}.${key} = ${k};`), '}'])
+    assert.equal(renameMap(merged('i', 'u', 'i'), merged('d', 'u', 'u')).text, merged('u', 'u_old', 'u'))
+  })
+
   it('tells the properties through which either side reads names, as a rename may change what it then does', () => {
     const text = (name, read) => `function ${name}() {}\nmodule.exports = ${read};\n`
     assert.deepEqual(renameMap(text('a', 'a'), text('b', 'b'), cjs).reads, [])
