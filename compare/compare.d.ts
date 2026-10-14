@@ -110,7 +110,16 @@ export interface LineOptions {
 // and their directories but for one -- not a package's name under
 // node_modules -- each the other's only such partner. Either gives way only
 // to a candidate that is a rename by itself and scores at least halfway from
-// the pair's score to 100%. git has no such pass, so false is git's own -M.
+// the pair's score to 100%. Last, of the files no other pass took, it pairs
+// bundle chunks whose hash changed with their content: in one directory, of
+// one extension, names alike but for what follows the last separator (`-`,
+// `.`, `_`) they share, six or more characters of a hash's (letters, digits,
+// `-` and `_`, not lowercase letters alone), as `index-CyWAfh-p.js` and
+// `index-hRvO4yU2.js` are. Minified onto a line, such a chunk scores little
+// as git splits it, so it is scored with its spans ending after `,` `;` `=`
+// `{` `}` too, and taken at git's stricter score for a basename, halfway from
+// -M's to 100%: the best pairs first, its similarity that score. git has no
+// such passes, so false is git's own -M.
 //
 // `renameLimit` is git's diff.renameLimit: when more deleted files times added
 // files are left, in a group, after the renames that need no scoring than its

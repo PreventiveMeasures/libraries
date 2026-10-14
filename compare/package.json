@@ -48,6 +48,7 @@
     "pretty.js",
     "src/blocks.js",
     "src/changes.js",
+    "src/chunks.js",
     "src/css.js",
     "src/erasure.js",
     "src/error.js",
