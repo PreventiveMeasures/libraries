@@ -94,6 +94,20 @@ describe('renameMap', () => {
     for (const name of ['a', 't', 'i']) assert.equal(renameMap(before(name), after, cjs).text, before('t'), `${name}: none apart as t_old or i_old`)
   })
 
+  it('renames a script\'s top level where its file\'s other version is a module, as a chunk is that exports in one alone', () => {
+    // playwright-core's dashboard chunk, 1.62.1 to 1.63.0: a declaration put in front, every top-level
+    // name shifted along, and an export added, which makes the new version a module by its syntax and
+    // left the old a script, whose top level is globals, so that no name there was renamed.
+    const before = lines(['var a = `system`,', '  b = window.matchMedia(`x`);', 'function c() {', '  return b.matches ? a : `light`;', '}', 'c();'])
+    const after = lines(['var a = RegExp(`y`),', '  b = `system`,', '  c = window.matchMedia(`x`);', 'function d() {', '  return c.matches ? b : `light`;', '}', 'd();', 'export { a as n };'])
+    const renamed = lines(['var b = `system`,', '  c = window.matchMedia(`x`);', 'function d() {', '  return c.matches ? b : `light`;', '}', 'd();'])
+    assert.equal(renameMap(before, after).text, renamed)
+    // The other way, the module given the script's names, its own `a` none of them: apart, as `a_old`.
+    assert.equal(renameMap(after, before).text, lines(['var a_old = RegExp(`y`),', '  a = `system`,', '  b = window.matchMedia(`x`);', 'function c() {', '  return b.matches ? a : `light`;', '}', 'c();', 'export { a_old as n };']))
+    // Neither a module: a script's top level is globals another script may read, and keeps its names.
+    assert.equal(renameMap(before, after.replace('export { a as n };\n', '')).text, before)
+  })
+
   it('tells the properties through which either side reads names, as a rename may change what it then does', () => {
     const text = (name, read) => `function ${name}() {}\nmodule.exports = ${read};\n`
     assert.deepEqual(renameMap(text('a', 'a'), text('b', 'b'), cjs).reads, [])
