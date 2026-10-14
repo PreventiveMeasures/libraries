@@ -1,9 +1,11 @@
 // git's -M pairing (diffcore_rename_extended): identical content, then a
 // basename unique among both sides' leftovers at a stricter score, then every
-// pair left scored; between the first two, ours, renames told by path.
+// pair left scored; between the first two and after the last, ours, renames
+// told by path, and bundle chunks (chunks.js).
 
 import { crc32 } from '@exodus/bytes/crc.js'
-import { MAX_SCORE, similarity, spanCounts } from './similarity.js'
+import { chunkRenames } from './chunks.js'
+import { MAX_SCORE, PUNCTUATION, similarity, spanCounts } from './similarity.js'
 import { bytesOf, sameContent } from './tree.js'
 
 // git's limits: identical files weighed per destination, scores kept per one.
@@ -175,16 +177,21 @@ const unpaired = ({ sources, dests, pairs, used }) => ({
   open: dests.keys().filter((d) => !pairs.has(d)).toArray(),
 })
 
+// git's stricter score, halfway from -M's to 100%, for a pair that names alone
+// put forward: a basename both sides have once, or a chunk's.
+const stricter = (minimum) => minimum + Math.trunc(0.5 * (MAX_SCORE - minimum))
+
 // Each added file's rename by its index in `dests`: { source, score }. A
 // `minimum` of MAX_SCORE takes identical content alone, but for `byPath`, and
-// more than `limit` squared pairs left skips the scoring.
+// more than `limit` squared pairs left skips the scoring, chunks' too.
 export function findRenames(sources, dests, { minimum, limit, byPath }) {
   const pairs = new Map(), used = new Set()
   if (sources.length === 0 || dests.length === 0) return pairs
-  // A file's bytes, its text encoded once, and their span counts once.
-  const counted = new Map(), encoded = new Map()
+  // A file's bytes, its text encoded once, and their span counts once each way.
+  const counted = new Map(), encoded = new Map(), punctuated = new Map()
   const bytes = (file) => (file.type === 'file' ? encoded.get(file) ?? encoded.set(file, bytesOf(file.data)).get(file) : null)
   const counts = (data) => counted.get(data) ?? counted.set(data, spanCounts(data)).get(data)
+  const punctuatedCounts = (data) => punctuated.get(data) ?? punctuated.set(data, spanCounts(data, PUNCTUATION)).get(data)
   const context = {
     sources, dests, pairs, used,
     sourceNames: sources.map((file) => basename(file.path)),
@@ -195,12 +202,15 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
     },
     bytes,
     scoreOf: (s, d, least) => similarity(bytes(sources[s]), bytes(dests[d]), least, counts),
+    punctuatedScoreOf: (s, d, least) => similarity(bytes(sources[s]), bytes(dests[d]), least, punctuatedCounts, true),
   }
   exactRenames(context)
   if (byPath) pathRenames(context, minimum, limit)
   if (minimum >= MAX_SCORE) return pairs
-  basenameRenames(context, unpaired(context), minimum + Math.trunc(0.5 * (MAX_SCORE - minimum)))
+  basenameRenames(context, unpaired(context), stricter(minimum))
   const left = unpaired(context)
-  if (left.remaining.length * left.open.length <= limit * limit) scoredRenames(context, left, minimum)
+  if (left.remaining.length * left.open.length > limit * limit) return pairs
+  scoredRenames(context, left, minimum)
+  if (byPath) chunkRenames(context, unpaired(context), stricter(minimum))
   return pairs
 }
