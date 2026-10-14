@@ -11,6 +11,7 @@
 // - JSON's strings and comments as written.
 // Otherwise an error: no check for the kind of file (`unsupported`, CSS without
 // css-tree), it does not parse (`unformattable`) or would change more
-// (`pretty-mismatch`). Rejects only where an optional peer it needs is missing:
-// oxfmt, or oxc-parser for a script.
+// (`pretty-mismatch`). On Node, rejects only where an optional peer it needs is
+// missing: oxfmt, or oxc-parser for a script. Elsewhere this module is imported
+// with oxc-parser and oxc-minify both, as names.js is (#oxc).
 export function format(text: string, extension: string): Promise<{ code: string } | { error: 'unsupported' | 'unformattable' | 'pretty-mismatch' }>
