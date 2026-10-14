@@ -21,18 +21,19 @@ export type RenameReason = 'unparsed' | 'dynamic' | 'jsx' | 'block-function' | '
 // The diff of two JavaScript files minified on both sides with renamed names
 // set aside. The old side is given the new side's names wherever a minifier
 // renamed a variable alike throughout (a declared variable's short ASCII name,
-// not a script's top level, an export's or import's by its own name, or a
-// shorthand property's), checked to bind every name as before by this
-// package's scope analysis and again by oxc's minifier; formatted again where
-// that changes its layout alone and still binds alike; diffed as diff -U0 has
-// it; and the blocks checked to take `before` to the new side (thrown should
-// they not). `reason` says why no names were given; `reads` the properties
-// either text reads names through (`name`, `toString`, `stack`, `callee`,
-// `caller`), sorted, as code reading its names may act otherwise renamed:
-// none where none is renamed, and `name` only where a name renamed is a
-// function's or class's, the one name it reads (`function f`, `f = () => {}`);
-// `marks` the plain diff's blocks that differ in renamed names alone; and
-// `warnings` what a check that should never fail found.
+// not a script's top level -- but where the file's other version is a module,
+// as a bundle's chunk is once it exports, the same file loaded alike -- a name
+// exported or imported as itself, or a shorthand property's), checked to bind
+// every name as before by this package's scope analysis and again by oxc's
+// minifier; formatted again where that changes its layout alone and still binds
+// alike; diffed as diff -U0 has it; and the blocks checked to take `before` to
+// the new side (thrown should they not). `reason` says why no names were given;
+// `reads` the properties either text reads names through (`name`, `toString`,
+// `stack`, `callee`, `caller`), sorted, as code reading its names may act
+// otherwise renamed: none where none is renamed, and `name` only where a name
+// renamed is a function's or class's, the one name it reads (`function f`,
+// `f = () => {}`); `marks` the plain diff's blocks that differ in renamed names
+// alone; and `warnings` what a check that should never fail found.
 export function renamedDiff(before: string, after: string, options?: RenameOptions & { whitespace?: Whitespace }): Promise<{
   before: string
   blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[]

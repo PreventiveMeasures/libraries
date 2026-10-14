@@ -234,7 +234,7 @@ function resolved(program, s) {
     if (s.naming.has(node)) variable.naming = true
   }
   const own = program.sourceType === 'module' || program.sourceType === 'commonjs' || globals.some(([node]) => COMMONJS.has(node.name))
-  for (const variable of s.variables) variable.aside = variable.name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(variable.name) && !variable.kept && (own || variable.scope !== s.root)
+  for (const variable of s.variables) variable.aside = renamable(variable) && (own || variable.scope !== s.root)
   // A shorthand property's two names are one, at one place.
   const byStart = (x, y) => x[0].start - y[0].start
   occurrences.sort(byStart)
@@ -246,6 +246,17 @@ function resolved(program, s) {
   const deduplicated = occurrences.filter((entry, i) => i === 0 || entry[0].start !== occurrences[i - 1][0].start)
   const names = new Set([...s.variables.map(({ name }) => name), ...globals.map(([node]) => node.name)])
   return { scopes: s.scopes, variables: s.variables, occurrences: deduplicated, globals, names, reads: s.reads, module: program.sourceType === 'module', commonjs: program.sourceType === 'commonjs', own }
+}
+
+// A short minified name, declared, and kept by no export, import or shorthand.
+const renamable = (variable) => variable.name.length <= RENAMED_MAX_LENGTH && MINIFIED.test(variable.name) && !variable.kept
+
+// A script's analysis with its top level its own, as a module's: renamable there
+// too. Still read as a script, `this` and all, but no global of it set aside.
+export function ownTopLevel(analysis) {
+  if (analysis.reason || analysis.own) return analysis
+  for (const variable of analysis.variables) variable.aside = renamable(variable)
+  return { ...analysis, own: true }
 }
 
 export function analyze(text, extension) {
