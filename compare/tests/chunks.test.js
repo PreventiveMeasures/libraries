@@ -72,10 +72,12 @@ describe('bundle chunks', () => {
   })
 
   it('holds to git\'s stricter score the only other of a name its hash alone does not tell', () => {
-    // A hash's last 8 to 32 characters with a letter, and a digit or a capital: a date has none, and a `-`
-    // before eight more is the name's, two chunks named apart (`vendor-react-dom`, `vendor-lodash-es`).
+    // A hash's last 8 to 32 characters with a letter, and a digit or a capital: a date has none, a time differs
+    // in digits alone, and a `-` before eight more is the name's, two chunks named apart (`vendor-react-dom`,
+    // `vendor-lodash-es`).
     for (const [from, to] of [
       ['a/migration-20240101.js', 'a/migration-20250101.js'],
+      ['a/migration-20240101T120000.js', 'a/migration-20250101T120000.js'],
       ['a/vendor-react-dom-AbCd1234.js', 'a/vendor-lodash-es-XyZw5678.js'],
       ['a/vendor-ui-AbCdEf12-GhIjKl34.js', 'a/vendor-db-Zy98XwVu-TsRq7654.js'],
       ['a/index-AbCdEf12-GhIjKl34.js', 'a/index-Zy98XwVu-TsRq7654.js'],
