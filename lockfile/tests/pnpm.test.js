@@ -293,10 +293,10 @@ describe('what else pnpm writes is read', () => {
 
   // As pnpm 9, 10 and 12 write @sentry/nextjs beside next in a workspace,
   // where next has @babel/core as a peer in one project and none in the
-  // other: dedupePeerDependents merges the snapshot of n without b into the
-  // one with it, and leads a there, but writes a's key with the n it
-  // resolved.
+  // other: dedupePeerDependents merges a snapshot of n into the one with b,
+  // and leads a there, but writes a's key with the n it resolved.
   it('a peer merged into another snapshot of its package, which dedupePeerDependents leaves in a key', () => {
+    const into = 'n@1.0.0(b@1.0.0)(r@1.0.0(q@1.0.0)(s@1.0.0))'
     const doc = (peer) => `lockfileVersion: '9.0'
 
 importers:
@@ -311,10 +311,7 @@ importers:
         version: 1.0.0
       n:
         specifier: 1.0.0
-        version: 1.0.0(b@1.0.0)(r@1.0.0)
-      r:
-        specifier: 1.0.0
-        version: 1.0.0
+        version: ${into.slice(2)}
 
 packages:
 
@@ -330,33 +327,53 @@ packages:
     resolution: {integrity: ${I}}
     peerDependencies:
       b: 1.0.0
-      r: 1.0.0
     peerDependenciesMeta:
       b:
         optional: true
 
+  q@1.0.0:
+    resolution: {integrity: ${I}}
+
   r@1.0.0:
+    resolution: {integrity: ${I}}
+    peerDependencies:
+      q: 1.0.0
+      s: 1.0.0
+
+  s@1.0.0:
     resolution: {integrity: ${I}}
 
 snapshots:
 
   a@1.0.0(${peer}):
     dependencies:
-      n: 1.0.0(b@1.0.0)(r@1.0.0)
+      n: ${into.slice(2)}
 
   b@1.0.0: {}
 
-  n@1.0.0(b@1.0.0)(r@1.0.0):
+  ${into}:
     dependencies:
       b: 1.0.0
-      r: 1.0.0
+      r: 1.0.0(q@1.0.0)(s@1.0.0)
 
-  r@1.0.0: {}
+  q@1.0.0: {}
+
+  r@1.0.0(q@1.0.0)(s@1.0.0):
+    dependencies:
+      q: 1.0.0
+      s: 1.0.0
+
+  s@1.0.0: {}
 `
-    assert.equal(parse(doc('n@1.0.0(r@1.0.0)')).packages['a@1.0.0(n@1.0.0(r@1.0.0))'].dependencies.n, 'n@1.0.0(b@1.0.0)(r@1.0.0)')
-    // A snapshot is merged into one of its package with every peer it has:
-    // not one of another version, nor one without a peer it has.
-    for (const peer of ['n@2.0.0(r@1.0.0)', 'n@1.0.0(x@1.0.0)', 'n@1.0.0(r@1.0.0)(x@1.0.0)']) {
+    // Without b; and with an r without s, itself merged into the r with it.
+    for (const peer of ['n@1.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(r@1.0.0(q@1.0.0))']) {
+      assert.equal(parse(doc(peer)).packages[`a@1.0.0(${peer})`].dependencies.n, into, peer)
+    }
+    // pnpm merges a snapshot into one of its package with a peer of every
+    // name it has one of, each resolved alike: not one of another version,
+    // nor one with a peer of another name, nor one whose r, or r's q, is of
+    // another version, which leads elsewhere.
+    for (const peer of ['n@2.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(x@1.0.0)', 'n@1.0.0(r@2.0.0)', 'n@1.0.0(r@1.0.0(q@2.0.0))']) {
       refuses(doc(peer), `snapshots["a@1.0.0(${peer})"]: the peer "${peer}" is not one of its dependencies, nor a peer of theirs it resolves`)
     }
   })

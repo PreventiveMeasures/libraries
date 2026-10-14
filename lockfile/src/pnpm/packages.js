@@ -140,28 +140,37 @@ function nameOf(group) {
   return sep === -1 ? '' : group.slice(0, sep)
 }
 
-// A key's peers by name, or undefined where one hash stands in for them.
-const peerNames = (peers) => (peers.length === 1 && isPeersHash(peers[0]) ? undefined : peers.map(nameOf))
-
-// A snapshot key but for its peers, and the names of those, `peers`; or
-// undefined for what does not read as one.
+// A snapshot key but for its peers, and its peers by name, `peers`, which
+// is undefined where one hash stands in for them; or undefined for what
+// does not read as a key, or names a peer twice, as pnpm writes none.
 function variantOf(key) {
   const split = attempt(() => splitSnapshotKey(key), () => undefined)
   if (split === undefined) return undefined
   const unpeered = split.patchHash === undefined ? split.base : `${split.base}(patch_hash=${split.patchHash})`
-  return { unpeered, peers: peerNames(split.peers) }
+  if (split.peers.length === 1 && isPeersHash(split.peers[0])) return { unpeered, peers: undefined }
+  const peers = new Map(split.peers.map((group) => [nameOf(group), group]))
+  return peers.size === split.peers.length ? { unpeered, peers } : undefined
 }
 
+// Past this deep, peers are not read as merged, which keeps the reading
+// linear; pnpm nests them a few deep.
+const DEEPEST = 32
+
 // pnpm's dedupePeerDependents, on by default: of two snapshots of a package
-// and patch, it merges one into another that has all its dependencies and
-// peers, and leads every dependency on it there, but leaves the keys it was
-// a peer in as they were written. Such a peer is of a dependency's package
-// and patch, with no peer the dependency has not, and is in the lockfile no
-// more.
-function mergedInto(group, variants) {
-  const peer = variantOf(group)
-  if (peer === undefined) return false
-  return variants.some(({ unpeered, peers }) => unpeered === peer.unpeered && (peers === undefined || peer.peers === undefined || peer.peers.every((name) => peers.includes(name))))
+// and patch, it merges one into another that has every dependency it has
+// and a peer of every name it has one of, and leads every dependency on it
+// there, but leaves the keys it was a peer in as they were written. Such a
+// peer, `key`, is of the package and patch of the snapshot `into` it was
+// merged into, with no peer of a name `into` has none of, and each peer the
+// same as `into`'s of its name but for merges of their own: both of one
+// package and patch, and each peer they both have the same so, but where a
+// hash stands in for them.
+function mergedInto(key, into, depth = 0) {
+  if (key === into) return true
+  const [merged, kept] = [variantOf(key), variantOf(into)]
+  if (depth > DEEPEST || merged === undefined || kept === undefined || merged.unpeered !== kept.unpeered) return false
+  if (merged.peers === undefined || kept.peers === undefined) return true
+  return [...merged.peers].every(([name, peer]) => (kept.peers.has(name) ? mergedInto(peer, kept.peers.get(name), depth + 1) : depth > 0))
 }
 
 // The peers a snapshot key ends in, as pnpm's resolvePeers writes them:
@@ -180,16 +189,12 @@ function checkPeers(groups, snapshot, infos, known, where) {
   // alone, with no peers of its own, a link or a package of no version.
   const keys = new Set()
   const bare = new Set()
-  const variants = []
   for (const [alias, to] of Object.entries({ ...snapshot.dependencies, ...snapshot.optionalDependencies })) {
     if (to.startsWith('link:')) {
       bare.add(alias)
       continue
     }
     keys.add(to)
-    // A key that does not read as one is refused where it is read.
-    const variant = variantOf(to)
-    if (variant !== undefined) variants.push(variant)
     // A snapshot whose package is missing is refused where it is read.
     const info = infos.get(packageKeyOf(to))
     if (info === undefined) continue
@@ -197,11 +202,20 @@ function checkPeers(groups, snapshot, infos, known, where) {
     else keys.add(`${info.name}@${info.version}`)
   }
   const transitive = snapshot.transitivePeerDependencies
+  // The keys of the dependencies by package and patch, for a peer merged
+  // into one; made where first asked for.
+  let byPackage
+  const merged = (group) => {
+    const unpeered = variantOf(group)?.unpeered
+    if (unpeered === undefined) return false
+    byPackage ??= Map.groupBy([...keys].filter((key) => key.includes('(')), (key) => variantOf(key)?.unpeered)
+    return (byPackage.get(unpeered) ?? []).some((key) => mergedInto(group, key))
+  }
   for (const group of groups) {
     const name = nameOf(group)
     if (name === '') throw new LockfileError(`${quote(group)} is not a peer, as pnpm writes one in a key`, where)
     const plain = !group.includes('(')
-    if (keys.has(group) || (plain && bare.has(name)) || (!plain && mergedInto(group, variants))) continue
+    if (keys.has(group) || (plain && bare.has(name)) || (!plain && merged(group))) continue
     const linked = plain && transitive.includes(name) && !isVersion(group.slice(name.length + 1))
     if (transitive.length > 0 && (known().has(group) || linked)) continue
     throw new LockfileError(`the peer ${quote(group)} is not one of its dependencies, nor a peer of theirs it resolves`, where)
