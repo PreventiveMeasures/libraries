@@ -187,10 +187,11 @@ function mergedInto(key, into, packages, depth = 0) {
 // dependencies, where it has transitivePeerDependencies, by the key of a
 // snapshot or a package, by a name and version, or by the alias of one
 // among them and a directory, which no version is; or one hash in place
-// of them all; or a snapshot merged into a dependency, or, where it has
-// transitivePeerDependencies, into any snapshot of its package, which is
-// held so in `merges` once every snapshot is read. Whatever else the key
-// would say it was resolved with, the lockfile does not have.
+// of them all; or a snapshot merged into a dependency, or, where its name
+// is among the transitivePeerDependencies, into any snapshot of its
+// package, which is held so in `merges` once every snapshot is read.
+// Whatever else the key would say it was resolved with, the lockfile does
+// not have.
 function checkPeers(groups, snapshot, infos, known, merges, where) {
   if (groups.length === 0 || (groups.length === 1 && isPeersHash(groups[0]))) return
   // A dependency in a group: by its key, or name and version; by a name
@@ -226,14 +227,15 @@ const unexplained = (group, where) => new LockfileError(`the peer ${quote(group)
 
 // Each peer checkPeers left for a snapshot it was merged into: a dependency,
 // or, as a peer resolved for the dependencies may be named by any snapshot
-// key, any snapshot of its package and patch.
+// key, where the snapshot lists its name so, any snapshot of its package
+// and patch.
 function checkMerges(merges, packages) {
   // The snapshots by package and patch; made where first asked for.
   let byPackage
   for (const { group, snapshot, where } of merges) {
     const into = Object.values({ ...snapshot.dependencies, ...snapshot.optionalDependencies }).filter((to) => !to.startsWith('link:'))
     const unpeered = variantOf(group)?.unpeered
-    if (snapshot.transitivePeerDependencies.length > 0 && unpeered !== undefined) {
+    if (snapshot.transitivePeerDependencies.includes(nameOf(group)) && unpeered !== undefined) {
       byPackage ??= Map.groupBy(Object.keys(packages), (key) => variantOf(key)?.unpeered)
       into.push(...(byPackage.get(unpeered) ?? []))
     }

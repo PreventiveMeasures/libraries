@@ -380,9 +380,11 @@ snapshots:
     for (const peer of ['n@1.0.0(r@1.0.0(q@1.0.0)(s@1.0.0))', 'n@1.0.0(r@1.0.0(q@1.0.0))']) {
       assert.equal(parse(doc(peer)).packages[`a@1.0.0(${peer})`].dependencies.n, into, peer)
     }
-    // w resolves n for a alone, which it says it does.
+    // w resolves n for a alone, which it says it does, by its name.
     const resolved = 'n@1.0.0(r@1.0.0(q@1.0.0))'
-    refuses(doc(resolved, ''), `snapshots["w@1.0.0(${resolved})"]: the peer "${resolved}" is not one of its dependencies, nor a peer of theirs it resolves`)
+    for (const transitive of ['', '\n    transitivePeerDependencies:\n      - x']) {
+      refuses(doc(resolved, transitive), `snapshots["w@1.0.0(${resolved})"]: the peer "${resolved}" is not one of its dependencies, nor a peer of theirs it resolves`)
+    }
     // pnpm merges a snapshot into one of its package with a peer of every
     // name it has one of, each resolved alike: not one of another version,
     // nor one with a peer of another name, nor one whose r, or r's q, is of
