@@ -108,6 +108,14 @@ describe('renameMap', () => {
     assert.equal(renameMap(before, after.replace('export { a as n };\n', '')).text, before)
   })
 
+  it('pairs the names of code moved out of order with the rest, as a run of lines alike', () => {
+    // `b` moved after `c`: the diff keeps `c` in place, so `b`'s lines are taken out and put in again.
+    const before = lines(['export function main(q) {', '  function b(t, n) {', '    let r = t + n;', '    return r * q;', '  }', '  function c(e) {', '    let y = e.map((x) => x + q);', '    return y.length;', '  }', '  return [b, c];', '}'])
+    const after = lines(['export function main(q) {', '  function d(e) {', '    let o = e.map((x) => x + q);', '    return o.length;', '  }', '  function f(i, s) {', '    let a = i + s;', '    return a * q;', '  }', '  return [f, d];', '}'])
+    const renamed = lines(['export function main(q) {', '  function f(i, s) {', '    let a = i + s;', '    return a * q;', '  }', '  function d(e) {', '    let o = e.map((x) => x + q);', '    return o.length;', '  }', '  return [f, d];', '}'])
+    assert.equal(renameMap(before, after).text, renamed)
+  })
+
   it('tells the properties through which either side reads names, as a rename may change what it then does', () => {
     const text = (name, read) => `function ${name}() {}\nmodule.exports = ${read};\n`
     assert.deepEqual(renameMap(text('a', 'a'), text('b', 'b'), cjs).reads, [])
