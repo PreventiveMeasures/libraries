@@ -109,4 +109,12 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames(old, { ...fresh, 'c/closer.js': `${rival.slice(0, -1)}#` }), ['a/index-AAAA1111.js -> a/index-BBBB2222.js 86%', 'added a/index-CCCC3333.js', 'b/rival.js -> c/closer.js 97%'])
     assert.deepEqual(renames(old, fresh), ['b/rival.js -> a/index-BBBB2222.js 94%', 'a/index-AAAA1111.js -> a/index-CCCC3333.js 76%'])
   })
+
+  it('takes a chunk that gave way before git pairs either of its files at a score that could not outdo it', () => {
+    // As above, with an added file elsewhere that git scores 62% like the old chunk.
+    const rival = `x=1;${statements(0, 90)}${statements(1000, 1006)}${statements(5000, 5004)}`
+    const fresh = { 'a/index-BBBB2222.js': NEW, 'e/part.js': `${statements(0, 70)}${statements(8000, 8030)}` }, old = { 'a/index-AAAA1111.js': OLD, 'b/rival.js': rival }
+    assert.deepEqual(renames(old, { ...fresh, 'c/closer.js': `${rival.slice(0, -1)}#` }), ['a/index-AAAA1111.js -> a/index-BBBB2222.js 86%', 'b/rival.js -> c/closer.js 97%', 'added e/part.js'])
+    assert.deepEqual(renames(old, fresh), ['b/rival.js -> a/index-BBBB2222.js 94%', 'a/index-AAAA1111.js -> e/part.js 62%'])
+  })
 })
