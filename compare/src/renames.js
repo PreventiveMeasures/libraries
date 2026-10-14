@@ -1,6 +1,6 @@
 // git's -M pairing (diffcore_rename_extended): identical content, then a
 // basename unique among both sides' leftovers at a stricter score, then every
-// pair left scored; between the first two and after the last, ours, renames
+// pair left scored; between the first two and before the last, ours, renames
 // told by path, and bundle chunks (chunks.js).
 
 import { crc32 } from '@exodus/bytes/crc.js'
@@ -71,11 +71,14 @@ function familyKeys(path) {
   return keys
 }
 
-// Whether either file of a pair by path has a candidate that is a rename by
-// itself and scores at least halfway from the pair's score to 100%: sizes too
-// far apart for that go unread.
+// What a candidate scores to outdo a pair by path or a chunk's: halfway from
+// the pair's score to 100%, and a rename by itself.
+const halfway = (score, minimum) => Math.max(minimum, score + Math.trunc((MAX_SCORE - score) / 2))
+
+// Whether either file of such a pair has a candidate that outdoes it: sizes
+// too far apart for that go unread.
 function outdone({ pairs, used, scoreOf }, { remaining, open }, { s, d, score }, minimum) {
-  const better = Math.max(minimum, score + Math.trunc((MAX_SCORE - score) / 2))
+  const better = halfway(score, minimum)
   return open.some((o) => o !== d && !pairs.has(o) && scoreOf(s, o, better) >= better)
     || remaining.some((r) => r !== s && !used.has(r) && scoreOf(r, d, better) >= better)
 }
@@ -159,17 +162,29 @@ function keepIfBetter(kept, candidate) {
   if (byScore(kept[worst], candidate) > 0) kept[worst] = candidate
 }
 
-function scoredRenames({ sourceNames, destNames, pairs, used, record, scoreOf }, { remaining, open }, minimum) {
+// git's walk down every pair left, best first. A chunk set aside (`aside`,
+// best first) is taken where its files are both free once the walk is past
+// what could outdo it, before a pair scoring less takes either.
+function scoredRenames({ sourceNames, destNames, pairs, used, record, scoreOf }, { remaining, open }, minimum, aside) {
   const all = []
   for (const d of open) {
     const kept = []
     for (const s of remaining) keepIfBetter(kept, { score: scoreOf(s, d, minimum), nameScore: sourceNames[s] === destNames[d] ? 1 : 0, dst: d, src: s })
     all.push(...kept)
   }
+  let next = 0
+  const settle = (below) => {
+    for (; next < aside.length && halfway(aside[next].score, minimum) > below; next++) {
+      const { s, d, score } = aside[next]
+      if (!pairs.has(d) && !used.has(s)) record(d, s, score)
+    }
+  }
   for (const { dst, src, score } of all.sort(byScore)) {
     if (score < minimum) break
+    settle(score)
     if (!pairs.has(dst) && !used.has(src)) record(dst, src, score)
   }
+  settle(-Infinity)
 }
 
 const unpaired = ({ sources, dests, pairs, used }) => ({
@@ -210,7 +225,7 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
   basenameRenames(context, unpaired(context), stricter(minimum))
   const left = unpaired(context)
   if (left.remaining.length * left.open.length > limit * limit) return pairs
-  scoredRenames(context, left, minimum)
-  if (byPath) chunkRenames(context, unpaired(context), stricter(minimum))
+  const aside = byPath ? chunkRenames(context, left, stricter(minimum), (pair) => outdone(context, left, pair, minimum)) : []
+  scoredRenames(context, unpaired(context), minimum, aside)
   return pairs
 }
