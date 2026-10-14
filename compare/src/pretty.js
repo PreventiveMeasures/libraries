@@ -62,7 +62,9 @@ function chain(node, operator) {
   return operands
 }
 // `!0` and `!1`, as a minifier writes `true` and `false`: the literal each reads as, which nothing binds
-// otherwise, so that either reads alike wherever it is.
+// otherwise, so that either reads alike wherever it is; in a script without types alone, as TypeScript
+// types `!0` as `boolean` and `true` as `true`, and refuses `!0 as const`.
+const typed = (extension) => /^[cm]?tsx?$/u.test(extension)
 const BOOLEANS = new Map([['0', true], ['1', false]])
 const BOOLEAN_LITERALS = new Map([...BOOLEANS].map(([raw, value]) => [raw, { type: 'Literal', value }]))
 const booleanRaw = (node) => (node?.type === 'UnaryExpression' && node.operator === '!' && node.argument?.type === 'Literal'
@@ -151,8 +153,9 @@ export function sameCode(text, formatted, extension = 'js', csstree = null, tree
   if (before === null || after === null) return false
   // `!0` and `!1` read as `true` and `false` only where the text writes one so: format() writes them so
   // nowhere else, so a copy of any other has none.
-  const booleans = /![01]/u.test(text)
-  const form = (code, { program }) => scriptForm(respelled(code, program, /^[cm]?tsx?$/u.test(extension), booleans))
+  const types = typed(extension)
+  const booleans = !types && /![01]/u.test(text)
+  const form = (code, { program }) => scriptForm(respelled(code, program, types, booleans))
   return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program, booleans)
 }
 
@@ -263,7 +266,7 @@ export async function format(text, extension) {
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
   const oxfmt = await loadFormatter()
   // A script's syntax tree, read once for its copy's check: its `!0` and `!1` written as `true` and
-  // `false` before oxfmt formats it. A check that fails in itself, its stack say, refuses the copy as
+  // `false` before oxfmt formats it, where it has no types. A check that fails in itself, its stack say, refuses the copy as
   // one that finds it changed would.
   let tree
   try {
@@ -271,7 +274,7 @@ export async function format(text, extension) {
   } catch {
     return { error: 'pretty-mismatch' }
   }
-  const result = await oxfmt(`pretty.${extension}`, withBooleans(text, tree), PRETTY_OPTIONS).catch(() => null)
+  const result = await oxfmt(`pretty.${extension}`, withBooleans(text, typed(extension) ? null : tree), PRETTY_OPTIONS).catch(() => null)
   if (result === null || result.errors.length > 0) return { error: 'unformattable' }
   // oxfmt's copy as it is, or where the check refuses it, as the file writes what oxfmt respelled: a
   // copy the check takes respelled nothing so, as its text would differ.

@@ -44,6 +44,7 @@ describe('sameCode', () => {
     for (const [text, formatted, what] of [['x=!0', 'x = false;\n', '`!0` as `false`'], ['x=!1', 'x = true;\n', '`!1` as `true`'], ['x=!2', 'x = false;\n', 'another number'],
       ['x=!0n', 'x = true;\n', 'a BigInt'], ['x="!0"', 'x = "true";\n', 'a string'], ['x=!!0', 'x = true;\n', 'one `!` more'],
       ['function f(){return!0}', 'function f() {\n  returntrue;\n}\n', 'run on into the word before']]) assert.equal(sameCode(text, formatted), false, what)
+    assert.equal(sameCode('const a=!0', 'const a = true;\n', 'ts'), false, 'nor in a typed script, as TypeScript types `true` otherwise')
     assert.equal(sameCode('x=a/ig;b', 'x = a / gi;\nb;\n'), false, 'a name\'s letters sorted as flags would be')
     assert.equal(sameCode(`var ${esc('0061')}=1`, 'var a = 1;\n'), false, 'a name\'s escape read')
     assert.equal(sameCode('x=a&&/* c */\nb', 'x = a /* c */ && b;\n'), false, 'a comment moved before the operator it followed')
@@ -181,7 +182,7 @@ describe('format', () => {
   it('writes `!0` and `!1` as `true` and `false`, as they read', async () => {
     assert.deepEqual(await format('x=!0,y=!1;f(!0,typeof!1,-!0,!!0);r=()=>a?!0:!1', 'js'),
       { code: '((x = true), (y = false));\nf(true, typeof false, -true, !true);\nr = () => (a ? true : false);\n' })
-    assert.deepEqual(await format('let a:boolean=!0', 'ts'), { code: 'let a: boolean = true;\n' })
+    assert.deepEqual(await format('const a=!0 as const;let b=!1', 'ts'), { code: 'const a = !0 as const;\nlet b = !1;\n' }, 'but where TypeScript types them otherwise')
     assert.deepEqual(await format('function f(a){switch(a){case!1:return!0}return void!0}', 'js'),
       { code: 'function f(a) {\n  switch (a) {\n    case false:\n      return true;\n  }\n  return void true;\n}\n' }, 'set apart from a word it follows')
     assert.deepEqual(await format('x="!0";y=`!1`;z=/!0/;w=[!0n,!00,!0.5,!2];v=!/* c */0', 'js'),
