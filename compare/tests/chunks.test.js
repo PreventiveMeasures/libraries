@@ -93,4 +93,11 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames({ ...old, 'b/near.js': near(6) }, { 'a/index-hRvO4yU2.js': NEW }), ['deleted a/index-CyWAfh-p.js', 'b/near.js -> a/index-hRvO4yU2.js 94%'])
     assert.deepEqual(renames({ ...old, 'b/near.js': near(3) }, { 'a/index-hRvO4yU2.js': NEW }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'deleted b/near.js'])
   })
+
+  it('pairs a chunk after all where git pairs the candidate it gave way to with another file', () => {
+    // 95% for the old chunk against another added file, which git gives a deleted one 97% like it.
+    const other = `S${OLD.slice(1)}`
+    const fresh = { 'a/index-hRvO4yU2.js': NEW, 'b/other.js': other }, old = { 'a/index-CyWAfh-p.js': OLD, 'c/legacy.js': `${other.slice(0, -1)}#` }
+    assert.deepEqual(renames(old, fresh), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 86%', 'c/legacy.js -> b/other.js 97%'])
+  })
 })

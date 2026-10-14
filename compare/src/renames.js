@@ -210,7 +210,9 @@ export function findRenames(sources, dests, { minimum, limit, byPath }) {
   basenameRenames(context, unpaired(context), stricter(minimum))
   const left = unpaired(context)
   if (left.remaining.length * left.open.length > limit * limit) return pairs
-  if (byPath) chunkRenames(context, left, stricter(minimum), (pair) => outdone(context, left, pair, minimum))
+  const aside = byPath ? chunkRenames(context, left, stricter(minimum), (pair) => outdone(context, left, pair, minimum)) : []
   scoredRenames(context, unpaired(context), minimum)
+  // A chunk that gave way to a candidate git paired with another file.
+  for (const { s, d, score } of aside) if (!pairs.has(d) && !used.has(s)) context.record(d, s, score)
   return pairs
 }
