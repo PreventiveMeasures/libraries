@@ -16,11 +16,16 @@ const SEPARATORS = '-._'
 // the fewest, so that a `-` in a hash is the hash's (`index-CyWAfh-p.js`,
 // `codeMirrorModule--QdMvsKi.css`) and one before eight more is the name's
 // (`vendor-react-dom-AbCd1234.js`, `index-AbCdEf12-GhIjKl34.js`). None for a
-// date (`migration-20240101.js`) or a word (`lodash.debounce.js`).
-const HASHED = /^(.+)[-.]([\w-]{8,32})((?:\.[A-Za-z\d]+)+)$/u
+// date (`migration-20240101.js`) or a word (`lodash.debounce.js`, or an
+// extension's, `index-AbCd1234.production.js`).
+const EXTENSIONS = /^(?:\.[A-Za-z\d]+)+$/u, HASHED = /^[\w-]{8,32}$/u
 function unhashed(name) {
-  const [, stem, hash, extensions] = HASHED.exec(name) ?? []
-  return hash !== undefined && /[A-Za-z]/u.test(hash) && RANDOM.test(hash) ? `${stem}\0${extensions}` : null
+  for (let at = name.length - 1; at > 0; at--) {
+    if (name[at] !== '-' && name[at] !== '.') continue
+    const end = name.indexOf('.', at + 1), extensions = name.slice(end), hash = name.slice(at + 1, end)
+    if (end !== -1 && HASHED.test(hash) && EXTENSIONS.test(extensions) && /[A-Za-z]/u.test(hash) && RANDOM.test(hash)) return `${name.slice(0, at)}\0${extensions}`
+  }
+  return null
 }
 
 function nameOf(path) {

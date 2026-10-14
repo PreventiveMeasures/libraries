@@ -63,6 +63,8 @@ describe('bundle chunks', () => {
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': statements(7000, 7100) }), ['a/index-CyWAfh-p.js -> a/index-hRvO4yU2.js 0%'], 'nothing alike')
     assert.deepEqual(renames(old, { 'a/index-hRvO4yU2.js': NEW }, { renames: 100 }), ['deleted a/index-CyWAfh-p.js', 'added a/index-hRvO4yU2.js'], 'none under -M100%')
     assert.deepEqual(renames({ 'a/codeMirrorModule--QdMvsKi.css': OLD }, { 'a/codeMirrorModule-DYBRYzYX.css': kept(60) }), ['a/codeMirrorModule--QdMvsKi.css -> a/codeMirrorModule-DYBRYzYX.css 51%'], 'a hash that starts with `-`')
+    assert.deepEqual(renames({ 'a/index-AbCd1234.production.js': OLD }, { 'a/index-ZyXw5678.production.js': kept(60) }), ['a/index-AbCd1234.production.js -> a/index-ZyXw5678.production.js 51%'],
+      'an extension a hash\'s length after it')
   })
 
   it('holds to git\'s stricter score the only other of a name its hash alone does not tell', () => {
