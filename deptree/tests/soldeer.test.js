@@ -7,7 +7,7 @@ import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildSoldeerTree } from '../soldeer.js'
 import { githubRepoOf } from '../src/soldeer/git.js'
 import { extractZip } from '../src/soldeer/zip.js'
-import { rawZip, sha256, slowed, stubGitHub, stubSoldeer } from './registry.js'
+import { gathered, rawZip, sha256, slowed, stubGitHub, stubSoldeer } from './registry.js'
 
 const HOST = Object.freeze({ soldeer: '0.12.0', os: 'linux' })
 const ZERO = '0'.repeat(64)
@@ -320,7 +320,7 @@ describe('buildSoldeerTree', () => {
   it('fetches eight zips at a time', async () => {
     const zips = Array.from({ length: 12 }, (_, i) => dependency(`pkg-${String.fromCodePoint(108 - i)}`, '1.0.0', [{ name: 'a', data: String(i) }]))
     stubSoldeer(zips)
-    const count = slowed(5)
+    const count = gathered(8)
     const { vfs, stats } = await buildSoldeerTree({ lockfile: lockOf(zips), soldeer: configOf(zips), host: HOST })
     assert.equal(count.most, 8)
     assert.equal(stats.dependencies, 12)

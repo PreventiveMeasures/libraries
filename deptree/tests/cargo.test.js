@@ -5,7 +5,7 @@ import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, TomlError, buildCargoTree } from '../cargo.js'
 import { vendoredPackages } from '../src/cargo/registry.js'
-import { rawTar, sha256, slowed, stubRegistry } from './registry.js'
+import { gathered, rawTar, sha256, slowed, stubRegistry } from './registry.js'
 
 const HOST = Object.freeze({ cargo: '1.97.0', os: 'linux' })
 const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index'
@@ -372,7 +372,7 @@ describe('fetching', () => {
   it('fetches eight .crates at a time', async () => {
     const crates = await Promise.all(Array.from({ length: 12 }, (_, i) => crate(`pkg-${String.fromCodePoint(108 - i)}`, '1.0.0', { a: String(i) })))
     stubCrates(crates)
-    const count = slowed(5)
+    const count = gathered(8)
     const { stats } = await buildCargoTree(givenOf(crates))
     assert.equal(count.most, 8)
     assert.equal(stats.vendored, 12)
