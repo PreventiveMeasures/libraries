@@ -142,6 +142,12 @@ describe('renameMap', () => {
       '  return t.steps.map((t, a) => f({ step: t, filterText: i, waterfall: w }, a));', '};'])
     // The loop's counter, the helper's `i`, apart: the function's `i` is read beside it.
     assert.equal(renameMap(before('e', 'n', 'r'), after).text, before('n', 'r', 'r_old'))
+    // A moved line reading `i` often counts it once, as its lines in place each do.
+    const calls = ['  b(t);', '  if (i) {', '    a1(i);', '    a2(i);', '    a3(i);', '    a4(i);', '    a5(i);', '  }']
+    const dense = (n) => lines(['export var f = (t, i) => {', '  let o = g(t);', ...calls, '  if (t) {', `    let ${n} = t.split(i);`, '    q(i, i, i, i, i, i, i, i);', `    r(${n});`, `    o = ${n};`, '  }', '  return o;', '};'])
+    const helped = lines(['function h(e, s) {', '  let n = e.split(s);', '  q(s, s, s, s, s, s, s, s);', '  r(n);', '  return n;', '}',
+      'export var f = (t, i, w) => {', '  let o = g(t);', ...calls, '  t && (o = h(t, i));', '  return o;', '};'])
+    assert.equal(renameMap(dense('m'), helped).text, dense('n'))
   })
 
   it('tells the properties through which either side reads names, as a rename may change what it then does', () => {

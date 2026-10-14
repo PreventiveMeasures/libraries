@@ -182,7 +182,18 @@ function tallied(ka, kb) {
     i = block.a1
     j = block.b1
   }
-  moves(ka, kb, blocks, (olds, news) => alike(unchanged, olds, news))
+  // Code moved counts a pair once a line, so that a moved line reading a variable
+  // often outweighs no lines in place reading it once each.
+  const once = (olds, news) => {
+    if (olds.length !== news.length) return
+    const seen = new Map()
+    olds.forEach((variable, k) => {
+      const others = seen.get(variable) ?? seen.set(variable, new Set()).get(variable)
+      if (!others.has(news[k])) counted(unchanged, variable, news[k])
+      others.add(news[k])
+    })
+  }
+  moves(ka, kb, blocks, once)
   return { changed, tokened, unchanged }
 }
 
