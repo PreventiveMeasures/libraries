@@ -175,6 +175,8 @@ describe('renameMap', () => {
     // Outside strict code a `var arguments` is its function's `arguments` still.
     const sloppy = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  var arguments;\n  arguments.length;\n')}module.exports = f;\n`
     assert.equal(renameMap(sloppy(before), sloppy(after)).text, sloppy(before).replaceAll(/\be\b/gu, 'i'))
+    const rejoined = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  try {\n    m();\n  } catch (arguments) {\n    var arguments;\n  }\n  arguments.length;\n')}module.exports = f;\n`
+    assert.equal(renameMap(rejoined(before), rejoined(after)).text, rejoined(before).replaceAll(/\be\b/gu, 'i'), 'past the `catch` its `var` names')
     // One a `catch`, a `let`, a parameter or an arrow's `var` declares is not.
     const caught = (text) => `${text.replace('export function f(e) {\n', 'function f(e) {\n  try {\n    m();\n  } catch (arguments) {\n    m(arguments);\n  }\n')}module.exports = f;\n`
     assert.equal(renameMap(caught(before), caught(after)).text, caught(before))

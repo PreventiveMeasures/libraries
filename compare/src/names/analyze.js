@@ -53,6 +53,7 @@ const fnOf = (where) => (where.fn ? where : fnOf(where.parent))
 function join(s, kept, gone) {
   if (kept === gone || !s.variables.includes(gone)) return
   for (const path of gone.through ?? []) (kept.through ??= []).push(path)
+  kept.varIn ??= gone.varIn
   for (const at of s.scopes) for (const [name, variable] of at.names) if (variable === gone) at.names.set(name, kept)
   for (const [node, [variable, where]] of s.declarations) if (variable === gone) s.declarations.set(node, [kept, where])
   s.variables.splice(s.variables.indexOf(gone), 1)
@@ -64,7 +65,7 @@ function declareVariables(node, where, s) {
   for (const id of node.declarations.flatMap((declarator) => declared(declarator.id))) {
     const variable = declare(s, node.kind === 'var' ? fnOf(where) : where, id)
     if (node.kind !== 'var') continue
-    variable.byVar = true
+    variable.varIn = fnOf(where)
     const path = []
     for (let at = where; !at.fn; at = at.parent) path.push(at)
     if (path.length > 0) (variable.through ??= []).push(path)
@@ -255,8 +256,8 @@ function resolved(program, s) {
     setting.add(at)
   }
   for (const variable of s.variables) {
-    const at = variable.scope.parameters ?? variable.scope
-    if (variable.name === 'arguments' && variable.byVar && at.parameter && !at.arrow) setting.add(at)
+    const at = variable.varIn?.parameters ?? variable.varIn
+    if (variable.name === 'arguments' && at?.parameter && !at.arrow) setting.add(at)
   }
   for (const at of setting) for (const variable of at?.names.values() ?? []) variable.reassigned = true
   const declaredAlready = new Set()
