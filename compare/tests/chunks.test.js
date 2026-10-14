@@ -67,6 +67,8 @@ describe('bundle chunks', () => {
       'an extension a hash\'s length after it')
     assert.deepEqual(renames({ 'a/index-AbCd1234.production2024.js': OLD }, { 'a/index-ZyXw5678.production2024.js': kept(60) }),
       ['a/index-AbCd1234.production2024.js -> a/index-ZyXw5678.production2024.js 51%'], 'and one that reads as a hash, both names alike in it')
+    assert.deepEqual(renames({ 'a/main.AbCd1234.hot-update.js': OLD }, { 'a/main.ZyXw5678.hot-update.js': kept(60) }), ['a/main.AbCd1234.hot-update.js -> a/main.ZyXw5678.hot-update.js 51%'],
+      'and one with a `-`, webpack\'s hot update')
   })
 
   it('holds to git\'s stricter score the only other of a name its hash alone does not tell', () => {

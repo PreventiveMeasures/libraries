@@ -13,9 +13,10 @@ const SEPARATORS = '-._'
 // A name's readings as one a build gave a hash, `[name]-[hash]` or
 // `[name].[contenthash]`, the shortest hash first: `[name, hash, extensions]`,
 // the hash 8 to 32 of base64url's characters after a `-` or `.`, with a
-// letter, and a digit or a capital, and only extensions after it. None for a
-// date (`migration-20240101.js`) or a word (`lodash.debounce.js`).
-const EXTENSIONS = /^(?:\.[A-Za-z\d]+)+$/u, HASHED = /^[\w-]{8,32}$/u
+// letter, and a digit or a capital, and only extensions after it, a `-` in
+// one too (`main.AbCd1234.hot-update.js`). None for a date
+// (`migration-20240101.js`) or a word (`lodash.debounce.js`).
+const EXTENSIONS = /^(?:\.[\w-]+)+$/u, HASHED = /^[\w-]{8,32}$/u
 function readings(name) {
   const found = []
   for (let at = name.length - 1; at > 0; at--) {
