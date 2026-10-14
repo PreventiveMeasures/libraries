@@ -52,7 +52,9 @@ export type Whitespace = 'none' | 'all' | 'change' | 'trailing'
 // renamedDiff for each of `whitespace`'s settings (`['none']` unless given),
 // `diffs` in their order: the names found and the old side given them once
 // for all, as are `before`, `reason`, `reads` and `warnings`; each setting's
-// `blocks` checked as renamedDiff's are, and its `marks` read as they are.
+// `blocks` checked as renamedDiff's are, and its `marks` read as they are. A
+// setting ignoring blanks never shows more lines than 'none', and where it
+// shows no fewer, its blocks are those of 'none': it does nothing there.
 export function renamedDiffs(before: string, after: string, options?: RenameOptions & { whitespace?: Whitespace[] }): Promise<{
   before: string
   reason: RenameReason | null

@@ -115,4 +115,25 @@ describe('whitespace and ignoreCase', () => {
     assert.throws(() => compareTrees([], [], { whitespace: 'some' }), RangeError)
     assert.throws(() => compareTrees([], [], { ignoreCase: 'yes' }), TypeError)
   })
+
+  it('never show more lines than minding blanks and case does, and where they show no fewer, the same blocks', () => {
+    // Ignoring blanks, ` q` stays as `q` and `q` becomes `r`; minding them, ` q` goes and `r` comes: two lines
+    // either way, so ignoring them does nothing here, and gives the blocks minding them does.
+    const one = (a, b, options) => compareTrees(tree({ f: a }), tree({ f: b }), options)[0].blocks
+    assert.deepEqual(one(' q\nq\n', 'q\nr\n', { whitespace: 'all' }), one(' q\nq\n', 'q\nr\n'))
+    const edits = (blocks) => blocks.reduce((n, block) => n + block.a1 - block.a0 + block.b1 - block.b0, 0)
+    const shape = (blocks) => blocks.map(({ a0, a1, b0, b1 }) => [a0, a1, b0, b1])
+    for (let seed = 1; seed <= 50; seed++) {
+      const { old, new: fresh } = treePair(seed)
+      for (const [path, { data: a }] of Object.entries(old)) {
+        const b = fresh[path]?.data
+        if (typeof a !== 'string' || typeof b !== 'string' || a === b) continue
+        const minded = one(a, b)
+        for (const options of [{ whitespace: 'all' }, { whitespace: 'change' }, { ignoreCase: true }]) {
+          const ignored = one(a, b, options)
+          assert.ok(edits(ignored) < edits(minded) || JSON.stringify(shape(ignored)) === JSON.stringify(shape(minded)), `seed ${seed}, ${path}`)
+        }
+      }
+    }
+  })
 })

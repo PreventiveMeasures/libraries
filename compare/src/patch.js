@@ -3,9 +3,9 @@
 // blocks, so a run of lines free to move may sit elsewhere than git puts it.
 
 import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
-import { changeSet, formatChangeSet } from '@preventive/diff'
+import { formatChangeSet } from '@preventive/diff'
 import { quote } from './quote.js'
-import { checkLineOptions, textOf } from './text.js'
+import { checkLineOptions, lineChangeSet, textOf } from './text.js'
 import { sameContent } from './tree.js'
 
 const STATUSES = new Set(['added', 'deleted', 'modified', 'renamed'])
@@ -45,7 +45,7 @@ function body(one, two, blocks, from, to, { context, ...options }) {
   if (oldText === undefined || newText === undefined) {
     return one !== null && two !== null && sameContent(one, two) ? '' : `Binary files ${from} and ${to} differ\n`
   }
-  const hunks = formatChangeSet(oldText, newText, blocks ?? changeSet(oldText, newText, options), { ...options, context, label: hunkNames(oldText) })
+  const hunks = formatChangeSet(oldText, newText, blocks ?? lineChangeSet(oldText, newText, options), { ...options, context, label: hunkNames(oldText) })
   return hunks === '' ? '' : `--- ${label(from)}\n+++ ${label(to)}\n${hunks}`
 }
 

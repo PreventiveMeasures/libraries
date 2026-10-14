@@ -312,6 +312,8 @@ describe('renamedDiff', () => {
     const shortest = shortestChangeSet(longer, later, { horizon: 0 })
     assert.equal(edits(shortest), edits(blocks))
     assert.ok(edits(shortest) < edits(changeSet(longer, later, { horizon: 0 })), 'shorter than past the cutoff')
+    // Ignoring blanks shows two lines here, as minding them does: the blocks minding them.
+    assert.deepEqual(shortestChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0, whitespace: 'all' }), shortestChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0 }))
   })
 
   it('diffs once for each whitespace setting, from names found once, each as renamedDiff has it', async () => {
