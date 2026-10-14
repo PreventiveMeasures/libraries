@@ -61,12 +61,25 @@ function chain(node, operator) {
   }
   return operands
 }
+// `!0` and `!1`, as a minifier writes `true` and `false`: the literal each reads as, which nothing binds
+// otherwise, so that either reads alike wherever it is; in a script without types alone, as TypeScript
+// types `!0` as `boolean` and `true` as `true`, and refuses `!0 as const`.
+const typed = (extension) => /^[cm]?tsx?$/u.test(extension)
+const BOOLEANS = new Map([['0', true], ['1', false]])
+const BOOLEAN_LITERALS = new Map([...BOOLEANS].map(([raw, value]) => [raw, { type: 'Literal', value }]))
+const booleanRaw = (node) => (node?.type === 'UnaryExpression' && node.operator === '!' && node.argument?.type === 'Literal'
+  && typeof node.argument.value === 'number' && BOOLEANS.has(node.argument.raw) ? node.argument.raw : null)
+const literal = (node) => BOOLEAN_LITERALS.get(booleanRaw(node)) ?? node
 const fields = (node) => Object.keys(node).filter((key) => !POSITION.has(key) && !(node.type === 'Literal' && (key === 'raw' || key === 'regex' || (key === 'value' && node.regex))))
 
-function sameTree(a, b) {
+function sameTree(a, b, booleans) {
   const work = [[a, b]]
   while (work.length > 0) {
-    const [x, y] = work.pop()
+    let [x, y] = work.pop()
+    if (booleans) {
+      x = literal(x)
+      y = literal(y)
+    }
     if (x === y) continue
     if (typeof x !== 'object' || typeof y !== 'object' || x === null || y === null || Array.isArray(x) !== Array.isArray(y)) return false
     let pairs
@@ -109,14 +122,17 @@ function edited(text, edits) {
 }
 
 // A script as the formatter may write it, read off its syntax tree: each regular expression's flags
-// sorted (`/x/yu` as `/x/uy`), and where it has `types`, a member's separator `;` where it was `,`
-// (`{ a: string, b: number }`), and no `|` or `&` before a union's or an intersection's first type
-// (`type P =\n  | A\n  | B`, `[K in\n  | A\n  | B]`). oxc reads a member with the separator ending it
-// and a union from the mark leading it, so each is taken where it is, in whatever context.
-function respelled(text, program, types) {
+// sorted (`/x/yu` as `/x/uy`), `!0` and `!1` as `true` and `false` where it reads `booleans` so, and
+// where it has `types`, a member's separator `;` where it was `,` (`{ a: string, b: number }`), and
+// no `|` or `&` before a union's or an intersection's first type (`type P =\n  | A\n  | B`,
+// `[K in\n  | A\n  | B]`). oxc reads a member with the separator ending it and a union from the mark
+// leading it, so each is taken where it is, in whatever context.
+function respelled(text, program, types, booleans) {
   const edits = []
   visit(program, (node) => {
     if (node.regex) edits.push([node.end - node.regex.flags.length, node.end, sorted(node.regex.flags)])
+    const raw = booleans ? booleanRaw(node) : null
+    if (raw !== null) edits.push([node.start, node.end, String(BOOLEANS.get(raw))])
     if (!types) return
     const members = node.type === 'TSTypeLiteral' ? node.members : node.type === 'TSInterfaceBody' ? node.body : []
     for (const member of members) if (text[member.end - 1] === ',') edits.push([member.end - 1, member.end, ';'])
@@ -127,15 +143,20 @@ function respelled(text, program, types) {
 }
 
 // A safeguard on oxfmt's own output, not a comparison of any two texts: exported
-// for tests alone, not by the package. CSS is read by `csstree` where given.
-export function sameCode(text, formatted, extension = 'js', csstree = null) {
+// for tests alone, not by the package. CSS is read by `csstree` where given; a
+// script's text by `tree`, its syntax tree as parsed, where given.
+export function sameCode(text, formatted, extension = 'js', csstree = null, tree = parsed(text, extension)) {
   if (extension === 'css') return csstree !== null && sameCss(csstree, text, formatted)
   if (extension === 'json') return sameList(jsonForm(text), jsonForm(formatted))
   if (!SCRIPTS.has(extension)) return false
-  const [before, after] = [parsed(text, extension), parsed(formatted, extension)]
+  const [before, after] = [tree, parsed(formatted, extension)]
   if (before === null || after === null) return false
-  const form = (code, { program }) => scriptForm(respelled(code, program, /^[cm]?tsx?$/u.test(extension)))
-  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program)
+  // `!0` and `!1` read as `true` and `false` only where the text writes one so: format() writes them so
+  // nowhere else, so a copy of any other has none.
+  const types = typed(extension)
+  const booleans = !types && /![01]/u.test(text)
+  const form = (code, { program }) => scriptForm(respelled(code, program, types, booleans))
+  return form(text, before) === form(formatted, after) && sameList(comments(before), comments(after)) && sameTree(before.program, after.program, booleans)
 }
 
 // A name as written from where it starts, escapes and all.
@@ -173,9 +194,9 @@ function blanksFrom(text, at) {
 //   ends its line (`a &&/* c */\nb` as `a /* c */ && b`): where a comment is may matter to what reads
 //   it, a bundler a `#__PURE__` mark say, and a reader sees it where the file has it.
 // Names and comments are paired in order, as the check finds them alike or refuses the copy.
-function asWritten(text, code, extension) {
+function asWritten(text, code, extension, tree) {
   if (!SCRIPTS.has(extension) || !/\\u|\/\*/u.test(text)) return code
-  const [before, after] = [parsed(text, extension), parsed(code, extension)]
+  const [before, after] = [tree, parsed(code, extension)]
   if (before === null || after === null) return code
   const edits = []
   const [olds, news] = [names(text, before.program), names(code, after.program)]
@@ -202,6 +223,19 @@ function asWritten(text, code, extension) {
     }
   }
   return edited(code, edits)
+}
+
+// A script's `!0` and `!1` written as `true` and `false`, where it writes them so, as they read, from its
+// syntax tree as parsed (`tree`): set apart from a word it follows, as a minifier writes `return!0`.
+function withBooleans(text, tree) {
+  if (tree === null || !/![01]/u.test(text)) return text
+  const edits = []
+  visit(tree.program, (node) => {
+    const raw = booleanRaw(node)
+    if (raw === null || text.slice(node.start, node.end) !== `!${raw}`) return
+    edits.push([node.start, node.end, `${NAME_PART.test(text[node.start - 1] ?? '') ? ' ' : ''}${BOOLEANS.get(raw)}`])
+  })
+  return edited(text, edits)
 }
 
 // A script's block comments over more than one line, a license's say, each end their line: what oxfmt
@@ -231,14 +265,22 @@ export async function format(text, extension) {
   const csstree = extension === 'css' ? await loadCssTree() : null
   if (!(SCRIPTS.has(extension) || extension === 'json' || csstree)) return { error: 'unsupported' }
   const oxfmt = await loadFormatter()
-  const result = await oxfmt(`pretty.${extension}`, text, PRETTY_OPTIONS).catch(() => null)
+  // A script's syntax tree, read once for its copy's check: its `!0` and `!1` written as `true` and
+  // `false` before oxfmt formats it, where it has no types. A check that fails in itself, its stack say, refuses the copy as
+  // one that finds it changed would.
+  let tree
+  try {
+    tree = SCRIPTS.has(extension) ? parsed(text, extension) : null
+  } catch {
+    return { error: 'pretty-mismatch' }
+  }
+  const result = await oxfmt(`pretty.${extension}`, withBooleans(text, typed(extension) ? null : tree), PRETTY_OPTIONS).catch(() => null)
   if (result === null || result.errors.length > 0) return { error: 'unformattable' }
   // oxfmt's copy as it is, or where the check refuses it, as the file writes what oxfmt respelled: a
-  // copy the check takes respelled nothing so, as its text would differ. A check that fails in itself,
-  // its stack say, refuses the copy as one that finds it changed would.
-  const checked = (code) => (sameCode(text, code, extension, csstree) ? { code } : null)
+  // copy the check takes respelled nothing so, as its text would differ.
+  const checked = (code) => (sameCode(text, code, extension, csstree, tree) ? { code } : null)
   try {
-    return checked(breakAfterComments(result.code, extension)) ?? checked(breakAfterComments(asWritten(text, result.code, extension), extension)) ?? { error: 'pretty-mismatch' }
+    return checked(breakAfterComments(result.code, extension)) ?? checked(breakAfterComments(asWritten(text, result.code, extension, tree), extension)) ?? { error: 'pretty-mismatch' }
   } catch {
     return { error: 'pretty-mismatch' }
   }
