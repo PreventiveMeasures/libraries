@@ -167,6 +167,11 @@ describe('renameMap', () => {
     const before = lines(['export function f(e) {', '  return new Promise(function (t, n) {', '    let r = e.data,', '      o = e.headers,', '      s = e.timeout;', '    n(e);', '  });', '}'])
     const after = lines(['export function f(e) {', '  return new Promise(function (t, n) {', '    const i = g(e);', '    let r = i.data,', '      o = i.headers,', '      s = i.timeout;', '    n(e);', '  });', '}'])
     assert.equal(renameMap(before, after).text, before)
+    // A parameter of a function reading `arguments`, which may set it again (`arguments[0] = x`): its lines
+    // say, as they would of any variable set again. An inner function's `arguments` is its own.
+    const reading = (text) => text.replace('export function f(e) {\n', 'export function f(e) {\n  m(arguments);\n')
+    assert.equal(renameMap(reading(before), reading(after)).text, reading(before).replaceAll(/\be\b/gu, 'i'))
+    assert.equal(renameMap(before.replace('n(e);', 'n(e, arguments);'), after.replace('n(e);', 'n(e, arguments);')).text, before.replace('n(e);', 'n(e, arguments);'))
     // A variable set again may be a minifier's two in one (moment's `i` a regular expression, then a
     // prototype), its declaration telling of the first alone: its lines say.
     const merged = (a, b, set) => lines(['export function f(q, h) {', `  var ${a} = /\\d/,`, `    ${b} = /^[1-9]\\d?/;`, `  h("Q", ${a});`, `  h("D", ${b});`, `  ${set} = q.prototype;`,

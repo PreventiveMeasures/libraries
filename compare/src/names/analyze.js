@@ -177,7 +177,7 @@ function enterFunction(node, where, s) {
     for (const child of [node.superClass, node.body, ...node.decorators ?? []]) if (child) s.work.push([child, named])
     return
   }
-  const parameters = scope(s, named, true)
+  const parameters = Object.assign(scope(s, named, true), { arrow: node.type === 'ArrowFunctionExpression', parameter: true })
   if (node.body?.type === 'BlockStatement' && saysStrict(node.body.body)) parameters.strict = true
   for (const parameter of node.params) {
     for (const id of declared(parameter)) declare(s, parameters, id)
@@ -241,7 +241,15 @@ function resolved(program, s) {
     if (variable) occurrences.push([node, variable, where])
     else globals.push([node, where])
   }
-  // Set again (`reassigned`): written, or declared more than once.
+  // Set again (`reassigned`): written, or declared more than once, or a
+  // parameter of a function that reads `arguments`, which may write it
+  // (`arguments[0] = x`, outside strict code) -- an arrow's its function's.
+  for (const [node, where] of globals) {
+    if (node.name !== 'arguments') continue
+    let at = where
+    while (at && !(at.parameter && !at.arrow)) at = at.parent
+    for (const variable of at?.names.values() ?? []) variable.reassigned = true
+  }
   const declaredAlready = new Set()
   for (const [node, variable] of occurrences) {
     if (s.keeping.has(node)) variable.kept = true
