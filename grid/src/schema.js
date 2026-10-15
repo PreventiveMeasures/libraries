@@ -32,12 +32,17 @@ export async function proposeQuestions({ task, model, maxQuestions = 8, think, e
   return { focus, questions: questionIds(questions, 'q') }
 }
 
+// Both routing fields in the shape asked for, or the answer is re-asked: an empty object read as
+// "the columns suffice" would cache, by default, the one decision the gate exists to make.
 function readGate(maxExtra) {
   return (text) => {
     const json = expectObject(extractJSON(text), 'extraQuestions, fullScan and reason')
+    if (!Array.isArray(json.extraQuestions) || typeof json.fullScan !== 'boolean') {
+      throw new TypeError('expected an extraQuestions list and a boolean fullScan')
+    }
     return {
       extraQuestions: questionIds(stringList(json.extraQuestions).slice(0, maxExtra), 'x'),
-      fullScan: json.fullScan === true,
+      fullScan: json.fullScan,
       reason: typeof json.reason === 'string' ? json.reason.trim() : '',
     }
   }

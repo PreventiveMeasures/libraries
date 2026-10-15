@@ -20,8 +20,10 @@ describe('mapLimit', () => {
     assert.equal(peak, 2)
   })
 
-  it('runs at least one worker, and no more workers than items', async () => {
-    assert.deepEqual(await mapLimit([1, 2], 0, (n) => Promise.resolve(n)), [1, 2])
+  it('runs at least one worker whatever the limit, and no more workers than items', async () => {
+    for (const limit of [0, 0.5, 1.5, NaN, -3, Infinity, undefined]) {
+      assert.deepEqual(await mapLimit([1, 2, 3], limit, (n) => Promise.resolve(n)), [1, 2, 3], `limit ${limit}`)
+    }
     assert.deepEqual(await mapLimit([], 5, () => Promise.reject(new Error('never'))), [])
   })
 

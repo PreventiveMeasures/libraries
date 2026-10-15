@@ -8,7 +8,7 @@ import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
 import {
   DEFAULT_MODEL, closeProvider, isRecognizedModel, resolveModel, resolveThinkEffort, setCacheDir, setFetchConcurrency,
-  setProvider,
+  setProvider, supportedModels,
 } from '@preventive/ai'
 import { buildTable, select } from '../index.js'
 
@@ -26,8 +26,8 @@ for one request against a table. Both read the response cache, so a rerun of eit
       --strong <id>     select: the gate's and the finalists' model (default: --model)
       --search <id>     select: the page model (default: --strong)
       --cheap <id>      select: the whole-dataset model (default: --search)
-  -p, --provider <name> anthropic, openai, openrouter, moonshot, ollama, chrome; inferred from the
-                        models' namespace when omitted, which every model of a run must then share
+  -p, --provider <name> anthropic, openai, openrouter, moonshot, ollama, chrome. When omitted: the
+                        models' own provider if it serves every model of the run, else openrouter
       --cache-dir <dir> the response cache (default: ./grid-cache)
       --concurrency <n> calls in flight at once (default: 20)
       --top <n>         select: how many results to print (default: all finalists)
@@ -40,6 +40,15 @@ for one request against a table. Both read the response cache, so a rerun of eit
 `
 
 const PROVIDER_FOR = { anthropic: 'anthropic', chrome: 'chrome', moonshotai: 'moonshot', openai: 'openai' }
+
+// Whether a provider serves a model, by the layer's own listing: a namespace's adapter reaches
+// most of its rows but not all (a row marked OpenRouter-only), and OpenRouter reaches every hosted
+// row of every namespace. Listed once per provider asked about.
+const served = new Map()
+function serves(provider, id) {
+  if (!served.has(provider)) served.set(provider, new Set(supportedModels({ provider }).map((row) => row.id)))
+  return served.get(provider).has(id)
+}
 
 const fail = (message) => { process.stderr.write(`grid.js: ${message}\n`); process.exit(2) }
 const note = (message) => process.stderr.write(styleText('dim', message) + '\n')
@@ -142,8 +151,7 @@ async function main(argv) {
   const strong = resolveModel(values.strong ?? model)
   const models = { strong, search: resolveModel(values.search ?? strong), cheap: resolveModel(values.cheap ?? values.search ?? strong) }
   // One provider serves a whole run (the layer's is process-wide), so it is inferred from the
-  // models the command will actually send -- select's three, not the --model they default from --
-  // and a run whose models would need two is refused rather than routed through the wrong one.
+  // models the command will actually send -- select's three, not the --model they default from.
   const used = command === 'build' ? [model] : [...new Set(Object.values(models))]
   for (const id of used) {
     // A typo would otherwise reach the wire as an unknown id and come back as a provider error.
@@ -153,14 +161,16 @@ async function main(argv) {
     // would do for a run that mixes models.
     try { resolveThinkEffort(id, values.think, values.effort) } catch (err) { fail(`${err.message} (${id})`) }
   }
-  const inferred = [...new Set(used.map((id) => PROVIDER_FOR[id.split('/')[0]] ?? 'openrouter'))]
-  if (values.provider === undefined && inferred.length > 1) {
-    fail(`the models would need ${inferred.join(' and ')}; name one --provider that serves them all (openrouter serves every hosted model)`)
-  }
+  // The provider named, else the first of the models' own and OpenRouter that serves every model
+  // of the run: a row its namespace's adapter does not reach goes through OpenRouter, and so does
+  // a run that mixes namespaces. Nothing serving them all is refused rather than guessed.
+  const candidates = [...new Set([...used.map((id) => PROVIDER_FOR[id.split('/')[0]]).filter(Boolean), 'openrouter'])]
+  const provider = values.provider ?? candidates.find((name) => used.every((id) => serves(name, id)))
+  if (!provider) fail(`no one provider serves ${used.join(', ')}; name --provider`)
   const concurrency = number(values.concurrency, 'concurrency', 20)
   setCacheDir(values['cache-dir'] ?? './grid-cache')
   setFetchConcurrency(concurrency)
-  try { setProvider(values.provider ?? inferred[0]) } catch (err) { return fail(err.message) }
+  try { setProvider(provider) } catch (err) { return fail(err.message) }
 
   const common = { model, models, concurrency, think: Boolean(values.think), effort: values.effort }
   try {

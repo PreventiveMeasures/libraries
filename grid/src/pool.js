@@ -21,7 +21,9 @@ export async function mapLimit(items, limit, fn) {
       }
     }
   }
-  const workers = Math.max(1, Math.min(limit, items.length))
+  // Whole workers, at least one: a limit that is not a positive number would otherwise reach
+  // Array.from as a length it reads as zero, and a pool with no workers resolves having done nothing.
+  const workers = Math.max(1, Math.min(Math.floor(limit) || 0, items.length))
   await Promise.all(Array.from({ length: workers }, worker))
   if (failure) throw failure.err
   return results

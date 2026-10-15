@@ -16,9 +16,11 @@ import { compactSystem, compactUser } from './prompts.js'
 // Exactly one answer per question, padded with "unknown" rather than refused when the model sent
 // fewer: the row is still usable, and one short list in twenty thousand is not worth a re-ask.
 // MORE answers than questions are cut, since nothing could say which question the extras belong to.
+// No list at all is re-asked, though: that is not a short answer, it is the wrong shape.
 function readRow(count, summarize) {
   return (text) => {
     const json = expectObject(extractJSON(text), summarize ? 'summary and answers' : 'answers')
+    if (!Array.isArray(json.answers)) throw new TypeError('expected an answers list')
     const answers = stringList(json.answers).slice(0, count)
     while (answers.length < count) answers.push('unknown')
     const summary = summarize ? String(json.summary ?? '').trim() : ''
