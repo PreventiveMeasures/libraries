@@ -127,7 +127,11 @@ export interface Dist {
 // `bugs` an object, of which only the strings named below are read. Each is
 // absent where the document has none, or has another shape, or an object
 // with none of those strings. All of it is the publisher's word, held to no
-// repository.
+// repository. `unpackedSize` is the document's dist.unpackedSize: the bytes
+// of the files in the tarball, as the registry counted them when the
+// version was published, held to no tarball. It is absent where the
+// document has none, as for a version published before the registry
+// counted them, or has one that is not a whole number of bytes.
 export interface PackageMeta {
   name: string
   version: string
@@ -136,6 +140,7 @@ export interface PackageMeta {
   repository?: string | PackageRepository
   homepage?: string
   bugs?: string | PackageBugs
+  unpackedSize?: number
 }
 
 export interface PackageRepository {
