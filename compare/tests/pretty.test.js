@@ -47,6 +47,8 @@ describe('sameCode', () => {
       ['function f(){return!0}', 'function f() {\n  returntrue;\n}\n', 'run on into the word before']]) assert.equal(sameCode(text, formatted), false, what)
     assert.equal(sameCode('const a=!0', 'const a = true;\n', 'ts'), false, 'nor in a typed script, as TypeScript types `true` otherwise')
     assert.equal(sameCode('x=`a`;f(`b`,`c"d`,`e\\``,{[`k`]:1})', 'x = "a";\nf("b", \'c"d\', "e`", { ["k"]: 1 });\n'), true, 'a template without substitutions as its string')
+    assert.equal(sameCode('x="a\\\\\\"b";y=\'\\\\\\\'\'', 'x = \'a\\\\"b\';\ny = "\\\\\'";\n'), true, 'a quote\'s escape after an escaped backslash, quoted otherwise')
+    assert.equal(sameCode('x="a\\\\\\"b"', 'x = \'a\\"b\';\n'), false, 'but not the escaped backslash before it')
     for (const [text, formatted, what] of [['x=`a`', 'x = "b";\n', 'another string'], ['x=`a${b}`', 'x = "a${b}";\n', 'a template with a substitution'],
       ['x=tag`a`', 'x = tag("a");\n', 'a tagged template'], ['function f(){`use strict`;return this}', 'function f() {\n  "use strict";\n  return this;\n}\n', 'a statement, which may be a directive'],
       ['x=`a\nb`', 'x = "a\\nb";\n', 'one over more than one line'], ['const a=`x`', 'const a = "x";\n', 'one in a typed script']]) {
@@ -197,6 +199,7 @@ describe('format', () => {
     assert.deepEqual(await format('x=tag`a`;y=`a${b}`;z=`a\nb`;function g(){`use strict`}', 'js'),
       { code: 'x = tag`a`;\ny = `a${b}`;\nz = `a\nb`;\nfunction g() {\n  `use strict`;\n}\n' }, 'a tagged one, one with a substitution, one over two lines and a statement kept')
     assert.deepEqual(await format('const a=`x`', 'ts'), { code: 'const a = `x`;\n' }, 'and one in a typed script')
+    assert.deepEqual(await format('x=`a"b\\\\"\'`;y="c\\\\\\"d"', 'js'), { code: 'x = \'a"b\\\\"\\\'\';\ny = \'c\\\\"d\';\n' }, 'a quote after an escaped backslash, as a string has one too')
   })
 
   it('writes `!0` and `!1` as `true` and `false`, as they read', async () => {
