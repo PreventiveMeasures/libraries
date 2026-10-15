@@ -163,7 +163,8 @@ export interface Stage {
 
 // Stages of search() until at most `target` rows are left, or `maxStages` (6) have run, or a stage
 // stopped shrinking the set. Shuffles are seeded from the task and the rows of each stage, never
-// from the request, so every request sees the same first-stage pages.
+// from the request, so every request sees the same first-stage pages. A stage's pick ceiling is
+// raised above `pick` when retaining `target` rows needs more, so no stage cuts below the target.
 export declare function narrow(options: PhaseOptions & SearchOptions & {
   task: Task
   request: Entry

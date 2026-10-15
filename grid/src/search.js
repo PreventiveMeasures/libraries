@@ -88,17 +88,23 @@ export async function search({ task, request, rows, columns = [], model, mode = 
 // are seeded from the task and the rows it starts from -- not from the request -- so two requests
 // against one table see the same first-stage pages, and a re-run sees them all again.
 //
+// A stage's pick ceiling is `pick` of each page, or what retaining `target` rows needs if that is
+// more: the ceiling is there to stop a page of nothing from promoting its least bad rows, not to
+// cut a stage below the number the full-text reading is owed. Left at `pick` alone, a table just
+// above the target would be cut to a fifth of a page's worth on its way to it.
+//
 // A later stage that picks nothing does not empty the result: the survivors it was handed are the
 // best the earlier stages found, ranked, and the full-text stage will judge them. Only a FIRST
 // stage picking nothing means nothing: there is no earlier ranking to fall back on.
-export async function narrow({ rows, target, maxStages = 6, requestFirst = false, ...opts }) {
+export async function narrow({ rows, target, maxStages = 6, requestFirst = false, pick = 0.2, ...opts }) {
   const stages = []
   let current = rows.map((row) => ({ row, votes: 0, score: 0 }))
   for (let stage = 0; stage < maxStages && current.length > target; stage++) {
     const ids = current.map((entry) => entry.row.id)
     const seed = hashSeed(`${opts.task.id}\u0000${stage}\u0000${ids.join('\u0000')}`)
     const { survivors, pages } = await search({
-      ...opts, rows: current.map((entry) => entry.row), seed, requestFirst: requestFirst || stage > 0, label: `${opts.label ?? 'search'} stage ${stage}`,
+      ...opts, rows: current.map((entry) => entry.row), seed, pick: Math.max(pick, target / current.length),
+      requestFirst: requestFirst || stage > 0, label: `${opts.label ?? 'search'} stage ${stage}`,
     })
     stages.push({ stage, rows: current.length, survivors: survivors.length, pages })
     if (survivors.length === 0) {

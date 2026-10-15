@@ -102,6 +102,21 @@ describe('narrow', () => {
     assert.match(log.at(-1).userContent[0], /^Request:/u)
   })
 
+  it('never lets a stage cut below the target: the pick ceiling rises to what the target needs', async () => {
+    // 21 rows over a target of 20 would be capped at ceil(21 * 0.2) = 5 picks a round, and at most
+    // seven survivors over three rounds, if the ceiling were the pick fraction alone.
+    const log = []
+    const { candidates, stages } = await narrow({ ...common(log), rows: rowsOf(21), target: 20, pick: 0.2, rounds: 3, minVotes: 2 })
+    assert.match(log[0].userContent[0], /^Page of 21 rows; pick at most 20\./u)
+    const within = MATCHES.filter((id) => Number(id.slice(1)) <= 21)
+    assert.deepEqual(stages.map((s) => [s.rows, s.survivors]), [[21, within.length]])
+    assert.deepEqual(candidates.map((c) => c.row.id).sort(), within.sort())
+    // Where the fraction already allows the target, it is left alone.
+    const wide = []
+    await narrow({ ...common(wide), rows: rowsOf(40), target: 5, pageSize: 10, pick: 0.5, rounds: 1, maxStages: 1 })
+    assert.match(wide[0].userContent[0], /^Page of 10 rows; pick at most 5\./u)
+  })
+
   it('returns nothing when the first stage picks nothing', async () => {
     const { candidates, stages } = await narrow({ ...common([]), rows: rowsOf(20, []), target: 5, pageSize: 10, rounds: 1, minVotes: 1 })
     assert.deepEqual(candidates, [])
