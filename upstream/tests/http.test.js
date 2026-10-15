@@ -149,8 +149,8 @@ describe('limits', () => {
   it('refuses a body whose declared length is over the limit before reading it', async () => {
     const res = new Response('abc', { headers: { 'content-length': '999' } })
     await assert.rejects(readBody(res, 100), /Response too large: 999 bytes, over 100/u)
-    globalThis.fetch = () => Promise.resolve(new Response('{}', { headers: { 'content-length': String(65 * 1024 * 1024) } }))
-    await assert.rejects(request(`${NPM_REGISTRY}/x`, { as: 'json' }), /Response too large/u)
+    globalThis.fetch = () => Promise.resolve(new Response('{}', { headers: { 'content-length': String(129 * 1024 * 1024) } }))
+    await assert.rejects(request(`${NPM_REGISTRY}/x`, { as: 'json' }), /Response too large: 135266304 bytes, over 134217728/u)
   })
 
   it('sends every request with a timeout', async () => {

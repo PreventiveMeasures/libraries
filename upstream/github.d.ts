@@ -7,7 +7,7 @@
 // encoded segments and has to come back out of URL parsing unchanged.
 // Redirects are refused, so an answer is about the repo asked for, except
 // the tarballs' and, where asked, getRepo's for a repo renamed or
-// transferred. A response is read up to a size limit (64 MiB of JSON, 128
+// transferred. A response is read up to a size limit (128 MiB of JSON, 128
 // MiB of a file, 512 MiB of a tarball) and within a timeout (30 seconds, 5
 // minutes for a tarball), and what it says goes into an error message
 // escaped.
