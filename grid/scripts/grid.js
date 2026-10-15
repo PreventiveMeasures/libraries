@@ -47,7 +47,9 @@ const PROVIDER_FOR = { anthropic: 'anthropic', chrome: 'chrome', moonshotai: 'mo
 // Whether a provider serves a model, by the layer's own listing: a namespace's adapter reaches
 // most of its rows but not all (a row marked OpenRouter-only), OpenRouter reaches every hosted row
 // of every namespace and, with --free, the free endpoints, and Ollama the local builds its tag
-// table maps. Listed once per provider and mode asked about.
+// table maps. Listed once per provider and mode asked about. The providers the layer can list;
+// a gateway is not one, since what it routes is the operator's to know.
+const LISTED = new Set(['anthropic', 'openai', 'openrouter', 'ollama', 'chrome', 'moonshot'])
 const served = new Map()
 function serves(provider, id, free) {
   const key = `${provider}\u0000${free}`
@@ -197,6 +199,12 @@ async function cli(argv) {
   const candidates = [...new Set([...used.map((id) => PROVIDER_FOR[id.split('/')[0]]).filter(Boolean), 'openrouter', 'ollama'])]
   const provider = values.provider ?? candidates.find((name) => used.every((id) => serves(name, id, free)))
   if (!provider) fail(`no one provider serves ${used.join(', ')}; name --provider`)
+  // A provider named by hand is held to the same listing, where the layer has one: a pair it would
+  // refuse on the wire is refused here, by the model's name, before anything is sent.
+  if (values.provider !== undefined && LISTED.has(provider)) {
+    const unserved = used.filter((id) => !serves(provider, id, free))
+    if (unserved.length > 0) fail(`--provider ${provider} does not serve ${unserved.join(', ')}`)
+  }
   // Whole and at least one, since it sizes the transport queue too: a queue of zero capacity hands
   // out no slot, and every request of the run waits for one forever.
   const concurrency = number(values.concurrency, 'concurrency', 20)

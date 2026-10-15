@@ -42,8 +42,15 @@ describe('gate', () => {
     const ask = scripted(['{"extraQuestions":[],"fullScan":"true"}', '{"extraQuestions":[],"fullScan":"yes"}'])
     await assert.rejects(
       () => gate({ ...common(), focus: FOCUS, questions: QUESTIONS, request: { id: 'g2', text: 'odd' }, ask }),
-      /gate g2: malformed response after a retry: expected an extraQuestions list and a boolean fullScan/u,
+      /gate g2: malformed response after a retry: expected a boolean fullScan/u,
     )
+  })
+
+  it('re-asks a non-empty extraQuestions list with a member that is not a question', async () => {
+    const ask = scripted(['{"extraQuestions":[true],"fullScan":false,"reason":"needs another field"}', '{"extraQuestions":["Which field?"],"fullScan":false}'])
+    const routing = await gate({ ...common(), focus: FOCUS, questions: QUESTIONS, request: { id: 'g4', text: 'a member that is not a question' }, ask })
+    assert.deepEqual(routing.extraQuestions, [{ id: 'x1', text: 'Which field?' }])
+    assert.equal(ask.seen.length, 2)
   })
 
   it('caps the extra questions and tolerates a missing reason', async () => {
@@ -67,6 +74,13 @@ describe('proposeQuestions', () => {
     const ask = scripted(['{"focus":"x","questions":[]}', '{"focus":"x","questions":["One?"]}'])
     const { questions } = await proposeQuestions({ ...common(), task: { ...TASK, id: 'p2' }, ask })
     assert.deepEqual(questions, [{ id: 'q1', text: 'One?' }])
+    assert.equal(ask.seen.length, 2)
+  })
+
+  it('re-asks a questions list with a member that is not a question, rather than keeping the rest', async () => {
+    const ask = scripted(['{"focus":"f","questions":["One?",""]}', '{"focus":"f","questions":["One?","Two?"]}'])
+    const { questions } = await proposeQuestions({ ...common(), task: { ...TASK, id: 'p6', prompt: `${TASK.prompt} (p6)` }, ask })
+    assert.deepEqual(questions.map((q) => q.text), ['One?', 'Two?'])
     assert.equal(ask.seen.length, 2)
   })
 

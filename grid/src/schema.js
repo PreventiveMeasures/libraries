@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON, stringList } from './json.js'
+import { expectObject, extractJSON, sentenceList } from './json.js'
 import { gateSystem, proposeSystem, proposeUser, requestBlock } from './prompts.js'
 
 // The two calls that decide what the table carries: the questions proposed once per task, and the
@@ -16,7 +16,7 @@ export const questionIds = (texts, prefix) => texts.map((text, i) => ({ id: `${p
 function readProposal(maxQuestions) {
   return (text) => {
     const json = expectObject(extractJSON(text), 'focus and questions')
-    const questions = stringList(json.questions).slice(0, maxQuestions)
+    const questions = sentenceList(json.questions, 'questions').slice(0, maxQuestions)
     if (questions.length === 0) throw new TypeError('expected at least one question')
     const focus = typeof json.focus === 'string' ? json.focus.trim() : ''
     if (!focus) throw new TypeError('expected a focus for the summary')
@@ -36,15 +36,14 @@ export async function proposeQuestions({ task, model, maxQuestions = 8, think, e
 }
 
 // Both routing fields in the shape asked for, or the answer is re-asked: an empty object read as
-// "the columns suffice" would cache, by default, the one decision the gate exists to make.
+// "the columns suffice" would cache, by default, the one decision the gate exists to make -- and
+// so would a list whose one member is not a question, read as an empty list.
 function readGate(maxExtra) {
   return (text) => {
     const json = expectObject(extractJSON(text), 'extraQuestions, fullScan and reason')
-    if (!Array.isArray(json.extraQuestions) || typeof json.fullScan !== 'boolean') {
-      throw new TypeError('expected an extraQuestions list and a boolean fullScan')
-    }
+    if (typeof json.fullScan !== 'boolean') throw new TypeError('expected a boolean fullScan')
     return {
-      extraQuestions: questionIds(stringList(json.extraQuestions).slice(0, maxExtra), 'x'),
+      extraQuestions: questionIds(sentenceList(json.extraQuestions, 'extraQuestions').slice(0, maxExtra), 'x'),
       fullScan: json.fullScan,
       reason: typeof json.reason === 'string' ? json.reason.trim() : '',
     }

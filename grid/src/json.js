@@ -46,6 +46,16 @@ export function stringList(value) {
   return value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
 }
 
+// The same list where every member has to be a sentence: a list of questions, whose one malformed
+// member dropped would read as a shorter list that was asked for -- or, when it was the only one,
+// as no questions at all. Not an array, or any member that is not a non-empty string, throws.
+export function sentenceList(value, what) {
+  if (!Array.isArray(value)) throw new TypeError(`expected a list of ${what}`)
+  const kept = stringList(value)
+  if (kept.length !== value.length) throw new TypeError(`expected every one of the ${what} to be a sentence`)
+  return kept
+}
+
 // A score as the model sent it: a finite number, or a string holding one, which a model asked for a
 // number sometimes quotes. Anything else is undefined rather than coerced -- Number(null) is 0 and
 // Number(true) is 1, and either read as a score would demote a finalist for a malformed answer.
