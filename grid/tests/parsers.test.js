@@ -69,6 +69,16 @@ describe('proposeQuestions', () => {
     assert.deepEqual(questions, [{ id: 'q1', text: 'One?' }])
     assert.equal(ask.seen.length, 2)
   })
+
+  it('re-asks when the focus is missing, blank or not a string, rather than standing one in', async () => {
+    // A proposal is keyed on the task's text, so each case asks about a task of its own.
+    for (const [id, bad] of [['p3', '{"questions":["One?"]}'], ['p4', '{"focus":"  ","questions":["One?"]}'], ['p5', '{"focus":true,"questions":["One?"]}']]) {
+      const ask = scripted([bad, '{"focus":"the size","questions":["One?"]}'])
+      const { focus } = await proposeQuestions({ ...common(), task: { ...TASK, id, prompt: `${TASK.prompt} (${id})` }, ask })
+      assert.equal(focus, 'the size')
+      assert.equal(ask.seen.length, 2, id)
+    }
+  })
 })
 
 describe('compact', () => {

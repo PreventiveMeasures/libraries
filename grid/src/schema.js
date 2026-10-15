@@ -11,12 +11,15 @@ import { gateSystem, proposeSystem, proposeUser, requestBlock } from './prompts.
 // confuse the two kinds.
 export const questionIds = (texts, prefix) => texts.map((text, i) => ({ id: `${prefix}${i + 1}`, text }))
 
+// Both halves of the schema, or a re-ask: the focus shapes every compaction prompt after it, and a
+// stand-in would be cached in its place for the whole table.
 function readProposal(maxQuestions) {
   return (text) => {
     const json = expectObject(extractJSON(text), 'focus and questions')
     const questions = stringList(json.questions).slice(0, maxQuestions)
     if (questions.length === 0) throw new TypeError('expected at least one question')
-    const focus = typeof json.focus === 'string' && json.focus.trim() ? json.focus.trim() : 'what the main question turns on'
+    const focus = typeof json.focus === 'string' ? json.focus.trim() : ''
+    if (!focus) throw new TypeError('expected a focus for the summary')
     return { focus, questions }
   }
 }
