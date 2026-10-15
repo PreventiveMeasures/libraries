@@ -26,7 +26,8 @@ function readRow(count, summarize) {
     const json = expectObject(extractJSON(text), summarize ? 'summary and answers' : 'answers')
     if (!Array.isArray(json.answers)) throw new TypeError('expected an answers list')
     const answers = Array.from({ length: count }, (_, i) => answerAt(json.answers[i]))
-    const summary = summarize ? String(json.summary ?? '').trim() : ''
+    // A string, or a re-ask: String() would turn `true` or an object into text the search then reads.
+    const summary = summarize && typeof json.summary === 'string' ? json.summary.trim() : ''
     if (summarize && !summary) throw new TypeError('expected a non-empty summary')
     return { summary, answers }
   }

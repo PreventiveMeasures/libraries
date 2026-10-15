@@ -55,7 +55,10 @@ function serves(provider, id, free) {
   return served.get(key).has(id)
 }
 
-const fail = (message) => { process.stderr.write(`grid.js: ${message}\n`); process.exit(2) }
+// Thrown rather than exited: main() is the one place the process ends, after the provider has been
+// closed on the way out. An exit from inside a command skips that finally, and the chrome provider
+// would be left holding a browser open.
+const fail = (message) => { throw new Error(message) }
 const note = (message) => process.stderr.write(styleText('dim', message) + '\n')
 
 const readJSON = (path) => JSON.parse(readFileSync(path, 'utf8'))
@@ -149,8 +152,17 @@ async function selectOne(values, common) {
 }
 
 async function main(argv) {
+  try {
+    await cli(argv)
+  } catch (err) {
+    process.stderr.write(`grid.js: ${err.message}\n`)
+    process.exit(2)
+  }
+}
+
+async function cli(argv) {
   let parsed
-  try { parsed = parse(argv) } catch (err) { return fail(`${err.message}\n\n${USAGE}`) }
+  try { parsed = parse(argv) } catch (err) { fail(`${err.message}\n\n${USAGE}`) }
   const { values, positionals } = parsed
   if (values.help) { process.stdout.write(USAGE); return }
   const command = positionals[0]
@@ -191,14 +203,14 @@ async function main(argv) {
   if (!Number.isInteger(concurrency) || concurrency < 1) fail(`--concurrency takes a whole number of at least 1, got ${values.concurrency}`)
   setCacheDir(values['cache-dir'] ?? './grid-cache')
   setFetchConcurrency(concurrency)
-  try { setProvider(provider) } catch (err) { return fail(err.message) }
+  setProvider(provider)
 
   const common = { model, models, concurrency, think: Boolean(values.think), effort: values.effort }
+  // Always, whatever the command threw: the chrome provider holds a browser open, and without this
+  // the process would exit around it.
   try {
     if (command === 'build') await build(values, common)
     else await selectOne(values, common)
-  } catch (err) {
-    return fail(err.message)
   } finally {
     await closeProvider()
   }

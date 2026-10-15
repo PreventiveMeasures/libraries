@@ -88,6 +88,15 @@ describe('compact', () => {
     assert.equal(ask.seen.length, 4)
   })
 
+  it('re-asks a summary that is not a string rather than stringifying it', async () => {
+    const questions = [{ id: 'q1', text: 'a' }]
+    const ask = scripted(['{"summary":true,"answers":["x"]}', '{"summary":"real","answers":["x"]}', '{"summary":{"text":"obj"},"answers":["y"]}', '{"summary":"also real","answers":["y"]}'])
+    const entries = [{ id: 't1', text: 't1: bool' }, { id: 't2', text: 't2: object' }]
+    const rows = await compact({ ...common(), focus: FOCUS, questions, entries, concurrency: 1, ask })
+    assert.deepEqual(rows.map((row) => row.summary), ['real', 'also real'])
+    assert.equal(ask.seen.length, 4)
+  })
+
   it('keeps every answer at its own question, reading a blank or a null in the middle as unknown', async () => {
     const questions = [{ id: 'q1', text: 'a' }, { id: 'q2', text: 'b' }, { id: 'q3', text: 'c' }]
     const ask = scripted(['{"summary":"gaps","answers":["red",null,"large"]}', '{"summary":"blank","answers":[" a ","",7]}'])
