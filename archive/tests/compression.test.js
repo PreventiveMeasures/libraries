@@ -82,6 +82,53 @@ describe('what decompress refuses', () => {
   })
 })
 
+// As gzip(1) and zlib read it: zeros after the last member are padding.
+describe('gzip padding', () => {
+  const zeros = (length) => new Uint8Array(length)
+  const join = (...parts) => new Uint8Array(parts.flatMap((part) => [...part]))
+  it('is passed over, wherever the last member ends past its last byte that is not zero', async () => {
+    // Lengths whose last four bytes, the length's, end in zero to three zeros.
+    for (const length of [0, 1, 255, 256, 512, 30720, 65536, 65537, 2 ** 24]) {
+      const bytes = text.length >= length ? text.subarray(0, length) : new Uint8Array(length).fill(0x61)
+      const packed = new Uint8Array(gzipSync(bytes))
+      for (const padding of [1, 3, 10240 - (packed.length % 10240)]) {
+        assertBytes(await decompress(join(packed, zeros(padding)), 'gzip'), bytes, `${length} bytes, ${padding} zeros after`)
+      }
+    }
+  })
+  it('after several members, and after an empty one as zlib writes it', async () => {
+    const empty = new Uint8Array(gzipSync(new Uint8Array(0)))
+    assert.deepEqual([...empty.subarray(-10)], [3, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    const a = utf8('alpha\n')
+    assertBytes(await decompress(join(gzipSync(a), gzipSync(text), zeros(512)), 'gzip'), join(a, text))
+    assertBytes(await decompress(join(gzipSync(a), empty, zeros(1)), 'gzip'), a)
+  })
+  it('and nothing else: not what follows a zero, as zlib passes over, nor zeros after a stream that is not whole', async () => {
+    const packed = new Uint8Array(gzipSync(text))
+    for (const tail of [[0, 1, 0], [1, 0, 0], [0x1f, 0x8b, 0], [0, ...packed, 0]]) {
+      await assert.rejects(decompress(join(packed, tail), 'gzip'), (error) => error instanceof CompressionError && error.message === 'the data does not decompress' && !error.limited)
+    }
+    const corrupt = packed.slice()
+    corrupt[packed.length - 8] ^= 1
+    // Its last byte is a zero, the length's highest: cut with the one before it.
+    assert.deepEqual([...packed.subarray(-2)], [3, 0])
+    for (const cut of [corrupt, packed.subarray(0, packed.length >> 1), packed.subarray(0, packed.length - 2)]) {
+      await assert.rejects(decompress(join(cut, zeros(2)), 'gzip'), /the data does not decompress/u)
+    }
+    await assert.rejects(decompress(zeros(16), 'gzip'), /the data does not decompress/u)
+  })
+  it('in gzip alone', async () => {
+    for (const format of ['deflate', 'deflate-raw']) {
+      await assert.rejects(decompress(join(ZLIB[format][0](text), zeros(4)), format), /the data does not decompress/u, format)
+    }
+  })
+  it('bounds what it gives the same way', async () => {
+    const padded = join(gzipSync(text), zeros(100))
+    assertBytes(await decompress(padded, 'gzip', { limit: text.length }), text)
+    await assert.rejects(decompress(padded, 'gzip', { limit: text.length - 1 }), (error) => error instanceof CompressionError && error.limited && error.message === `the data decompresses past ${text.length - 1} bytes`)
+  })
+})
+
 describe('the output bound', () => {
   it('lets output up to the limit through, and refuses past it where it is', async () => {
     const packed = await compress(text, 'gzip')

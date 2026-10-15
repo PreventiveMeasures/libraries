@@ -79,7 +79,37 @@ async function through(bytes, Stream, format, limit, verb, into) {
 }
 
 export const compress = (bytes, format, { limit = Infinity } = {}) => through(bytes, CompressionStream, format, limit, 'compress')
-export const decompress = (bytes, format, { limit = Infinity } = {}) => through(bytes, DecompressionStream, format, limit, 'decompress')
+
+const inflate = (bytes, format, limit) => through(bytes, DecompressionStream, format, limit, 'decompress')
+
+// gzip(1) and zlib take zero bytes after the last member as padding, as old
+// tarballs run on in zeros to a whole 10240-byte record, the way npm 1.0
+// packed them through the system's tar; the platform's stream refuses
+// anything there. So gzip that ends in a zero and does not decompress is
+// tried again ending sooner, at the one place it decompresses whole: its
+// last member's last four bytes are the length it inflates to, mod 2^32,
+// so where that is not 0 it ends within three zeros past the last byte that
+// is not; where the member is empty, as zlib writes one, `03 00` and eight
+// zeros, within nine. Only zeros are passed over, where zlib passes over
+// whatever follows one; and each place tried inflates it all again, which
+// only padded data pays for.
+export async function decompress(bytes, format, { limit = Infinity } = {}) {
+  try {
+    return await inflate(bytes, format, limit)
+  } catch (error) {
+    if (format !== 'gzip' || !(error instanceof CompressionError) || error.limited || bytes.at(-1) !== 0) throw error
+    const last = bytes.findLastIndex((byte) => byte !== 0)
+    for (let end = last + 1; end <= Math.min(last + 10, bytes.length - 1); end++) {
+      try {
+        return await inflate(bytes.subarray(0, end), format, limit)
+      } catch (retry) {
+        // Output past the bound before the end is past it wherever the end is.
+        if (!(retry instanceof CompressionError) || retry.limited) throw retry
+      }
+    }
+    throw error
+  }
+}
 
 // Into `into`, which bounds the output, and handed back as much of it as
 // was filled. Not in the front door: the zip half's, whose entries each

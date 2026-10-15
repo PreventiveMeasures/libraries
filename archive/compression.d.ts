@@ -13,7 +13,10 @@ export interface Options {
   limit?: number
 }
 
-// The whole input through one stream, the whole output back.
+// The whole input through one stream, the whole output back. gzip is
+// decompressed past zero bytes after its last member, as gzip(1) and zlib
+// take them for padding, where the platform's stream refuses them; nothing
+// else after the end is passed over.
 export function compress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>
 export function decompress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>
 
