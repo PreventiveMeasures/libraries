@@ -30,12 +30,14 @@ function numberSpelling(text) {
 const sorted = (flags) => [...flags].toSorted().join('')
 // A script's text but for what the formatter may respell, beside the syntax tree compared after:
 // blanks, parentheses, semicolons, quotes and numbers, and a comma before a closing bracket, past any
-// comments (`import { a, b, }`). A regular expression's flags it may reorder are sorted where the
-// syntax tree has them (respelled). Each comment read one way alone, to its line's end (any line
-// terminator's) or its first `*/`: one that might end anywhere tries, where no bracket follows, every
-// way to split a run of them.
+// comments (`import { a, b, }`). A backslash escaping a quote goes, as a string quoted otherwise needs
+// one or not (`"a\\\"b"` as `'a\\"b'`), but not one a backslash escapes: of a run of them before a
+// quote, the last alone, where the run's length is odd. A regular expression's flags it may reorder
+// are sorted where the syntax tree has them (respelled). Each comment read one way alone, to its
+// line's end (any line terminator's) or its first `*/`: one that might end anywhere tries, where no
+// bracket follows, every way to split a run of them.
 const scriptForm = (text) => text.replaceAll(NUMBER, numberSpelling).replaceAll(/,(?=(?:\s|\/\/[^\n\r\u2028\u2029]*(?![^\n\r\u2028\u2029])|\/\*(?:[^*]|\*(?!\/))*\*\/)*[\])}>])/gu, '')
-  .replaceAll(/\\(?=["'])|[\s();]/gu, '').replaceAll("'", '"')
+  .replaceAll(/(?<!\\)\\+(?=["'])/gu, (run) => run.slice(run.length % 2)).replaceAll(/[\s();]/gu, '').replaceAll("'", '"')
 
 // JSON has no point without a digit either side: such a number is kept as written, or a copy would read as
 // valid, as would one with other blanks than JSON's four, which stay.
