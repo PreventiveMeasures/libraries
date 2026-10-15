@@ -269,7 +269,9 @@ function compare(lock, { nodes, met }) {
 }
 
 // One field of one entry of the tree for npm 6 changed, or an entry taken
-// out or put in, none of which npm writes.
+// out or put in, none of which npm writes: what one asks for changed to
+// what the package found does not meet, which is refused of an override
+// too.
 function changeLegacy({ next, pick }, dependencies) {
   const [holder, name, entry] = pick(legacyEntries(dependencies))
   const toggle = (key, value) => {
@@ -282,10 +284,7 @@ function changeLegacy({ next, pick }, dependencies) {
   else if (r < 0.5) {
     const required = Object.keys(entry.requires ?? {})
     if (required.length === 0) entry.requires = { ...entry.requires, 'zz-extra': '1.0.0' }
-    else {
-      const key = pick(required)
-      entry.requires[key] = `${entry.requires[key]} || 9`
-    }
+    else entry.requires[pick(required)] = '>=999.0.0'
   } else if (r < 0.6) delete holder[name]
   else if (r < 0.7) holder['zz-extra'] = { version: '1.0.0' }
   else if (r < 0.8) toggle('integrity', I)

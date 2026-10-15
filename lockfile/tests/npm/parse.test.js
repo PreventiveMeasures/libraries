@@ -690,7 +690,7 @@ describe('a lockfile of version 2, with the tree again for npm 6', () => {
   it('what each asks for but peers, as it asks for it', () => {
     refuses(v2((l) => (l.dependencies.a.requires.c = '^2.0.0')), '"node_modules/a" asks for no such package, or for a peer, which npm leaves out', `${D('a')}.requires.c`)
     refuses(v2((l) => delete l.dependencies.a.requires.b), 'expected "b", which "node_modules/a" asks for', `${D('a')}.requires`)
-    refuses(v2((l) => (l.dependencies.a.requires.b = '^1.0.1')), 'expected "^1.0.0", as "node_modules/a" asks for it, found the string "^1.0.1", which npm writes there of an override alone, not read here', `${D('a')}.requires.b`)
+    refuses(v2((l) => (l.dependencies.a.requires.b = 1)), 'expected a string, found the number 1', `${D('a')}.requires.b`)
     refuses(v2((l) => (l.dependencies.b.requires = {})), 'expected none, found a mapping, as npm writes it of "node_modules/b"', `${D('b')}.requires`)
     // A package that asks for peers alone asks for nothing npm writes.
     const peers = (requires) => v2((l) => {
@@ -699,6 +699,21 @@ describe('a lockfile of version 2, with the tree again for npm 6', () => {
     })
     assert.equal(parse(peers({})).packages['node_modules/b'].edges.c.type, 'peer')
     refuses(peers(undefined), 'expected a mapping, found nothing', `${D('b')}.requires`)
+  })
+
+  it('another spec than each asks for, an override\'s, met by what npm finds', () => {
+    const asks = (spec) => v2((l) => (l.dependencies.a.requires.b = spec))
+    const where = `${D('a')}.requires.b`
+    // An override that pins a version in the range; one out of it, where
+    // versions go unchecked, as they do in packages. Edges keep the spec
+    // the package asks for.
+    assert.equal(parse(asks('1.0.0')).packages['node_modules/a'].edges.b.spec, '^1.0.0')
+    assert.equal(parse(asks('^2.0.0'), { checkVersions: false }).packages['node_modules/b'].version, '1.0.0')
+    refuses(asks('^1.0.1'), 'as an override, "^1.0.1" is not satisfied by "node_modules/b", 1.0.0, so npm would install another', where)
+    refuses(asks('github:user/b'), 'as an override, "github:user/b" asks for a git repository, and "node_modules/b" is from none, so npm would install another', where, { checkVersions: false })
+    refuses(asks('npm:z@1.0.0'), 'as an override, "npm:z@1.0.0" asks for "z", and "node_modules/b" is "b", which npm does not check, so npm would install another', where)
+    refuses(asks('npm:npm:z@1.0.0'), '"npm:npm:z@1.0.0" is an alias of an alias, which npm refuses', where)
+    refuses(asks('file:vendor/t-1.0.0.tgz'), 'expected "^1.0.0", as "node_modules/a" asks for it, found the string "file:vendor/t-1.0.0.tgz", which npm writes there of an override alone, not read here', where)
   })
 
   it('a path in what each asks for from the directory that asks for it', () => {
@@ -724,6 +739,8 @@ describe('a lockfile of version 2, with the tree again for npm 6', () => {
     assert.equal(parse(v2(outside(up, { z: 'file:../..', y: 'file:x', w: 'file:../../..' }))).importers['../d'].edges.z.target, undefined)
     assert.equal(parse(edit(outside({ z: 'file:/abs/z.tgz' }), BASE)).importers['../d'].edges.z.target, undefined)
     refuses(v2(outside({ z: 'file:/abs/z.tgz' })), '"file:/abs/z.tgz" is a path from the root, a drive or the home directory, which a lockfile does not hold', `${D('d')}.requires.z`)
+    // Nor an override of what npm finds nothing for.
+    refuses(v2(outside({ z: 'file:../..' }, { z: '1.0.0' })), 'expected "file:../..", as "../d" asks for it, found the string "1.0.0", which npm writes there of an override alone, not read here', `${D('d')}.requires.z`)
   })
 
   it('a link to the project, under which npm writes the tree again', () => {

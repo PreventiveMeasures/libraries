@@ -115,17 +115,28 @@ export function isValid(edge, semver) {
   })
 }
 
+// problem, strict, of a spec not read here a refusal at `where`.
+const problemAt = (edge, semver, where) => attempt(() => problem(edge, semver, true), (error) => {
+  if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
+  throw error
+})
+
 function check(edge, semver) {
   const where = edgeAt(edge)
   if (edge.type === 'peerOptional') return
   if (edge.to === undefined) {
     throw new LockfileError(`${quote(edge.spec)} is met by nothing where npm looks for ${quote(edge.name)}, so npm would install it`, where)
   }
-  const why = attempt(() => problem(edge, semver, true), (error) => {
-    if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
-    throw error
-  })
+  const why = problemAt(edge, semver, where)
   if (why !== undefined) throw new LockfileError(why, where)
+}
+
+// What an override gives an edge, Edge#spec, which npm writes in place of
+// its own in the tree for npm 6: held to be met by the node it leads to,
+// as its own is, with no acceptDependencies, which that tree does not have.
+export function checkOverride(edge, spec, semver, where) {
+  const why = problemAt({ ...edge, spec, accept: undefined }, semver, where)
+  if (why !== undefined) throw new LockfileError(`as an override, ${why}`, where)
 }
 
 // What npm's Edge#valid and buildIdealTree's problem edges are, from the

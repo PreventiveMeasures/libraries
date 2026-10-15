@@ -27,11 +27,11 @@
 // dev dependency alone. The outside project asks for a directory beside
 // it, whose dependencies npm leaves to it. The overrides project is
 // installed with an override of what react-dom asks for, which the
-// lockfile does not record.
+// lockfile does not record, but in the tree for npm 6.
 //
 // The -v2 runs are the workspace, the plain project with its URLs left
-// out, and the flags and outside projects again, set to lockfileVersion 2,
-// which has the tree again for npm 6; and npm-8 is the workspace as npm 8
+// out, and the flags, outside and overrides projects again, set to
+// lockfileVersion 2, which has the tree again for npm 6; and npm-8 is the workspace as npm 8
 // writes it by default, of version 2, the file npm 7.24.2 writes too.
 
 import { execFileSync } from 'node:child_process'
@@ -148,6 +148,7 @@ const RUNS = [
   { name: 'npm-11-plain-omitted-v2', npm: '11.12.1', manifests: PLAIN, crlf: true, args: ['--omit-lockfile-registry-resolved', '--lockfile-version=2'] },
   { name: 'npm-11-flags-v2', npm: '11.12.1', manifests: FLAGS, args: ['--lockfile-version=2'] },
   { name: 'npm-11-outside-v2', npm: '11.12.1', manifests: OUTSIDE, args: ['--lockfile-version=2'] },
+  { name: 'npm-11-overrides-v2', npm: '11.12.1', manifests: OVERRIDES, args: ['--lockfile-version=2'] },
 ]
 
 function write(dir, name, content) {

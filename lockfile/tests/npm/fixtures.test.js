@@ -9,8 +9,8 @@ import { fixture, parse, plain } from './base.js'
 // registry's URLs left out; a project of peers and of packages both dev and
 // optional; one that asks for a directory out of it; and one an override
 // gives a version of a package its dependent does not ask for. Each but
-// the plain one and the override's again as lockfileVersion 2, as npm 9 to
-// 12 write it when set to, and the workspace as npm 8 writes it by default.
+// the plain one again as lockfileVersion 2, as npm 9 to 12 write it when
+// set to, and the workspace as npm 8 writes it by default.
 // scripts/record-npm.js records them into fixtures.json.br; its header
 // says what is in them.
 
@@ -159,10 +159,23 @@ describe('a directory out of the project', () => {
   })
 })
 
-describe('an override, which the lockfile does not record', () => {
-  it('refused where versions are checked, and read where not', () => {
-    assert.throws(() => read('npm-11-overrides'), (error) => error instanceof LockfileError && error.message === 'packages["node_modules/react-dom"].dependencies.scheduler: "^0.23.0" is not satisfied by "node_modules/scheduler", 0.20.2, so npm would install another')
-    assert.equal(read('npm-11-overrides', { checkVersions: false }).packages['node_modules/scheduler'].version, '0.20.2')
+describe('an override, which the lockfile does not record, but in the tree for npm 6', () => {
+  const unchecked = { checkVersions: false }
+
+  it('refused where versions are checked, and read where not, of either version', () => {
+    for (const name of ['npm-11-overrides', 'npm-11-overrides-v2']) {
+      assert.throws(() => read(name), (error) => error instanceof LockfileError && error.message === 'packages["node_modules/react-dom"].dependencies.scheduler: "^0.23.0" is not satisfied by "node_modules/scheduler", 0.20.2, so npm would install another', name)
+      assert.equal(read(name, unchecked).packages['node_modules/scheduler'].version, '0.20.2', name)
+    }
+    assert.deepEqual(plain(read('npm-11-overrides-v2', unchecked)), { ...plain(read('npm-11-overrides', unchecked)), lockfileVersion: 2 })
+  })
+
+  it('what the override gives, under requires, held to be met by what npm finds', () => {
+    const written = fixture('npm-11-overrides-v2')
+    assert.equal(JSON.parse(written).dependencies['react-dom'].requires.scheduler, '0.20.2')
+    const text = written.replace('"scheduler": "0.20.2"\n', '"scheduler": "github:user/scheduler"\n')
+    assert.notEqual(text, written)
+    assert.throws(() => parse(text, unchecked), (error) => error instanceof LockfileError && error.where === 'dependencies["react-dom"].requires.scheduler')
   })
 })
 

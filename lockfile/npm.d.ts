@@ -15,10 +15,11 @@
 // What npm reads beside the lockfile is not: the overrides of package.json,
 // which change what a dependency asks for, and npm's config, of which only
 // legacy-peer-deps is taken, below. A dependency an override explains is
-// refused where versions are checked, and in a lockfile of version 2,
-// whose tree for npm 6 has what it asks for as overridden, anywhere. Nor
-// is the host: whether a package's os, cpu, libc and engines take it is
-// for the caller to say.
+// refused where versions are checked. In a lockfile of version 2, whose
+// tree for npm 6 has what it asks for as overridden, that is held to be
+// met by what npm finds, as what the package asks for is, and an override
+// to a path is refused. Nor is the host: whether a package's os, cpu,
+// libc and engines take it is for the caller to say.
 export function parseNpmLockfile(text: string, options?: NpmOptions): NpmLockfile
 
 export interface NpmOptions {

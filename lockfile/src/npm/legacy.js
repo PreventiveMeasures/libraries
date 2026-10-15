@@ -9,13 +9,13 @@
 
 import { LockfileError, at, attempt, quote } from '../error.js'
 import { relativeTo } from '../names.js'
-import { kind, record } from '../shape.js'
+import { kind, record, string } from '../shape.js'
 import { inDepBundle } from './bundles.js'
 import { FLAGS } from './entries.js'
 import { checkFlags } from './flags.js'
 import { readSpec } from './spec.js'
 import { directoryOf, packageOf } from './tree.js'
-import { isValid } from './valid.js'
+import { checkOverride, isValid } from './valid.js'
 
 const FIELDS = ['version', 'resolved', 'integrity', 'bundled', ...FLAGS, 'requires', 'dependencies', 'from']
 
@@ -123,15 +123,29 @@ function requiresOf(node, escape, where) {
   return requires
 }
 
-function checkRequires(value, node, escape, where) {
+const isPath = (edge, spec) => attempt(() => ['file', 'directory'].includes(readSpec(edge.name, spec, directoryOf(edge.from), undefined).type), () => false)
+
+// Another spec than a node asks for, npm writes there of an override, as
+// Edge#spec gives it, which package.json has and the lockfile does not:
+// held to be met by what npm finds, as npm 6 holds it, and as packages
+// holds what the node asks for. An override to a path, and one of what
+// npm finds nothing for, as what a directory out of the project asks for,
+// are not read here.
+function checkOverridden(node, name, spec, expected, semver, where) {
+  const edge = node.edges.get(name.toLowerCase())
+  if (edge.to === undefined || isPath(edge, spec)) {
+    throw new LockfileError(`expected ${quote(expected)}, as ${describe(node)} asks for it, found ${kind(spec)}, which npm writes there of an override alone, not read here`, where)
+  }
+  checkOverride(edge, spec, semver, where)
+}
+
+function checkRequires(value, node, { escape, semver }, where) {
   const expected = requiresOf(node, escape, where)
   if (expected === undefined) return expectValue(value, undefined, where, node)
   const written = record(value, where)
   for (const [name, spec] of Object.entries(written)) {
     if (!Object.hasOwn(expected, name)) throw new LockfileError(`${describe(node)} asks for no such package, or for a peer, which npm leaves out`, at(where, name))
-    if (spec !== expected[name]) {
-      throw new LockfileError(`expected ${quote(expected[name])}, as ${describe(node)} asks for it, found ${kind(spec)}, which npm writes there of an override alone, not read here`, at(where, name))
-    }
+    if (string(spec, at(where, name)) !== expected[name]) checkOverridden(node, name, spec, expected[name], semver, at(where, name))
   }
   const missing = Object.keys(expected).find((name) => !Object.hasOwn(written, name))
   if (missing !== undefined) throw new LockfileError(`expected ${quote(missing)}, which ${describe(node)} asks for`, where)
@@ -193,7 +207,7 @@ function checkEntry(entry, node, where, path, context) {
   expect(entry, 'integrity', node.resolution?.integrity, where, node)
   for (const flag of FLAGS) expect(entry, flag, node.flags?.[flag] || undefined, where, node)
   const target = packageOf(node)
-  checkRequires(entry.requires, target, context.escape, at(where, 'requires'))
+  checkRequires(entry.requires, target, context, at(where, 'requires'))
   checkTree(entry.dependencies, target, at(where, 'dependencies'), path, context)
 }
 
