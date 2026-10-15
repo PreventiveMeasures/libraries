@@ -178,7 +178,10 @@ async function main(argv) {
   const candidates = [...new Set([...used.map((id) => PROVIDER_FOR[id.split('/')[0]]).filter(Boolean), 'openrouter', 'ollama'])]
   const provider = values.provider ?? candidates.find((name) => used.every((id) => serves(name, id, free)))
   if (!provider) fail(`no one provider serves ${used.join(', ')}; name --provider`)
+  // Whole and at least one, since it sizes the transport queue too: a queue of zero capacity hands
+  // out no slot, and every request of the run waits for one forever.
   const concurrency = number(values.concurrency, 'concurrency', 20)
+  if (!Number.isInteger(concurrency) || concurrency < 1) fail(`--concurrency takes a whole number of at least 1, got ${values.concurrency}`)
   setCacheDir(values['cache-dir'] ?? './grid-cache')
   setFetchConcurrency(concurrency)
   try { setProvider(provider) } catch (err) { return fail(err.message) }

@@ -41,6 +41,10 @@ function readPicks(size, cap) {
   }
 }
 
+// What a full-text row costs on the page beyond its entry: the ordinal line and the blank line
+// after it. Generous, so a page of short entries is bounded by what is actually sent.
+const FULL_ROW_FRAME = 16
+
 // Which block is the shared prompt-cache prefix. The page first when many requests will read the
 // same pages -- the first stage, whose shuffles are seeded from the rows alone so every request
 // renders the same pages -- and the request first once the pages are this request's own.
@@ -48,11 +52,13 @@ const layout = (page, request, requestFirst) => (requestFirst ? blocks(requestBl
 
 // One stage: `rounds` shuffles of the rows, paged, every page asked once; returns the rows that
 // gathered enough votes, best first. `seed` fixes the shuffles; `mode` is 'summary' for the table
-// and 'full' for a pass over the entries themselves, paged by characters rather than by count.
+// and 'full' for a pass over the entries themselves, paged by characters as well as by count --
+// the count bound alone would put a hundred pages of text on one page, and the character bound
+// alone would put thousands of empty entries there.
 export async function search({ task, request, rows, columns = [], model, mode = 'summary', pageSize = 200, pageChars = 80_000, pick = 0.2, rounds = 3, minVotes = 2, seed = 0, requestFirst = false, concurrency = 20, think, effort, tally, ask, label = 'search' }) {
   const systemPrompt = searchSystem({ task, mode })
   const tallies = new Map(rows.map((row) => [row.id, { row, votes: 0, total: 0 }]))
-  const paging = mode === 'full' ? { maxWeight: pageChars, weigh: (row) => row.entry.length } : { size: pageSize }
+  const paging = mode === 'full' ? { size: pageSize, maxWeight: pageChars, weigh: (row) => row.entry.length + FULL_ROW_FRAME } : { size: pageSize }
   let pages = 0
   for (let round = 0; round < rounds; round++) {
     const ordered = shuffle(rows, random(hashSeed(`${seed}\u0000${round}`)))

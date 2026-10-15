@@ -86,4 +86,12 @@ describe('compact', () => {
     assert.deepEqual(rows.map((row) => [row.summary, row.answers]), [['short', ['one', 'unknown']], ['long', ['one', 'two']], ['none again', ['x', 'y']]])
     assert.equal(ask.seen.length, 4)
   })
+
+  it('keeps every answer at its own question, reading a blank or a null in the middle as unknown', async () => {
+    const questions = [{ id: 'q1', text: 'a' }, { id: 'q2', text: 'b' }, { id: 'q3', text: 'c' }]
+    const ask = scripted(['{"summary":"gaps","answers":["red",null,"large"]}', '{"summary":"blank","answers":[" a ","",7]}'])
+    const entries = [{ id: 'p1', text: 'p1: gaps' }, { id: 'p2', text: 'p2: blank' }]
+    const rows = await compact({ ...common(), focus: FOCUS, questions, entries, concurrency: 1, ask })
+    assert.deepEqual(rows.map((row) => row.answers), [['red', 'unknown', 'large'], ['a', 'unknown', 'unknown']])
+  })
 })

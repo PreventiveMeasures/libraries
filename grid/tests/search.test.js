@@ -69,11 +69,22 @@ describe('search', () => {
   it('pages a full-text pass by characters, with the entry itself on the page', async () => {
     const log = []
     const rows = rowsOf(40)
-    const { survivors, pages } = await search({ ...common(log), rows, mode: 'full', pageChars: 40, pick: 1, rounds: 1, minVotes: 1 })
-    assert.ok(pages >= 20 && pages < 40, `one or two entries fit a page of forty characters, got ${pages} pages for 40 rows`)
+    const { survivors, pages } = await search({ ...common(log), rows, mode: 'full', pageChars: 90, pick: 1, rounds: 1, minVotes: 1 })
+    assert.ok(pages >= 20 && pages < 40, `one or two entries fit a page of ninety characters, got ${pages} pages for 40 rows`)
     assert.match(log[0].userContent[0], /Rows:\n\[1\]\ne\d+: entry number \d+/u)
     assert.match(log[0].systemPrompt, /Each row is one full entry/u)
+    // What is actually sent stays inside the budget, framing included, unless one entry alone exceeds it.
+    for (const { userContent } of log) {
+      const body = userContent[0].slice(userContent[0].indexOf('Rows:\n') + 6)
+      assert.ok(body.length <= 90 || !body.includes('\n[2]\n'), `a page of ${body.length} characters`)
+    }
     assert.deepEqual(survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+  })
+
+  it('bounds a full-text page by rows as well, so empty entries do not all land on one page', async () => {
+    const rows = rowsOf(120, []).map((row) => ({ ...row, entry: '' }))
+    const { pages } = await search({ ...common([]), rows, mode: 'full', pageSize: 30, pageChars: 10_000, rounds: 1 })
+    assert.equal(pages, 4)
   })
 })
 

@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON, stringList } from './json.js'
+import { expectObject, extractJSON } from './json.js'
 import { mapLimit } from './pool.js'
 import { compactSystem, compactUser } from './prompts.js'
 
@@ -13,16 +13,19 @@ import { compactSystem, compactUser } from './prompts.js'
 // model that cannot take one fails on that call rather than compacting a prefix as if it were the
 // whole.
 
-// Exactly one answer per question, padded with "unknown" rather than refused when the model sent
-// fewer: the row is still usable, and one short list in twenty thousand is not worth a re-ask.
-// MORE answers than questions are cut, since nothing could say which question the extras belong to.
-// No list at all is re-asked, though: that is not a short answer, it is the wrong shape.
+// One answer per question, BY POSITION: the i-th answer is the i-th question's whatever the others
+// are, so a blank or a null in the middle reads as "unknown" for its own question and never shifts
+// the answers after it onto the wrong ones. Fewer answers than questions pad with "unknown" rather
+// than refuse -- the row is still usable, and one short list in twenty thousand is not worth a
+// re-ask -- and more are cut, since nothing could say which question the extras belong to. No list
+// at all is re-asked, though: that is not a short answer, it is the wrong shape.
+const answerAt = (value) => (typeof value === 'string' && value.trim() ? value.trim() : 'unknown')
+
 function readRow(count, summarize) {
   return (text) => {
     const json = expectObject(extractJSON(text), summarize ? 'summary and answers' : 'answers')
     if (!Array.isArray(json.answers)) throw new TypeError('expected an answers list')
-    const answers = stringList(json.answers).slice(0, count)
-    while (answers.length < count) answers.push('unknown')
+    const answers = Array.from({ length: count }, (_, i) => answerAt(json.answers[i]))
     const summary = summarize ? String(json.summary ?? '').trim() : ''
     if (summarize && !summary) throw new TypeError('expected a non-empty summary')
     return { summary, answers }
