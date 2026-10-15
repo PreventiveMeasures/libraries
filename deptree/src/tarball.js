@@ -3,7 +3,7 @@
 // and its version's document from the registry, where asked for, for what
 // it says of where the package comes from.
 
-import { CompressionError, decompress } from '@preventive/archive/compression.js'
+import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
 import { getMeta, getTarball } from '@preventive/upstream/npm.js'
 import { settled } from './concurrent.js'
@@ -82,34 +82,6 @@ export function withDirs(files, where, dirs = new Set()) {
   return { files, dirs }
 }
 
-// Old tarballs, as npm 1.0 packed them through the system's tar, may run on
-// in zeros past their gzip stream, to a whole 10240-byte record. Node's
-// zlib, which npm, pnpm and yarn unpack through, stops at a zero byte after
-// the stream; the platform's stream refuses anything there, so the zeros are
-// cut off. The stream's last four bytes are the length its last member
-// inflates to, under 2^32 as MAX_BYTES is, so it ends within three bytes
-// past the last that is not zero; or, where that member is empty, as zlib
-// writes one, `03 00` and eight zeros, within nine. It ends at the one place
-// it decompresses whole. Each place tried inflates it all again, which only
-// a padded tarball pays for.
-async function gunzip(bytes) {
-  const inflate = (end) => decompress(bytes.subarray(0, end), 'gzip', { limit: MAX_BYTES })
-  try {
-    return await inflate(bytes.length)
-  } catch (error) {
-    if (!(error instanceof CompressionError) || error.limited || bytes.at(-1) !== 0) throw error
-    const last = bytes.findLastIndex((byte) => byte !== 0)
-    for (let end = last + 1; end <= Math.min(last + 10, bytes.length - 1); end++) {
-      try {
-        return await inflate(end)
-      } catch {
-        // Not where the stream ends: the next byte may be.
-      }
-    }
-    throw error
-  }
-}
-
 // What a version document says of where a package comes from, each
 // undefined where it says nothing: `commit` is its gitHead.
 const aboutOf = ({ gitHead, repository, homepage, bugs }) => ({ commit: gitHead, repository, homepage, bugs })
@@ -145,6 +117,6 @@ export async function fetchTarball(name, version, given, where, { metadata, cach
   const [bytes, said] = await settled([getTarball(name, version, dist, { cache }), about])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
-  const tar = await gunzip(bytes)
+  const tar = await decompress(bytes, 'gzip', { limit: MAX_BYTES })
   return { bytes, tar, entries: unpack(tar), inflated: tar.length, integrity, about: said }
 }
