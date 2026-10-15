@@ -1389,10 +1389,10 @@ describe('buildPnpmTree into a given Vfs', () => {
       })
     })
 
-    it('sizes it by the files it installs with layout, as read before a bin is fixed', async () => {
+    it('sizes it by the files it installs with sizeEstimateOnly, as read before a bin is fixed', async () => {
       const calls = stubRegistry([{ ...await app, dist: { unpackedSize: 3 } }])
       const project = createVfs({ 'package.json': v10, ...vendored })
-      const { vfs, installed, stats } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, project, layout: true })
+      const { vfs, installed, stats } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': v10 }, host: HOST, project, sizeEstimateOnly: true })
       assert.deepEqual(vfs.readdir(FOO), [])
       const picked = ['cli.js', 'index.js', 'package.json'].reduce((sum, path) => sum + vendored[`vendor/foo/${path}`].length, 0)
       assert.deepEqual(installed.map(({ name, size }) => [name, size]), [['app', 3], ['foo', picked]])
@@ -1666,7 +1666,7 @@ describe('buildPnpmTree reading the project', () => {
 // The tree's directories and links alone, each package sized by its version
 // document, of which nothing else is fetched. e's document names no size, as
 // one published before the registry counted them.
-describe('buildPnpmTree with layout', () => {
+describe('buildPnpmTree with sizeEstimateOnly', () => {
   const SIZES = { Up: 10, a: 20, b: 30, c: 40, d: 50, lodash: 1412415, p: 70 }
   const sized = () => TARBALLS.map((t) => (Object.hasOwn(SIZES, t.name) ? { ...t, dist: { unpackedSize: SIZES[t.name] } } : t))
   // Each path the tree has, a link with its target, but what is in a
@@ -1679,7 +1679,7 @@ describe('buildPnpmTree with layout', () => {
     stubRegistry(sized())
     const full = await buildResult()
     const calls = stubRegistry(sized())
-    const laidOut = await buildResult({ layout: true })
+    const laidOut = await buildResult({ sizeEstimateOnly: true })
     assert.equal(calls.length, 8, 'the version document of every package but the optional one the host cannot run')
     assert.ok(calls.every((url) => !url.endsWith('.tgz')), calls.join(', '))
     assert.deepEqual(layoutOf(laidOut), layoutOf(full))
@@ -1691,7 +1691,7 @@ describe('buildPnpmTree with layout', () => {
     stubRegistry(sized())
     const full = await buildResult()
     stubRegistry(sized())
-    const { installed, stats } = await buildResult({ layout: true })
+    const { installed, stats } = await buildResult({ sizeEstimateOnly: true })
     assert.deepEqual(installed, full.installed.map((copy) => ({ ...copy, size: SIZES[copy.name] })))
     assert.equal(installed.find(({ name }) => name === 'e').size, undefined)
     assert.deepEqual(stats, { ...full.stats, files: 0, bytes: Object.values(SIZES).reduce((sum, size) => sum + size, 0) })
@@ -1700,7 +1700,7 @@ describe('buildPnpmTree with layout', () => {
   it('fetches each document whatever metadata says, and gives what it says of the package', async () => {
     const lodash = { gitHead: 'a'.repeat(40), homepage: 'https://lodash.com/' }
     const calls = stubRegistry(sized().map((t) => (t.name === 'lodash' ? { ...t, document: lodash } : t)))
-    const { installed } = await buildResult({ layout: true, metadata: false })
+    const { installed } = await buildResult({ sizeEstimateOnly: true, metadata: false })
     assert.equal(calls.length, 8)
     assert.deepEqual(installed.find(({ name }) => name === 'lodash'), {
       path: 'node_modules/.pnpm/lodash@4.17.21/node_modules/lodash', key: 'lodash@4.17.21', name: 'lodash', version: '4.17.21', integrity: I.lodash, directory: undefined,
@@ -1711,17 +1711,17 @@ describe('buildPnpmTree with layout', () => {
   it('keeps each document in a cache store given, and asks the registry for none it keeps', async () => {
     const store = memoryStore()
     const calls = stubRegistry(sized())
-    const { installed } = await buildResult({ layout: true, cache: store })
+    const { installed } = await buildResult({ sizeEstimateOnly: true, cache: store })
     assert.deepEqual([...store.kept.keys()].toSorted(), calls.map((url) => `npm/versions ${url.slice('https://registry.npmjs.org/'.length).replace('/', '@')}`).toSorted())
     const again = stubRegistry(sized())
-    assert.deepEqual((await buildResult({ layout: true, cache: store })).installed, installed)
+    assert.deepEqual((await buildResult({ sizeEstimateOnly: true, cache: store })).installed, installed)
     assert.deepEqual(again, [])
   })
 
   it('holds each document to the lockfile\'s integrity', async () => {
     const other = sri(new Uint8Array([1]))
     stubRegistry(sized().map((t) => (t.name === 'a' ? { ...t, dist: { integrity: other } } : t)))
-    await assert.rejects(buildResult({ layout: true }), new RegExp(`^DeptreeError: "a@1\\.0\\.0": getMeta: a@1\\.0\\.0 is ${other.replaceAll('+', '\\+')} on the registry, not ${I.a.replaceAll('+', '\\+')}$`, 'u'))
+    await assert.rejects(buildResult({ sizeEstimateOnly: true }), new RegExp(`^DeptreeError: "a@1\\.0\\.0": getMeta: a@1\\.0\\.0 is ${other.replaceAll('+', '\\+')} on the registry, not ${I.a.replaceAll('+', '\\+')}$`, 'u'))
   })
 
   // pnpm 11 and 12 read a patched package's engines from its package.json,
@@ -1729,13 +1729,13 @@ describe('buildPnpmTree with layout', () => {
   it('lays out a patched package pnpm holds to the engines of its package.json with engineStrict', async () => {
     for (const host of [HOST_11, HOST_12]) {
       stubRegistry(sized())
-      const { installed } = await buildResult({ lockfile: flatLockfile(), manifest: UNPATCHED, workspace: `${PATCHED_IN_YAML}engineStrict: true\n`, host, layout: true })
+      const { installed } = await buildResult({ lockfile: flatLockfile(), manifest: UNPATCHED, workspace: `${PATCHED_IN_YAML}engineStrict: true\n`, host, sizeEstimateOnly: true })
       assert.equal(installed.find(({ name }) => name === 'p').size, SIZES.p, host.pnpm)
     }
   })
 
-  it('takes layout only as a boolean, and no Vfs to mount into', async () => {
-    await assert.rejects(buildResult({ layout: 'yes' }), /^TypeError: layout must be a boolean, or left out$/u)
-    await assert.rejects(buildResult({ layout: true, vfs: createVfs({}) }), /^TypeError: vfs is not taken with layout, whose tree has no files to mount$/u)
+  it('takes sizeEstimateOnly only as a boolean, and no Vfs to mount into', async () => {
+    await assert.rejects(buildResult({ sizeEstimateOnly: 'yes' }), /^TypeError: sizeEstimateOnly must be a boolean, or left out$/u)
+    await assert.rejects(buildResult({ sizeEstimateOnly: true, vfs: createVfs({}) }), /^TypeError: vfs is not taken with sizeEstimateOnly, whose tree has no files to mount$/u)
   })
 })

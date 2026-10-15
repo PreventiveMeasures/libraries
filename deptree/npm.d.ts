@@ -127,22 +127,22 @@ export interface NpmProject {
 // cache is read all the same. Other tools' caches are read for tarballs
 // whatever it is. A TypeError is thrown for anything else.
 //
-// `layout`, false unless given true, builds the tree's directories and
-// links alone, and fetches no tarball: each package's directory is made
-// where the lockfile puts it, and left empty, and each link is made as it
-// is. Each package's version document is asked for as `metadata` asks for
-// it, whatever `metadata` says, and held to the lockfile's dist as it is
-// held there; and each package is listed with its `size`, the document's
+// `sizeEstimateOnly`, false unless given true, builds the tree's directories
+// and links alone, and fetches no tarball: each package's directory is made
+// where the lockfile puts it, and left empty, and each link is made as it is.
+// Each package's version document is asked for as `metadata` asks for it,
+// whatever `metadata` says, and held to the lockfile's dist as it is held
+// there; and each package is listed with its `size`, the document's
 // dist.unpackedSize, as getMeta of @preventive/upstream reads it: the bytes
 // of the files in its tarball, as the registry counted them when it was
 // published, which is what npm writes of it, but for a .gitignore it drops
-// and a CRLF `#!` line of a bin it rewrites; not the blocks they take. It
-// is undefined where the document names none. What is checked of a
-// package's tarball and files is not, so a lockfile one of those checks
-// would refuse is laid out all the same. A `vfs` is not taken with it.
+// and a CRLF `#!` line of a bin it rewrites; not the blocks they take. It is
+// undefined where the document names none. What is checked of a package's
+// tarball and files is not, so a lockfile one of those checks would refuse is
+// laid out all the same. A `vfs` is not taken with it.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
-export type NpmLayoutOptions = NpmTreeOptions & { layout: true, vfs?: undefined }
+export type NpmLayoutOptions = NpmTreeOptions & { sizeEstimateOnly: true, vfs?: undefined }
 
 export interface NpmTreeGiven {
   lockfile: string
@@ -153,7 +153,7 @@ export interface NpmTreeGiven {
   vfs?: Vfs
   metadata?: boolean
   cache?: CacheOptions['cache']
-  layout?: boolean
+  sizeEstimateOnly?: boolean
 }
 
 export interface NpmTreeRead {
@@ -165,17 +165,17 @@ export interface NpmTreeRead {
   vfs?: Vfs
   metadata?: boolean
   cache?: CacheOptions['cache']
-  layout?: boolean
+  sizeEstimateOnly?: boolean
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the
 // lockfile's, each a copy in a node_modules; `installed` those in the
 // tree; `skipped` those left out, as the host cannot run them or only such
 // need them; `tarballs` those fetched, each once; `files` and `bytes` what
-// is written; `links` the workspaces linked. With `layout`, `tarballs`
-// counts those fetched by their version document alone; `files` is 0, as
-// none is written, and `bytes` what the sizes of those installed add up to,
-// each copy's, of those with one.
+// is written; `links` the workspaces linked. With `sizeEstimateOnly`,
+// `tarballs` counts those fetched by their version document alone; `files`
+// is 0, as none is written, and `bytes` what the sizes of those installed
+// add up to, each copy's, of those with one.
 export interface NpmTreeStats {
   packages: number
   installed: number
@@ -229,12 +229,14 @@ export interface NpmTree {
   installed: NpmInstalled[]
 }
 
-// With `layout`, each package as `installed` lists it, with its `size`.
+// With `sizeEstimateOnly`, each package as `installed` lists it, with its
+// `size`.
 export interface NpmLaidOut extends NpmInstalled {
   size: number | undefined
 }
 
-// With `layout`: `vfs` a new one, of the tree's directories and links.
+// With `sizeEstimateOnly`: `vfs` a new one, of the tree's directories and
+// links.
 export interface NpmLayout {
   vfs: Vfs
   stats: NpmTreeStats

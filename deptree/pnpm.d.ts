@@ -237,35 +237,34 @@ export interface PnpmProject {
 // cache is read all the same. Other tools' caches are read for tarballs
 // whatever it is. A TypeError is thrown for anything else.
 //
-// `layout`, false unless given true, builds the tree's directories and
-// links alone, and fetches no tarball: each package's directory is made
-// where its files would be, and left empty, and each link is made as it
-// is. Each registry package's version document is asked for as `metadata`
-// asks for it, whatever `metadata` says, and held to the lockfile's dist
-// as it is held there; and each copy is listed with its `size`, the
-// document's dist.unpackedSize, as getMeta of @preventive/upstream reads
-// it: the bytes of the files in its tarball, as the registry counted them
-// when it was published, which is what pnpm writes of it, but for a patch
-// and a CRLF `#!` line of a bin it rewrites; not the blocks they take, nor
-// what pnpm shares by hardlinks from its store. It is undefined where the
-// document names none. A `file:` directory is read whole all the same, and
-// its size is that of the files its packlist picks. What is checked of a
-// package's files and package.json is not, so a lockfile one of those
-// checks would refuse is laid out all the same; so is a patched package
-// that pnpm 11 and 12 would, with engineStrict, take out or fail on by the
-// engines.node of its package.json, patched. But where the files could
-// change the layout, the lockfile is refused, before anything is fetched:
-// for the hoisted linker of pnpm 10.21 to before 11.25, where any patch is
-// configured, a package of more than one copy, one with a node_modules,
-// which pnpm drops where it builds the package. A `vfs` is not taken with
-// it.
+// `sizeEstimateOnly`, false unless given true, builds the tree's directories
+// and links alone, and fetches no tarball: each package's directory is made
+// where its files would be, and left empty, and each link is made as it is.
+// Each registry package's version document is asked for as `metadata` asks
+// for it, whatever `metadata` says, and held to the lockfile's dist as it is
+// held there; and each copy is listed with its `size`, the document's
+// dist.unpackedSize, as getMeta of @preventive/upstream reads it: the bytes
+// of the files in its tarball, as the registry counted them when it was
+// published, which is what pnpm writes of it, but for a patch and a CRLF `#!`
+// line of a bin it rewrites; not the blocks they take, nor what pnpm shares
+// by hardlinks from its store. It is undefined where the document names none.
+// A `file:` directory is read whole all the same, and its size is that of the
+// files its packlist picks. What is checked of a package's files and
+// package.json is not, so a lockfile one of those checks would refuse is laid
+// out all the same; so is a patched package that pnpm 11 and 12 would, with
+// engineStrict, take out or fail on by the engines.node of its package.json,
+// patched. But where the files could change the layout, the lockfile is
+// refused, before anything is fetched: for the hoisted linker of pnpm 10.21
+// to before 11.25, where any patch is configured, a package of more than one
+// copy, one with a node_modules, which pnpm drops where it builds the
+// package. A `vfs` is not taken with it.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with
 // `project` and none of them.
 export type PnpmTreeOptions = PnpmTreeGiven | PnpmTreeRead
 
-export type PnpmLayoutOptions = PnpmTreeOptions & { layout: true, vfs?: undefined }
+export type PnpmLayoutOptions = PnpmTreeOptions & { sizeEstimateOnly: true, vfs?: undefined }
 
 export interface PnpmTreeGiven {
   lockfile: string
@@ -278,7 +277,7 @@ export interface PnpmTreeGiven {
   vfs?: Vfs
   metadata?: boolean
   cache?: CacheOptions['cache']
-  layout?: boolean
+  sizeEstimateOnly?: boolean
 }
 
 export interface PnpmTreeRead {
@@ -292,7 +291,7 @@ export interface PnpmTreeRead {
   vfs?: Vfs
   metadata?: boolean
   cache?: CacheOptions['cache']
-  layout?: boolean
+  sizeEstimateOnly?: boolean
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the
@@ -302,9 +301,10 @@ export interface PnpmTreeRead {
 // does not take their platform or engines, which pnpm warns of; `tarballs`
 // the packages fetched, each once; `patched` the snapshots a patch is
 // applied to; `files` and `bytes` what is written; `links` the symlinks.
-// With `layout`, `tarballs` counts the packages fetched by their version
-// document alone; `files` is 0, as none is written, and `bytes` what the
-// sizes of those installed add up to, each copy's, of those with one.
+// With `sizeEstimateOnly`, `tarballs` counts the packages fetched by their
+// version document alone; `files` is 0, as none is written, and `bytes`
+// what the sizes of those installed add up to, each copy's, of those with
+// one.
 export interface PnpmTreeStats {
   projects: number
   snapshots: number
@@ -365,12 +365,14 @@ export interface PnpmTree {
   installed: PnpmInstalled[]
 }
 
-// With `layout`, each copy as `installed` lists it, with its `size`.
+// With `sizeEstimateOnly`, each copy as `installed` lists it, with its
+// `size`.
 export interface PnpmLaidOut extends PnpmInstalled {
   size: number | undefined
 }
 
-// With `layout`: `vfs` a new one, of the tree's directories and links.
+// With `sizeEstimateOnly`: `vfs` a new one, of the tree's directories and
+// links.
 export interface PnpmLayout {
   vfs: Vfs
   stats: PnpmTreeStats

@@ -213,7 +213,7 @@ export function checkNoneDropped(placed, pnpm) {
   const placedIn = new Set(placed.values().map((node) => node.modules))
   for (const [key, copies] of Map.groupBy(placed.values(), (node) => node.key)) {
     const nested = copies.length > 1 ? copies.find((copy) => placedIn.has(`${copy.dir}/node_modules`)) : undefined
-    if (nested !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which with layout is not known, and is not supported`, quote(key))
+    if (nested !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which with sizeEstimateOnly is not known, and is not supported`, quote(key))
   }
 }
 

@@ -112,21 +112,21 @@ for (const [i, t] of TARBALLS.entries()) {
   t.dist = { unpackedSize: 1000 * (i + 1) }
 }
 
-const build = async ({ host = HOST, npmrc = NPMRC, layout, ...spec }) => {
+const build = async ({ host = HOST, npmrc = NPMRC, sizeEstimateOnly, ...spec }) => {
   const calls = stubRegistry(TARBALLS)
   const { lockfile, manifests, patches } = workspace(spec)
-  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, npmrc, workspace: Object.keys(spec.projects).length > 1 ? WORKSPACE : undefined, host, layout })
+  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, npmrc, workspace: Object.keys(spec.projects).length > 1 ? WORKSPACE : undefined, host, sizeEstimateOnly })
   return { vfs, installed, stats, calls, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
 }
 
 // pnpm 11 reads its settings, the patches with them, from pnpm-workspace.yaml.
 const HOST_11 = { ...HOST, pnpm: '11.28.4' }
-const build11 = async ({ host = HOST_11, settings = '', layout, ...spec }) => {
+const build11 = async ({ host = HOST_11, settings = '', sizeEstimateOnly, ...spec }) => {
   stubRegistry(TARBALLS)
   const { lockfile, manifests, patches } = workspace({ ...spec, major: 11 })
   const patching = spec.patched ? `patchedDependencies:\n  ${spec.patched}: patches/p.patch\n` : ''
   const workspaceYaml = `${WORKSPACE}nodeLinker: hoisted\npackageImportMethod: copy\n${patching}${settings}`
-  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, workspace: workspaceYaml, host, layout })
+  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, workspace: workspaceYaml, host, sizeEstimateOnly })
   return { vfs, installed, stats, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
 }
 
@@ -237,7 +237,7 @@ const layoutOf = ({ vfs, installed }) => [...vfs.walk('/')]
   .map(({ path, type }) => (type === 'symlink' ? `${path} -> ${vfs.readlink(path)}` : `${path} ${type}`))
 const sizeOf = (key) => byKey.get(key.replace(/\(.*$/u, '')).dist.unpackedSize
 
-describe('buildPnpmTree with the hoisted linker and layout', () => {
+describe('buildPnpmTree with the hoisted linker and sizeEstimateOnly', () => {
   const SPREAD = {
     projects: {
       '.': { dependencies: { ms: 'ms@2.1.3', a: 'workspace:packages/a' } },
@@ -249,7 +249,7 @@ describe('buildPnpmTree with the hoisted linker and layout', () => {
 
   it('makes the directories and links of the tree, each copy sized by its document, and fetches no tarball', async () => {
     const full = await build(SPREAD)
-    const laidOut = await build({ ...SPREAD, layout: true })
+    const laidOut = await build({ ...SPREAD, sizeEstimateOnly: true })
     assert.ok(laidOut.calls.every((url) => !url.endsWith('.tgz')), laidOut.calls.join(', '))
     assert.equal(laidOut.calls.length, 4)
     assert.deepEqual(layoutOf(laidOut), layoutOf(full))
@@ -261,23 +261,23 @@ describe('buildPnpmTree with the hoisted linker and layout', () => {
   // pnpm's build pass changes files alone, but from 10.21 to before 11.25,
   // where it drops the node_modules of each copy but the one it builds.
   it('lays out a patched package before 10.21 and from 11.25, and one of copies with no node_modules', async () => {
-    const { installed } = await build({ ...LEAVES, host: { ...HOST, pnpm: '10.20.0' }, layout: true })
+    const { installed } = await build({ ...LEAVES, host: { ...HOST, pnpm: '10.20.0' }, sizeEstimateOnly: true })
     assert.deepEqual(installed.map(({ path }) => path), ['node_modules/ms', 'packages/a/node_modules/ms', 'packages/b/node_modules/ms'])
-    await build({ ...LEAVES, layout: true })
+    await build({ ...LEAVES, sizeEstimateOnly: true })
     const full = await build11({ ...NESTED, host: { ...HOST, pnpm: '11.25.0' } })
-    const laidOut = await build11({ ...NESTED, host: { ...HOST, pnpm: '11.25.0' }, layout: true })
+    const laidOut = await build11({ ...NESTED, host: { ...HOST, pnpm: '11.25.0' }, sizeEstimateOnly: true })
     assert.deepEqual(layoutOf(laidOut), layoutOf(full))
   })
 
   it('refuses from 10.21 to before 11.25 a package of copies one of which has a node_modules, which pnpm may drop, before fetching anything', async () => {
-    const refused = (pnpm) => new RegExp(`^DeptreeError: "debug@2\\.6\\.9\\(patch_hash=[\\da-f]+\\)": pnpm ${pnpm.replaceAll('.', '\\.')} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: "packages\\/a\\/node_modules\\/debug\\/node_modules" may be dropped, which with layout is not known, and is not supported$`, 'u')
+    const refused = (pnpm) => new RegExp(`^DeptreeError: "debug@2\\.6\\.9\\(patch_hash=[\\da-f]+\\)": pnpm ${pnpm.replaceAll('.', '\\.')} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: "packages\\/a\\/node_modules\\/debug\\/node_modules" may be dropped, which with sizeEstimateOnly is not known, and is not supported$`, 'u')
     const { lockfile, manifests, patches } = workspace(NESTED)
     const calls = stubRegistry(TARBALLS)
     for (const pnpm of ['10.21.0', '10.33.4']) {
-      await assert.rejects(buildPnpmTree({ lockfile, manifests, patches, npmrc: NPMRC, workspace: WORKSPACE, host: { ...HOST, pnpm }, layout: true }), refused(pnpm))
+      await assert.rejects(buildPnpmTree({ lockfile, manifests, patches, npmrc: NPMRC, workspace: WORKSPACE, host: { ...HOST, pnpm }, sizeEstimateOnly: true }), refused(pnpm))
     }
     assert.deepEqual(calls, [])
-    await assert.rejects(build11({ ...NESTED, host: { ...HOST, pnpm: '11.24.0' }, layout: true }), refused('11.24.0'))
+    await assert.rejects(build11({ ...NESTED, host: { ...HOST, pnpm: '11.24.0' }, sizeEstimateOnly: true }), refused('11.24.0'))
   })
 })
 

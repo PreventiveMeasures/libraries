@@ -2,8 +2,8 @@
 // with the isolated linker and --ignore-scripts, in a Vfs rooted at the
 // lockfile's directory; patched still, as pnpm patches before scripts. Bins are
 // not linked, though what linking does to their files is (bins.js). With
-// `layout`, its directories and links alone, each package's sized by its
-// version document, of which nothing is fetched but those documents.
+// `sizeEstimateOnly`, its directories and links alone, each package's sized
+// by its version document, of which nothing is fetched but those documents.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { compareVersions } from '@preventive/upstream/semver.js'
@@ -70,16 +70,16 @@ function checkSource(node, installed) {
 const bytesOf = (files) => files.values().reduce((sum, file) => sum + file.data.length, 0)
 
 // By name@version, as the lockfile reader gives a package's snapshots one
-// resolution and manifest. With `layout`, a registry package's size alone,
-// with no files or package.json; a directory is read whole all the same, and
-// its size is its files'.
+// resolution and manifest. With `sizeEstimateOnly`, a registry package's size
+// alone, with no files or package.json; a directory is read whole all the
+// same, and its size is its files'.
 async function fetchAll(nodes, project, host, fetching) {
   const packages = new Map([...nodes.values()].map(({ key, pkg }) => [packageKeyOf(key), pkg]))
   const fetched = new Map()
-  const fetch = (pkg, where) => (fetching.layout ? fetchSize(pkg.name, pkg.version, pkg.resolution.integrity, where, fetching) : fetchPackage(pkg, where, host.major, fetching))
+  const fetch = (pkg, where) => (fetching.sizeEstimateOnly ? fetchSize(pkg.name, pkg.version, pkg.resolution.integrity, where, fetching) : fetchPackage(pkg, where, host.major, fetching))
   const read = (pkg, where) => {
     const got = readDirectoryPackage(project, pkg, where, host)
-    return fetching.layout ? { ...got, size: bytesOf(got.files) } : got
+    return fetching.sizeEstimateOnly ? { ...got, size: bytesOf(got.files) } : got
   }
   await eachConcurrently(packages, async ([id, pkg]) => {
     fetched.set(id, pkg.resolution.type === 'directory' ? read(pkg, quote(id)) : await fetch(pkg, quote(id)))
@@ -197,7 +197,7 @@ function reachedInProd(importers, nodes, byDir) {
   return reached
 }
 
-function installedOf(node, dev, patches, layout) {
+function installedOf(node, dev, patches, sizeEstimateOnly) {
   const { key, name, dir, about, size, pkg: { version, resolution, optional, patchHash } } = node
   return {
     path: dir,
@@ -210,7 +210,7 @@ function installedOf(node, dev, patches, layout) {
     dev,
     optional,
     patch: patchHash === undefined ? undefined : { hash: patchHash, path: patches.get(patchHash).path },
-    ...layout ? { size } : {},
+    ...sizeEstimateOnly ? { size } : {},
   }
 }
 
@@ -235,8 +235,8 @@ const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 
 // The hoisted layout of pnpm 10 and 11 (hoisted.js): nothing but the packages
 // and links, each copy a parent before what lands in its node_modules, as
-// pnpm keeps only its state in node_modules/.pnpm. With `layout`, what
-// pnpm's build pass does to the files is not followed.
+// pnpm keeps only its state in node_modules/.pnpm. With `sizeEstimateOnly`,
+// what pnpm's build pass does to the files is not followed.
 async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
@@ -251,12 +251,12 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const building = Object.keys(settings.patchedDependencies ?? {}).length > 0
   const hardlinks = since('10.21.0')
   const keepsModules = since('11.25.0')
-  if (fetching.layout && building && hardlinks && !keepsModules) checkNoneDropped(placed, host.pnpm)
+  if (fetching.sizeEstimateOnly && building && hardlinks && !keepsModules) checkNoneDropped(placed, host.pnpm)
   const { byDir, tarballs } = await fetchNodes(placed, lockfile, hook, project, host, fetching)
   const linked = readLinked(links, byDir, manifests, project)
   const prod = prodPackages(lockfile, skipped, directories)
   const dev = (node) => !prod.has(packageIdOf(node.key, node.pkg, directories))
-  if (fetching.layout) return { byDir, links, targets: new Map(), executable: new Map(), tarballs, dev }
+  if (fetching.sizeEstimateOnly) return { byDir, links, targets: new Map(), executable: new Map(), tarballs, dev }
   const idOf = since('11.23.0') ? (key) => packageIdOf(key, lockfile.packages[key], directories) : (key) => key
   const changesOf = (node) => parsedPatch(patched, node.pkg.patchHash).parsed
   const builds = building ? hoistedBuilds(byDir, new Set(projects), (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
@@ -275,7 +275,7 @@ async function buildIsolated({ lockfile, settings, host, project, hook, installe
   const linked = readLinked(links, byDir, manifests, project)
   const prod = reachedInProd(lockfile.importers, nodes, byDir)
   const dev = (node) => !prod.has(node.dir)
-  if (fetching.layout) return { byDir, links, targets: new Map(), executable: new Map(), tarballs, dev }
+  if (fetching.sizeEstimateOnly) return { byDir, links, targets: new Map(), executable: new Map(), tarballs, dev }
   const targets = binTargets({
     nodes: byDir,
     projects: new Map([...manifests, ...linked]),
@@ -293,7 +293,7 @@ export async function buildPnpmTree(options) {
   const { project, host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   const fetching = fetchingOf(options ?? {})
-  if (fetching.layout && into !== undefined) throw new TypeError('vfs is not taken with layout, whose tree has no files to mount')
+  if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
   if (project !== undefined) checkProject(project)
   const machine = checkHost(given)
   const folded = machine.os === 'darwin'
@@ -334,16 +334,17 @@ export async function buildPnpmTree(options) {
   const listed = []
   const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
-  // With `layout`, its directory alone is made, and its size counted.
+  // With `sizeEstimateOnly`, its directory alone is made, and its size
+  // counted.
   for (const node of byDir.values()) {
     byDir.delete(node.dir)
     try {
-      writeNode(vfs, node.dir, fetching.layout ? new Map() : compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing), stats)
+      writeNode(vfs, node.dir, fetching.sizeEstimateOnly ? new Map() : compose(node, patched, { targets: targets.get(node.dir) ?? new Set(), executable: executable.get(node.dir) ?? new Set() }, composing), stats)
     } catch (error) {
       throw refusalOf(error, quote(node.key))
     }
-    if (fetching.layout) stats.bytes += node.size ?? 0
-    listed.push(installedOf(node, dev(node), patched, fetching.layout))
+    if (fetching.sizeEstimateOnly) stats.bytes += node.size ?? 0
+    listed.push(installedOf(node, dev(node), patched, fetching.sizeEstimateOnly))
   }
   for (const [path, target] of links) {
     try {
