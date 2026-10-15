@@ -409,6 +409,17 @@ describe('the packages', () => {
       'node_modules/b/ro.txt 644 "o"',
       'node_modules/b/run.sh 755 "r"',
     ])
+    // A .npmignore after a .gitignore renamed to it: tar writes its bytes
+    // into the first's file, which keeps its mode. `.GITIGNORE` is no
+    // .gitignore, and stays as it is.
+    const after = await buildNpmTree(await one({ '.gitignore': { data: 'g', mode: 0o700 }, '.npmignore': 'n', 'lib/.GITIGNORE': 'u' }))
+    assert.deepEqual(listing(after.vfs).filter((line) => line.startsWith('node_modules/b/')), [
+      'node_modules/b/ 755',
+      'node_modules/b/.npmignore 744 "n"',
+      'node_modules/b/lib/ 755',
+      'node_modules/b/lib/.GITIGNORE 644 "u"',
+      'node_modules/b/package.json 644 "{\\"name\\":\\"b\\",\\"version\\":\\"1.0.0\\"}"',
+    ])
   })
 
   it('refused: what npm never packs', async () => {

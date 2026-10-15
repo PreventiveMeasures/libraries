@@ -220,6 +220,18 @@ describe('buildYarn1Tree', () => {
     assert.deepEqual(paths(da.vfs), paths(en.vfs))
   })
 
+  // yarn 1.22 unpacks a .gitignore as it is, beside any .npmignore, where
+  // npm renames it (npm.test.js).
+  it('keeps a .gitignore as yarn unpacks it, beside a .npmignore', async () => {
+    const ignores = await tarball('g', '1.0.0', { '.gitignore': 'g', 'a/.npmignore': 'an', 'a/.gitignore': 'ag', 'b/.gitignore': 'bg', 'b/.npmignore': 'bn' })
+    stubRegistry([ignores])
+    const lock = lockfile(`g@1.0.0:\n  version "1.0.0"\n  resolved "${yarnpkg('g', '1.0.0')}#${sha1(ignores.bytes)}"\n  integrity ${ignores.integrity}\n`)
+    const { vfs } = await buildYarn1Tree({ project: projectOf({ 'yarn.lock': lock, 'package.json': { name: 'root', version: '1.0.0', dependencies: { g: '1.0.0' } } }), host: HOST })
+    const dir = '/node_modules/g'
+    assert.deepEqual([vfs.readdir(dir), vfs.readdir(`${dir}/a`), vfs.readdir(`${dir}/b`)], [['.gitignore', 'a', 'b', 'package.json'], ['.gitignore', '.npmignore'], ['.gitignore', '.npmignore']])
+    assert.deepEqual(['.gitignore', 'a/.gitignore', 'a/.npmignore', 'b/.gitignore', 'b/.npmignore'].map((path) => vfs.readText(`${dir}/${path}`)), ['g', 'ag', 'an', 'bg', 'bn'])
+  })
+
   it('refuses once every fetch started has ended', async () => {
     const open = stubFailingRegistry(TARBALLS, 'd', '1.0.0')
     await assert.rejects(build(), /^DeptreeError: "d@/u)
