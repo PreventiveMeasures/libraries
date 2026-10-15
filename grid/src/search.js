@@ -21,9 +21,11 @@ function clampScore(value) {
   return score === undefined ? 5 : Math.min(10, Math.max(1, score))
 }
 
-// The picks as ordinals on this page: unknown, repeated and out-of-range ones dropped, and the
-// best `cap` kept when the model picked past its limit. Run as the call's parse, so a cached
-// response is read under the same rules as a fresh one.
+// The picks as ordinals on this page: unknown, repeated and out-of-range ones dropped -- and an
+// ordinal that is not a number at all, which Number() would have read as one (true as 1, [1] as
+// 1) and voted for a row nobody picked -- and the best `cap` kept when the model picked past its
+// limit. Run as the call's parse, so a cached response is read under the same rules as a fresh
+// one.
 function readPicks(size, cap) {
   return (text) => {
     const json = expectObject(extractJSON(text), 'picks')
@@ -31,8 +33,8 @@ function readPicks(size, cap) {
     const seen = new Set()
     const picks = []
     for (const pick of json.picks) {
-      const n = Number(pick?.n)
-      if (!Number.isInteger(n) || n < 1 || n > size || seen.has(n)) continue
+      const n = numberOf(pick?.n)
+      if (n === undefined || !Number.isInteger(n) || n < 1 || n > size || seen.has(n)) continue
       seen.add(n)
       picks.push({ n, score: clampScore(pick.score) })
     }

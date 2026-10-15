@@ -68,7 +68,9 @@ describe('search', () => {
 
   it('drops unknown, repeated and out-of-range ordinals and keeps the best picks under the cap', async () => {
     const rows = rowsOf(5, [])
-    const forced = JSON.stringify({ picks: [{ n: '2', score: 3 }, { n: 2, score: 9 }, { n: 0 }, { n: 99 }, { n: 4, score: null }, { n: 1, score: '7' }, { n: 1.5 }] })
+    // `true` and `[1]` lead, so that a parser coercing them to 1 would claim row 1 at score 10
+    // before the real pick of it at 7 and fail the assertion below.
+    const forced = JSON.stringify({ picks: [{ n: true, score: 10 }, { n: [1], score: 10 }, { n: '2', score: 3 }, { n: 2, score: 9 }, { n: 0 }, { n: 99 }, { n: 4, score: null }, { n: 1, score: '7' }, { n: 1.5 }] })
     const log = []
     const { survivors } = await search({ ...common(log), ask: fakeAsk({ log, override: () => forced }), rows, pick: 0.4, rounds: 1, minVotes: 1, seed: 7 })
     // The page is round 0 of seed 7, so the ordinals map back through the same shuffle.

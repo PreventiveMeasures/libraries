@@ -162,8 +162,10 @@ async function main(argv) {
   const strong = resolveModel(values.strong ?? model)
   const models = { strong, search: resolveModel(values.search ?? strong), cheap: resolveModel(values.cheap ?? values.search ?? strong) }
   // One provider serves a whole run (the layer's is process-wide), so it is inferred from the
-  // models the command will actually send -- select's three, not the --model they default from.
-  const used = command === 'build' ? [model] : [...new Set(Object.values(models))]
+  // models the command will actually send -- select's three, not the --model they default from, and
+  // without the cheap one when --no-gate leaves nothing for it to do.
+  const sent = command === 'build' ? [model] : values['no-gate'] ? [models.strong, models.search] : Object.values(models)
+  const used = [...new Set(sent)]
   const free = Boolean(values.free)
   for (const id of used) {
     // A typo would otherwise reach the wire as an unknown id and come back as a provider error.
