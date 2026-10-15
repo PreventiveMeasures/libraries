@@ -73,24 +73,28 @@ async function npmCachedVersion(name, version, given) {
   return undefined
 }
 
+const countOr = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : undefined)
+
 // The version's document: with the `dist` the caller has, npm's own cache's
 // where it matches (npmCachedVersion), and neither `cache` nor the cache
 // set is read or written; else as getVersion has it. Beside its dist, the
 // document's gitHead where that is a full commit id, and its repository,
-// homepage and bugs, in the shapes a package.json gives them. Each but
-// dist is left out where there is none.
+// homepage and bugs, in the shapes a package.json gives them; and its
+// dist's unpackedSize where that is a count. Each but dist is left out
+// where there is none.
 export async function getMeta(name, version, options = {}) {
   assertPackage('getMeta', name, version)
   assertArgs('getMeta', options, { dist: null, cache: optional(assertCache) })
   const given = options.dist === undefined ? undefined : checkedDist('getMeta', name, version, options.dist)
   const { dist, json } = (given && await npmCachedVersion(name, version, given)) ?? await getVersion('getMeta', name, version, given, options.cache)
-  const about = {
+  const said = {
     gitHead: isSha(own(json, 'gitHead')) ? json.gitHead : undefined,
     repository: linkOf(own(json, 'repository'), ['type', 'url', 'directory']),
     homepage: stringOr(own(json, 'homepage')),
     bugs: linkOf(own(json, 'bugs'), ['url', 'email']),
+    unpackedSize: countOr(own(json.dist, 'unpackedSize')),
   }
-  return { name, version, dist, ...Object.fromEntries(Object.entries(about).filter(([, value]) => value !== undefined)) }
+  return { name, version, dist, ...Object.fromEntries(Object.entries(said).filter(([, value]) => value !== undefined)) }
 }
 
 // Only the whole package's document has `time`: megabytes for some.

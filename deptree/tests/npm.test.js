@@ -518,3 +518,44 @@ describe('the root\'s lists', () => {
     assert.equal(recalculates(JSON.parse('{"dependencies":{"a":"1.0.0"},"peerDependencies":{"b":"1"}}'), edges), true)
   })
 })
+
+// The tree's directories and links alone, each package sized by its version
+// document, of which nothing else is fetched. b's document names no size, as
+// one published before the registry counted them.
+describe('the layout alone', () => {
+  const SIZES = { '@s/same@1.0.0': 10, 'a@1.0.0': 20, 'a@2.0.0': 30, 'c@1.0.0': 40, 'd@1.0.0': 50 }
+  const sized = () => TARBALLS.map((t) => (Object.hasOwn(SIZES, `${t.name}@${t.version}`) ? { ...t, dist: { unpackedSize: SIZES[`${t.name}@${t.version}`] } } : t))
+  const PACKAGES = ['node_modules/@s/same', 'node_modules/a', 'node_modules/b', 'node_modules/d', 'node_modules/x', 'packages/w/node_modules/a']
+  // What npm wrote, but what is in a package's own directory.
+  const laidOut = (written) => written.filter((line) => !PACKAGES.some((path) => line.startsWith(`${path}/`) && line !== `${path}/ 755`))
+
+  it('makes the directories and links of the tree, each package\'s empty, and fetches no tarball', async () => {
+    const calls = stubRegistry(sized())
+    const { vfs } = await buildNpmTree(given({ sizeEstimateOnly: true }))
+    assert.ok(calls.every((call) => !call.endsWith('.tgz')), calls.join(', '))
+    assert.equal(calls.length, 6)
+    assert.deepEqual(listing(vfs), laidOut(NPM_11))
+    stubRegistry(sized())
+    assert.deepEqual(listing((await buildNpmTree(given({ host: NPM10, sizeEstimateOnly: true }))).vfs), laidOut([...NPM_11, 'node_modules/@m/ 755'].sort()))
+  })
+
+  it('lists each package with the size its document names, and adds them up', async () => {
+    stubRegistry(sized())
+    const full = await buildNpmTree(given())
+    stubRegistry(sized())
+    const { installed, stats } = await buildNpmTree(given({ sizeEstimateOnly: true, metadata: false }))
+    assert.deepEqual(installed, full.installed.map((copy) => ({ ...copy, size: SIZES[`${copy.name}@${copy.version}`] })))
+    assert.equal(installed.find(({ name }) => name === 'b').size, undefined)
+    assert.deepEqual(stats, { ...full.stats, files: 0, bytes: 10 + 20 + 30 + 40 + 50 })
+  })
+
+  it('holds each document to the lockfile\'s integrity, whatever metadata says', async () => {
+    stubRegistry(sized().map((t) => (t.name === 'b' ? { ...t, dist: { integrity: T['c@1.0.0'].integrity } } : t)))
+    await refuses(given({ sizeEstimateOnly: true, metadata: false }), `getMeta: b@1.0.0 is ${T['c@1.0.0'].integrity} on the registry, not ${T['b@1.0.0'].integrity}`, 'packages["node_modules/b"]')
+  })
+
+  it('takes sizeEstimateOnly only as a boolean, and no Vfs to mount into', async () => {
+    await assert.rejects(buildNpmTree(given({ sizeEstimateOnly: 1 })), /^TypeError: sizeEstimateOnly must be a boolean, or left out$/u)
+    await assert.rejects(buildNpmTree(given({ sizeEstimateOnly: true, vfs: new Vfs() })), /^TypeError: vfs is not taken with sizeEstimateOnly, whose tree has no files to mount$/u)
+  })
+})

@@ -1,7 +1,7 @@
 // A registry tarball, fetched through @preventive/upstream, which checks the
 // integrity it is given, and checked again here, as that is the lockfile's;
 // and its version's document from the registry, where asked for, for what
-// it says of where the package comes from.
+// it says of where the package comes from, or alone, for its size.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { unpack } from '@preventive/archive/tar.js'
@@ -88,15 +88,20 @@ const aboutOf = ({ gitHead, repository, homepage, bugs }) => ({ commit: gitHead,
 export const NO_ABOUT = Object.freeze(aboutOf({}))
 
 // What a tree's options say of what it fetches from npm's registry:
-// `metadata`, true unless given false, and `cache`, as upstream's
-// CacheOptions take it, which keeps each version's document and tarball.
-export function fetchingOf({ metadata = true, cache }) {
+// `metadata`, true unless given false; `cache`, as upstream's CacheOptions
+// take it, which keeps each version's document and tarball; and
+// `sizeEstimateOnly`, false unless given true, for each version's document
+// alone (fetchSize).
+export function fetchingOf({ metadata = true, cache, sizeEstimateOnly = false }) {
   if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
   if (cache !== undefined && cache !== false && (typeof cache?.read !== 'function' || typeof cache?.write !== 'function')) {
     throw new TypeError('cache must be false, or a store with read and write, or left out')
   }
-  return { metadata, cache }
+  if (typeof sizeEstimateOnly !== 'boolean') throw new TypeError('sizeEstimateOnly must be a boolean, or left out')
+  return { metadata, cache, sizeEstimateOnly }
 }
+
+const SHA512 = /^sha512-[\d+/A-Za-z]{86}==$/u
 
 // Kept as `cache` says. Without a `given` integrity, as ownTarball lets one
 // through unpinned, the registry's is taken from the version document, which
@@ -109,7 +114,7 @@ export async function fetchTarball(name, version, given, where, { metadata, cach
   checkId(name, version, where)
   const meta = given === undefined ? await getMeta(name, version, { cache }) : undefined
   const integrity = given ?? meta.dist.integrity
-  if (!/^sha512-[\d+/A-Za-z]{86}==$/u.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
+  if (!SHA512.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   const dist = { tarball: tarballUrl(name, version), integrity }
   let about = NO_ABOUT
   if (meta !== undefined) about = aboutOf(meta)
@@ -119,4 +124,17 @@ export async function fetchTarball(name, version, given, where, { metadata, cach
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)
   const tar = await decompress(bytes, 'gzip', { limit: MAX_BYTES })
   return { bytes, tar, entries: unpack(tar), inflated: tar.length, integrity, about: said }
+}
+
+// The version's document alone, asked for as fetchTarball asks for it with
+// `metadata` and the lockfile's integrity, which getMeta holds the
+// registry's to; no tarball is fetched. `size` is the document's
+// unpackedSize, the bytes of the tarball's files as the registry counted
+// them, or undefined where it has none; `about` what it says of where the
+// package comes from.
+export async function fetchSize(name, version, integrity, where, { cache }) {
+  checkId(name, version, where)
+  if (!SHA512.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
+  const meta = await getMeta(name, version, { dist: { tarball: tarballUrl(name, version), integrity }, cache })
+  return { size: meta.unpackedSize, about: aboutOf(meta) }
 }

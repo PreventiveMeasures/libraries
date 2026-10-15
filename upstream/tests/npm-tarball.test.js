@@ -677,6 +677,23 @@ describe('getMeta, verifyDist, and getTarball with a dist', () => {
     }
   })
 
+  it("answers the unpackedSize the document's dist names, where it is a count, from the document kept too", async () => {
+    const answer = (unpackedSize) => {
+      globalThis.fetch = () => Promise.resolve(Response.json({ name: 'pkg', version: '1.0.0', unpackedSize: 7, dist: { ...DIST, unpackedSize } }))
+    }
+    for (const unpackedSize of [0, 1412415, Number.MAX_SAFE_INTEGER]) {
+      answer(unpackedSize)
+      assert.deepEqual(await getMeta('pkg', '1.0.0'), { name: 'pkg', version: '1.0.0', dist: DIST, unpackedSize })
+      const calls = offline()
+      assert.deepEqual(await getMeta('pkg', '1.0.0', { dist: DIST }), { name: 'pkg', version: '1.0.0', dist: DIST, unpackedSize })
+      assert.deepEqual(calls, [])
+    }
+    for (const unpackedSize of [undefined, null, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, '1412415', [1]]) {
+      answer(unpackedSize)
+      assert.deepEqual(await getMeta('pkg', '1.0.0'), { name: 'pkg', version: '1.0.0', dist: DIST }, String(unpackedSize))
+    }
+  })
+
   it('answers the repository, homepage and bugs the document names, in the shapes a package.json gives them', async () => {
     const answer = (fields) => {
       globalThis.fetch = () => Promise.resolve(Response.json({ name: 'pkg', version: '1.0.0', dist: DIST, ...fields }))

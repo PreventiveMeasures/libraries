@@ -1,5 +1,7 @@
 // The tree `npm ci --ignore-scripts` makes, but node_modules/.bin and npm's
-// node_modules/.package-lock.json.
+// node_modules/.package-lock.json. With `sizeEstimateOnly`, its directories
+// and links alone, each package's sized by its version document, of which
+// nothing is fetched but those documents.
 
 import { parseNpmLockfile } from '@preventive/lockfile/npm.js'
 import { Vfs } from '@preventive/vfs'
@@ -8,7 +10,7 @@ import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
-import { fetchingOf } from '../tarball.js'
+import { fetchSize, fetchingOf } from '../tarball.js'
 import { fixBins } from './bins.js'
 import { skippedOf } from './compat.js'
 import { graphOf } from './graph.js'
@@ -48,7 +50,8 @@ function checkSpecs(lockfile, host) {
   }
 }
 
-// Every URL is checked before any is fetched.
+// Every URL is checked before any is fetched. With `sizeEstimateOnly`, a
+// package's size alone, with no files.
 async function fetchAll(nodes, host, fetching) {
   const tarballs = new Map()
   for (const node of nodes) {
@@ -58,8 +61,9 @@ async function fetchAll(nodes, host, fetching) {
     tarballs.get(key).nodes.push(node)
   }
   const fetched = new Map()
+  const fetch = (tarball, where) => (fetching.sizeEstimateOnly ? fetchSize(tarball.name, tarball.version, tarball.integrity, where, fetching) : fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined, fetching))
   await eachConcurrently(tarballs.values(), async ({ tarball, where, nodes: copies }) => {
-    const pkg = { ...await fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined, fetching), integrity: tarball.integrity }
+    const pkg = { ...await fetch(tarball, where), integrity: tarball.integrity }
     for (const node of copies) fetched.set(node, pkg)
   }, ({ where }) => where)
   return { fetched, tarballs: tarballs.size }
@@ -77,11 +81,18 @@ function residueOf(nodes, skipped) {
   return dirs
 }
 
-function writeTree({ lockfile, kept, fetched, changed, residue }) {
+// With `sizeEstimateOnly`, each package's directory alone is made, and its
+// size counted.
+function writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly }) {
   const vfs = new Vfs()
   const stats = { files: 0, bytes: 0, links: 0 }
   for (const node of kept) {
-    const { files, dirs } = fetched.get(node)
+    const { files, dirs, size } = fetched.get(node)
+    if (sizeEstimateOnly) {
+      makeDirs(vfs, node.location)
+      stats.bytes += size ?? 0
+      continue
+    }
     const fixed = changed.get(node.location)
     writeFiles(vfs, node.location, { dirs, files: fixed === undefined ? files : new Map([...files].map(([path, file]) => [path, fixed.get(path) ?? file])) }, stats)
   }
@@ -108,6 +119,7 @@ export async function buildNpmTree(options) {
   const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   const fetching = fetchingOf(options ?? {})
+  if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
   const host = checkHost(given)
   const folded = host.os === 'darwin'
   const inputs = inputsOf(options ?? {}, folded)
@@ -125,15 +137,15 @@ export async function buildNpmTree(options) {
   const skipped = skippedOf(nodes, host, settings)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))
   const { fetched, tarballs } = await fetchAll(kept, host, fetching)
-  const changed = settings.binLinks ? fixBins(kept, fetched) : new Map()
+  const changed = settings.binLinks && !fetching.sizeEstimateOnly ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
-  const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue })
+  const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly: fetching.sizeEstimateOnly })
   const packages = Object.keys(lockfile.packages).length
   const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs, ...written }
   const installed = kept.map((node) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
-    const { integrity, about } = fetched.get(node)
-    return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer }
+    const { integrity, about, size } = fetched.get(node)
+    return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer, ...fetching.sizeEstimateOnly ? { size } : {} }
   })
   return { vfs: mount(vfs, into, folded), stats, installed }
 }
