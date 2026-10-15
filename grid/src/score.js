@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON } from './json.js'
+import { expectObject, extractJSON, numberOf } from './json.js'
 import { mapLimit } from './pool.js'
 import { blocks, candidateBlock, requestBlock, scoreSystem } from './prompts.js'
 
@@ -10,10 +10,12 @@ import { blocks, candidateBlock, requestBlock, scoreSystem } from './prompts.js'
 // The request is the shared prefix of every call here, so one request against two hundred
 // finalists writes it to the prompt cache once and reads it after.
 
+// A score that is not a number is re-asked, not coerced: null or a boolean would read as 0 or 1
+// and be cached as the finalist's verdict.
 function readScore(text) {
   const json = expectObject(extractJSON(text), 'score and reason')
-  const value = Number(json.score)
-  if (!Number.isFinite(value)) throw new TypeError('expected a numeric score')
+  const value = numberOf(json.score)
+  if (value === undefined) throw new TypeError('expected a numeric score')
   return { score: Math.min(100, Math.max(0, value)), reason: typeof json.reason === 'string' ? json.reason.trim() : '' }
 }
 

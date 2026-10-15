@@ -46,6 +46,15 @@ export function stringList(value) {
   return value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
 }
 
+// A score as the model sent it: a finite number, or a string holding one, which a model asked for a
+// number sometimes quotes. Anything else is undefined rather than coerced -- Number(null) is 0 and
+// Number(true) is 1, and either read as a score would demote a finalist for a malformed answer.
+export function numberOf(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+  if (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/u.test(value.trim())) return Number(value)
+  return undefined
+}
+
 // One line, for a row rendered into a page: a summary the model wrote with a newline in it would
 // otherwise read as two rows.
 export const oneLine = (text) => String(text ?? '').replace(/\s*\n\s*/gu, ' ').trim()

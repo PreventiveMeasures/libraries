@@ -8,6 +8,7 @@ import { setCacheDir } from '@preventive/ai'
 import { newTally } from '../src/call.js'
 import { compact } from '../src/compact.js'
 import { gate, proposeQuestions } from '../src/schema.js'
+import { score } from '../src/score.js'
 import { TASK } from './fake.js'
 
 // What each phase accepts as an answer, and what it sends back for another try. Driven through the
@@ -93,5 +94,17 @@ describe('compact', () => {
     const entries = [{ id: 'p1', text: 'p1: gaps' }, { id: 'p2', text: 'p2: blank' }]
     const rows = await compact({ ...common(), focus: FOCUS, questions, entries, concurrency: 1, ask })
     assert.deepEqual(rows.map((row) => row.answers), [['red', 'unknown', 'large'], ['a', 'unknown', 'unknown']])
+  })
+})
+
+describe('score', () => {
+  before(() => setCacheDir(CACHE_DIR))
+
+  it('re-asks a score that is not a number, and reads a quoted one', async () => {
+    const ask = scripted(['{"score":null,"reason":"none"}', '{"score":"85","reason":"quoted"}', '{"score":true,"reason":"bool"}', '{"score":12.5,"reason":"second"}'])
+    const candidates = [{ row: { id: 's1', entry: 's1', summary: '' }, votes: 2, score: 8 }, { row: { id: 's2', entry: 's2', summary: '' }, votes: 1, score: 5 }]
+    const ranked = await score({ ...common(), request: { id: 'sr', text: 'r' }, candidates, concurrency: 1, ask })
+    assert.deepEqual(ranked.map((r) => [r.id, r.score, r.reason]), [['s1', 85, 'quoted'], ['s2', 12.5, 'second']])
+    assert.equal(ask.seen.length, 4)
   })
 })

@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON } from './json.js'
+import { expectObject, extractJSON, numberOf } from './json.js'
 import { mapLimit } from './pool.js'
 import { blocks, pageBlock, requestBlock, searchSystem } from './prompts.js'
 import { hashSeed, paginate, random, shuffle } from './random.js'
@@ -17,8 +17,8 @@ import { hashSeed, paginate, random, shuffle } from './random.js'
 // Scores are kept inside the asked range; a pick with no readable score is still a pick, at the
 // middle of it.
 function clampScore(value) {
-  const score = Number(value)
-  return Number.isFinite(score) ? Math.min(10, Math.max(1, score)) : 5
+  const score = numberOf(value)
+  return score === undefined ? 5 : Math.min(10, Math.max(1, score))
 }
 
 // The picks as ordinals on this page: unknown, repeated and out-of-range ones dropped, and the
@@ -55,8 +55,12 @@ const layout = (page, request, requestFirst) => (requestFirst ? blocks(requestBl
 // and 'full' for a pass over the entries themselves, paged by characters as well as by count --
 // the count bound alone would put a hundred pages of text on one page, and the character bound
 // alone would put thousands of empty entries there.
-export async function search({ task, request, rows, columns = [], model, mode = 'summary', pageSize = 200, pageChars = 80_000, pick = 0.2, rounds = 3, minVotes = 2, seed = 0, requestFirst = false, concurrency = 20, think, effort, tally, ask, label = 'search' }) {
+//
+// `minVotes` is a majority of the rounds unless given, and never more than the rounds: a threshold
+// no row can reach would empty every stage, and a run that asked for one round asked for one vote.
+export async function search({ task, request, rows, columns = [], model, mode = 'summary', pageSize = 200, pageChars = 80_000, pick = 0.2, rounds = 3, minVotes = Math.ceil(rounds / 2), seed = 0, requestFirst = false, concurrency = 20, think, effort, tally, ask, label = 'search' }) {
   const systemPrompt = searchSystem({ task, mode })
+  const needed = Math.max(1, Math.min(minVotes, rounds))
   const tallies = new Map(rows.map((row) => [row.id, { row, votes: 0, total: 0 }]))
   const paging = mode === 'full' ? { size: pageSize, maxWeight: pageChars, weigh: (row) => row.entry.length + FULL_ROW_FRAME } : { size: pageSize }
   let pages = 0
@@ -78,7 +82,7 @@ export async function search({ task, request, rows, columns = [], model, mode = 
     })
   }
   const survivors = [...tallies.values()]
-    .filter((entry) => entry.votes >= minVotes)
+    .filter((entry) => entry.votes >= needed)
     .map(({ row, votes, total }) => ({ row, votes, score: total / votes }))
     .sort((a, b) => b.votes - a.votes || b.score - a.score || a.row.id.localeCompare(b.row.id))
   return { survivors, pages }

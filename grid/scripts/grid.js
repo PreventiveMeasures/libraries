@@ -97,6 +97,13 @@ const number = (value, name, fallback) => {
   return Number(value)
 }
 
+// A count: whole, since a fraction of a result would be silently truncated where it is used.
+const whole = (value, name) => {
+  const count = number(value, name)
+  if (!Number.isInteger(count)) fail(`--${name} takes a whole number, got ${value}`)
+  return count
+}
+
 function report(tally, elapsed) {
   const { usage, calls, hits, misses } = tally
   note(`${(elapsed / 1000).toFixed(1)}s  calls=${calls} cache hits=${hits} misses=${misses}  in=${usage.input} out=${usage.output} cacheRead=${usage.cacheRead}  $${usage.cost.toFixed(4)}`)
@@ -123,15 +130,13 @@ async function build(values, common) {
 
 async function selectOne(values, common) {
   if (!values.table || !values.request) fail(`select needs --table and --request\n\n${USAGE}`)
+  // The flags before the files: a flag that cannot be read is the caller's to fix first.
+  const topK = values.top === undefined ? undefined : whole(values.top, 'top')
+  const final = number(values.final, 'final', 0.01)
   const table = readJSON(values.table)
   const request = { id: values.id ?? values.request, text: readFileSync(values.request, 'utf8').trim() }
   const started = Date.now()
-  const result = await select({
-    ...common, ...table, request,
-    topK: values.top === undefined ? undefined : number(values.top, 'top'),
-    final: number(values.final, 'final', 0.01),
-    useGate: !values['no-gate'],
-  })
+  const result = await select({ ...common, ...table, request, topK, final, useGate: !values['no-gate'] })
   const { results, gate, stages, fullStages, tally } = result
   if (gate.reason) note(`gate: ${gate.reason}${gate.extraQuestions.length ? ` (+${gate.extraQuestions.length} columns)` : ''}${gate.fullScan ? ' (full scan)' : ''}`)
   for (const s of [...stages, ...fullStages]) note(`stage ${s.stage}: ${s.rows} rows -> ${s.survivors} over ${s.pages} pages`)

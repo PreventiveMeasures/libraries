@@ -34,6 +34,16 @@ describe('search', () => {
     assert.ok(survivors.every((s) => s.votes === 3 && s.score === 9))
   })
 
+  it('needs a majority of the rounds by default, and never more votes than there are rounds', async () => {
+    const one = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 1 })
+    assert.deepEqual(one.survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+    assert.ok(one.survivors.every((s) => s.votes === 1))
+    const four = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 4 })
+    assert.ok(four.survivors.every((s) => s.votes === 4), 'a majority of four is two, and every match has four')
+    const over = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 2, minVotes: 5 })
+    assert.deepEqual(over.survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+  })
+
   it('renders the page as the shared prefix by default, and the request first when asked', async () => {
     const log = []
     await search({ ...common(log), rows: rowsOf(5), rounds: 1 })
@@ -58,7 +68,7 @@ describe('search', () => {
 
   it('drops unknown, repeated and out-of-range ordinals and keeps the best picks under the cap', async () => {
     const rows = rowsOf(5, [])
-    const forced = JSON.stringify({ picks: [{ n: '2', score: 3 }, { n: 2, score: 9 }, { n: 0 }, { n: 99 }, { n: 4, score: 'x' }, { n: 1, score: 7 }, { n: 1.5 }] })
+    const forced = JSON.stringify({ picks: [{ n: '2', score: 3 }, { n: 2, score: 9 }, { n: 0 }, { n: 99 }, { n: 4, score: null }, { n: 1, score: '7' }, { n: 1.5 }] })
     const log = []
     const { survivors } = await search({ ...common(log), ask: fakeAsk({ log, override: () => forced }), rows, pick: 0.4, rounds: 1, minVotes: 1, seed: 7 })
     // The page is round 0 of seed 7, so the ordinals map back through the same shuffle.

@@ -126,9 +126,10 @@ export interface Candidate {
 
 // How a search pages and votes. `pageSize` rows per page (200) in summary mode, `pageChars`
 // characters per page (80000) in full mode; `pick` the ceiling on picks per page as a fraction of
-// it (0.2); `rounds` shuffles per stage (3) and `minVotes` the picks a row needs to survive one
-// (2). `requestFirst` puts the request ahead of the page as the shared prompt-cache prefix; the
-// first stage defaults to the page first, every later stage to the request first.
+// it (0.2); `rounds` shuffles per stage (3) and `minVotes` the picks a row needs to survive one: a
+// majority of the rounds when omitted, and never more than the rounds. `requestFirst` puts the
+// request ahead of the page as the shared prompt-cache prefix; the first stage defaults to the
+// page first, every later stage to the request first.
 export interface SearchOptions {
   pageSize?: number | undefined
   pageChars?: number | undefined
