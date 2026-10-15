@@ -8,7 +8,7 @@ import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
 import {
   DEFAULT_MODEL, closeProvider, isRecognizedModel, resolveModel, resolveThinkEffort, setCacheDir, setFetchConcurrency,
-  setProvider, supportedModels,
+  setProvider, supportedModels, validateModel,
 } from '@preventive/ai'
 import { buildTable, select } from '../index.js'
 
@@ -26,8 +26,11 @@ for one request against a table. Both read the response cache, so a rerun of eit
       --strong <id>     select: the gate's and the finalists' model (default: --model)
       --search <id>     select: the page model (default: --strong)
       --cheap <id>      select: the whole-dataset model (default: --search)
-  -p, --provider <name> anthropic, openai, openrouter, moonshot, ollama, chrome. When omitted: the
-                        models' own provider if it serves every model of the run, else openrouter
+  -p, --provider <name> anthropic, openai, openrouter, moonshot, ollama, chrome. When omitted, the
+                        first that serves every model of the run: the models' own, then openrouter,
+                        then ollama
+      --free            allow :free endpoints, which are OpenRouter's; without it a :free model is
+                        refused, and with it every other model is
       --cache-dir <dir> the response cache (default: ./grid-cache)
       --concurrency <n> calls in flight at once (default: 20)
       --top <n>         select: how many results to print (default: all finalists)
@@ -42,12 +45,14 @@ for one request against a table. Both read the response cache, so a rerun of eit
 const PROVIDER_FOR = { anthropic: 'anthropic', chrome: 'chrome', moonshotai: 'moonshot', openai: 'openai' }
 
 // Whether a provider serves a model, by the layer's own listing: a namespace's adapter reaches
-// most of its rows but not all (a row marked OpenRouter-only), and OpenRouter reaches every hosted
-// row of every namespace. Listed once per provider asked about.
+// most of its rows but not all (a row marked OpenRouter-only), OpenRouter reaches every hosted row
+// of every namespace and, with --free, the free endpoints, and Ollama the local builds its tag
+// table maps. Listed once per provider and mode asked about.
 const served = new Map()
-function serves(provider, id) {
-  if (!served.has(provider)) served.set(provider, new Set(supportedModels({ provider }).map((row) => row.id)))
-  return served.get(provider).has(id)
+function serves(provider, id, free) {
+  const key = `${provider}\u0000${free}`
+  if (!served.has(key)) served.set(key, new Set(supportedModels({ provider, free }).map((row) => row.id)))
+  return served.get(key).has(id)
 }
 
 const fail = (message) => { process.stderr.write(`grid.js: ${message}\n`); process.exit(2) }
@@ -67,6 +72,7 @@ function parse(argv) {
       effort: { type: 'string' },
       entries: { type: 'string' },
       final: { type: 'string' },
+      free: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
       id: { type: 'string' },
       json: { type: 'boolean' },
@@ -153,19 +159,24 @@ async function main(argv) {
   // One provider serves a whole run (the layer's is process-wide), so it is inferred from the
   // models the command will actually send -- select's three, not the --model they default from.
   const used = command === 'build' ? [model] : [...new Set(Object.values(models))]
+  const free = Boolean(values.free)
   for (const id of used) {
     // A typo would otherwise reach the wire as an unknown id and come back as a provider error.
     if (!isRecognizedModel(id)) fail(`unknown model ${id}; check the spelling, or add a row for it to ai's model table`)
+    // The layer's own gate on free endpoints and retired models, with its own wording.
+    try { validateModel(id, { free }) } catch (err) { fail(err.message) }
     // --think on a model that cannot reason, or --effort without --think, is refused here by name
     // rather than dropped on the way to the wire, which is what the pipeline's own normalisation
     // would do for a run that mixes models.
     try { resolveThinkEffort(id, values.think, values.effort) } catch (err) { fail(`${err.message} (${id})`) }
   }
-  // The provider named, else the first of the models' own and OpenRouter that serves every model
-  // of the run: a row its namespace's adapter does not reach goes through OpenRouter, and so does
-  // a run that mixes namespaces. Nothing serving them all is refused rather than guessed.
-  const candidates = [...new Set([...used.map((id) => PROVIDER_FOR[id.split('/')[0]]).filter(Boolean), 'openrouter'])]
-  const provider = values.provider ?? candidates.find((name) => used.every((id) => serves(name, id)))
+  // The provider named, else the first of the models' own, OpenRouter and Ollama that serves every
+  // model of the run: a row its namespace's adapter does not reach goes through OpenRouter, and so
+  // does a run that mixes namespaces; a local build no hosted route serves goes to Ollama. A bare
+  // id that is both a hosted row and an Ollama tag is the hosted one, so ollama has to be named for
+  // it, as ai's own script says. Nothing serving them all is refused rather than guessed.
+  const candidates = [...new Set([...used.map((id) => PROVIDER_FOR[id.split('/')[0]]).filter(Boolean), 'openrouter', 'ollama'])]
+  const provider = values.provider ?? candidates.find((name) => used.every((id) => serves(name, id, free)))
   if (!provider) fail(`no one provider serves ${used.join(', ')}; name --provider`)
   const concurrency = number(values.concurrency, 'concurrency', 20)
   setCacheDir(values['cache-dir'] ?? './grid-cache')
