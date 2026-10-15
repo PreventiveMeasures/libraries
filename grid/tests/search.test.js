@@ -1,0 +1,195 @@
+import assert from 'node:assert/strict'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { after, before, describe, it } from 'node:test'
+
+import { setCacheDir } from '@preventive/ai'
+import { newTally } from '../src/call.js'
+import { hashSeed, random, shuffle } from '../src/random.js'
+import { narrow, search } from '../src/search.js'
+import { TASK, entriesOf, fakeAsk } from './fake.js'
+
+const CACHE_DIR = join(tmpdir(), `grid-search-test-${process.pid}`)
+after(async () => { await rm(CACHE_DIR, { recursive: true, force: true }) })
+
+const MATCHES = ['e3', 'e8', 'e15', 'e21', 'e30', 'e37']
+const rowsOf = (count, matches = MATCHES) => entriesOf(count, matches).map(({ id, text }) => ({
+  id, taskId: TASK.id, entry: text, summary: `Summary of ${id}${matches.includes(id) ? ' MATCH' : ''}`, answers: ['red', 'big'],
+}))
+const COLUMNS = [{ id: 'q1', text: 'Colour?' }, { id: 'q2', text: 'Size?' }]
+const REQUEST = { id: 'r1', text: 'red things' }
+
+const common = (log) => ({ task: TASK, request: REQUEST, columns: COLUMNS, model: 'test/search', tally: newTally(), ask: fakeAsk({ log }) })
+
+// A model whose rounds never agree: the k-th call picks rows e(3k+1) to e(3k+3), wherever the
+// shuffle put them on the page, each scored 10 minus its number, so e1 ranks first among the
+// picked and e10 is never picked at all.
+const disjointRounds = () => {
+  let calls = 0
+  return (request) => {
+    const page = request.userContent.find((block) => block.startsWith('Page of'))
+    const round = calls++ % 3
+    const wanted = new Set([1, 2, 3].map((i) => `e${round * 3 + i}`))
+    const picks = [...page.matchAll(/^(\d+)\. Summary of (e\d+)/gmu)]
+      .filter((m) => wanted.has(m[2]))
+      .map((m) => ({ n: Number(m[1]), score: 10 - Number(m[2].slice(1)) }))
+    return JSON.stringify({ picks })
+  }
+}
+
+describe('search', () => {
+  before(() => setCacheDir(CACHE_DIR))
+
+  it('pages every round, and a row survives on votes across the rounds', async () => {
+    const log = []
+    const { survivors, pages } = await search({ ...common(log), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 3, minVotes: 2 })
+    assert.equal(pages, 12)
+    assert.equal(log.length, 12)
+    assert.deepEqual(survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+    assert.ok(survivors.every((s) => s.votes === 3 && s.score === 9))
+  })
+
+  it('needs a majority of the rounds by default, and never more votes than there are rounds', async () => {
+    const one = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 1 })
+    assert.deepEqual(one.survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+    assert.ok(one.survivors.every((s) => s.votes === 1))
+    const four = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 4 })
+    assert.ok(four.survivors.every((s) => s.votes === 4), 'a majority of four is two, and every match has four')
+    const over = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 2, minVotes: 5 })
+    assert.deepEqual(over.survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+  })
+
+  it('fills to `fill` from the rows picked below the threshold, never from rows nobody picked', async () => {
+    // One page of ten, three rounds, and a model that picks a different three ROWS each round (by
+    // row, since every round shuffles the page): every picked row ends on one vote, short of the
+    // two the threshold wants, and e10 is never picked.
+    const rows = rowsOf(10, [])
+    const strict = await search({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, pageSize: 10, pick: 0.3, rounds: 3, seed: 1 })
+    assert.deepEqual(strict.survivors, [])
+    const filled = await search({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, pageSize: 10, pick: 0.3, rounds: 3, seed: 2, fill: 5 })
+    assert.equal(filled.survivors.length, 5)
+    assert.ok(filled.survivors.every((s) => s.votes === 1))
+    assert.deepEqual(filled.survivors.map((s) => [s.row.id, s.score]), [['e1', 9], ['e2', 8], ['e3', 7], ['e4', 6], ['e5', 5]], 'the best of the picked rows, in rank order')
+    const capped = await search({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, pageSize: 10, pick: 0.3, rounds: 3, seed: 3, fill: 20 })
+    assert.equal(capped.survivors.length, 9, 'nine rows were picked at all; the tenth never is')
+  })
+
+  it('renders the page as the shared prefix by default, and the request first when asked', async () => {
+    const log = []
+    await search({ ...common(log), rows: rowsOf(5), rounds: 1 })
+    assert.match(log[0].userContent[0], /^Page of 5 rows; pick at most 1\.\nColumns: q1 = Colour\?; q2 = Size\?\nRows:\n1\. Summary of e\d+/u)
+    assert.match(log[0].userContent[1], /^Request:\nred things$/u)
+    // Joined as a marker-free route sends them, the blocks still read apart.
+    assert.match(log[0].userContent.join(''), /\n\d+\. Summary of e\d+ \|\| q1: red \| q2: big\n\nRequest:\nred things$/u)
+    const again = []
+    await search({ ...common(again), rows: rowsOf(5), rounds: 1, requestFirst: true })
+    assert.match(again[0].userContent[0], /^Request:/u)
+    assert.match(again[0].userContent[1], /^Page of/u)
+    assert.match(again[0].userContent.join(''), /^Request:\nred things\n\nPage of/u)
+  })
+
+  it('shows ordinals and answers by column, never the row id', async () => {
+    const log = []
+    await search({ ...common(log), rows: rowsOf(3, []), rounds: 1 })
+    const page = log[0].userContent[0]
+    assert.match(page, /\n2\. Summary of e\d+ \|\| q1: red \| q2: big\n/u)
+    assert.doesNotMatch(page, /e\d+:/u, 'entry text is not on a summary page')
+  })
+
+  it('drops unknown, repeated and out-of-range ordinals and keeps the best picks under the cap', async () => {
+    const rows = rowsOf(5, [])
+    // `true` and `[1]` lead, so that a parser coercing them to 1 would claim row 1 at score 10
+    // before the real pick of it at 7 and fail the assertion below.
+    const forced = JSON.stringify({ picks: [{ n: true, score: 10 }, { n: [1], score: 10 }, { n: '2', score: 3 }, { n: 2, score: 9 }, { n: 0 }, { n: 99 }, { n: 4, score: null }, { n: 1, score: '7' }, { n: 1.5 }] })
+    const log = []
+    const { survivors } = await search({ ...common(log), ask: fakeAsk({ log, override: () => forced }), rows, pick: 0.4, rounds: 1, minVotes: 1, seed: 7 })
+    // The page is round 0 of seed 7, so the ordinals map back through the same shuffle.
+    const page = shuffle(rows, random(hashSeed('7\u00000')))
+    assert.deepEqual(survivors.map((s) => [s.row.id, s.score]), [[page[0].id, 7], [page[3].id, 5]])
+  })
+
+  it('pages a full-text pass by characters, with the entry itself on the page', async () => {
+    const log = []
+    const rows = rowsOf(40)
+    const { survivors, pages } = await search({ ...common(log), rows, mode: 'full', pageChars: 90, pick: 1, rounds: 1, minVotes: 1 })
+    assert.ok(pages >= 20 && pages < 40, `one or two entries fit a page of ninety characters, got ${pages} pages for 40 rows`)
+    assert.match(log[0].userContent[0], /Rows:\n\[1\]\ne\d+: entry number \d+/u)
+    assert.match(log[0].systemPrompt, /Each row is one full entry/u)
+    // What is actually sent stays inside the budget, framing included, unless one entry alone exceeds it.
+    for (const { userContent } of log) {
+      const body = userContent[0].slice(userContent[0].indexOf('Rows:\n') + 6)
+      assert.ok(body.length <= 90 || !body.includes('\n[2]\n'), `a page of ${body.length} characters`)
+    }
+    assert.deepEqual(survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+  })
+
+  it('bounds a full-text page by rows as well, so empty entries do not all land on one page', async () => {
+    const rows = rowsOf(120, []).map((row) => ({ ...row, entry: '' }))
+    const { pages } = await search({ ...common([]), rows, mode: 'full', pageSize: 30, pageChars: 10_000, rounds: 1 })
+    assert.equal(pages, 4)
+  })
+})
+
+describe('narrow', () => {
+  before(() => setCacheDir(CACHE_DIR))
+
+  it('stages until the target is met, stopping when a stage no longer shrinks the set', async () => {
+    const log = []
+    const { candidates, stages } = await narrow({ ...common(log), rows: rowsOf(40), target: 5, pageSize: 10, pick: 1, rounds: 2, minVotes: 2 })
+    assert.deepEqual(stages.map((s) => [s.rows, s.survivors, s.pages]), [[40, 6, 8], [6, 6, 2]])
+    assert.equal(candidates.length, 5)
+    assert.ok(candidates.every((c) => MATCHES.includes(c.row.id) && c.votes === 2))
+    // The first stage shares its pages across requests; the second is this request's own.
+    assert.match(log[0].userContent[0], /^Page of/u)
+    assert.match(log.at(-1).userContent[0], /^Request:/u)
+  })
+
+  it('never lets a stage cut below the target: the pick ceiling rises to what the target needs', async () => {
+    // 21 rows over a target of 20 would be capped at ceil(21 * 0.2) = 5 picks a round, and at most
+    // seven survivors over three rounds, if the ceiling were the pick fraction alone.
+    const log = []
+    const { candidates, stages } = await narrow({ ...common(log), rows: rowsOf(21), target: 20, pick: 0.2, rounds: 3, minVotes: 2 })
+    assert.match(log[0].userContent[0], /^Page of 21 rows; pick at most 20\./u)
+    const within = MATCHES.filter((id) => Number(id.slice(1)) <= 21)
+    assert.deepEqual(stages.map((s) => [s.rows, s.survivors]), [[21, within.length]])
+    assert.deepEqual(candidates.map((c) => c.row.id).sort(), within.sort())
+    // Where the fraction already allows the target, it is left alone.
+    const wide = []
+    await narrow({ ...common(wide), rows: rowsOf(40), target: 5, pageSize: 10, pick: 0.5, rounds: 1, maxStages: 1 })
+    assert.match(wide[0].userContent[0], /^Page of 10 rows; pick at most 5\./u)
+  })
+
+  it('hands the target on from below-threshold picks when the rounds never agree', async () => {
+    const rows = rowsOf(10, [])
+    const { candidates, stages } = await narrow({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, target: 5, pageSize: 10, rounds: 3 })
+    assert.deepEqual(stages.map((s) => [s.rows, s.survivors]), [[10, 5]])
+    assert.equal(candidates.length, 5)
+    assert.ok(candidates.every((c) => c.votes === 1))
+  })
+
+  it('returns nothing when the first stage picks nothing', async () => {
+    const { candidates, stages } = await narrow({ ...common([]), rows: rowsOf(20, []), target: 5, pageSize: 10, rounds: 1, minVotes: 1 })
+    assert.deepEqual(candidates, [])
+    assert.equal(stages.length, 1)
+  })
+
+  it('skips the search when the rows already fit the target', async () => {
+    const log = []
+    const { candidates, stages } = await narrow({ ...common(log), rows: rowsOf(4), target: 5 })
+    assert.deepEqual(stages, [])
+    assert.equal(log.length, 0)
+    assert.deepEqual(candidates.map((c) => c.votes), [0, 0, 0, 0])
+  })
+
+  it('renders the same first-stage pages for two requests, seeded from the rows alone', async () => {
+    const pagesFor = async (request) => {
+      const log = []
+      await narrow({ ...common(log), request, rows: rowsOf(30), target: 5, pageSize: 10, rounds: 2, maxStages: 1 })
+      return log.map((r) => r.userContent[0]).sort()
+    }
+    const a = await pagesFor({ id: 'ra', text: 'first request' })
+    const b = await pagesFor({ id: 'rb', text: 'a quite different second request' })
+    assert.deepEqual(a, b)
+  })
+})

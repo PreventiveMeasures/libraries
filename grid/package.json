@@ -1,0 +1,58 @@
+{
+  "name": "@preventive/grid",
+  "version": "0.0.0",
+  "description": "Compacted-table search over a large dataset: summarize once per task, select per request",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "index.d.ts",
+    "index.js",
+    "src/call.js",
+    "src/compact.js",
+    "src/json.js",
+    "src/pool.js",
+    "src/prompts.js",
+    "src/random.js",
+    "src/schema.js",
+    "src/score.js",
+    "src/search.js",
+    "src/select.js",
+    "src/table.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "grid"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/grid",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@preventive/ai": "workspace:*"
+  }
+}
