@@ -22,6 +22,22 @@ const REQUEST = { id: 'r1', text: 'red things' }
 
 const common = (log) => ({ task: TASK, request: REQUEST, columns: COLUMNS, model: 'test/search', tally: newTally(), ask: fakeAsk({ log }) })
 
+// A model whose rounds never agree: the k-th call picks rows e(3k+1) to e(3k+3), wherever the
+// shuffle put them on the page, each scored 10 minus its number, so e1 ranks first among the
+// picked and e10 is never picked at all.
+const disjointRounds = () => {
+  let calls = 0
+  return (request) => {
+    const page = request.userContent.find((block) => block.startsWith('Page of'))
+    const round = calls++ % 3
+    const wanted = new Set([1, 2, 3].map((i) => `e${round * 3 + i}`))
+    const picks = [...page.matchAll(/^(\d+)\. Summary of (e\d+)/gmu)]
+      .filter((m) => wanted.has(m[2]))
+      .map((m) => ({ n: Number(m[1]), score: 10 - Number(m[2].slice(1)) }))
+    return JSON.stringify({ picks })
+  }
+}
+
 describe('search', () => {
   before(() => setCacheDir(CACHE_DIR))
 
@@ -42,6 +58,21 @@ describe('search', () => {
     assert.ok(four.survivors.every((s) => s.votes === 4), 'a majority of four is two, and every match has four')
     const over = await search({ ...common([]), rows: rowsOf(40), pageSize: 10, pick: 0.5, rounds: 2, minVotes: 5 })
     assert.deepEqual(over.survivors.map((s) => s.row.id).sort(), [...MATCHES].sort())
+  })
+
+  it('fills to `fill` from the rows picked below the threshold, never from rows nobody picked', async () => {
+    // One page of ten, three rounds, and a model that picks a different three ROWS each round (by
+    // row, since every round shuffles the page): every picked row ends on one vote, short of the
+    // two the threshold wants, and e10 is never picked.
+    const rows = rowsOf(10, [])
+    const strict = await search({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, pageSize: 10, pick: 0.3, rounds: 3, seed: 1 })
+    assert.deepEqual(strict.survivors, [])
+    const filled = await search({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, pageSize: 10, pick: 0.3, rounds: 3, seed: 2, fill: 5 })
+    assert.equal(filled.survivors.length, 5)
+    assert.ok(filled.survivors.every((s) => s.votes === 1))
+    assert.deepEqual(filled.survivors.map((s) => [s.row.id, s.score]), [['e1', 9], ['e2', 8], ['e3', 7], ['e4', 6], ['e5', 5]], 'the best of the picked rows, in rank order')
+    const capped = await search({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, pageSize: 10, pick: 0.3, rounds: 3, seed: 3, fill: 20 })
+    assert.equal(capped.survivors.length, 9, 'nine rows were picked at all; the tenth never is')
   })
 
   it('renders the page as the shared prefix by default, and the request first when asked', async () => {
@@ -127,6 +158,14 @@ describe('narrow', () => {
     const wide = []
     await narrow({ ...common(wide), rows: rowsOf(40), target: 5, pageSize: 10, pick: 0.5, rounds: 1, maxStages: 1 })
     assert.match(wide[0].userContent[0], /^Page of 10 rows; pick at most 5\./u)
+  })
+
+  it('hands the target on from below-threshold picks when the rounds never agree', async () => {
+    const rows = rowsOf(10, [])
+    const { candidates, stages } = await narrow({ ...common([]), ask: fakeAsk({ override: disjointRounds() }), rows, target: 5, pageSize: 10, rounds: 3 })
+    assert.deepEqual(stages.map((s) => [s.rows, s.survivors]), [[10, 5]])
+    assert.equal(candidates.length, 5)
+    assert.ok(candidates.every((c) => c.votes === 1))
   })
 
   it('returns nothing when the first stage picks nothing', async () => {

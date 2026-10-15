@@ -143,13 +143,16 @@ export interface SearchOptions {
 // One stage: `rounds` shuffles of `rows` (seeded by `seed`, 0 when omitted), paged, every page
 // asked once; the rows with enough votes come back best first, with how many pages were asked.
 // `columns` names the answers each row carries, in order; `mode` 'full' pages the entries
-// themselves instead of the summaries.
+// themselves instead of the summaries. `fill` is the fewest survivors to hand on when the rows
+// allow: when fewer reach the vote threshold, the best of the rest that were picked at all follow
+// them, up to it; a row nobody picked is never added.
 export declare function search(options: PhaseOptions & SearchOptions & {
   task: Task
   request: Entry
   rows: Row[]
   columns?: Question[] | undefined
   mode?: 'summary' | 'full' | undefined
+  fill?: number | undefined
   seed?: number | undefined
   label?: string | undefined
 }): Promise<{ survivors: Candidate[], pages: number }>
@@ -165,7 +168,9 @@ export interface Stage {
 // Stages of search() until at most `target` rows are left, or `maxStages` (6) have run, or a stage
 // stopped shrinking the set. Shuffles are seeded from the task and the rows of each stage, never
 // from the request, so every request sees the same first-stage pages. A stage's pick ceiling is
-// raised above `pick` when retaining `target` rows needs more, so no stage cuts below the target.
+// raised above `pick` when retaining `target` rows needs more, and a stage fills to `target` from
+// the rows picked below the vote threshold when too few reached it, so no stage cuts below the
+// target while rows that were picked at all remain.
 export declare function narrow(options: PhaseOptions & SearchOptions & {
   task: Task
   request: Entry

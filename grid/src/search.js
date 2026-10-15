@@ -60,7 +60,13 @@ const layout = (page, request, requestFirst) => (requestFirst ? blocks(requestBl
 //
 // `minVotes` is a majority of the rounds unless given, and never more than the rounds: a threshold
 // no row can reach would empty every stage, and a run that asked for one round asked for one vote.
-export async function search({ task, request, rows, columns = [], model, mode = 'summary', pageSize = 200, pageChars = 80_000, pick = 0.2, rounds = 3, minVotes = Math.ceil(rounds / 2), seed = 0, requestFirst = false, concurrency = 20, think, effort, tally, ask, label = 'search' }) {
+//
+// `fill` (optional) is the fewest survivors the stage should hand on when it can: votes are a
+// relative signal, and rounds that each picked a different set leave every row short of the
+// threshold with nothing to show for a request that may still have weak matches. When fewer rows
+// reach the threshold than `fill`, the best of the rest that were picked at all follow them in rank
+// order, up to it; a row nobody picked in any round is never added.
+export async function search({ task, request, rows, columns = [], model, mode = 'summary', pageSize = 200, pageChars = 80_000, pick = 0.2, rounds = 3, minVotes = Math.ceil(rounds / 2), fill, seed = 0, requestFirst = false, concurrency = 20, think, effort, tally, ask, label = 'search' }) {
   const systemPrompt = searchSystem({ task, mode })
   const needed = Math.max(1, Math.min(minVotes, rounds))
   const tallies = new Map(rows.map((row) => [row.id, { row, votes: 0, total: 0 }]))
@@ -83,10 +89,14 @@ export async function search({ task, request, rows, columns = [], model, mode = 
       }
     })
   }
-  const survivors = [...tallies.values()]
-    .filter((entry) => entry.votes >= needed)
+  // Every row picked at all, best first; the ones at the threshold lead, so the survivors are a
+  // prefix of this and the fill, when there is one, the entries right after them.
+  const ranked = [...tallies.values()]
+    .filter((entry) => entry.votes > 0)
     .map(({ row, votes, total }) => ({ row, votes, score: total / votes }))
     .sort((a, b) => b.votes - a.votes || b.score - a.score || a.row.id.localeCompare(b.row.id))
+  const reached = ranked.filter((entry) => entry.votes >= needed).length
+  const survivors = ranked.slice(0, Math.max(reached, fill ?? 0))
   return { survivors, pages }
 }
 
@@ -97,7 +107,9 @@ export async function search({ task, request, rows, columns = [], model, mode = 
 // A stage's pick ceiling is `pick` of each page, or what retaining `target` rows needs if that is
 // more: the ceiling is there to stop a page of nothing from promoting its least bad rows, not to
 // cut a stage below the number the full-text reading is owed. Left at `pick` alone, a table just
-// above the target would be cut to a fifth of a page's worth on its way to it.
+// above the target would be cut to a fifth of a page's worth on its way to it. And a stage fills
+// to `target` from the rows picked below the vote threshold when too few reached it, since the
+// ceiling bounds the picks, not how many of them agree across the rounds.
 //
 // A later stage that picks nothing does not empty the result: the survivors it was handed are the
 // best the earlier stages found, ranked, and the full-text stage will judge them. Only a FIRST
@@ -109,7 +121,7 @@ export async function narrow({ rows, target, maxStages = 6, requestFirst = false
     const ids = current.map((entry) => entry.row.id)
     const seed = hashSeed(`${opts.task.id}\u0000${stage}\u0000${ids.join('\u0000')}`)
     const { survivors, pages } = await search({
-      ...opts, rows: current.map((entry) => entry.row), seed, pick: Math.max(pick, target / current.length),
+      ...opts, rows: current.map((entry) => entry.row), seed, pick: Math.max(pick, target / current.length), fill: target,
       requestFirst: requestFirst || stage > 0, label: `${opts.label ?? 'search'} stage ${stage}`,
     })
     stages.push({ stage, rows: current.length, survivors: survivors.length, pages })
