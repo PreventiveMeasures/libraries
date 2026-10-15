@@ -363,6 +363,18 @@ ${['c@2.0.0', 'c@2.1.0', 'x@1.0.0', 'y@1.0.0'].map((id) => `  ${id}:\n    resolu
     assert.equal(vfs.readText('/node_modules/.pnpm/a@1.0.0_c@2.1.0/node_modules/a/index.js'), 'a')
   })
 
+  // pnpm 9 to 12 unpack a .gitignore as it is, beside any .npmignore, where
+  // npm renames it (npm.test.js).
+  it('keeps a .gitignore as pnpm unpacks it, beside a .npmignore', async () => {
+    const ignores = await tarball('g', '1.0.0', { '.gitignore': 'g', 'a/.npmignore': 'an', 'a/.gitignore': 'ag', 'b/.gitignore': 'bg', 'b/.npmignore': 'bn' })
+    for (const host of [HOST_9, HOST, HOST_11, HOST_12]) {
+      const { vfs } = await only([ignores], { host })
+      const dir = '/node_modules/g'
+      assert.deepEqual([vfs.readdir(dir), vfs.readdir(`${dir}/a`), vfs.readdir(`${dir}/b`)], [['.gitignore', 'a', 'b', 'package.json'], ['.gitignore', '.npmignore'], ['.gitignore', '.npmignore']], host.pnpm)
+      assert.deepEqual(['.gitignore', 'a/.gitignore', 'a/.npmignore', 'b/.gitignore', 'b/.npmignore'].map((path) => vfs.readText(`${dir}/${path}`)), ['g', 'ag', 'an', 'bg', 'bn'], host.pnpm)
+    }
+  })
+
   // pnpm links `t` of t, whose name it is, over u's, and fixes only the
   // file it links: made executable, and its `#!` line ending in LF.
   it('leaves the files bins run as linking them leaves them', async () => {
