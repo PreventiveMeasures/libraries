@@ -109,11 +109,17 @@ describe('compact', () => {
 describe('score', () => {
   before(() => setCacheDir(CACHE_DIR))
 
-  it('re-asks a score that is not a number, and reads a quoted one', async () => {
-    const ask = scripted(['{"score":null,"reason":"none"}', '{"score":"85","reason":"quoted"}', '{"score":true,"reason":"bool"}', '{"score":12.5,"reason":"second"}'])
-    const candidates = [{ row: { id: 's1', entry: 's1', summary: '' }, votes: 2, score: 8 }, { row: { id: 's2', entry: 's2', summary: '' }, votes: 1, score: 5 }]
+  it('re-asks a score that is not a number or a reason that is not a sentence, and reads a quoted score', async () => {
+    const ask = scripted([
+      '{"score":null,"reason":"none"}', '{"score":"85","reason":"quoted"}',
+      '{"score":true,"reason":"bool"}', '{"score":12.5,"reason":"second"}',
+      '{"score":90,"reason":true}', '{"score":90,"reason":"evidence"}',
+      '{"score":40}', '{"score":40,"reason":"late"}',
+    ])
+    const candidate = (id, votes) => ({ row: { id, entry: id, summary: '' }, votes, score: 5 })
+    const candidates = [candidate('s1', 2), candidate('s2', 1), candidate('s3', 1), candidate('s4', 1)]
     const ranked = await score({ ...common(), request: { id: 'sr', text: 'r' }, candidates, concurrency: 1, ask })
-    assert.deepEqual(ranked.map((r) => [r.id, r.score, r.reason]), [['s1', 85, 'quoted'], ['s2', 12.5, 'second']])
-    assert.equal(ask.seen.length, 4)
+    assert.deepEqual(ranked.map((r) => [r.id, r.score, r.reason]), [['s3', 90, 'evidence'], ['s1', 85, 'quoted'], ['s4', 40, 'late'], ['s2', 12.5, 'second']])
+    assert.equal(ask.seen.length, 8)
   })
 })

@@ -11,12 +11,16 @@ import { blocks, candidateBlock, requestBlock, scoreSystem } from './prompts.js'
 // finalists writes it to the prompt cache once and reads it after.
 
 // A score that is not a number is re-asked, not coerced: null or a boolean would read as 0 or 1
-// and be cached as the finalist's verdict.
+// and be cached as the finalist's verdict. The reason is re-asked too when it is missing or not a
+// sentence: it is the evidence the result carries for the score, and an empty one, once cached,
+// would stay empty for every later run.
 function readScore(text) {
   const json = expectObject(extractJSON(text), 'score and reason')
   const value = numberOf(json.score)
   if (value === undefined) throw new TypeError('expected a numeric score')
-  return { score: Math.min(100, Math.max(0, value)), reason: typeof json.reason === 'string' ? json.reason.trim() : '' }
+  const reason = typeof json.reason === 'string' ? json.reason.trim() : ''
+  if (!reason) throw new TypeError('expected a reason for the score')
+  return { score: Math.min(100, Math.max(0, value)), reason }
 }
 
 // `candidates` are `{ row, votes, score }` as the search ranks them; the votes come along into the
