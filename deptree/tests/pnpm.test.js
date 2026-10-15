@@ -1725,16 +1725,13 @@ describe('buildPnpmTree with layout', () => {
   })
 
   // pnpm 11 and 12 read a patched package's engines from its package.json,
-  // patched, and take out one optional that the Node does not take.
-  it('refuses a patched package pnpm holds to the engines of its package.json with engineStrict, before fetching anything', async () => {
-    const calls = stubRegistry(sized())
-    const strict = (host) => buildResult({ lockfile: flatLockfile(), manifest: UNPATCHED, workspace: `${PATCHED_IN_YAML}engineStrict: true\n`, host, layout: true })
+  // patched, which is not fetched: it is laid out all the same.
+  it('lays out a patched package pnpm holds to the engines of its package.json with engineStrict', async () => {
     for (const host of [HOST_11, HOST_12]) {
-      await assert.rejects(strict(host), new RegExp(`^DeptreeError: "p@1\\.0\\.0\\(patch_hash=[\\da-f]{64}\\)": pnpm ${host.pnpm.split('.')[0]} holds it to the engines\\.node of its package\\.json, patched, with engineStrict, which with layout is not known, and that is not supported$`, 'u'))
+      stubRegistry(sized())
+      const { installed } = await buildResult({ lockfile: flatLockfile(), manifest: UNPATCHED, workspace: `${PATCHED_IN_YAML}engineStrict: true\n`, host, layout: true })
+      assert.equal(installed.find(({ name }) => name === 'p').size, SIZES.p, host.pnpm)
     }
-    assert.deepEqual(calls, [])
-    const { installed } = await buildResult({ lockfile: flatLockfile(), manifest: UNPATCHED, workspace: PATCHED_IN_YAML, host: HOST_11, layout: true })
-    assert.equal(installed.find(({ name }) => name === 'p').size, SIZES.p)
   })
 
   it('takes layout only as a boolean, and no Vfs to mount into', async () => {

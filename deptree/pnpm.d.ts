@@ -251,13 +251,14 @@ export interface PnpmProject {
 // document names none. A `file:` directory is read whole all the same, and
 // its size is that of the files its packlist picks. What is checked of a
 // package's files and package.json is not, so a lockfile one of those
-// checks would refuse is laid out all the same; but where they could
+// checks would refuse is laid out all the same; so is a patched package
+// that pnpm 11 and 12 would, with engineStrict, take out or fail on by the
+// engines.node of its package.json, patched. But where the files could
 // change the layout, the lockfile is refused, before anything is fetched:
 // for the hoisted linker of pnpm 10.21 to before 11.25, where any patch is
 // configured, a package of more than one copy, one with a node_modules,
-// which pnpm drops where it builds the package; and for pnpm 11 and 12,
-// with engineStrict, a patched package, whose engines.node they read from
-// its package.json, patched. A `vfs` is not taken with it.
+// which pnpm drops where it builds the package. A `vfs` is not taken with
+// it.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with

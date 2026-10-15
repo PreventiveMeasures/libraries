@@ -325,13 +325,6 @@ export async function buildPnpmTree(options) {
   checkOptional(lockfile)
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
-  // With engineStrict, pnpm 11 and 12 hold a patched package to the
-  // engines.node of its package.json, patched, and take one out that is
-  // optional and not taken (createPatchedCheck), which with `layout` is not
-  // known.
-  const checkPatched = createPatchedCheck({ host, settings })
-  const later = fetching.layout && checkPatched !== undefined ? Object.keys(lockfile.packages).find((key) => !skipped.has(key) && lockfile.packages[key].patchHash !== undefined) : undefined
-  if (later !== undefined) throw new DeptreeError(`pnpm ${major} holds it to the engines.node of its package.json, patched, with engineStrict, which with layout is not known, and that is not supported`, quote(later))
   const hoisted = settings.nodeLinker === 'hoisted'
   const { byDir, links, targets, executable, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
 
@@ -339,7 +332,7 @@ export async function buildPnpmTree(options) {
   if (!hoisted) makeDirs(vfs, 'node_modules/.pnpm')
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: byDir.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...byDir.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
   const listed = []
-  const composing = { major, checkPatched }
+  const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
   // With `layout`, its directory alone is made, and its size counted.
   for (const node of byDir.values()) {
