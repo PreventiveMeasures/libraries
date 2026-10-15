@@ -195,6 +195,7 @@ export async function buildYarn1Tree(options) {
   const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   const fetching = fetchingOf(options ?? {})
+  if (fetching.layout) throw new TypeError('layout is not taken for yarn 1, which hoists and leaves out packages by what their package.json says, which only their tarballs hold')
   const inputs = inputsOf(options ?? {})
   const host = checkHost(given, inputs.manifests.get('.'))
   const folded = host.os === 'darwin'
