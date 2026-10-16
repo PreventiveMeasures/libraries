@@ -93,9 +93,14 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
   })
 
   it('anchors and aliases, an alias the very value its anchor names', () => {
-    const doc = parseYaml('env: &env\n  A: 1\nother: *env\nl:\n  - &s step\n  - *s\n  - &m\n    k: v\n  - *m\n  - &c k2: v2\n  - *c\n', { workflow: true })
+    const doc = parseYaml('env: &env\n  A: 1\nother: *env\nl:\n  - &s step\n  - *s\n  - &m\n    k: v\n  - *m\n', { workflow: true })
     assert.equal(doc.other, doc.env)
-    assert.deepEqual(structuredClone(doc), { env: { A: 1 }, other: { A: 1 }, l: ['step', 'step', { k: 'v' }, { k: 'v' }, { k2: 'v2' }, { k2: 'v2' }] })
+    assert.deepEqual(structuredClone(doc), { env: { A: 1 }, other: { A: 1 }, l: ['step', 'step', { k: 'v' }, { k: 'v' }] })
+    // An anchor before a key is the key's, as YAML has it, not its mapping's,
+    // which keeps the column after `- ` or `: `.
+    assert.deepEqual(parse('- &x a: 1\n  b: 2\n- *x\n'), [{ a: 1, b: 2 }, 'a'])
+    assert.deepEqual(parse('? k\n: &x a: 1\n  b: 2\nz: *x\n'), { k: { a: 1, b: 2 }, z: 'a' })
+    assert.deepEqual(parse('m:\n  &x a: 1\n  &y b: *x\nn: *y\n'), { m: { a: 1, b: 'a' }, n: 'b' })
     assert.deepEqual(parse('a: &x # c\n  - 1\nb: *x # c\n'), { a: [1], b: [1] })
     assert.deepEqual(parse('a: &x |\n  text\nb: *x\n'), { a: 'text\n', b: 'text\n' })
     // Anchors are a document's own.
@@ -128,6 +133,7 @@ describe('workflow: what it still refuses', () => {
     ['a: &x 1\nb: [*x]', /expected a scalar, found "\*x\]"/u, 1],
     ['a: &x &y 1', /expected a scalar, found "&y 1"/u, 0],
     ['- &x &y 1', /expected a scalar, found "&y 1"/u, 0],
+    ['- &x - a', /an anchor before a block on its own line is not supported/u, 0],
     ['a: & 1', /expected an anchor's name, found "& 1"/u, 0],
     // What doesn't close.
     ['a: "x\n  y', /^a quoted scalar that does not close at line 1$/u, 0],
