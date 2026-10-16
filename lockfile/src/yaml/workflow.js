@@ -99,12 +99,12 @@ export function readQuotedLines(doc, first, owner, unescape) {
 }
 
 // A plain scalar's lines: `first`, its owner's, and those after it deeper
-// than `indent` and not a comment, folded as YAML folds them, a break a
-// space and an empty line a break. A comment ends it, on its first line
-// too.
+// than `indent` and not a comment, folded as YAML folds them, the spaces
+// around each break taken off, a break a space and an empty line a break.
+// A comment ends it, on its first line too.
 export function readPlainLines(doc, first, indent) {
-  let breaks = 0, text = first
-  if (/(?:^| )#/u.test(first)) return text
+  if (/(?:^| )#/u.test(first)) return first
+  let breaks = 0, text = first.replace(/ +$/u, '')
   for (let line = doc.line; line !== undefined; line = doc.advance()) {
     if (line.text === '') { breaks++; continue }
     if (line.indent <= indent || line.text.startsWith('#') || doc.isMarker(line)) break

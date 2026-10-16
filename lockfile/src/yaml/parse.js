@@ -251,10 +251,11 @@ function readLiteral(doc, header, indent, owner) {
   return chomp === '+' ? body + '\n'.repeat(breaks) : chomp === '-' ? body : body && `${body}\n`
 }
 
-// `|`, or with `workflow`, `>` too, a comment after it, and the indicators
-// in either order: whether it folds, its indentation digit and its chomping.
+// `|`, or with `workflow`, `>` too, spaces or a comment after it, and the
+// indicators in either order: whether it folds, its indentation digit and
+// its chomping.
 function blockHeader(doc, header, owner) {
-  const m = doc.workflow ? /^([|>])(?:([1-9])([+-]?)|([+-])([1-9]?))?(?: +#.*)?$/u.exec(header) : /^\|([1-9]?)([+-]?)$/u.exec(header)
+  const m = doc.workflow ? /^([|>])(?:([1-9])([+-]?)|([+-])([1-9]?))?(?: +#.*| *)$/u.exec(header) : /^\|([1-9]?)([+-]?)$/u.exec(header)
   if (m === null) throw new YamlError(`unsupported block scalar ${excerpt(header)}`, owner.number)
   if (!doc.workflow) return { folded: false, digit: m[1], chomp: m[2] }
   return { folded: m[1] === '>', digit: m[2] ?? m[5] ?? '', chomp: m[3] || m[4] || '' }
@@ -287,7 +288,13 @@ function workflowNode(doc, rest, indent, depth, owner) {
   if (rest !== '') return parseInline(quoted ? rest : readPlainLines(doc, rest, indent), owner.number, true)
   const next = peek(doc)
   if (next?.indent === indent && isEntry(next) && !isEntry(owner)) return parseSequence(doc, indent, depth + 1, true)
-  return next === undefined || next.indent <= indent ? null : parseNode(doc, next.indent, depth + 1)
+  if (next === undefined || next.indent <= indent) return null
+  // A scalar on the lines below, its lines held deeper than its owner's.
+  if (!isEntry(next) && !next.text.startsWith('? ') && readKey(next.text, next.number) === null) {
+    advance(doc)
+    return workflowValue(doc, next.text, indent, depth + 1, next)
+  }
+  return parseNode(doc, next.indent, depth + 1)
 }
 
 // An entry after `- `, or an explicit key's value after `: `, as `workflow`

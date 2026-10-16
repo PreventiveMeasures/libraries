@@ -50,6 +50,7 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse('a: | # c\n  x\nb: >- #c\n  y\n  z\n'), { a: 'x\n', b: 'y z' })
     assert.deepEqual(parse('a: |-2\n    x\n   y\nb: |2-\n    x\n'), { a: '  x\n y', b: '  x' })
     assert.deepEqual(parse('a: >2\n   lead\n  x\n'), { a: ' lead\nx\n' })
+    assert.deepEqual(parse('a: |  \n  x\nb: >-   \n  y\n'), { a: 'x\n', b: 'y' })
   })
 
   it('a tab in a block scalar\'s text, as a Makefile or a heredoc has', () => {
@@ -63,10 +64,16 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse('a: one\n  two\n\n  three\n\n\n  four\n'), { a: 'one two\nthree\n\nfour' })
     assert.deepEqual(parse('- one\n  two\n- three\n'), ['one two', 'three'])
     assert.deepEqual(parse('a:\n  one\n  two\n'), { a: 'one two' })
+    // Its lines below its first held deeper than its key, not than its first.
+    assert.deepEqual(parse('a:\n    one\n  two\n three\nb: 1\n'), { a: 'one two three', b: 1 })
     // Typed as one, as js-yaml types it.
     assert.deepEqual(parse('a: 1\n  2\nb: true\n  false\n'), { a: '1 2', b: 'true false' })
     // A comment ends it.
     assert.deepEqual(parse('a: x # c\nb: y\n  z # c\nc: 1\n'), { a: 'x', b: 'y z', c: 1 })
+    // The spaces around each break taken off, the first line's too.
+    assert.deepEqual(parse('if: cond   \n  && other  \nb: x  \n\n  y\n'), { if: 'cond && other', b: 'x\ny' })
+    assert.deepEqual(parse('- a  \n  b\n- c\n'), ['a b', 'c'])
+    assert.deepEqual(parse('k:\n  x   \n  y\n'), { k: 'x y' })
   })
 
   it('quoted scalars over more than one line, folded', () => {
