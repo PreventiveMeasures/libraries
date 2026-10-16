@@ -87,6 +87,8 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse('a: "x \\\n    y"\nb: "x\\ \n  y"\n'), { a: 'x y', b: 'x  y' })
     assert.deepEqual(parse('a: "\\t\\u00e9\n  \\x41" # c\n'), { a: '\té A' })
     assert.deepEqual(parse('- "a\n  b"\n- c\n'), ['a b', 'c'])
+    // The spaces before each break taken off, as YAML and js-yaml both have it.
+    assert.deepEqual(parse('a: "x  \n  y"\nb: \'x \n  y\'\n'), { a: 'x y', b: 'x y' })
   })
 
   it('flow collections over more than one line, nested, a comma after the last', () => {
@@ -98,6 +100,9 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     // a quote in it part of its text.
     assert.deepEqual(parse('a: [one\n\n  two, three\n  four]\nb: {k: x\n\n\n  y}\n'), { a: ['one\ntwo', 'three four'], b: { k: 'x\n\ny' } })
     assert.deepEqual(parse("a: [one,\n\n  two]\nb: [it's, x\n  'y]\nc: ['q'\n\n  , d]\n"), { a: ['one', 'two'], b: ["it's", "x 'y"], c: ['q', 'd'] })
+    // A plain scalar's lines deeper than its owner's block, as js-yaml holds
+    // them; an entry, or a closing bracket, at any column.
+    assert.deepEqual(parse('a:\n  k: [x\n   y]\nb: {c: d\n e}\nl: [\n  main\n]\nm: [a,\nb]\n'), { a: { k: ['x y'] }, b: { c: 'd e' }, l: ['main'], m: ['a', 'b'] })
   })
 
   it('a flow mapping\'s value left empty, or its ":" too, null; a flow sequence\'s "k: v" a mapping of one', () => {
@@ -170,6 +175,12 @@ describe('workflow: what it still refuses', () => {
     ['a: [one # c\n  two]', /^a plain scalar in a flow collection goes on past a comment at line 2$/u, 1],
     ['a: [one\n  # c\n  two]', /a plain scalar in a flow collection goes on past a comment at line 3/u, 2],
     ['a: "x\n  y" z', /unexpected " z" after the value at line 2/u, 1],
+    // A plain scalar in a flow collection going on no deeper than its owner.
+    ['k: [a\na]', /^bad indentation of a plain scalar in a flow collection at line 2$/u, 1],
+    ['a:\n  - [x,\n    y\n  z]', /bad indentation of a plain scalar in a flow collection at line 4/u, 3],
+    // An empty line after an escaped break: YAML and libyaml read a break,
+    // js-yaml none.
+    ['k: "a\\\n\n  b"', /^an empty line after an escaped line break is not supported at line 1$/u, 0],
     // A key in a flow collection on one line, its ":" too, as js-yaml has it.
     ['a: {b\n  c: 1}', /^a key over more than one line is not supported at line 2$/u, 1],
     ['a: [b\n\n  c: 1]', /a key over more than one line is not supported at line 3/u, 2],
