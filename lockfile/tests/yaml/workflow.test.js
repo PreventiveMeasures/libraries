@@ -175,6 +175,9 @@ describe('workflow: what it still refuses', () => {
     ['a: [one # c\n  two]', /^a plain scalar in a flow collection goes on past a comment at line 2$/u, 1],
     ['a: [one\n  # c\n  two]', /a plain scalar in a flow collection goes on past a comment at line 3/u, 2],
     ['a: "x\n  y" z', /unexpected " z" after the value at line 2/u, 1],
+    // A bad escape told on its own line.
+    ['a: "bad \\q\n  end"', /^unknown escape \\q at line 1$/u, 0],
+    ['a: "ok\n  \\uD800\n  end"', /^\\uD800 is not a Unicode scalar value at line 2$/u, 1],
     // A plain scalar in a flow collection going on no deeper than its owner.
     ['k: [a\na]', /^bad indentation of a plain scalar in a flow collection at line 2$/u, 1],
     ['a:\n  - [x,\n    y\n  z]', /bad indentation of a plain scalar in a flow collection at line 4/u, 3],
