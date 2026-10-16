@@ -1,0 +1,88 @@
+# A workflow written as people write them, by hand: every shape of YAML
+# GitHub reads that pnpm never writes, beside the ones it does.
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      debug:
+        type: boolean
+        default: false
+
+permissions: {}
+
+env: &env
+  FORCE_COLOR: 1
+  CI_NAME: ci
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    env: *env
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,
+             windows-latest,   # the slow one
+             macos-latest]
+        node: [20, 22, 24,]
+        include:
+          - { os: ubuntu-latest, node: 24, extra: [coverage, { report: lcov }] }
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      with:
+        persist-credentials: false
+    - &setup
+      name: Set up Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      with:
+        node-version: ${{ matrix.node }}
+    - run: npm ci
+    - name: Test
+      run: >-
+        npm test --
+        --reporter=dot
+
+        --coverage=${{ matrix.extra && 'yes' || 'no' }}
+    - name: Write a Makefile
+      run: | # tabs are a Makefile's own
+        cat > Makefile <<-'EOF'
+        	all:
+        		echo "built"
+        	EOF
+    - name: Indented
+      run: |2-
+           four spaces of it kept
+          two of them
+    - name: "A step whose name
+        goes on"
+      run: 'echo ''quoted'''
+    - *setup
+
+  lint:
+    runs-on: ubuntu-latest
+    container:
+      image: node:24
+    services:
+      redis:
+        image: redis:7
+    steps:
+      -
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - run: "npx --no-install eslint . \
+          --max-warnings 0"
+
+  release:
+    needs: [test, lint]
+    uses: ./.github/workflows/release.yml
+    secrets: inherit

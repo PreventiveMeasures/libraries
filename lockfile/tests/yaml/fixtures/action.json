@@ -1,0 +1,36 @@
+{
+  "name": "Set up the project",
+  "description": "Installs Node.js and the project's dependencies, from its lockfile alone.\n",
+  "inputs": {
+    "node-version": {
+      "description": "The Node.js version, as setup-node takes it",
+      "required": false,
+      "default": "24"
+    },
+    "working-directory": null
+  },
+  "outputs": {
+    "cache-hit": {
+      "description": "Whether the cache was hit",
+      "value": "${{ steps.cache.outputs.cache-hit }}"
+    }
+  },
+  "runs": {
+    "using": "composite",
+    "steps": [
+      {
+        "uses": "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+        "id": "cache",
+        "with": {
+          "node-version": "${{ inputs.node-version }}",
+          "cache": "npm"
+        }
+      },
+      {
+        "shell": "bash",
+        "working-directory": "${{ inputs.working-directory || '.' }}",
+        "run": "npm ci --ignore-scripts\nnpm rebuild\n"
+      }
+    ]
+  }
+}

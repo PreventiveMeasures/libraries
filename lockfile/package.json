@@ -179,6 +179,7 @@
     "src/yaml/error.js",
     "src/yaml/parse.js",
     "src/yaml/scalar.js",
+    "src/yaml/workflow.js",
     "src/yarn1/importers.js",
     "src/yarn1/packages.js",
     "src/yarn1/parse.js",
