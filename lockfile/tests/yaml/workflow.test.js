@@ -59,6 +59,8 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse('# a\tcomment\na: 1\n\t\nb: 2\n'), { a: 1, b: 2 })
     // A comment line, and a line of spaces and tabs, in a flow collection too.
     assert.deepEqual(parse('a: [\n  # a\tcomment\n \t\n  x]\nb: {k: v,\n\t\n  # \t\n  l: w}\n'), { a: ['x'], b: { k: 'v', l: 'w' } })
+    // Past a plain scalar too, where it doesn't fold the line into its text.
+    assert.deepEqual(parse('a: [one\n \t\n, two]\nb: {k: v\n\n\t\n}\nc: [x\n\t\n  # c\n  ]\n'), { a: ['one', 'two'], b: { k: 'v' }, c: ['x'] })
   })
 
   it('plain scalars over more than one line, folded', () => {
@@ -145,6 +147,7 @@ describe('workflow: what it still refuses', () => {
     ['a: [\n  b, # \tc\n  d]', /U\+0009 is not allowed outside a block scalar at line 2/u, 1],
     // Nor in an empty line a plain scalar folds, which YAML refuses.
     ['a: [one\n\t\n  two]', /^U\+0009 is not allowed outside a block scalar at line 2$/u, 1],
+    ['a: [one\n\n \t\n\t\n  two]', /^U\+0009 is not allowed outside a block scalar at line 3$/u, 2],
     // Aliases: of anchors named before, alone, not as keys, nor in a flow collection.
     ['a: *x', /^unknown alias "\*x" at line 1$/u, 0],
     ['a: &x 1\nb: *x y', /unexpected "\*x y" after an alias at line 2/u, 1],
