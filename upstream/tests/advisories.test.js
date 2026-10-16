@@ -343,6 +343,22 @@ describe('npm, with osv', () => {
     ])
   })
 
+  it('keeps advisories the registry has apart that OSV names as each other\'s aliases, each as rated', async () => {
+    // As lodash's GHSA-35jh-r3h4-6jhm and GHSA-r5fr-rjxr-66jc.
+    stubBoth({ lodash: [
+      row({ id: 1, url: 'https://github.com/advisories/GHSA-35jh-r3h4-6jhm', title: 'Command Injection in lodash', severity: 'high', vulnerable_versions: '<4.17.21', cvss: { score: 7.2 } }),
+      row({ id: 2, url: 'https://github.com/advisories/GHSA-r5fr-rjxr-66jc', title: 'Code Injection via _.template', severity: 'high', vulnerable_versions: '>=4.0.0 <=4.17.23', cvss: { score: 8.1 } }),
+    ] }, { 'lodash@4.17.20': ['GHSA-35jh-r3h4-6jhm', 'GHSA-r5fr-rjxr-66jc'], 'lodash@4.17.23': ['GHSA-r5fr-rjxr-66jc'] }, {
+      'GHSA-35jh-r3h4-6jhm': record('GHSA-35jh-r3h4-6jhm', 'lodash', 'Command Injection in lodash', ['CVE-2021-23337']),
+      'GHSA-r5fr-rjxr-66jc': record('GHSA-r5fr-rjxr-66jc', 'lodash', 'Code Injection via _.template', ['GHSA-35jh-r3h4-6jhm', 'CVE-2021-23337']),
+    })
+    const found = await advisories([{ ecosystem: 'npm', name: 'lodash', versions: ['4.17.20', '4.17.23'] }], { osv: true })
+    assert.deepEqual(found.map(({ id, title, cvss, versions }) => [id, title, cvss, versions]), [
+      ['GHSA-35jh-r3h4-6jhm', 'Command Injection in lodash', 7.2, ['4.17.20']],
+      ['GHSA-r5fr-rjxr-66jc', 'Code Injection via _.template', 8.1, ['4.17.20', '4.17.23']],
+    ])
+  })
+
   it('with details, gives a registry row the text of OSV\'s record of its GHSA read once, and asks OSV for the rest', async () => {
     const calls = stubBoth({
       minimist: [row()],
@@ -448,6 +464,18 @@ describe('npm, with a GitHub client', () => {
       {
         ecosystem: 'npm', name: 'mono-b', source: 'repository', id: 'GHSA-cccc-cccc-cccc', ghsa: 'GHSA-cccc-cccc-cccc', url: page('GHSA-cccc-cccc-cccc'), aliases: [], title: 'Advisory GHSA-cccc-cccc-cccc', cwe: [], range: 'not a range', versions: ['4.0.0'],
       },
+    ])
+  })
+
+  it('rates an advisory its repository publishes beyond the registry\'s range as the worse of the two, its highest score with its own vector', async () => {
+    stubAll({
+      bulk: { 'mono-a': [row({ id: 7, url: 'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa', severity: 'moderate', vulnerable_versions: '<1.0.1', cvss: { score: 5.3, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N' } })] },
+      repos: { 'mono-a': 'acme/mono' },
+      github: { [REPO_ADVISORIES]: [repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 3.0.0')], { severity: 'critical', cvss_severities: { cvss_v3: { vector_string: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', score: 9.8 }, cvss_v4: { vector_string: null, score: null } } })] },
+    })
+    const found = await npm([{ name: 'mono-a', version: '1.0.0' }, { name: 'mono-a', version: '2.0.5' }], { github, repoAdvisories: true })
+    assert.deepEqual(found.map(({ source, id, severity, cvss, cvssVector, range, versions }) => [source, id, severity, cvss, cvssVector, range, versions]), [
+      ['registry', 'GHSA-aaaa-aaaa-aaaa', 'critical', 9.8, 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', '<1.0.1 || < 3.0.0', ['1.0.0', '2.0.5']],
     ])
   })
 

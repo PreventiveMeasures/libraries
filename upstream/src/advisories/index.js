@@ -5,7 +5,7 @@ import { assertCache } from '../cache.js'
 import { order } from './common.js'
 import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
-import { CARGO, COMPOSER, first } from './osv.js'
+import { CARGO, COMPOSER } from './osv.js'
 
 const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, soldeer: SOLDEER, github: GITHUB }
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
@@ -34,31 +34,36 @@ function collect(packages) {
   return byEcosystem
 }
 
-// Which row of an advisory stands for it: npm's registry's, then OSV's, by
-// its records' rank (RustSec's, the GHSA, the rest), then its repository's.
+// Which of an advisory's rows stands for it: npm's registry's, then OSV's,
+// then its repository's.
 const SOURCES = ['registry', 'osv', 'repository']
-const before = (a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source) || (a.source === 'osv' && b.source === 'osv' ? first(a, b) : 0)
-const sameAdvisory = (a, b) => a.id === b.id || a.aliases.includes(b.id) || b.aliases.includes(a.id)
-const FILLED = ['title', 'details', 'severity', 'informational']
+const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info']
+const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
-// Rows of one advisory as one: the first's, what it lacks from the first of
-// the rest that has it (a CVSS score and its vector together), the others'
-// ids among its aliases, and all their ranges (` || `), CWEs and versions
-// (in the order `asked` has them).
-function joinRows([head, ...rest], asked) {
+// An advisory's rows as one: the first's by source, what it lacks from the
+// first of the rest that has it, the others' aliases, and of them all the
+// worst severity, the highest CVSS score with its own vector (else the first
+// vector), the ranges (` || `), CWEs and versions (in the order `asked` has
+// them). One id is one record, so the rest agree on what it is: RustSec's
+// kind is that record's.
+function joinRows(rows, asked) {
+  const [head, ...rest] = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
   const all = [head, ...rest]
-  const aliases = new Set([...head.aliases, ...rest.flatMap((row) => [row.id, ...row.aliases])])
-  aliases.delete(head.id)
   const ranges = [...new Set(all.map((row) => row.range).filter((range) => range !== undefined))]
   const versions = new Set(all.flatMap((row) => row.versions))
-  const joined = { ...head, aliases: [...aliases], cwe: [...new Set(all.flatMap((row) => row.cwe))], versions: asked.filter((version) => versions.has(version)) }
-  for (const key of FILLED) {
+  const joined = {
+    ...head,
+    aliases: [...new Set(all.flatMap((row) => row.aliases))].filter((id) => id !== head.id),
+    cwe: [...new Set(all.flatMap((row) => row.cwe))],
+    versions: asked.filter((version) => versions.has(version)),
+  }
+  for (const key of ['title', 'details']) {
     const from = joined[key] === undefined && rest.find((row) => row[key] !== undefined)
     if (from) joined[key] = from[key]
   }
-  // A score with its own vector, never another's: the first row's that has
-  // a score, else the first vector (OSV's records have no score).
-  const scored = all.find((row) => row.cvss !== undefined) ?? all.find((row) => row.cvssVector !== undefined)
+  const severity = all.map((row) => row.severity).reduce(worse)
+  if (severity !== undefined) joined.severity = severity
+  const scored = all.filter((row) => row.cvss !== undefined).toSorted((a, b) => b.cvss - a.cvss)[0] ?? all.find((row) => row.cvssVector !== undefined)
   delete joined.cvss
   delete joined.cvssVector
   if (scored?.cvss !== undefined) joined.cvss = scored.cvss
@@ -68,26 +73,15 @@ function joinRows([head, ...rest], asked) {
   return joined
 }
 
-// One row for each advisory on a package, where its sources answer more than
-// one: npm's registry one per range, and OSV's record of it, or its
-// repository, another for the versions they cover beyond that. A package's
-// rows are one advisory where they have the same id, or one's id is among
-// the other's aliases, directly or through others; the row standing for
-// them is the first `before`, and they keep the place of the first answered.
+// One row for each advisory id on a package, where its sources answer more
+// than one: npm's registry one per range, and OSV's record of it, or its
+// repository, another for the versions they cover beyond that. Records of
+// other ids that name it as an alias stay rows of their own, each version
+// reported under one, as their sources rate them. Rows keep the place of the
+// first answered.
 function oneRowPerAdvisory(rows, asked) {
-  return [...Map.groupBy(rows, (row) => row.name).values()].flatMap((named) => {
-    const groups = []
-    for (const row of named) {
-      const [group, ...others] = groups.filter((known) => known.some((other) => sameAdvisory(row, other)))
-      if (!group) {
-        groups.push([row])
-        continue
-      }
-      for (const other of others) groups.splice(groups.indexOf(other), 1)
-      group.push(...others.flat(), row)
-    }
-    return groups.map((group) => (group.length === 1 ? group[0] : joinRows(group.toSorted(before), asked.get(group[0].name))))
-  })
+  const byId = Map.groupBy(rows, (row) => `${row.name}\0${row.id}`)
+  return [...byId.values()].map((same) => (same.length === 1 ? same[0] : joinRows(same, asked.get(same[0].name))))
 }
 
 export async function advisories(packages, options = {}) {

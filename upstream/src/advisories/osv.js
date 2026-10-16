@@ -20,7 +20,7 @@ const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 // version stands for the rest on it: RustSec's, what `cargo audit` reads
 // and GitHub mirrors, then the GHSA, then any other (MAL-...), then by id.
 const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
-export const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
+const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
 const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
 
 export const CARGO = {
