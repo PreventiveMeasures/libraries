@@ -54,30 +54,35 @@ export interface AdvisoryOptions {
   // packages always are, for what the registry does not have: above all
   // the malicious packages' records (MAL-...), which it has none of, as
   // those of npm releases taken down that GitHub's database has no
-  // advisory of. A version a registry row reports under the same advisory,
-  // its id among an OSV record's id and aliases, is left to that row,
-  // which takes the record's ids among its aliases. Sends each npm
-  // package's name and versions to OSV, so not for a private package.
+  // advisory of. An advisory a registry row reports, its id among an OSV
+  // record's id and aliases, stays that row, which takes the record's ids
+  // among its aliases and the versions it covers beyond the registry's
+  // range. Sends each npm package's name and versions to OSV, so not for a
+  // private package.
   osv?: boolean
 }
 
 // One advisory on one package, with the versions asked about that it
-// covers (never empty).
+// covers (never empty): one row, however many of its sources answer it, or
+// however often one does.
 export interface Advisory {
   ecosystem: Ecosystem
   name: string
-  // `registry`: npm's, as `npm audit` has it, one row per vulnerable
-  // range. `osv`: OSV's records for cargo and composer, and with `osv` for
-  // npm, the versions they cover that no registry row reports under the
-  // same advisory; RustSec's, GitHub's and malicious packages' (MAL-...)
-  // among them; of the records naming each other as aliases, directly or
-  // through others, a version is reported under one only: RustSec's, else
-  // the GHSA, else the first by id. Each has the others' ids among its
-  // aliases.
-  // `repository`: published on the package's repository, one row per
-  // range, holding only the versions the others' answer does not report
-  // under that GHSA. The only source for `soldeer` and `github`, where
-  // every range counts, whichever package it names.
+  // `registry`: npm's, as `npm audit` has it. `osv`: OSV's records for
+  // cargo and composer, and with `osv` for npm, what the registry has not;
+  // RustSec's, GitHub's and malicious packages' (MAL-...) among them.
+  // `repository`: published on the package's repository, which has it
+  // before GitHub reviews it into the databases above. The only source for
+  // `soldeer` and `github`, where every range counts, whichever package it
+  // names.
+  // An advisory answered more than once -- npm's registry once a range, OSV
+  // under each of its records that name each other as aliases, directly or
+  // through others, OSV or its repository for versions beyond the
+  // registry's range -- is one row: the registry's, else OSV's (RustSec's
+  // record, else the GHSA, else the first by id), else the repository's,
+  // with the others' ids among its aliases, what it lacks of theirs (title,
+  // details, severity, CVSS, RustSec's kind), and all their ranges, CWEs
+  // and versions.
   source: 'registry' | 'osv' | 'repository'
   // A GHSA, RUSTSEC-..., MAL-..., DRUPAL-CORE-... or another OSV id, or
   // npm:<id> for a registry row without a GHSA.
@@ -92,8 +97,8 @@ export interface Advisory {
   // (https://osv.dev/vulnerability/RUSTSEC-...). Built, never fetched: only
   // a registry row without a GHSA (npm:<id>) has none.
   url?: string
-  // The advisory's other ids: an `osv` row's record's own and its group's,
-  // and with `osv`, a registry row's OSV records' of it.
+  // The advisory's other ids: its OSV records' own, and those of the rows
+  // it was answered in besides.
   aliases: string[]
   title?: string
   // With `details`, the advisory's full text, Markdown as published: an
@@ -109,8 +114,13 @@ export interface Advisory {
   cvssVector?: string
   cwe: string[]
   // As written: npm's syntax from the registry, GitHub's
-  // (`>= 1.0.0, < 1.2.6`) from a repository; OSV rows have none. A
+  // (`>= 1.0.0, < 1.2.6`) from a repository; OSV's records have none. A
   // repository range semver cannot read, or none, covers every version.
+  // Each range an advisory was answered with that covers an asked version,
+  // joined by ` || `; none ('') where one is none. A version only OSV
+  // reports may be outside it: hermes-engine's GHSA-f5x2-xv93-4p23 is
+  // `<=0.4.3` on npm, the last version known affected, and fixed in 0.5.2
+  // by OSV's record of it, which reports 0.5.0 too.
   range?: string
   // RustSec's kind for an advisory that is not a vulnerability as such:
   // `unmaintained`, `unsound`, `notice`.

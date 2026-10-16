@@ -106,7 +106,7 @@ describe('cargo', () => {
     ])
   })
 
-  it('keeps a GHSA or MAL- record RustSec does not publish, or for the versions it was not answered for', async () => {
+  it('keeps a GHSA or MAL- record RustSec does not publish, and joins the versions only a GHSA it publishes was answered for to its row', async () => {
     stubOsv({
       // GitHub's own, and a malicious crate's.
       'ghsa-only@1.0.0': ['GHSA-aaaa-aaaa-aaaa'],
@@ -132,13 +132,13 @@ describe('cargo', () => {
       const [name, version] = spec.split('@')
       return { name, version }
     }))
-    // The RUSTSEC row has the GHSA that names it among its aliases.
+    // The RUSTSEC row has the GHSA that names it among its aliases, and the
+    // version the GHSA alone was answered for.
     assert.deepEqual(found.map(({ name, id, ghsa: of, aliases, versions }) => [name, id, of, aliases, versions]), [
       ['evil', 'GHSA-bbbb-bbbb-bbbb', 'GHSA-bbbb-bbbb-bbbb', ['MAL-2026-0002'], ['1.0.0']],
       ['ghsa-only', 'GHSA-aaaa-aaaa-aaaa', 'GHSA-aaaa-aaaa-aaaa', ['CVE-2026-0001'], ['1.0.0']],
       ['other', 'GHSA-cccc-cccc-cccc', 'GHSA-cccc-cccc-cccc', ['RUSTSEC-2026-0001'], ['1.0.0']],
-      ['smallvec', 'GHSA-43w2-9j62-hq99', 'GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'RUSTSEC-2021-0003'], ['1.7.0']],
-      ['smallvec', 'RUSTSEC-2021-0003', 'GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], ['1.6.0']],
+      ['smallvec', 'RUSTSEC-2021-0003', 'GHSA-43w2-9j62-hq99', ['CVE-2021-25900', 'GHSA-43w2-9j62-hq99'], ['1.6.0', '1.7.0']],
       ['typosquat', 'MAL-2026-0001', undefined, [], ['0.1.0']],
     ])
     // GitHub's page for a row with a GHSA; osv.dev's for one without, built
@@ -147,7 +147,6 @@ describe('cargo', () => {
       'https://github.com/advisories/GHSA-bbbb-bbbb-bbbb',
       'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa',
       'https://github.com/advisories/GHSA-cccc-cccc-cccc',
-      'https://github.com/advisories/GHSA-43w2-9j62-hq99',
       'https://github.com/advisories/GHSA-43w2-9j62-hq99',
       'https://osv.dev/vulnerability/MAL-2026-0001',
     ])
@@ -172,7 +171,7 @@ describe('cargo', () => {
     await assert.rejects(cargo(pairs, { details: true }), /advisories: malformed details in RUSTSEC-2018-0018/u)
   })
 
-  it('reports a version once for records linked directly or through another, equal ranks by id', async () => {
+  it('reports records linked directly or through another as one row, the first by rank, equal ranks by id', async () => {
     stubOsv({
       // Two GHSAs naming each other.
       'dup@1.0.0': ['GHSA-eeee-eeee-eeee', 'GHSA-dddd-dddd-dddd'],
@@ -188,8 +187,7 @@ describe('cargo', () => {
     })
     const found = await cargo([{ name: 'dup', version: '1.0.0' }, { name: 'chain', version: '1.0.0' }, { name: 'chain', version: '2.0.0' }])
     assert.deepEqual(found.map(({ name, id, aliases, versions }) => [name, id, aliases, versions]), [
-      ['chain', 'GHSA-ffff-ffff-ffff', ['RUSTSEC-2026-0002', 'MAL-2026-0003'], ['2.0.0']],
-      ['chain', 'RUSTSEC-2026-0002', ['GHSA-ffff-ffff-ffff', 'MAL-2026-0003'], ['1.0.0']],
+      ['chain', 'RUSTSEC-2026-0002', ['GHSA-ffff-ffff-ffff', 'MAL-2026-0003'], ['1.0.0', '2.0.0']],
       ['dup', 'GHSA-dddd-dddd-dddd', ['GHSA-eeee-eeee-eeee'], ['1.0.0']],
     ])
   })
@@ -296,7 +294,7 @@ describe('composer', () => {
     assert.equal(found[3].severity, 'high')
   })
 
-  it('keeps the versions of an aliased record that its GHSA was not answered for, and all of them beside a withdrawn GHSA', async () => {
+  it('reports the versions of an aliased record that its GHSA was not answered for in the GHSA\'s row, and alone beside a withdrawn GHSA', async () => {
     stubOsv({
       'acme/app@1.0.0': ['CVE-2026-0001'],
       'acme/app@2.0.0': ['CVE-2026-0001', 'GHSA-aaaa-aaaa-aaaa'],
@@ -309,8 +307,7 @@ describe('composer', () => {
     })
     const found = await composer([{ name: 'acme/app', version: '1.0.0' }, { name: 'acme/app', version: '2.0.0' }, { name: 'acme/lib', version: '1.0.0' }])
     assert.deepEqual(found.map(({ name, id, versions }) => [name, id, versions]), [
-      ['acme/app', 'CVE-2026-0001', ['1.0.0']],
-      ['acme/app', 'GHSA-aaaa-aaaa-aaaa', ['2.0.0']],
+      ['acme/app', 'GHSA-aaaa-aaaa-aaaa', ['1.0.0', '2.0.0']],
       ['acme/lib', 'CVE-2026-0002', ['1.0.0']],
     ])
   })
@@ -425,12 +422,12 @@ describe('cargo and composer, with a GitHub client', () => {
       },
     })
     const found = await composer([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github, repoAdvisories: true })
-    // OSV answered for v1.2.3 alone; the repository's range covers 1.2.3.4 too.
-    assert.deepEqual(found.map(({ source, id, severity, versions }) => [source, id, severity, versions]), [
-      ['osv', 'GHSA-f57v-q966-7fh6', undefined, ['v1.2.3']],
-      ['repository', 'GHSA-f57v-q966-7fh6', 'moderate', ['1.2.3.4']],
-      ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', ['1.2.3.4', 'v1.2.3']],
-      ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', ['1.2.3.4']],
+    // OSV answered for v1.2.3 alone; the repository's range covers 1.2.3.4
+    // too, and its listing has the range and severity OSV's record lacks.
+    assert.deepEqual(found.map(({ source, id, severity, range, versions }) => [source, id, severity, range, versions]), [
+      ['osv', 'GHSA-f57v-q966-7fh6', 'moderate', '< 9.0.0', ['1.2.3.4', 'v1.2.3']],
+      ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', '>= 1.0.0, < 1.3.0', ['1.2.3.4', 'v1.2.3']],
+      ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', '>= 2.0.0', ['1.2.3.4']],
     ])
     assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://repo.packagist.org/')).map(({ url }) => url).toSorted(), [
       'https://repo.packagist.org/p2/acme/private.json',

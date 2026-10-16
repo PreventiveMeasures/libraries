@@ -122,6 +122,22 @@ describe('npm', () => {
     ])
   })
 
+  it('answers an advisory npm has a row of for each range as one row, its ranges, CWEs and versions together', async () => {
+    stubRegistry(() => ({
+      jquery: [
+        row({ id: 1, url: 'https://github.com/advisories/GHSA-gpvr-g6gh-9mc2', title: 'No charset', severity: 'moderate', vulnerable_versions: '>=4.0.0 <4.5.0', cwe: ['CWE-79'], cvss: { score: 0 } }),
+        row({ id: 2, url: 'https://github.com/advisories/GHSA-gpvr-g6gh-9mc2', title: 'No charset', severity: 'moderate', vulnerable_versions: '<3.11.0', cwe: ['CWE-79', 'CWE-20'], cvss: { score: 6.1 } }),
+        // A range of it covering none asked is in no row.
+        row({ id: 3, url: 'https://github.com/advisories/GHSA-gpvr-g6gh-9mc2', title: 'No charset', severity: 'moderate', vulnerable_versions: '>=9.0.0' }),
+      ],
+    }))
+    const found = await npm(['3.10.0', '4.4.0', '4.5.0'].map((version) => ({ name: 'jquery', version })))
+    assert.deepEqual(found, [{
+      ecosystem: 'npm', name: 'jquery', source: 'registry', id: 'GHSA-gpvr-g6gh-9mc2', ghsa: 'GHSA-gpvr-g6gh-9mc2', url: 'https://github.com/advisories/GHSA-gpvr-g6gh-9mc2', aliases: [],
+      title: 'No charset', severity: 'moderate', cvss: 6.1, cwe: ['CWE-79', 'CWE-20'], range: '>=4.0.0 <4.5.0 || <3.11.0', versions: ['3.10.0', '4.4.0'],
+    }])
+  })
+
   it('takes a GHSA only from a GitHub advisory page, and ids a row without one by the registry, with no page', async () => {
     stubRegistry(() => ({
       pkg: [
@@ -310,14 +326,20 @@ describe('npm, with osv', () => {
     assert.deepEqual(calls.filter((url) => url !== BULK && url !== BATCH).toSorted(), ['GHSA-xvch-5gv4-984h', 'MAL-2018-1', 'MAL-2025-41443'].map((id) => `${VULN}${id}`), 'each record fetched once')
   })
 
-  it('keeps the versions an OSV record covers that the registry\'s narrower range for it does not', async () => {
+  it('joins the versions an OSV record covers beyond the registry\'s narrower range for it to the registry\'s row', async () => {
     stubBoth({ nocodb: [row({ url: 'https://github.com/advisories/GHSA-96fh-m4r8-6v9v', title: 'NocoDB: Cross-Workspace Integration Use', vulnerable_versions: '<0.200.0' })] },
       { 'nocodb@0.100.0': ['GHSA-96fh-m4r8-6v9v'], 'nocodb@0.300.0': ['GHSA-96fh-m4r8-6v9v'] },
       { 'GHSA-96fh-m4r8-6v9v': record('GHSA-96fh-m4r8-6v9v', 'nocodb', 'NocoDB: Cross-Workspace Integration Use') })
     const found = await advisories([{ ecosystem: 'npm', name: 'nocodb', versions: ['0.100.0', '0.300.0'] }], { osv: true })
-    assert.deepEqual(found.map(({ source, id, versions }) => ({ source, id, versions })), [
-      { source: 'registry', id: 'GHSA-96fh-m4r8-6v9v', versions: ['0.100.0'] },
-      { source: 'osv', id: 'GHSA-96fh-m4r8-6v9v', versions: ['0.300.0'] },
+    // As hermes-engine's GHSA-f5x2-xv93-4p23: npm's range ends at the last
+    // version known affected, OSV's record at the one fixed.
+    assert.deepEqual(found.map(({ source, id, range, versions }) => ({ source, id, range, versions })), [
+      { source: 'registry', id: 'GHSA-96fh-m4r8-6v9v', range: '<0.200.0', versions: ['0.100.0', '0.300.0'] },
+    ])
+    // Where npm's range covers none asked, OSV's row stands alone.
+    const beyond = await advisories([{ ecosystem: 'npm', name: 'nocodb', versions: ['0.300.0'] }], { osv: true })
+    assert.deepEqual(beyond.map(({ source, id, range, versions }) => ({ source, id, range, versions })), [
+      { source: 'osv', id: 'GHSA-96fh-m4r8-6v9v', range: undefined, versions: ['0.300.0'] },
     ])
   })
 
@@ -398,9 +420,9 @@ describe('npm, with a GitHub client', () => {
       github: {
         [REPO_ADVISORIES]: [
           // Reviewed, and the registry's range stops short of 2.0.5, which the
-          // repository's newer one covers: only 2.0.5 is added.
+          // repository's newer one covers: 2.0.5 joins the registry's row.
           repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('mono-a', '< 3.0.0')]),
-          // Two disjoint ranges are two entries, and two rows.
+          // Two disjoint ranges are two entries, and one row.
           repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('mono-a', '>= 1.0.0, < 1.2.6'), vuln('mono-a', '>= 2.0.0, < 2.1.0'), vuln('mono-a', '>= 3.0.0')]),
           // Another package in the repo, one not asked, another ecosystem.
           repoAdvisory('GHSA-cccc-cccc-cccc', [vuln('mono-b', 'not a range'), vuln('mono-c', '< 9.0.0'), vuln('mono-a', '< 9.0.0', 'pip')], { severity: null, cvss_severities: null, cwe_ids: null }),
@@ -420,11 +442,9 @@ describe('npm, with a GitHub client', () => {
       {
         ecosystem: 'npm', name: 'mono-a', source: 'registry', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', url: 'https://github.com/advisories/GHSA-aaaa-aaaa-aaaa', aliases: [],
         title: 'Prototype Pollution in minimist', severity: 'critical',
-        cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321'], range: '<1.0.1', versions: ['1.0.0'],
+        cvss: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cwe: ['CWE-1321', 'CWE-79'], range: '<1.0.1 || < 3.0.0', versions: ['1.0.0', '2.0.5'],
       },
-      { ...common, name: 'mono-a', id: 'GHSA-aaaa-aaaa-aaaa', ghsa: 'GHSA-aaaa-aaaa-aaaa', url: page('GHSA-aaaa-aaaa-aaaa'), title: 'Advisory GHSA-aaaa-aaaa-aaaa', range: '< 3.0.0', versions: ['2.0.5'] },
-      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', url: page('GHSA-bbbb-bbbb-bbbb'), title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 1.0.0, < 1.2.6', versions: ['1.0.0'] },
-      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', url: page('GHSA-bbbb-bbbb-bbbb'), title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 2.0.0, < 2.1.0', versions: ['2.0.5'] },
+      { ...common, name: 'mono-a', id: 'GHSA-bbbb-bbbb-bbbb', ghsa: 'GHSA-bbbb-bbbb-bbbb', url: page('GHSA-bbbb-bbbb-bbbb'), title: 'Advisory GHSA-bbbb-bbbb-bbbb', range: '>= 1.0.0, < 1.2.6 || >= 2.0.0, < 2.1.0', versions: ['1.0.0', '2.0.5'] },
       {
         ecosystem: 'npm', name: 'mono-b', source: 'repository', id: 'GHSA-cccc-cccc-cccc', ghsa: 'GHSA-cccc-cccc-cccc', url: page('GHSA-cccc-cccc-cccc'), aliases: [], title: 'Advisory GHSA-cccc-cccc-cccc', cwe: [], range: 'not a range', versions: ['4.0.0'],
       },
@@ -448,8 +468,7 @@ describe('npm, with a GitHub client', () => {
     })
     const found = await npm(['4.1.10', '4.1.11', '5.0.0-beta.3', '5.0.0-rc.2', '5.0.3'].map((version) => ({ name: 'mono-a', version })), { github, repoAdvisories: true })
     assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
-      ['GHSA-aaaa-aaaa-aaaa', '>= 2.1.0, < 4.1.11', ['4.1.10']],
-      ['GHSA-aaaa-aaaa-aaaa', '>= 5.0.0-beta.1, < 5.0.0-rc.2', ['5.0.0-beta.3']],
+      ['GHSA-aaaa-aaaa-aaaa', '>= 2.1.0, < 4.1.11 || >= 5.0.0-beta.1, < 5.0.0-rc.2', ['4.1.10', '5.0.0-beta.3']],
       ['GHSA-bbbb-bbbb-bbbb', '< 5.0.0', ['4.1.10', '4.1.11', '5.0.0-beta.3', '5.0.0-rc.2']],
       ['GHSA-cccc-cccc-cccc', '>= 5.0.0', ['5.0.3']],
     ])
@@ -561,7 +580,7 @@ describe('github', () => {
   const OZ = listing('OpenZeppelin/openzeppelin-contracts')
   const repo = (versions) => advisories([{ ecosystem: 'github', name: 'OpenZeppelin/openzeppelin-contracts', versions }], { github })
 
-  it("counts every range a repository's advisories list, whichever package, once each", async () => {
+  it("counts every range a repository's advisories list, whichever package, in one row an advisory", async () => {
     const calls = stubUrls({
       [OZ]: [
         advisory('GHSA-aaaa-aaaa-aaaa', [vuln('@openzeppelin/contracts', '>= 4.0.0, < 4.9.3'), vuln('@openzeppelin/contracts-upgradeable', '>= 4.0.0, < 4.9.3')]),
@@ -573,7 +592,7 @@ describe('github', () => {
     assert.deepEqual(calls, [OZ])
     assert.deepEqual(found.map(({ ghsa, range, versions }) => [ghsa, range, versions]), [
       ['GHSA-aaaa-aaaa-aaaa', '>= 4.0.0, < 4.9.3', ['4.9.0']],
-      ['GHSA-bbbb-bbbb-bbbb', '>= 5.0.0, < 5.0.2', ['5.0.1']],
+      // Its range of none covers every version, as its ranges together do.
       ['GHSA-bbbb-bbbb-bbbb', '', ['4.9.0', '5.0.1']],
     ])
     assert.deepEqual(found[0], {
