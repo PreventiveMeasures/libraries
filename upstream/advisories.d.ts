@@ -127,7 +127,8 @@ export interface Advisory {
   // by OSV's record of it, which reports 0.5.0 too.
   range?: string
   // RustSec's kind for an advisory that is not a vulnerability as such:
-  // `unmaintained`, `unsound`, `notice`.
+  // `unmaintained`, `unsound`, `notice`. For an id answered more than once,
+  // only where each answer gives it.
   informational?: string
   versions: string[]
 }
