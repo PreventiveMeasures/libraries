@@ -90,6 +90,10 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse('a: {b: [1, {c: d}], e: {}}\n'), { a: { b: [1, { c: 'd' }], e: {} } })
     assert.deepEqual(parse('a: [x, y,]\nb: {c: 1,}\n'), { a: ['x', 'y'], b: { c: 1 } })
     assert.deepEqual(parse('a:\n  - {\n      b: 1\n    }\n'), { a: [{ b: 1 }] })
+    // A plain scalar's lines folded as YAML folds them, an empty line a break;
+    // a quote in it part of its text.
+    assert.deepEqual(parse('a: [one\n\n  two, three\n  four]\nb: {k: x\n\n\n  y}\n'), { a: ['one\ntwo', 'three four'], b: { k: 'x\n\ny' } })
+    assert.deepEqual(parse("a: [one,\n\n  two]\nb: [it's, x\n  'y]\nc: ['q'\n\n  , d]\n"), { a: ['one', 'two'], b: ["it's", "x 'y"], c: ['q', 'd'] })
   })
 
   it('anchors and aliases, an alias the very value its anchor names', () => {
@@ -142,6 +146,9 @@ describe('workflow: what it still refuses', () => {
     ['a: [x, "y\n  z"]', /a quoted scalar in a flow collection does not close on its line at line 1/u, 0],
     ['a: [x] y', /unexpected " y" after the value at line 1/u, 0],
     ['a: [x,\n  y] z', /unexpected " z" after the value at line 2/u, 1],
+    // A comment ends a plain scalar, as js-yaml has it.
+    ['a: [one # c\n  two]', /^a plain scalar in a flow collection goes on past a comment at line 2$/u, 1],
+    ['a: [one\n  # c\n  two]', /a plain scalar in a flow collection goes on past a comment at line 3/u, 2],
     ['a: "x\n  y" z', /unexpected " z" after the value at line 2/u, 1],
     // What YAML refuses in a plain scalar, on any of its lines.
     ['run: echo "a: b"', /unexpected ": b\\"" after the value/u, 0],
