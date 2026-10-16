@@ -175,6 +175,59 @@ describe('workflow: what it still refuses', () => {
   })
 })
 
+// js-yaml's schemas of old made code of a tag (`!!js/function`) and other
+// objects of others (`!!js/regexp`, `!!js/undefined`, `!!set`): here a tag
+// is refused, wherever a node can start, whatever it names, and what is read
+// is plain data alone.
+describe('no tag makes code or any object but plain data', () => {
+  const TAGS = ['!!js/function', '!!js/regexp', '!!js/undefined', '!!python/object', '!!set', '!!binary', '!<tag:yaml.org,2002:js/function>', '!function', '!']
+  const PLACES = [
+    (tag) => `a: ${tag} 'function () { return 1 }'`,
+    (tag) => `a: &x ${tag} 'x'`,
+    (tag) => `a: ${tag} &x 'x'`,
+    (tag) => `- ${tag} x`,
+    (tag) => `- &x ${tag} x`,
+    (tag) => `${tag} k: v`,
+    (tag) => `a:\n  ${tag} >\n    function () {}`,
+    (tag) => `a:\n  ${tag}\n  b: 1`,
+    (tag) => `a: [x, ${tag} y]`,
+    (tag) => `a: {k: ${tag} y}`,
+    (tag) => `a: [[${tag} y]]`,
+    (tag) => `? ${tag} k\n: v`,
+    (tag) => `a: ${tag} |\n  x`,
+  ]
+  for (const tag of TAGS) {
+    it(tag, () => {
+      for (const place of PLACES) {
+        const text = place(tag)
+        for (const options of [undefined, { workflow: true }]) assert.throws(() => parseYaml(text, options), YamlError, `${JSON.stringify(text)} ${JSON.stringify(options)}`)
+      }
+    })
+  }
+
+  // Strings, numbers, booleans, null, arrays, and mappings with a null
+  // prototype: nothing else, and no own property but the data's.
+  const plain = (value, seen = new Set()) => {
+    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return true
+    if (typeof value !== 'object' || seen.has(value)) return seen.has(value)
+    seen.add(value)
+    const proto = Object.getPrototypeOf(value)
+    if (!(Array.isArray(value) ? proto === Array.prototype : proto === null)) return false
+    return Reflect.ownKeys(value).every((key) => typeof key === 'string' && (Array.isArray(value) && key === 'length' || plain(value[key], seen)))
+  }
+
+  it('what it reads is plain data, a function\'s text a string', () => {
+    for (const name of ['workflow', 'action']) assert.ok(plain(parseYaml(fixture(`${name}.yml`), { workflow: true })), name)
+    const doc = parseYaml("a: 'function () { return 1 }'\nb: text\n  !!js/function x\nc: &f\n  __proto__: { toString: x }\nd: *f\n", { workflow: true })
+    assert.ok(plain(doc))
+    assert.equal(doc.a, 'function () { return 1 }')
+    // A tag in a plain scalar's later line is its text, as YAML has it.
+    assert.equal(doc.b, 'text !!js/function x')
+    assert.equal(Object.getPrototypeOf(doc.c), null)
+    assert.equal(({}).toString, Object.prototype.toString)
+  })
+})
+
 describe('without workflow, each of them refused as before', () => {
   // What pnpm reads must stay as strict as it was: none of these is read.
   const STRICT = [
