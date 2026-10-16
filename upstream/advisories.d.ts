@@ -56,28 +56,37 @@ export interface AdvisoryOptions {
   // those of npm releases taken down that GitHub's database has no
   // advisory of. A version a registry row reports under the same advisory,
   // its id among an OSV record's id and aliases, is left to that row,
-  // which takes the record's ids among its aliases. Sends each npm
-  // package's name and versions to OSV, so not for a private package.
+  // which takes the record's ids among its aliases; the versions a record
+  // of the row's own id covers beyond the registry's range join it too.
+  // Sends each npm package's name and versions to OSV, so not for a
+  // private package.
   osv?: boolean
 }
 
 // One advisory on one package, with the versions asked about that it
-// covers (never empty).
+// covers (never empty): one row an id, however many of its sources answer
+// it, or however often one does.
 export interface Advisory {
   ecosystem: Ecosystem
   name: string
-  // `registry`: npm's, as `npm audit` has it, one row per vulnerable
-  // range. `osv`: OSV's records for cargo and composer, and with `osv` for
-  // npm, the versions they cover that no registry row reports under the
-  // same advisory; RustSec's, GitHub's and malicious packages' (MAL-...)
-  // among them; of the records naming each other as aliases, directly or
-  // through others, a version is reported under one only: RustSec's, else
-  // the GHSA, else the first by id. Each has the others' ids among its
-  // aliases.
-  // `repository`: published on the package's repository, one row per
-  // range, holding only the versions the others' answer does not report
-  // under that GHSA. The only source for `soldeer` and `github`, where
-  // every range counts, whichever package it names.
+  // `registry`: npm's, as `npm audit` has it. `osv`: OSV's records for
+  // cargo and composer, and with `osv` for npm, the versions they cover
+  // that no registry row reports under the same advisory; RustSec's,
+  // GitHub's and malicious packages' (MAL-...) among them; of the records
+  // naming each other as aliases, directly or through others, a version is
+  // reported under one only: RustSec's, else the GHSA, else the first by
+  // id. Each has the others' ids among its aliases, and stays a row of its
+  // own, as its source rates it.
+  // `repository`: published on the package's repository, holding only the
+  // versions the others' answer does not report under that GHSA. The only
+  // source for `soldeer` and `github`, where every range counts, whichever
+  // package it names.
+  // An id answered more than once -- by npm's registry once a range, by
+  // OSV's record of it or its repository for versions beyond the registry's
+  // range, by its repository once a range -- is one row: the registry's,
+  // else OSV's, else the repository's, with what it lacks of theirs (title,
+  // details), the worst severity of them, the highest CVSS score with its
+  // own vector, and all their ranges, CWEs and versions.
   source: 'registry' | 'osv' | 'repository'
   // A GHSA, RUSTSEC-..., MAL-..., DRUPAL-CORE-... or another OSV id, or
   // npm:<id> for a registry row without a GHSA.
@@ -109,11 +118,17 @@ export interface Advisory {
   cvssVector?: string
   cwe: string[]
   // As written: npm's syntax from the registry, GitHub's
-  // (`>= 1.0.0, < 1.2.6`) from a repository; OSV rows have none. A
+  // (`>= 1.0.0, < 1.2.6`) from a repository; OSV's records have none. A
   // repository range semver cannot read, or none, covers every version.
+  // Each range its id was answered with that covers an asked version,
+  // joined by ` || `; none ('') where one is none. A version only OSV
+  // reports may be outside it: hermes-engine's GHSA-f5x2-xv93-4p23 is
+  // `<=0.4.3` on npm, the last version known affected, and fixed in 0.5.2
+  // by OSV's record of it, which reports 0.5.0 too.
   range?: string
   // RustSec's kind for an advisory that is not a vulnerability as such:
-  // `unmaintained`, `unsound`, `notice`.
+  // `unmaintained`, `unsound`, `notice`. For an id answered more than once,
+  // only where each answer gives it.
   informational?: string
   versions: string[]
 }

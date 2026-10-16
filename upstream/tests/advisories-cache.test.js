@@ -165,7 +165,7 @@ describe("a repository's listing, through the cache", () => {
     // Text is checked only for `details`: the listing answers without it,
     // and is asked again for it.
     const calls = stubUrls({ [OZ]: [{ ...LIST[0], description: 'a\uD800b' }] })
-    assert.equal((await audit()).length, 2)
+    assert.equal((await audit()).length, 1)
     await assert.rejects(audit(undefined, { details: true }), /advisories: malformed details in GHSA-aaaa-aaaa-aaaa/u)
     assert.deepEqual(calls, [OZ, OZ])
     assert.deepEqual(await readdir(dir).catch(() => []), [])
@@ -211,7 +211,7 @@ describe("a repository's listing, through the cache", () => {
     setCacheDir(false)
     for (let i = 0; i < 2; i++) {
       const calls = stubUrls({ [OZ]: LIST })
-      assert.equal((await audit()).length, 2)
+      assert.equal((await audit()).length, 1)
       assert.deepEqual(calls, [OZ])
     }
     assert.deepEqual(await readdir(dir).catch(() => []), [])

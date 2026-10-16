@@ -34,6 +34,57 @@ function collect(packages) {
   return byEcosystem
 }
 
+// Which of an advisory's rows stands for it: npm's registry's, then OSV's,
+// then its repository's.
+const SOURCES = ['registry', 'osv', 'repository']
+const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info']
+const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
+
+// An advisory's rows as one: the first's by source, what it lacks from the
+// first of the rest that has it, the others' aliases, and of them all the
+// worst severity, the highest CVSS score with its own vector (else the first
+// vector), the ranges (` || `), CWEs and versions (in the order `asked` has
+// them). RustSec's kind of advisory that is not a vulnerability as such only
+// where each of them has that kind: a row without one is a vulnerability.
+function joinRows(rows, asked) {
+  const [head, ...rest] = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
+  const all = [head, ...rest]
+  const ranges = [...new Set(all.map((row) => row.range).filter((range) => range !== undefined))]
+  const versions = new Set(all.flatMap((row) => row.versions))
+  const joined = {
+    ...head,
+    aliases: [...new Set(all.flatMap((row) => row.aliases))].filter((id) => id !== head.id),
+    cwe: [...new Set(all.flatMap((row) => row.cwe))],
+    versions: asked.filter((version) => versions.has(version)),
+  }
+  if (rest.some((row) => row.informational !== head.informational)) delete joined.informational
+  for (const key of ['title', 'details']) {
+    const from = joined[key] === undefined && rest.find((row) => row[key] !== undefined)
+    if (from) joined[key] = from[key]
+  }
+  const severity = all.map((row) => row.severity).reduce(worse)
+  if (severity !== undefined) joined.severity = severity
+  const scored = all.filter((row) => row.cvss !== undefined).toSorted((a, b) => b.cvss - a.cvss)[0] ?? all.find((row) => row.cvssVector !== undefined)
+  delete joined.cvss
+  delete joined.cvssVector
+  if (scored?.cvss !== undefined) joined.cvss = scored.cvss
+  if (scored?.cvssVector !== undefined) joined.cvssVector = scored.cvssVector
+  // A range of none ('') covers every version, as they then do together.
+  if (ranges.length > 0) joined.range = ranges.includes('') ? '' : ranges.join(' || ')
+  return joined
+}
+
+// One row for each advisory id on a package, where its sources answer more
+// than one: npm's registry one per range, and OSV's record of it, or its
+// repository, another for the versions they cover beyond that. Records of
+// other ids that name it as an alias stay rows of their own, each version
+// reported under one, as their sources rate them. Rows keep the place of the
+// first answered.
+function oneRowPerAdvisory(rows, asked) {
+  const byId = Map.groupBy(rows, (row) => `${row.name}\0${row.id}`)
+  return [...byId.values()].map((same) => (same.length === 1 ? same[0] : joinRows(same, asked.get(same[0].name))))
+}
+
 export async function advisories(packages, options = {}) {
   assertArgs('advisories', options, { github: optional(assertClient), repoAdvisories: optional(assertBoolean), details: optional(assertBoolean), osv: optional(assertBoolean), cache: optional(assertCache) })
   assert.ok(!options.repoAdvisories || options.github, 'advisories: repoAdvisories needs a github client')
@@ -45,7 +96,7 @@ export async function advisories(packages, options = {}) {
     const asked = new Map(names.map((name) => [name, [...named.get(name).versions].toSorted(compare)]))
     const known = new Map(names.filter((name) => named.get(name).github).map((name) => [name, named.get(name).github]))
     const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, details: options.details === true, osv: options.osv === true, known, cache: options.cache })
-    return rows.map((row) => ({ ecosystem, ...row }))
+    return oneRowPerAdvisory(rows.filter((row) => row.versions.length > 0), asked).map((row) => ({ ecosystem, ...row }))
   }))
-  return found.flat().filter((row) => row.versions.length > 0).toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))
+  return found.flat().toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))
 }

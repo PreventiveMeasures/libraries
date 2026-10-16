@@ -68,7 +68,7 @@ async function withDetails(rows) {
 // advisory, the row's id one of an OSV row's ids or aliases, is left to
 // that row, which takes the OSV row's ids among its aliases, and its text
 // where it is the same record; an OSV row keeps the versions no such row
-// reports.
+// reports, which advisories() joins to a registry row of its own id.
 function withOsv(registry, osv) {
   const rows = registry.map((row) => ({ ...row }))
   const added = []

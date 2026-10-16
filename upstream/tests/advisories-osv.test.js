@@ -400,6 +400,20 @@ describe('cargo and composer, with a GitHub client', () => {
     assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://api.github.com/')).map(({ url }) => url), [listing('servo/rust-smallvec')])
   })
 
+  it('reports an advisory its repository has as a vulnerability as one, whatever kind OSV\'s record of it gives', async () => {
+    stubAll({
+      hits: { 'smallvec@1.6.0': ['GHSA-bbbb-bbbb-bbbb'] },
+      records: { 'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: [], affected: [{ package: { name: 'smallvec', ecosystem: 'crates.io' }, database_specific: { informational: 'unsound' } }] }) },
+      crates: { smallvec: 'https://github.com/servo/rust-smallvec' },
+      listings: { 'servo/rust-smallvec': [repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('rust', 'smallvec', '< 2.0.0')])] },
+    })
+    const found = await cargo([{ name: 'smallvec', version: '1.6.0' }, { name: 'smallvec', version: '1.7.0' }], { github, repoAdvisories: true })
+    // 1.7.0 is the repository's alone, a vulnerability by it.
+    assert.deepEqual(found.map(({ source, id, informational, versions }) => [source, id, informational, versions]), [['osv', 'GHSA-bbbb-bbbb-bbbb', undefined, ['1.6.0', '1.7.0']]])
+    stubAll({ hits: { 'smallvec@1.6.0': ['GHSA-bbbb-bbbb-bbbb'] }, records: { 'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: [], affected: [{ package: { name: 'smallvec', ecosystem: 'crates.io' }, database_specific: { informational: 'unsound' } }] }) } })
+    assert.equal((await cargo([{ name: 'smallvec', version: '1.6.0' }]))[0].informational, 'unsound', 'as OSV gives it, where it alone answers')
+  })
+
   it('asks a repository given without looking it up, and none without repoAdvisories', async () => {
     const answers = { crates: { smallvec: 'https://github.com/servo/rust-smallvec' }, listings: { 'acme/fork': [repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('rust', 'smallvec', '< 9.0.0')])] } }
     let calls = stubAll(answers)
@@ -414,24 +428,29 @@ describe('cargo and composer, with a GitHub client', () => {
   it('reads a Composer version past its `v`, and takes one semver cannot read as every version', async () => {
     const calls = stubAll({
       hits: { 'monolog/monolog@v1.2.3': ['GHSA-f57v-q966-7fh6'] },
-      records: { 'GHSA-f57v-q966-7fh6': { id: 'GHSA-f57v-q966-7fh6', aliases: [], summary: 'Header injection' } },
+      records: { 'GHSA-f57v-q966-7fh6': { id: 'GHSA-f57v-q966-7fh6', aliases: [], summary: 'Header injection', severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }] } },
       packagist: { 'monolog/monolog': 'https://github.com/Seldaek/monolog.git' },
       listings: {
         'Seldaek/monolog': [
-          repoAdvisory('GHSA-f57v-q966-7fh6', [vuln('composer', 'monolog/monolog', '< 9.0.0')]),
+          repoAdvisory('GHSA-f57v-q966-7fh6', [vuln('composer', 'monolog/monolog', '< 9.0.0')],
+            { cvss_severities: { cvss_v3: { vector_string: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', score: 6.1 }, cvss_v4: { vector_string: null, score: null } } }),
           repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('composer', 'monolog/monolog', '>= 1.0.0, < 1.3.0')]),
           repoAdvisory('GHSA-cccc-cccc-cccc', [vuln('composer', 'monolog/monolog', '>= 2.0.0')]),
         ],
       },
     })
     const found = await composer([{ name: 'monolog/monolog', version: 'v1.2.3' }, { name: 'monolog/monolog', version: '1.2.3.4' }, { name: 'acme/private', version: '1.0.0' }], { github, repoAdvisories: true })
-    // OSV answered for v1.2.3 alone; the repository's range covers 1.2.3.4 too.
-    assert.deepEqual(found.map(({ source, id, severity, versions }) => [source, id, severity, versions]), [
-      ['osv', 'GHSA-f57v-q966-7fh6', undefined, ['v1.2.3']],
-      ['repository', 'GHSA-f57v-q966-7fh6', 'moderate', ['1.2.3.4']],
-      ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', ['1.2.3.4', 'v1.2.3']],
-      ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', ['1.2.3.4']],
+    // OSV answered for v1.2.3 alone; the repository's range covers 1.2.3.4
+    // too, in the same GHSA's row, with the range and severity OSV's record
+    // lacks.
+    assert.deepEqual(found.map(({ source, id, severity, range, versions }) => [source, id, severity, range, versions]), [
+      ['osv', 'GHSA-f57v-q966-7fh6', 'moderate', '< 9.0.0', ['1.2.3.4', 'v1.2.3']],
+      ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', '>= 1.0.0, < 1.3.0', ['1.2.3.4', 'v1.2.3']],
+      ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', '>= 2.0.0', ['1.2.3.4']],
     ])
+    // OSV's record has a vector alone: the score the listing has comes with
+    // the listing's vector, never beside OSV's.
+    assert.deepEqual([found[0].cvss, found[0].cvssVector], [6.1, 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N'])
     assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://repo.packagist.org/')).map(({ url }) => url).toSorted(), [
       'https://repo.packagist.org/p2/acme/private.json',
       'https://repo.packagist.org/p2/monolog/monolog.json',
