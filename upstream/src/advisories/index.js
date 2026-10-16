@@ -44,8 +44,8 @@ const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.index
 // first of the rest that has it, the others' aliases, and of them all the
 // worst severity, the highest CVSS score with its own vector (else the first
 // vector), the ranges (` || `), CWEs and versions (in the order `asked` has
-// them). One id is one record, so the rest agree on what it is: RustSec's
-// kind is that record's.
+// them). RustSec's kind of advisory that is not a vulnerability as such only
+// where each of them has that kind: a row without one is a vulnerability.
 function joinRows(rows, asked) {
   const [head, ...rest] = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
   const all = [head, ...rest]
@@ -57,6 +57,7 @@ function joinRows(rows, asked) {
     cwe: [...new Set(all.flatMap((row) => row.cwe))],
     versions: asked.filter((version) => versions.has(version)),
   }
+  if (rest.some((row) => row.informational !== head.informational)) delete joined.informational
   for (const key of ['title', 'details']) {
     const from = joined[key] === undefined && rest.find((row) => row[key] !== undefined)
     if (from) joined[key] = from[key]
