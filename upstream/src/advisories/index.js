@@ -39,11 +39,12 @@ function collect(packages) {
 const SOURCES = ['registry', 'osv', 'repository']
 const before = (a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source) || (a.source === 'osv' && b.source === 'osv' ? first(a, b) : 0)
 const sameAdvisory = (a, b) => a.id === b.id || a.aliases.includes(b.id) || b.aliases.includes(a.id)
-const FILLED = ['title', 'details', 'severity', 'cvss', 'cvssVector', 'informational']
+const FILLED = ['title', 'details', 'severity', 'informational']
 
 // Rows of one advisory as one: the first's, what it lacks from the first of
-// the rest that has it, the others' ids among its aliases, and all their
-// ranges (` || `), CWEs and versions (in the order `asked` has them).
+// the rest that has it (a CVSS score and its vector together), the others'
+// ids among its aliases, and all their ranges (` || `), CWEs and versions
+// (in the order `asked` has them).
 function joinRows([head, ...rest], asked) {
   const all = [head, ...rest]
   const aliases = new Set([...head.aliases, ...rest.flatMap((row) => [row.id, ...row.aliases])])
@@ -55,6 +56,13 @@ function joinRows([head, ...rest], asked) {
     const from = joined[key] === undefined && rest.find((row) => row[key] !== undefined)
     if (from) joined[key] = from[key]
   }
+  // A score with its own vector, never another's: the first row's that has
+  // a score, else the first vector (OSV's records have no score).
+  const scored = all.find((row) => row.cvss !== undefined) ?? all.find((row) => row.cvssVector !== undefined)
+  delete joined.cvss
+  delete joined.cvssVector
+  if (scored?.cvss !== undefined) joined.cvss = scored.cvss
+  if (scored?.cvssVector !== undefined) joined.cvssVector = scored.cvssVector
   // A range of none ('') covers every version, as they then do together.
   if (ranges.length > 0) joined.range = ranges.includes('') ? '' : ranges.join(' || ')
   return joined

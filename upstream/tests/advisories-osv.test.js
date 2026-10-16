@@ -411,11 +411,12 @@ describe('cargo and composer, with a GitHub client', () => {
   it('reads a Composer version past its `v`, and takes one semver cannot read as every version', async () => {
     const calls = stubAll({
       hits: { 'monolog/monolog@v1.2.3': ['GHSA-f57v-q966-7fh6'] },
-      records: { 'GHSA-f57v-q966-7fh6': { id: 'GHSA-f57v-q966-7fh6', aliases: [], summary: 'Header injection' } },
+      records: { 'GHSA-f57v-q966-7fh6': { id: 'GHSA-f57v-q966-7fh6', aliases: [], summary: 'Header injection', severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }] } },
       packagist: { 'monolog/monolog': 'https://github.com/Seldaek/monolog.git' },
       listings: {
         'Seldaek/monolog': [
-          repoAdvisory('GHSA-f57v-q966-7fh6', [vuln('composer', 'monolog/monolog', '< 9.0.0')]),
+          repoAdvisory('GHSA-f57v-q966-7fh6', [vuln('composer', 'monolog/monolog', '< 9.0.0')],
+            { cvss_severities: { cvss_v3: { vector_string: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', score: 6.1 }, cvss_v4: { vector_string: null, score: null } } }),
           repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('composer', 'monolog/monolog', '>= 1.0.0, < 1.3.0')]),
           repoAdvisory('GHSA-cccc-cccc-cccc', [vuln('composer', 'monolog/monolog', '>= 2.0.0')]),
         ],
@@ -429,6 +430,9 @@ describe('cargo and composer, with a GitHub client', () => {
       ['repository', 'GHSA-bbbb-bbbb-bbbb', 'moderate', '>= 1.0.0, < 1.3.0', ['1.2.3.4', 'v1.2.3']],
       ['repository', 'GHSA-cccc-cccc-cccc', 'moderate', '>= 2.0.0', ['1.2.3.4']],
     ])
+    // OSV's record has a vector alone: the score the listing has comes with
+    // the listing's vector, never beside OSV's.
+    assert.deepEqual([found[0].cvss, found[0].cvssVector], [6.1, 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N'])
     assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://repo.packagist.org/')).map(({ url }) => url).toSorted(), [
       'https://repo.packagist.org/p2/acme/private.json',
       'https://repo.packagist.org/p2/monolog/monolog.json',
