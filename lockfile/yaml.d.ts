@@ -11,10 +11,13 @@ export interface YamlOptions {
   // the key's own column; `>` folded block scalars, a comment after a block
   // scalar's header and its indicators in either order; plain and quoted
   // scalars and flow collections over more than one line, flow collections
-  // nested and a comma after the last entry; anchors and aliases, an alias
-  // the very value its anchor names, in block context alone, a document
-  // they would expand past 2^20 nodes or 128 levels as copies refused; and
-  // a tab in a block scalar's text, but nowhere else but a comment line.
+  // nested and a comma after the last entry; a flow mapping's value left
+  // empty, or its `:` too, null, a `:` after spaces or right after a quoted
+  // key (`{"a":1}`), and a flow sequence's `k: v` a mapping of one; anchors
+  // and aliases, an alias the very value its anchor names, in block context
+  // alone, a document they would expand past 2^20 nodes or 128 levels as
+  // copies refused; and a tab in a block scalar's text, but nowhere else but
+  // a comment line or one of nothing but spaces and tabs.
   // Scalars are typed as without it, and the rest is refused as without it:
   // tags, merge keys, which GitHub doesn't read either, directives and end
   // markers.

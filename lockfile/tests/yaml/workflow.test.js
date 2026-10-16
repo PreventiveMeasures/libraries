@@ -57,6 +57,8 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse('a: |\n  all:\n  \techo x\n  \t\n'), { a: 'all:\n\techo x\n\t\n' })
     assert.deepEqual(parse('a: >\n  x\n  \ty\n'), { a: 'x\n\ty\n' })
     assert.deepEqual(parse('# a\tcomment\na: 1\n\t\nb: 2\n'), { a: 1, b: 2 })
+    // A comment line, and a line of spaces and tabs, in a flow collection too.
+    assert.deepEqual(parse('a: [\n  # a\tcomment\n \t\n  x]\nb: {k: v,\n\t\n  # \t\n  l: w}\n'), { a: ['x'], b: { k: 'v', l: 'w' } })
   })
 
   it('plain scalars over more than one line, folded', () => {
@@ -96,6 +98,16 @@ describe('workflow: what GitHub reads past what pnpm writes', () => {
     assert.deepEqual(parse("a: [one,\n\n  two]\nb: [it's, x\n  'y]\nc: ['q'\n\n  , d]\n"), { a: ['one', 'two'], b: ["it's", "x 'y"], c: ['q', 'd'] })
   })
 
+  it('a flow mapping\'s value left empty, or its ":" too, null; a flow sequence\'s "k: v" a mapping of one', () => {
+    assert.deepEqual(parse('env: {TOKEN: , B:, C}\nd: {e}\n'), { env: { TOKEN: null, B: null, C: null }, d: { e: null } })
+    assert.deepEqual(parse('a: {b:\n  }\nc: {d: # c\n  }\n'), { a: { b: null }, c: { d: null } })
+    // A ":" after spaces, or right after a quoted key, as JSON writes it.
+    assert.deepEqual(parse('a: {"b":1, \'c\':[x], d : 2, "e" :3}\n'), { a: { b: 1, c: ['x'], d: 2, e: 3 } })
+    assert.deepEqual(parse('a: [b: 1, c, "d":, e: {f: g}]\n'), { a: [{ b: 1 }, 'c', { d: null }, { e: { f: 'g' } }] })
+    // But a key's only where a space or the end of an entry follows it.
+    assert.deepEqual(parse('a: {b:1, c :1}\nd: [e:f, g\n  :h]\n'), { a: { 'b:1': null, 'c :1': null }, d: ['e:f', 'g :h'] })
+  })
+
   it('anchors and aliases, an alias the very value its anchor names', () => {
     const doc = parseYaml('env: &env\n  A: 1\nother: *env\nl:\n  - &s step\n  - *s\n  - &m\n    k: v\n  - *m\n', { workflow: true })
     assert.equal(doc.other, doc.env)
@@ -130,6 +142,9 @@ describe('workflow: what it still refuses', () => {
     ['a: b\n  \tc', /U\+0009 is not allowed outside a block scalar at line 2/u, 1],
     ['a: [b,\n\tc]', /U\+0009 is not allowed outside a block scalar at line 2/u, 1],
     ['a: 1 # \tc', /U\+0009 is not allowed outside a block scalar/u, 0],
+    ['a: [\n  b, # \tc\n  d]', /U\+0009 is not allowed outside a block scalar at line 2/u, 1],
+    // Nor in an empty line a plain scalar folds, which YAML refuses.
+    ['a: [one\n\t\n  two]', /^U\+0009 is not allowed outside a block scalar at line 2$/u, 1],
     // Aliases: of anchors named before, alone, not as keys, nor in a flow collection.
     ['a: *x', /^unknown alias "\*x" at line 1$/u, 0],
     ['a: &x 1\nb: *x y', /unexpected "\*x y" after an alias at line 2/u, 1],
@@ -139,6 +154,8 @@ describe('workflow: what it still refuses', () => {
     ['- &x &y 1', /expected a scalar, found "&y 1"/u, 0],
     ['- &x - a', /an anchor before a block on its own line is not supported/u, 0],
     ['a: & 1', /expected an anchor's name, found "& 1"/u, 0],
+    ['a: &x 1\nb: &y *x', /^an alias with an anchor is not supported at line 2$/u, 1],
+    ['- &x *x', /an alias with an anchor is not supported/u, 0],
     // What doesn't close.
     ['a: "x\n  y', /^a quoted scalar that does not close at line 1$/u, 0],
     ["a: 'x\n---\nb: 1", /a quoted scalar that does not close at line 1/u, 0],
@@ -150,6 +167,12 @@ describe('workflow: what it still refuses', () => {
     ['a: [one # c\n  two]', /^a plain scalar in a flow collection goes on past a comment at line 2$/u, 1],
     ['a: [one\n  # c\n  two]', /a plain scalar in a flow collection goes on past a comment at line 3/u, 2],
     ['a: "x\n  y" z', /unexpected " z" after the value at line 2/u, 1],
+    // A key in a flow collection on one line, its ":" too, as js-yaml has it.
+    ['a: {b\n  c: 1}', /^a key over more than one line is not supported at line 2$/u, 1],
+    ['a: [b\n\n  c: 1]', /a key over more than one line is not supported at line 3/u, 2],
+    ['a: {b\n  : 1}', /a key over more than one line is not supported at line 2/u, 1],
+    ['a: ["b"\n  :1]', /a key over more than one line is not supported at line 2/u, 1],
+    ['a: {b: c\n  d: 1}', /a key over more than one line is not supported at line 2/u, 1],
     // What YAML refuses in a plain scalar, on any of its lines.
     ['run: echo "a: b"', /unexpected ": b\\"" after the value/u, 0],
     ['a: b\n  c: d', /unexpected ": d" after the value/u, 0],
@@ -165,8 +188,11 @@ describe('workflow: what it still refuses', () => {
     // And the rest as without it.
     ['a: 1\na: 2', /duplicate key "a" at line 2/u, 1],
     ['a: {b: 1, b: 2}', /duplicate key "b"/u, 0],
-    ['a: [[1], {b}]', /expected ": " after the key/u, 0],
+    ['a: {b: 1 c: 2}', /expected "," or "\}", found ": 2\}"/u, 0],
     ['a: {[1]: 2}', /keys must be strings/u, 0],
+    ['a: [[1]: 2]', /keys must be strings/u, 0],
+    ['a: {: 1}', /expected a scalar, found ": 1\}"/u, 0],
+    ['a: {b, b}', /duplicate key "b"/u, 0],
     ['  a: 1', /column 0/u, 0],
   ]
   for (const [text, message, line] of REFUSED) {
@@ -257,6 +283,10 @@ describe('without workflow, each of them refused as before', () => {
     ['a: &x 1\nb: *x\n', /expected a scalar, found "&x 1"/u],
     ['a: |\n  \tx\n', /^U\+0009 is not allowed at line 2$/u],
     ['# a\tcomment\na: 1\n', /^U\+0009 is not allowed at line 1$/u],
+    ['a: {b: }\n', /expected a scalar, found "\}"/u],
+    ['a: {b}\n', /expected ": " after the key, found "\}"/u],
+    ['a: {"b":1}\n', /expected ": " after the key, found ":1\}"/u],
+    ['a: [b: 1]\n', /expected "," or "\]", found ": 1\]"/u],
   ]
   for (const [text, message] of STRICT) {
     it(JSON.stringify(text), () => {
