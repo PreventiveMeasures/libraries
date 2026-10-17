@@ -1,7 +1,8 @@
-// Output recorded from GNU diff 3.10 in the C locale for pairs where a run of
-// changes is free to sit in more than one place. Unlike gnu-diff.js, whose
-// pairs each have one shortest change set, these pin where GNU puts the run
-// as well as what it changes. Each was run as `diff <flags> a b` with the
+// Output recorded from GNU diff 3.10 in the C locale for pairs where GNU has
+// a choice to make: where a run of changes free to sit in more than one
+// place goes, and which of several change sets the search reaches. Unlike
+// gnu-diff.js, whose pairs each have one shortest change set, these pin the
+// choice as well as what changes. Each was run as `diff <flags> a b` with the
 // pair written to `a` and `b`. `body` is what `diff` returns, so the two label
 // lines a unified or context diff opens with are left out, and `options` asks
 // `diff` for the same output.
@@ -35,13 +36,25 @@ export const PAIRS = {
     ' x\ny\ny\n',
     'x\ny\n',
   ],
-  // Under -w, an `A` with no match in the other file. Without --minimal, GNU
-  // sets such lines aside before it searches (discard_confusing_lines), which
-  // can settle on another shortest change set; diff never does, so this is
-  // recorded with --minimal, which turns that off.
+  // Under -w, an `A` with no match in the other file. Before it searches,
+  // diff sets such lines aside (GNU's discard_confusing_lines), which settles
+  // on another shortest change set than --minimal, where it does not.
   unmatched: [
     'a\na\nb\n',
     ' a\nA\nb\na\n a\nb\nb\n',
+  ],
+  // The same with no option at all: `b` and `c` match nothing.
+  'unmatched-plain': [
+    'b\nX\nX\nb\n',
+    'c\nX\n',
+  ],
+  // A stretch rewritten with a `}` in it, against a file with six. A line
+  // matching that many is set aside too where it stands among lines matching
+  // nothing, so the stretch prints as one change, longer than the shortest;
+  // --minimal matches the `}` and prints two.
+  rewritten: [
+    'x\nu1\nu2\nu3\n}\nu4\nu5\nu6\ny\n',
+    'x\n}\nv1\n}\n}\nv2\n}\n}\n}\ny\n',
   ],
 }
 
@@ -155,5 +168,30 @@ export const RECORDINGS = [
     command: 'diff -w --horizon-lines=1 --minimal a b',
     pair: 'unmatched', options: { format: 'normal', whitespace: 'all', horizon: 1, minimal: true },
     body: '1a2,3\n> A\n> b\n2a5,6\n>  a\n> b\n',
+  },
+  {
+    command: 'diff -w --horizon-lines=1 a b',
+    pair: 'unmatched', options: { format: 'normal', whitespace: 'all', horizon: 1 },
+    body: '1a2,4\n> A\n> b\n> a\n3a7\n> b\n',
+  },
+  {
+    command: 'diff a b',
+    pair: 'unmatched-plain', options: { format: 'normal' },
+    body: '1c1\n< b\n---\n> c\n3,4d2\n< X\n< b\n',
+  },
+  {
+    command: 'diff --minimal a b',
+    pair: 'unmatched-plain', options: { format: 'normal', minimal: true },
+    body: '1,2c1\n< b\n< X\n---\n> c\n4d2\n< b\n',
+  },
+  {
+    command: 'diff a b',
+    pair: 'rewritten', options: { format: 'normal' },
+    body: '2,8c2,9\n< u1\n< u2\n< u3\n< }\n< u4\n< u5\n< u6\n---\n> }\n> v1\n> }\n> }\n> v2\n> }\n> }\n> }\n',
+  },
+  {
+    command: 'diff --minimal a b',
+    pair: 'rewritten', options: { format: 'normal', minimal: true },
+    body: '2,4d1\n< u1\n< u2\n< u3\n6,8c3,9\n< u4\n< u5\n< u6\n---\n> v1\n> }\n> }\n> v2\n> }\n> }\n> }\n',
   },
 ]
