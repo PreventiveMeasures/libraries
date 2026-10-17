@@ -44,7 +44,9 @@ function lineCount(value, name) {
 // and inserts, as a block read out of a diff does. A run free to sit in more
 // than one place sits where `diff` puts it with three lines of context;
 // `horizon` is the context to match instead (0 for the normal format), or
-// Infinity to let every run go as far as it can, as git does.
+// Infinity to let every run go as far as it can, as git does. `discard:
+// false` has the search take every line, keeping its cutoff, where diff
+// would set some aside first (myers.js) and git sets aside others.
 // With nothing asked of the comparison, applyChangeSet over the first file
 // gives back the second.
 export function changeSet(a, b, { slide = true, horizon = 3, ...comparison } = {}) {

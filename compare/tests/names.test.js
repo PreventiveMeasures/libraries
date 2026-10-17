@@ -353,13 +353,14 @@ describe('renamedDiff', () => {
     const edits = (blocks) => blocks.reduce((n, block) => n + block.a1 - block.a0 + block.b1 - block.b0, 0)
     const { blocks } = await renamedDiff(before, after)
     assert.deepEqual(blocks, changeSet(before, after, { horizon: 0, minimal: true }).map(({ a0, a1, b0, b1 }) => ({ a0, a1, b0, b1 })))
-    assert.ok(edits(blocks) < edits(changeSet(before, after, { horizon: 0 })), 'shorter than past the cutoff')
+    // compare's quick search takes every line, as diff's does with `discard: false`.
+    assert.ok(edits(blocks) < edits(changeSet(before, after, { horizon: 0, discard: false })), 'shorter than past the cutoff')
     // As many lines again alike before them: the search's work, as the square of the lines changed, is no more.
     const alike = lines(Array.from({ length: 14000 }, (_, i) => `g(${i});`))
     const [longer, later] = [alike + before, alike + after]
     const shortest = shortestChangeSet(longer, later, { horizon: 0 })
     assert.equal(edits(shortest), edits(blocks))
-    assert.ok(edits(shortest) < edits(changeSet(longer, later, { horizon: 0 })), 'shorter than past the cutoff')
+    assert.ok(edits(shortest) < edits(changeSet(longer, later, { horizon: 0, discard: false })), 'shorter than past the cutoff')
     // Ignoring blanks shows two lines here, as minding them does: the blocks minding them.
     assert.deepEqual(shownChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0, whitespace: 'all' }), shownChangeSet(' q\nq\n', 'q\nr\n', { horizon: 0 }))
   })

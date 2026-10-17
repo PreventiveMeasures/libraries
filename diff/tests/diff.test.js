@@ -105,6 +105,25 @@ describe('a free run sits where GNU puts it, in every format', () => {
   }
 })
 
+// A context hunk prints each file's side, and leaves out a side with no
+// changes of its own. Under -w, -b or -i the lines both keep can differ in
+// text, so a hunk that only adds lines prints the second file's kept lines,
+// not the first's. These are the strings GNU diff 3.10 prints with -c.
+describe('the context format prints each side as that file has it', () => {
+  for (const [name, a, b, options, expected] of [
+    ['-w, adding only', ' y\n', 'y\nz\n', { whitespace: 'all' }, '***************\n*** 1 ****\n--- 1,2 ----\n  y\n+ z\n'],
+    ['-w, removing only', 'y\nz\n', ' y\n', { whitespace: 'all' }, '***************\n*** 1,2 ****\n  y\n- z\n--- 1 ----\n'],
+    ['-w, both', ' y\nq\n', 'y\nQ\n', { whitespace: 'all' }, '***************\n*** 1,2 ****\n   y\n! q\n--- 1,2 ----\n  y\n! Q\n'],
+    ['-i, adding only', 'Y\n', 'y\nz\n', { ignoreCase: true }, '***************\n*** 1 ****\n--- 1,2 ----\n  y\n+ z\n'],
+    ['-b, adding only', 'a  b\n', 'a b\nc\n', { whitespace: 'change' }, '***************\n*** 1 ****\n--- 1,2 ----\n  a b\n+ c\n'],
+  ]) {
+    it(name, () => {
+      assert.equal(diff(a, b, { format: 'context', ...options }), expected)
+      assert.equal(formatChangeSet(a, b, changeSet(a, b, options), { format: 'context', ...options }), expected)
+    })
+  }
+})
+
 describe('brief answers whether they differ, and stops there', () => {
   it('says nothing when they are the same', () => {
     assert.equal(diff('a\nb\n', 'a\nb\n', { format: 'brief' }), '')

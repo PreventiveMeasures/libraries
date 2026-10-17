@@ -34,18 +34,36 @@ function lcsLength(a, b) {
 
 const editCount = (blocks) => blocks.reduce((n, { a0, a1, b0, b1 }) => n + (a1 - a0) + (b1 - b0), 0)
 
-describe('diffLines returns a shortest change set that reconstructs the second input', () => {
+describe('diffLines returns a change set that reconstructs the second input, a shortest one under --minimal', () => {
   it('on thousands of small random inputs, with and without --minimal', () => {
     const next = random(20260914)
     for (let round = 0; round < 4000; round++) {
       const alphabet = 1 + Math.floor(next() * 4)
       const draw = () => Array.from({ length: Math.floor(next() * 14) }, () => String.fromCodePoint(97 + Math.floor(next() * alphabet)) + '\n')
       const a = draw(), b = draw()
-      const blocks = diffLines(a, b, { minimal: next() < 0.5 })
-      assert.deepEqual(applyRecords(a, blocks, b), b, `round ${round}: ${JSON.stringify([a.join(''), b.join('')])}`)
-      assert.equal(editCount(blocks), a.length + b.length - 2 * lcsLength(a, b), `round ${round}: not minimal`)
-      for (let i = 1; i < blocks.length; i++) assert.ok(blocks[i].a0 > blocks[i - 1].a1 || blocks[i].b0 > blocks[i - 1].b1, `round ${round}: adjacent blocks were not merged`)
+      const shortest = a.length + b.length - 2 * lcsLength(a, b)
+      for (const minimal of [true, false]) {
+        const blocks = diffLines(a, b, { minimal })
+        const replay = `round ${round}${minimal ? ', --minimal' : ''}: ${JSON.stringify([a.join(''), b.join('')])}`
+        assert.deepEqual(applyRecords(a, blocks, b), b, replay)
+        // Without --minimal a line matching many can be set aside, as GNU
+        // sets it aside, and the change set be the longer for it.
+        if (minimal) assert.equal(editCount(blocks), shortest, `${replay}: not minimal`)
+        else assert.ok(editCount(blocks) >= shortest, replay)
+        for (let i = 1; i < blocks.length; i++) assert.ok(blocks[i].a0 > blocks[i - 1].a1 || blocks[i].b0 > blocks[i - 1].b1, `${replay}: adjacent blocks were not merged`)
+      }
     }
+  })
+
+  it('is longer without --minimal only where GNU is', () => {
+    // Every `b` in the first file matches all six in the second, so the one
+    // standing among lines that match nothing is set aside. GNU 3.10 with
+    // --horizon-lines=9 prints 1,7c1,5, and with --minimal too, 1,3d0 5,7c2,5.
+    const a = splitRecords('c\nc\nc\nb\na\na\nc\nb\n'), b = splitRecords('b\nb\nb\nb\nb\nb\n')
+    assert.deepEqual(diffLines(a, b), [{ a0: 0, a1: 7, b0: 0, b1: 5 }])
+    assert.deepEqual(diffLines(a, b, { minimal: true }), [{ a0: 0, a1: 3, b0: 0, b1: 0 }, { a0: 4, a1: 7, b0: 1, b1: 5 }])
+    // Searching every line, short of the cutoff, finds the shortest too.
+    assert.deepEqual(diffLines(a, b, { discard: false }), diffLines(a, b, { minimal: true }))
   })
 
   it('handles the degenerate shapes', () => {
