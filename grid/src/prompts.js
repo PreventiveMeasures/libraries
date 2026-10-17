@@ -110,13 +110,28 @@ export function pageBlock({ page, columns, mode, cap }) {
 }
 
 // Phase 5: one finalist, in full, against the request in full. An absolute scale this time, since
-// the finalists are ranked on it alone and a caller may cut by it.
+// a caller may cut by it. The evidence is asked for twice over -- a sentence, and the span it rests
+// on copied word for word -- because the copy can be checked against the entry without another
+// call, and a span that is not there is a score reasoned about something the entry does not say.
 export function scoreSystem(task) {
   return `You judge one candidate entry of a dataset against a request, under a task.
 ${taskLines(task)}
 
-Read both in full. Score from 0 to 100 how well the candidate matches the request under the main question: 100 is a certain and complete match, 50 a partial or uncertain one, 0 unrelated. Give one sentence naming the decisive evidence, from the candidate, for the score.
-Return only JSON: {"score":<0-100>,"reason":"..."}`
+Read both in full. Score from 0 to 100 how well the candidate matches the request under the main question: 100 is a certain and complete match, 50 a partial or uncertain one, 0 unrelated. Give one sentence naming the decisive evidence, from the candidate, for the score, and quote that evidence: a short span copied from the candidate word for word, not paraphrased.
+Return only JSON: {"score":<0-100>,"reason":"...","evidence":"..."}`
 }
 
 export const candidateBlock = (row) => `Candidate:\n${row.entry}`
+
+// Phase 5b: the top finalists as one list, ordered. The list is shuffled between rounds, and the
+// prompt says so in as many words as it takes to keep the model from reading the order it was
+// handed as a hint; the rows are numbered on the list as a page's are, for the same reason.
+export function rerankSystem(task) {
+  return `You order a short list of candidate entries of a dataset by how well each matches a request, under a task.
+${taskLines(task)}
+
+Read the request and every candidate in full. Order all the candidates from the best match to the worst under the main question, judging each on its own content: the order they are listed in carries no information.
+Return only JSON: {"order":[<candidate numbers, best first>]} naming every candidate once.`
+}
+
+export const listBlock = (rows) => `Candidates: ${rows.length}\n${rows.map(fullRow).join('\n')}`

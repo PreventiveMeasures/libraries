@@ -40,20 +40,37 @@ describe('buildTable and select', () => {
   it('selects the matching entries, ranked on the full-text score, with the stages it took', async () => {
     const log = []
     const table = await buildTable({ task: TASK, entries: ENTRIES, model: MODELS.strong, ask: fakeAsk() })
-    const { results, gate, stages, fullStages, tally } = await run(table, { log })
+    const { results, reranked, gate, stages, fullStages, tally } = await run(table, { log })
     assert.deepEqual(results.map((r) => r.id).sort(), [...MATCHES].sort())
     assert.ok(results.every((r) => r.score === 90 && r.votes === 3 && r.reason === 'carries MATCH' && r.summary.endsWith('MATCH')))
+    assert.ok(results.every((r) => r.evidence === 'MATCH' && r.grounded === true && r.duplicates.length === 0 && typeof r.listRank === 'number'))
+    assert.equal(reranked, 5)
     assert.deepEqual(gate, { extraQuestions: [], fullScan: false, reason: 'enough' })
     assert.deepEqual(stages.map((s) => [s.rows, s.survivors]), [[50, 5]])
     assert.deepEqual(fullStages, [])
     // The finalist's call: the request as the shared prefix, the candidate after a blank line.
     const scoring = log.find((r) => r.systemPrompt.startsWith('You judge'))
     assert.match(scoring.userContent.join(''), /^Request:\na red thing\n\nCandidate:\ne\d+: entry number \d+ MATCH$/u)
-    // One gate, three rounds of five pages, five finalists: and each on the model for its work.
+    // The listwise rounds: the request first again, then the five finalists as one list.
+    const listing = log.filter((r) => r.systemPrompt.startsWith('You order'))
+    assert.equal(listing.length, 3)
+    assert.ok(listing.every((r) => r.userContent[0] === 'Request:\na red thing\n\n' && r.userContent[1].startsWith('Candidates: 5\n[1]\n')))
+    // One gate, three rounds of five pages, five finalists, three listwise rounds: and each on the
+    // model for its work.
     const models = log.map((r) => r.model)
-    assert.equal(models.filter((m) => m === MODELS.strong).length, 6)
+    assert.equal(models.filter((m) => m === MODELS.strong).length, 9)
     assert.equal(models.filter((m) => m === MODELS.search).length, 15)
-    assert.equal(tally.calls, 21)
+    assert.equal(tally.calls, 24)
+  })
+
+  it('keeps the pointwise order when the listwise pass is off', async () => {
+    const log = []
+    const table = await buildTable({ task: TASK, entries: ENTRIES, model: MODELS.strong, ask: fakeAsk() })
+    const { results, reranked } = await run(table, { log, rerank: false })
+    assert.equal(reranked, 0)
+    assert.deepEqual(results.map((r) => r.id), [...MATCHES].sort((a, b) => a.localeCompare(b)))
+    assert.ok(results.every((r) => r.listRank === undefined))
+    assert.equal(log.filter((r) => r.systemPrompt.startsWith('You order')).length, 0)
   })
 
   it('reads every call back from the cache on a second run', async () => {
@@ -118,9 +135,11 @@ describe('buildTable and select', () => {
   it('scores a small table outright, with no search stage', async () => {
     const log = []
     const table = await buildTable({ task: TASK, entries: entriesOf(4, ['e2']), model: MODELS.strong, ask: fakeAsk() })
-    const { results, stages } = await run(table, { log })
+    const { results, stages, reranked } = await run(table, { log })
     assert.deepEqual(stages, [])
-    assert.deepEqual(results.map((r) => [r.id, r.score]), [['e2', 90], ['e1', 10], ['e3', 10], ['e4', 10]])
+    assert.equal(reranked, 4)
+    assert.deepEqual(results[0], { ...results[0], id: 'e2', score: 90, listRank: 1 })
+    assert.deepEqual(results.slice(1).map((r) => [r.id, r.score]).sort(), [['e1', 10], ['e3', 10], ['e4', 10]])
   })
 })
 

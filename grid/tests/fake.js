@@ -34,9 +34,30 @@ function searchAnswer(request) {
   return { picks }
 }
 
+// The evidence is a span of the candidate, so the result reads as grounded; a test wanting an
+// ungrounded one overrides the answer.
 function scoreAnswer(request) {
-  const candidate = blocksOf(request.userContent).find((block) => block.startsWith('Candidate:'))
-  return candidate.includes('MATCH') ? { score: 90, reason: 'carries MATCH' } : { score: 10, reason: 'no MATCH' }
+  const candidate = blocksOf(request.userContent).find((block) => block.startsWith('Candidate:')).replace(/^Candidate:\n/u, '')
+  return candidate.includes('MATCH')
+    ? { score: 90, reason: 'carries MATCH', evidence: 'MATCH' }
+    : { score: 10, reason: 'no MATCH', evidence: candidate.split(' ').slice(0, 2).join(' ') }
+}
+
+// The candidates of a rerank list, as `[ordinal, text]`.
+export function listRows(list) {
+  const parts = list.slice(list.indexOf('\n') + 1).split(/^\[(\d+)\]$/mu)
+  const rows = []
+  for (let i = 1; i < parts.length; i += 2) rows.push([Number(parts[i]), parts[i + 1]])
+  return rows
+}
+
+// Best first by how many times the word occurs, and among equals in LIST order: a model with the
+// position bias the rounds exist to average out.
+function rerankAnswer(request) {
+  const list = blocksOf(request.userContent).find((block) => block.startsWith('Candidates:'))
+  const strength = (text) => (text.match(/MATCH/gu) ?? []).length
+  const order = listRows(list).sort((a, b) => strength(b[1]) - strength(a[1]) || a[0] - b[0]).map(([n]) => n)
+  return { order }
 }
 
 export function fakeAsk({ gate = {}, propose = {}, log = [], override } = {}) {
@@ -51,6 +72,7 @@ export function fakeAsk({ gate = {}, propose = {}, log = [], override } = {}) {
     else if (systemPrompt.startsWith('A dataset was compacted')) json = { extraQuestions: [], fullScan: false, reason: 'enough', ...gate }
     else if (systemPrompt.startsWith('You select')) json = searchAnswer(request)
     else if (systemPrompt.startsWith('You judge')) json = scoreAnswer(request)
+    else if (systemPrompt.startsWith('You order')) json = rerankAnswer(request)
     else return Promise.reject(new Error(`fake ask: unknown prompt ${systemPrompt.slice(0, 40)}`))
     return Promise.resolve({ text: JSON.stringify(json), usage: USAGE, history: [] })
   }
