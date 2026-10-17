@@ -417,6 +417,8 @@ describe('no-think wire form', () => {
     ['google/gemma-4-31b-it', false, true],
     ['nvidia/nemotron-3-super-120b-a12b', true, true],
     ['nvidia/nemotron-3-super-120b-a12b:free', true, true],
+    ['nvidia/nemotron-3.5-super-vl', true, true],
+    ['nvidia/nemotron-3.5-super-vl:free', true, true],
     ['nvidia/nemotron-3-ultra-550b-a55b', true, true],
     ['nvidia/nemotron-3-ultra-550b-a55b:free', true, true],
     ['qwen/qwen3.6-27b', true, true],
@@ -494,6 +496,7 @@ describe('nemotron paid/free pairs', () => {
     ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
     ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
     ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4],
+    ['nvidia/nemotron-3.5-super-vl', 0.1, 0.4],
   ]
 
   for (const [paid, input, output] of PAIRS) {
@@ -522,6 +525,14 @@ describe('nemotron paid/free pairs', () => {
       assert.throws(() => validateModel(free), /requires --free/u)
     })
   }
+})
+
+describe('nemotron 3.5 super vl', () => {
+  // NVIDIA sells it nowhere on OpenRouter, so the row takes OpenRouter's
+  // listed price, which Crusoe and DeepInfra charge.
+  it('bills cache reads at the listed $0.08, 0.8x of input rather than 0.10x', () => {
+    assert.equal(baseRate('nvidia/nemotron-3.5-super-vl', 'cacheRead'), 0.08)
+  })
 })
 
 describe('gemini flash', () => {
