@@ -27,13 +27,18 @@ export interface Question {
 }
 
 // One row of the table: the entry's id, the task it was compacted for, the entry itself (read by
-// the last stage alone), the summary, and one answer per question in question order.
+// the last stages alone), the summary, and one answer per question in question order. A row that
+// buildTable found to be a copy of an earlier entry names that entry as `dupOf` and carries its
+// summary and answers; the entry copied lists the copies' ids as `duplicates`. select() searches
+// the rows that are not copies, and its results carry the ids each stands for.
 export interface Row {
   id: string
   taskId: string
   entry: string
   summary: string
   answers: string[]
+  dupOf?: string | undefined
+  duplicates?: string[] | undefined
 }
 
 // What a run spent: the usage sum over every model call, how many calls went to the model, and
@@ -89,12 +94,29 @@ export declare function compact(options: PhaseOptions & {
   onRow?: ((row: Row, done: number, total: number) => void) | undefined
 }): Promise<Row[]>
 
-// Phases 0 and 1 together: the table for one task over one dataset. `model` is the strong one
-// (ai's DEFAULT_MODEL when omitted); `tally` is created when omitted and returned either way.
+// How copies are found among the entries, by text alone: two are copies at a Jaccard similarity of
+// `threshold` (0.8) or more over their word `shingle`-grams (5); `hashes` (64) MinHash functions in
+// `bands` (16) bands decide which pairs are compared, and the exact similarity decides the rest.
+export interface DedupeOptions {
+  threshold?: number | undefined
+  shingle?: number | undefined
+  hashes?: number | undefined
+  bands?: number | undefined
+}
+
+// The groups of copies among `entries`, as a Map from the first id of each group in input order to
+// the ids of its copies; an entry in no group is absent. No model call; deterministic.
+export declare function groupDuplicates(entries: Entry[], options?: DedupeOptions | undefined): Map<string, string[]>
+
+// Phases 0 and 1 together, with the copies grouped between them: the table for one task over one
+// dataset, one row per entry in input order, only the distinct entries compacted. `model` is the
+// strong one (ai's DEFAULT_MODEL when omitted); `dedupe` false keeps every entry distinct; `tally`
+// is created when omitted and returned either way. `onRow` counts the distinct entries.
 export declare function buildTable(options: Partial<PhaseOptions> & {
   task: Task
   entries: Entry[]
   maxQuestions?: number | undefined
+  dedupe?: DedupeOptions | false | undefined
   concurrency?: number | undefined
   onRow?: ((row: Row, done: number, total: number) => void) | undefined
 }): Promise<{ task: Task, focus: string, questions: Question[], rows: Row[], tally: Tally }>
@@ -183,22 +205,48 @@ export declare function narrow(options: PhaseOptions & SearchOptions & {
 }): Promise<{ candidates: Candidate[], stages: Stage[] }>
 
 // One finalist as the full-text stage scores it: 0 to 100 on an absolute scale, the sentence of
-// evidence the model gave, and the votes it reached the stage with.
+// evidence the model gave and the span it quoted for it, whether that span is in the entry word
+// for word (`grounded`), the votes it reached the stage with, and the ids of the copies of this
+// entry it stands for. `listRank` is set by rerank(): the finalist's mean position over the
+// listwise rounds, 1 when it came first in every one.
 export interface Result {
   id: string
   score: number
   reason: string
+  evidence: string
+  grounded: boolean
   votes: number
   summary: string
+  duplicates: string[]
+  listRank?: number | undefined
 }
 
-// Phase 5: every candidate in full against the request in full, best first.
+// Phase 5: every candidate in full against the request in full, best first: by score, a grounded
+// reading ahead of an ungrounded one at the same score, then votes.
 export declare function score(options: PhaseOptions & {
   task: Task
   request: Entry
   candidates: Candidate[]
   concurrency?: number | undefined
 }): Promise<Result[]>
+
+// The listwise pass over the top of the pointwise ranking: the first `window` (20) results, as one
+// list of full entries, ordered `rounds` (3) times under a different shuffle each, and ranked by
+// mean position. Fewer than two in the window, or no rounds, leaves the order as it was.
+export interface RerankOptions {
+  window?: number | undefined
+  rounds?: number | undefined
+  concurrency?: number | undefined
+}
+
+// Phase 5b: `results` as score() ranks them, with the entries read back from `rows` by id. Returns
+// the results with the window ordered and the rest after it unchanged, and how many were ordered.
+export declare function rerank(options: PhaseOptions & RerankOptions & {
+  task: Task
+  request: Entry
+  results: Result[]
+  rows: Row[]
+}): Promise<{ results: Result[], reranked: number }>
 
 // The models a run uses: `strong` for the schema, the gate and the finalists (ai's DEFAULT_MODEL
 // when omitted), `search` for the pages (strong when omitted), `cheap` for whatever the gate sends
@@ -210,8 +258,11 @@ export interface Models {
 }
 
 // The pipeline for one request against one table. `final` (0.01) of the rows, and never fewer
-// than `minFinal` (20), reach the full-text stage; `topK` cuts the ranked results, all of them when
-// omitted; `useGate` off skips the gate and runs the summary search alone.
+// than `minFinal` (20), reach the full-text stage; the top of its ranking is then ordered listwise
+// under `rerank` (false keeps the pointwise order); `topK` cuts the results, all of them when
+// omitted; `useGate` off skips the gate and runs the summary search alone. Rows marked `dupOf` are
+// skipped, and the row they copy carries their ids in its result. `reranked` is how many results
+// the listwise pass ordered.
 export declare function select(options: {
   task: Task
   focus: string
@@ -224,9 +275,46 @@ export declare function select(options: {
   minFinal?: number | undefined
   useGate?: boolean | undefined
   search?: SearchOptions | undefined
+  rerank?: RerankOptions | false | undefined
   concurrency?: number | undefined
   think?: boolean | undefined
   effort?: string | undefined
   tally?: Tally | undefined
   ask?: Ask | undefined
-}): Promise<{ results: Result[], gate: Routing, stages: Stage[], fullStages: Stage[], tally: Tally }>
+}): Promise<{ results: Result[], reranked: number, gate: Routing, stages: Stage[], fullStages: Stage[], tally: Tally }>
+
+// A request whose matches are known: the ids of the entries that match it.
+export interface Case {
+  request: Entry
+  relevant: string[]
+}
+
+// One case measured: of its `relevant` ids, the `hits` among the results returned at the cut, the
+// ones `belowCut` that reached the finalists but were scored under it, and the ones `dropped` that
+// no stage carried to the finalists; `recall` is the hits over the relevant, `precision` the
+// results at the cut that are relevant (or stand for a relevant copy) over the results returned,
+// `reciprocalRank` one over the position of the first relevant result, 0 when none. With the
+// routing and stages the request's select() took.
+export interface Run {
+  id: string
+  recall: number
+  precision: number
+  reciprocalRank: number
+  returned: number
+  hits: string[]
+  belowCut: string[]
+  dropped: string[]
+  gate: Routing
+  stages: Stage[]
+  fullStages: Stage[]
+  reranked: number
+}
+
+// select() over every case, one after another, with no topK cut inside so that a miss can be
+// placed; the measures are taken at `topK` (every finalist when omitted). Everything else is
+// select()'s. `onCase` sees each run as it lands. Returns the runs, the means over them (`mrr` the
+// mean reciprocal rank), and the one tally.
+export declare function evaluate(options: Omit<Parameters<typeof select>[0], 'request'> & {
+  cases: Case[]
+  onCase?: ((run: Run) => void) | undefined
+}): Promise<{ runs: Run[], recall: number, precision: number, mrr: number, tally: Tally }>

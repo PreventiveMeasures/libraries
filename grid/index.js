@@ -5,20 +5,26 @@
 // here is called.
 //
 // The shape of a run:
-//   buildTable  once per task and dataset -- the questions proposed for the task, then every
-//               entry compacted to a summary and short answers (proposeQuestions and compact
-//               are its two halves, for a caller that persists between them);
+//   buildTable  once per task and dataset -- the questions proposed for the task, the copies
+//               among the entries grouped, then every distinct entry compacted to a summary and
+//               short answers (proposeQuestions, groupDuplicates and compact are its parts, for a
+//               caller that persists between them);
 //   select      once per request -- the gate (does this request need what the table does not
-//               carry?), the paged and interlaced search narrowing the table in stages, and the
-//               full-text scoring of the finalists. gate, search, narrow and score are its
-//               stages, for a caller composing its own.
+//               carry?), the paged and interlaced search narrowing the table in stages, the
+//               full-text scoring of the finalists, and the listwise ordering of the top of them.
+//               gate, search, narrow, score and rerank are its stages, for a caller composing its
+//               own;
+//   evaluate    select over requests whose matches are known, measured, for tuning the rest.
 //
 // Everything in src/ beyond these names is internal and free to move.
 
 export { buildTable } from './src/table.js'
 export { proposeQuestions, gate } from './src/schema.js'
+export { groupDuplicates } from './src/dedupe.js'
 export { compact } from './src/compact.js'
 export { search, narrow } from './src/search.js'
 export { score } from './src/score.js'
+export { rerank } from './src/rerank.js'
 export { select } from './src/select.js'
+export { evaluate } from './src/evaluate.js'
 export { newTally } from './src/call.js'

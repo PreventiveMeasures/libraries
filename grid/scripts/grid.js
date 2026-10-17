@@ -10,17 +10,20 @@ import {
   DEFAULT_MODEL, closeProvider, isRecognizedModel, resolveModel, resolveThinkEffort, setCacheDir, setFetchConcurrency,
   setProvider, supportedModels, validateModel,
 } from '@preventive/ai'
-import { buildTable, select } from '../index.js'
+import { buildTable, evaluate, select } from '../index.js'
 
 const USAGE = `Usage: scripts/grid.js build  --task <task.json> --entries <entries.jsonl> --out <table.json>
        scripts/grid.js select --table <table.json> --request <request.txt> [--top <n>]
+       scripts/grid.js eval   --table <table.json> --cases <cases.jsonl> [--top <n>]
 
 build compacts every entry for the task and writes the table; select ranks the dataset's entries
-for one request against a table. Both read the response cache, so a rerun of either is free.
+for one request against a table; eval runs select for requests whose matches are known and reports
+recall, precision and reciprocal rank at the cut. All read the response cache, so a rerun is free.
 
   task.json      {"id":"...","prompt":"...","question":"..."}
   entries.jsonl  one {"id":"...","text":"..."} per line
   request.txt    the request entry's text (--id names it; the file name when omitted)
+  cases.jsonl    one {"id":"...","text":"...","relevant":["entry id",...]} per line
 
   -m, --model <id>      build: the model (default: ${DEFAULT_MODEL})
       --strong <id>     select: the gate's and the finalists' model (default: --model)
@@ -33,12 +36,14 @@ for one request against a table. Both read the response cache, so a rerun of eit
                         refused, and with it every other model is
       --cache-dir <dir> the response cache (default: ./grid-cache)
       --concurrency <n> calls in flight at once (default: 20)
-      --top <n>         select: how many results to print (default: all finalists)
-      --final <frac>    select: the fraction of the table read in full (default: 0.01)
-      --no-gate         select: skip the gate and search the summaries alone
+      --no-dedupe       build: compact every entry, copies of an earlier one included
+      --top <n>         select: how many results to print; eval: the cut measured at (default: all finalists)
+      --final <frac>    select, eval: the fraction of the table read in full (default: 0.01)
+      --no-gate         select, eval: skip the gate and search the summaries alone
+      --no-rerank       select, eval: keep the finalists in pointwise order, with no listwise pass
       --think           enable thinking
       --effort <level>  low, medium, high, xhigh, max
-      --json            select: print the full result as JSON
+      --json            select, eval: print the full result as JSON
   -h, --help            show this message
 `
 
@@ -72,6 +77,7 @@ function parse(argv) {
     allowPositionals: true,
     options: {
       'cache-dir': { type: 'string' },
+      cases: { type: 'string' },
       cheap: { type: 'string' },
       concurrency: { type: 'string' },
       effort: { type: 'string' },
@@ -82,7 +88,9 @@ function parse(argv) {
       id: { type: 'string' },
       json: { type: 'boolean' },
       model: { type: 'string', short: 'm' },
+      'no-dedupe': { type: 'boolean' },
       'no-gate': { type: 'boolean' },
+      'no-rerank': { type: 'boolean' },
       out: { type: 'string' },
       provider: { type: 'string', short: 'p' },
       request: { type: 'string' },
@@ -121,7 +129,7 @@ async function build(values, common) {
   const started = Date.now()
   let last = 0
   const { focus, questions, rows, tally } = await buildTable({
-    ...common, task, entries, model: common.model,
+    ...common, task, entries, model: common.model, dedupe: values['no-dedupe'] ? false : {},
     onRow: (row, done, total) => {
       if (done - last >= 100 || done === total) { last = done; note(`compacted ${done}/${total}`) }
     },
@@ -129,7 +137,8 @@ async function build(values, common) {
   note(`focus: ${focus}`)
   for (const q of questions) note(`${q.id}. ${q.text}`)
   writeFileSync(values.out, JSON.stringify({ task, focus, questions, rows }))
-  note(`wrote ${rows.length} rows to ${values.out}`)
+  const copies = rows.filter((row) => row.dupOf !== undefined).length
+  note(`wrote ${rows.length} rows to ${values.out}${copies ? ` (${copies} copies of earlier entries, not compacted)` : ''}`)
   report(tally, Date.now() - started)
 }
 
@@ -141,15 +150,40 @@ async function selectOne(values, common) {
   const table = readJSON(values.table)
   const request = { id: values.id ?? values.request, text: readFileSync(values.request, 'utf8').trim() }
   const started = Date.now()
-  const result = await select({ ...common, ...table, request, topK, final, useGate: !values['no-gate'] })
-  const { results, gate, stages, fullStages, tally } = result
+  const result = await select({ ...common, ...table, request, topK, final, useGate: !values['no-gate'], rerank: values['no-rerank'] ? false : {} })
+  const { results, reranked, gate, stages, fullStages, tally } = result
   if (gate.reason) note(`gate: ${gate.reason}${gate.extraQuestions.length ? ` (+${gate.extraQuestions.length} columns)` : ''}${gate.fullScan ? ' (full scan)' : ''}`)
   for (const s of [...stages, ...fullStages]) note(`stage ${s.stage}: ${s.rows} rows -> ${s.survivors} over ${s.pages} pages`)
+  if (reranked) note(`top ${reranked} ordered listwise`)
   if (values.json) {
-    process.stdout.write(JSON.stringify({ request: request.id, results, gate, stages, fullStages }, null, 2) + '\n')
+    process.stdout.write(JSON.stringify({ request: request.id, results, reranked, gate, stages, fullStages }, null, 2) + '\n')
   } else {
-    for (const { id, score, votes, reason } of results) process.stdout.write(`${String(score).padStart(3)}  ${id}  (votes ${votes})  ${reason}\n`)
+    for (const { id, score, votes, reason, grounded, duplicates } of results) {
+      const marks = `${duplicates.length ? ` +${duplicates.length} copies` : ''}${grounded ? '' : ' evidence not found verbatim'}`
+      process.stdout.write(`${String(score).padStart(3)}  ${id}  (votes ${votes}${marks})  ${reason}\n`)
+    }
   }
+  report(tally, Date.now() - started)
+}
+
+const fixed = (value) => value.toFixed(2)
+
+async function evalCases(values, common) {
+  if (!values.table || !values.cases) fail(`eval needs --table and --cases\n\n${USAGE}`)
+  const topK = values.top === undefined ? undefined : whole(values.top, 'top')
+  const final = number(values.final, 'final', 0.01)
+  const table = readJSON(values.table)
+  const cases = readLines(values.cases).map(({ id, text, relevant }) => ({ request: { id, text }, relevant }))
+  const started = Date.now()
+  const { runs, recall, precision, mrr, tally } = await evaluate({
+    ...common, ...table, cases, topK, final, useGate: !values['no-gate'], rerank: values['no-rerank'] ? false : {},
+    onCase: (run) => {
+      const lost = `${run.belowCut.length ? `  below cut: ${run.belowCut.join(' ')}` : ''}${run.dropped.length ? `  dropped: ${run.dropped.join(' ')}` : ''}`
+      note(`${run.id}  recall ${fixed(run.recall)}  precision ${fixed(run.precision)}  rr ${fixed(run.reciprocalRank)}${lost}`)
+    },
+  })
+  if (values.json) process.stdout.write(JSON.stringify({ runs, recall, precision, mrr }, null, 2) + '\n')
+  else process.stdout.write(`${runs.length} requests  recall ${fixed(recall)}  precision ${fixed(precision)}  mrr ${fixed(mrr)}\n`)
   report(tally, Date.now() - started)
 }
 
@@ -168,7 +202,7 @@ async function cli(argv) {
   const { values, positionals } = parsed
   if (values.help) { process.stdout.write(USAGE); return }
   const command = positionals[0]
-  if (command !== 'build' && command !== 'select') fail(`expected build or select\n\n${USAGE}`)
+  if (!['build', 'select', 'eval'].includes(command)) fail(`expected build, select or eval\n\n${USAGE}`)
 
   // Aliases resolved at the boundary, as ai's own script does, so an id reaches the layer under the
   // row that prices and caps it, and the provider is inferred from the namespace that row carries.
@@ -218,7 +252,8 @@ async function cli(argv) {
   // the process would exit around it.
   try {
     if (command === 'build') await build(values, common)
-    else await selectOne(values, common)
+    else if (command === 'select') await selectOne(values, common)
+    else await evalCases(values, common)
   } finally {
     await closeProvider()
   }

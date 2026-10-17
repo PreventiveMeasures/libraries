@@ -1,14 +1,16 @@
 import { DEFAULT_MODEL } from '@preventive/ai'
 import { newTally } from './call.js'
 import { compact } from './compact.js'
+import { rerank } from './rerank.js'
 import { gate } from './schema.js'
 import { score } from './score.js'
 import { narrow } from './search.js'
 
 // The whole pipeline for one request against one table: the gate, the extra columns or the
-// full-text pass it asked for, the narrowing search over summaries, and the full-text scoring of
-// what is left. The table (`rows`, with the `questions` and `focus` it was compacted under) comes
-// from buildTable and is shared by every request; everything here is per request.
+// full-text pass it asked for, the narrowing search over summaries, the full-text scoring of what
+// is left, and the listwise ordering of the top of that. The table (`rows`, with the `questions`
+// and `focus` it was compacted under) comes from buildTable and is shared by every request;
+// everything here is per request.
 //
 // Three models, because three kinds of work: `strong` reads the request and the finalists, and
 // decides the schema; `search` reads pages of summaries, hundreds of them per request; `cheap`
@@ -44,25 +46,30 @@ export function union(first, second) {
   return [...byId.values()]
 }
 
-export async function select({ task, focus, questions, rows, request, models, topK, final = 0.01, minFinal = 20, useGate = true, search: searchOpts = {}, concurrency = 20, think, effort, tally = newTally(), ask }) {
+// `rerank` is the window and rounds of the listwise pass, or false to keep the pointwise order.
+// A copy is told by the property being set, not by its value: an id can be the empty string.
+// Rows marked as a copy of another (`dupOf`, set by buildTable) are never searched or scored: the
+// row they copy is, and carries their ids out in the result.
+export async function select({ task, focus, questions, rows, request, models, topK, final = 0.01, minFinal = 20, useGate = true, search: searchOpts = {}, rerank: rerankOpts = {}, concurrency = 20, think, effort, tally = newTally(), ask }) {
   const { strong, search: searchModel, cheap } = resolveModels(models)
   const shared = { task, request, concurrency, think, effort, tally, ask }
-  const target = finalTarget(rows.length, final, minFinal)
+  const live = rows.filter((row) => row.dupOf === undefined)
+  const target = finalTarget(live.length, final, minFinal)
 
   const routing = useGate
     ? await gate({ task, focus, questions, request, model: strong, think, effort, tally, ask })
     : { extraQuestions: [], fullScan: false, reason: 'gate skipped' }
 
   let columns = questions
-  let table = rows
+  let table = live
   if (routing.extraQuestions.length > 0) {
     columns = [...questions, ...routing.extraQuestions]
-    table = await supplement({ task, rows, extraQuestions: routing.extraQuestions, model: cheap, concurrency, think, effort, tally, ask })
+    table = await supplement({ task, rows: live, extraQuestions: routing.extraQuestions, model: cheap, concurrency, think, effort, tally, ask })
   }
 
   // Extra columns make every page this request's own, so there is no shared page prefix left to
   // keep and the request is the prefix from the first stage on; a caller's explicit choice still wins.
-  const supplemented = table !== rows
+  const supplemented = table !== live
   const narrowed = await narrow({
     ...shared, ...searchOpts, requestFirst: searchOpts.requestFirst ?? supplemented,
     rows: table, columns, model: searchModel, target, mode: 'summary', label: 'search',
@@ -76,8 +83,12 @@ export async function select({ task, focus, questions, rows, request, models, to
   }
 
   const ranked = await score({ ...shared, candidates, model: strong })
+  const listed = rerankOpts === false
+    ? { results: ranked, reranked: 0 }
+    : await rerank({ ...shared, ...rerankOpts, results: ranked, rows: live, model: strong })
   return {
-    results: topK === undefined ? ranked : ranked.slice(0, topK),
+    results: topK === undefined ? listed.results : listed.results.slice(0, topK),
+    reranked: listed.reranked,
     gate: routing,
     stages: narrowed.stages,
     fullStages,

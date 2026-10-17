@@ -8,7 +8,7 @@ import { setCacheDir } from '@preventive/ai'
 import { newTally } from '../src/call.js'
 import { compact } from '../src/compact.js'
 import { gate, proposeQuestions } from '../src/schema.js'
-import { score } from '../src/score.js'
+import { isQuoted, score } from '../src/score.js'
 import { TASK } from './fake.js'
 
 // What each phase accepts as an answer, and what it sends back for another try. Driven through the
@@ -133,17 +133,51 @@ describe('compact', () => {
 describe('score', () => {
   before(() => setCacheDir(CACHE_DIR))
 
-  it('re-asks a score that is not a number or a reason that is not a sentence, and reads a quoted score', async () => {
+  it('re-asks a score that is not a number, a reason that is not a sentence or evidence that is not text, and reads a quoted score', async () => {
     const ask = scripted([
-      '{"score":null,"reason":"none"}', '{"score":"85","reason":"quoted"}',
-      '{"score":true,"reason":"bool"}', '{"score":12.5,"reason":"second"}',
-      '{"score":90,"reason":true}', '{"score":90,"reason":"evidence"}',
-      '{"score":40}', '{"score":40,"reason":"late"}',
+      '{"score":null,"reason":"none","evidence":"s1"}', '{"score":"85","reason":"quoted","evidence":"s1"}',
+      '{"score":true,"reason":"bool","evidence":"s2"}', '{"score":12.5,"reason":"second","evidence":"s2"}',
+      '{"score":90,"reason":true,"evidence":"s3"}', '{"score":90,"reason":"evidence","evidence":"s3"}',
+      '{"score":40,"reason":"no quote"}', '{"score":40,"reason":"late","evidence":"s4"}',
+      '{"score":70,"reason":"quote not text","evidence":["s5"]}', '{"score":70,"reason":"listed","evidence":"s5"}',
     ])
     const candidate = (id, votes) => ({ row: { id, entry: id, summary: '' }, votes, score: 5 })
-    const candidates = [candidate('s1', 2), candidate('s2', 1), candidate('s3', 1), candidate('s4', 1)]
+    const candidates = [candidate('s1', 2), candidate('s2', 1), candidate('s3', 1), candidate('s4', 1), candidate('s5', 1)]
     const ranked = await score({ ...common(), request: { id: 'sr', text: 'r' }, candidates, concurrency: 1, ask })
-    assert.deepEqual(ranked.map((r) => [r.id, r.score, r.reason]), [['s3', 90, 'evidence'], ['s1', 85, 'quoted'], ['s4', 40, 'late'], ['s2', 12.5, 'second']])
-    assert.equal(ask.seen.length, 8)
+    assert.deepEqual(
+      ranked.map((r) => [r.id, r.score, r.reason, r.evidence, r.grounded]),
+      [['s3', 90, 'evidence', 's3', true], ['s1', 85, 'quoted', 's1', true], ['s5', 70, 'listed', 's5', true], ['s4', 40, 'late', 's4', true], ['s2', 12.5, 'second', 's2', true]],
+    )
+    assert.ok(ranked.every((r) => r.duplicates.length === 0))
+    assert.equal(ask.seen.length, 10)
+  })
+
+  it('marks a result grounded when its evidence is in the entry word for word, and ranks it ahead at the same score', async () => {
+    // Curly quotes, a line break and a run of spaces in the entry; straight quotes, one line, a
+    // trailing stop and an ellipsis in what the model copied.
+    // Each candidate's entry ends in its own id: three identical entries would be one cache key.
+    const entry = (id) => `The red barn stands by the “river”,\n   under old oaks. (${id})`
+    const ask = scripted([
+      '{"score":80,"reason":"paraphrased","evidence":"a crimson barn near the water"}',
+      '{"score":80,"reason":"quoted","evidence":"\\"red barn stands by the \\"river\\", under old oaks.\\""}',
+      '{"score":80,"reason":"elided","evidence":"The red barn ... under old oaks"}',
+    ])
+    const candidates = ['g1', 'g2', 'g3'].map((id) => ({ row: { id, entry: entry(id), summary: '' }, votes: 1, score: 5 }))
+    const ranked = await score({ ...common(), request: { id: 'gr', text: 'g' }, candidates, concurrency: 1, ask })
+    assert.deepEqual(ranked.map((r) => [r.id, r.grounded]), [['g2', true], ['g3', true], ['g1', false]])
+    assert.equal(ask.seen.length, 3)
+  })
+
+  it('keeps the punctuation that is part of a quoted token, and drops only the wrapping and the stop', () => {
+    const entry = 'Build with C++ and pass --verbose; see item #1 (the "fast" path).'
+    assert.ok(isQuoted('"C++"', entry))
+    assert.ok(isQuoted('pass --verbose;', entry))
+    assert.ok(isQuoted('item #1', entry))
+    assert.ok(isQuoted('"the "fast" path".', entry))
+    assert.ok(!isQuoted('C#', entry), 'C# is not C')
+    assert.ok(!isQuoted('verbose --', entry))
+    assert.ok(!isQuoted('item #2', entry))
+    assert.ok(!isQuoted('-verbose', 'the verbose flag'), 'a flag is not its bare word')
+    assert.ok(!isQuoted('"..."', entry), 'nothing left to find is not found')
   })
 })
