@@ -494,14 +494,16 @@ describe('claude fable 5.1', () => {
 // names none takes every level through max rather than rejecting a level the
 // model may well take.
 describe('nemotron paid/free pairs', () => {
+  const LADDER = ['low', 'medium', 'high', 'xhigh', 'max']
   const PAIRS = [
-    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
-    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
-    ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4],
-    ['nvidia/nemotron-3.5-super-vl', 0.1, 0.4],
+    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125, LADDER],
+    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2, LADDER],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4, LADDER],
+    // OpenRouter takes no reasoning_effort for Super VL on either route.
+    ['nvidia/nemotron-3.5-super-vl', 0.1, 0.4, []],
   ]
 
-  for (const [paid, input, output] of PAIRS) {
+  for (const [paid, input, output, ladder] of PAIRS) {
     const free = `${paid}:free`
 
     it(`${paid}: registers the paid rate, and the free route at nothing`, () => {
@@ -512,11 +514,11 @@ describe('nemotron paid/free pairs', () => {
       for (const model of [paid, free]) assert.ok(KNOWN_MODELS.includes(model), model)
     })
 
-    it(`${paid}: thinks on both routes, on the default effort ladder`, () => {
+    it(`${paid}: thinks on both routes, ${ladder.length ? 'on the default effort ladder' : 'with no effort to set'}`, () => {
       for (const model of [paid, free]) {
         assert.equal(canThink(model), true, model)
-        assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
-        assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
+        assert.deepEqual(effortsFor(model), ladder, model)
+        assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: ladder.length ? 'high' : undefined }, model)
       }
     })
 
@@ -534,6 +536,16 @@ describe('nemotron 3.5 super vl', () => {
   // listed price, which Crusoe and DeepInfra charge.
   it('bills cache reads at the listed $0.08, 0.8x of input rather than 0.10x', () => {
     assert.equal(baseRate('nvidia/nemotron-3.5-super-vl', 'cacheRead'), 0.08)
+  })
+
+  it('thinks with no effort knob, so an effort is refused up front and none is advertised', () => {
+    for (const model of ['nvidia/nemotron-3.5-super-vl', 'nvidia/nemotron-3.5-super-vl:free']) {
+      assert.equal(canEffort(model), false, model)
+      assert.deepEqual(resolveThinkEffort(model, true), { useThink: true, useEffort: undefined }, model)
+      for (const effort of ['low', 'high', 'max']) assert.throws(() => resolveThinkEffort(model, true, effort), /--effort is not supported/u, `${model} ${effort}`)
+    }
+    assert.deepEqual(supportedModels({ provider: 'openrouter' }).find((m) => m.id === 'nvidia/nemotron-3.5-super-vl').efforts, [])
+    assert.deepEqual(supportedModels({ free: true }).find((m) => m.id === 'nvidia/nemotron-3.5-super-vl:free').efforts, [])
   })
 })
 
