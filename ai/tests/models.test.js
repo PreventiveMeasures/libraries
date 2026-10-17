@@ -430,6 +430,8 @@ describe('no-think wire form', () => {
     ['xiaomi/mimo-v2.6-pro', true, true],
     ['xiaomi/mimo-v2.6-flash', true, true],
     ['mistralai/mistral-large-4-0', true, true],
+    // Meta's API 400s on reasoning_effort "none".
+    ['meta/muse-wonder', false, false],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
@@ -1174,6 +1176,26 @@ describe('deepseek v4', () => {
   it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
     assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
     assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
+  })
+})
+
+describe('meta muse wonder', () => {
+  const WONDER = 'meta/muse-wonder'
+
+  it('prices at Meta\'s $4 / $20 per Mtok, with cached input at $0.20, 0.05x of input', () => {
+    assert.equal(baseRate(WONDER, 'input', 'output'), 4 + 20)
+    assert.equal(baseRate(WONDER, 'cacheRead'), 0.2)
+  })
+
+  it('registers the output cap of OpenRouter\'s Meta endpoint', () => {
+    // Meta publishes none beyond the 1,048,576-token context window.
+    assert.equal(getMaxTokens(WONDER), 943_718)
+  })
+
+  it('reasons on every request, on the ladder through max', () => {
+    assert.equal(canThink(WONDER), true)
+    assert.equal(canDisableThink(WONDER), false)
+    assert.deepEqual(effortsFor(WONDER), ['low', 'medium', 'high', 'xhigh', 'max'])
   })
 })
 

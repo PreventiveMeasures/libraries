@@ -619,7 +619,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   it('think=false on openrouter sends nothing to a model with no off switch', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      for (const model of ['x-ai/grok-4.7', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol']) {
+      for (const model of ['x-ai/grok-4.7', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol', 'meta/muse-wonder']) {
         assert.equal(buildRequestBody(model, 1000, 'sys', messages).reasoning, undefined, model)
       }
     })
