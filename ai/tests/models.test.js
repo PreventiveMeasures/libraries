@@ -546,25 +546,27 @@ describe('gemini flash', () => {
 })
 
 describe('gemini 4 argon', () => {
-  // Provisional. Google announced it on 2026-09-30 for its Fairwind
-  // Program only, so the id and the thinking controls are guesses until the
-  // API opens and OpenRouter lists it. $2 / $10 is the introductory rate;
-  // $4 / $20 follows, on a date Google hasn't given.
+  // $2 / $10 and $0.10 cached is Google's introductory price, through
+  // 2026-11-30. From 2026-12-01 it is $4 / $20 and $0.20: reprice the row
+  // then.
   const ARGON = 'google/gemini-4-argon'
 
-  it('prices at the introductory $2 / $10 per Mtok, with cached input 95% off', () => {
+  it('prices at the introductory $2 / $10 per Mtok, with cached input at $0.10', () => {
     assert.equal(baseRate(ARGON, 'input'), 2)
     assert.equal(baseRate(ARGON, 'output'), 10)
     assert.equal(baseRate(ARGON, 'cacheRead'), 0.1)
   })
 
-  it('registers the 1M output cap Google announced', () => {
-    assert.equal(getMaxTokens(ARGON), 1024 * 1024)
+  it('registers the default 65,536 output cap, not the 1M that needs long decode', () => {
+    // Google's Vertex endpoints on OpenRouter cap output at 65,536 and AI
+    // Studio's at 943,718, so a default of 1,048,576 fits no endpoint.
+    assert.equal(getMaxTokens(ARGON), 64 * 1024)
   })
 
-  it('thinks with no off switch, like gemini 3.1 pro', () => {
+  it('thinks with no off switch, at low, medium or high', () => {
     assert.equal(canThink(ARGON), true)
     assert.equal(canDisableThink(ARGON), false)
+    assert.deepEqual(effortsFor(ARGON), ['low', 'medium', 'high'])
   })
 })
 
