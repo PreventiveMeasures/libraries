@@ -19,11 +19,13 @@ export class FormatError extends Error {
 }
 
 // Read back, and held to the change set and to the two files. Every line
-// printed is one of their lines: a context or removed line is the first
-// file's, an added line the second's -- which is true whatever comparison
-// was in force, so this holds under the whitespace and case options too,
-// where the two files' "equal" lines differ in text and rebuilding the
-// second file from the diff would not give it back.
+// printed is one of their lines: a removed line is the first file's, an
+// added line the second's, and a context line the first file's -- but in a
+// context-format hunk that removes nothing, which prints the second file's
+// side alone, the second's. That is true whatever comparison was in force,
+// so this holds under the whitespace and case options too, where the two
+// files' "equal" lines differ in text and rebuilding the second file from
+// the diff would not give it back.
 
 function verifyRendering(a, b, blocks, body) {
   if (blocks.length === 0) {
@@ -40,9 +42,10 @@ function verifyRendering(a, b, blocks, body) {
     if (got.a0 !== want.a0 || got.a1 !== want.a1 || got.b0 !== want.b0 || got.b1 !== want.b1) throw new FormatError(`block ${i + 1} reads back somewhere else`)
   }
   for (const hunk of files[0].hunks) {
+    const secondSideOnly = files[0].format === 'context' && !hunk.lines.some(({ tag }) => tag === '-')
     let ai = hunk.oldStart, bi = hunk.newStart
     for (const { tag, text } of hunk.lines) {
-      const want = tag === '+' ? b[bi] : a[ai]
+      const want = tag === '+' || (tag === ' ' && secondSideOnly) ? b[bi] : a[ai]
       if (text !== want) throw new FormatError(`a ${tag === '+' ? 'added' : tag === '-' ? 'removed' : 'kept'} line is not the line it stands for`)
       if (tag !== '+') ai++
       if (tag !== '-') bi++
