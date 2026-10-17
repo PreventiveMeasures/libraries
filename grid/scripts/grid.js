@@ -137,7 +137,7 @@ async function build(values, common) {
   note(`focus: ${focus}`)
   for (const q of questions) note(`${q.id}. ${q.text}`)
   writeFileSync(values.out, JSON.stringify({ task, focus, questions, rows }))
-  const copies = rows.filter((row) => row.dupOf).length
+  const copies = rows.filter((row) => row.dupOf !== undefined).length
   note(`wrote ${rows.length} rows to ${values.out}${copies ? ` (${copies} copies of earlier entries, not compacted)` : ''}`)
   report(tally, Date.now() - started)
 }

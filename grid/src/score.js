@@ -30,14 +30,26 @@ function readScore(text) {
 // Whether the evidence is in the entry word for word. The model was asked to copy a span, and
 // whether it did is the one check on the score's reasoning that costs no model call: a quote that
 // is not there was reasoned about something the entry does not say. Both sides are folded to lower
-// case, straight quotes and single spaces, the quote loses the quotation marks and the stop a model
-// wraps it in, and a quote with an ellipsis is several spans, each of which has to be there.
+// case, straight quotes and single spaces; the quote loses the quotation marks a model wraps it in
+// and the stop it ends it with, and nothing else -- a `#1`, a `--flag` or a `C++` keeps the
+// characters that make it what it is, or the check would pass on the bare word -- and a quote with
+// an ellipsis is several spans, each of which has to be there.
 const fold = (text) => text.toLowerCase().replace(/[‘’]/gu, "'").replace(/[“”]/gu, '"').replace(/\s+/gu, ' ')
-const trimPunctuation = (span) => span.replace(/^[\p{P}\s]+|[\p{P}\s]+$/gu, '')
+const WRAPPING = /^[\s"'`«»]+|[\s"'`«»]+$/gu
+const STOP = /[.,;:!?]+$/u
+
+function unwrap(span) {
+  let current = span
+  for (;;) {
+    const next = current.replace(WRAPPING, '').replace(STOP, '')
+    if (next === current) return current
+    current = next
+  }
+}
 
 export function isQuoted(evidence, entry) {
   const haystack = fold(entry)
-  const spans = fold(evidence).split(/\.{3}|…/u).map(trimPunctuation).filter(Boolean)
+  const spans = fold(evidence).split(/\.{3}|…/u).map(unwrap).filter(Boolean)
   return spans.length > 0 && spans.every((span) => haystack.includes(span))
 }
 

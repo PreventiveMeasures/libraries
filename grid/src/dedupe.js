@@ -195,8 +195,8 @@ function nearPass({ sets, threshold, hashes, bands, find, unite }) {
 function checkOptions({ threshold, shingle, hashes, bands }) {
   if (!(threshold > 0 && threshold <= 1)) throw new TypeError(`groupDuplicates: threshold must be in (0, 1], got ${threshold}`)
   if (!Number.isInteger(shingle) || shingle < 1) throw new TypeError(`groupDuplicates: shingle must be a whole number of words, got ${shingle}`)
-  if (!Number.isInteger(hashes) || !Number.isInteger(bands) || bands < 1 || hashes % bands !== 0) {
-    throw new TypeError(`groupDuplicates: hashes (${hashes}) must be a whole multiple of bands (${bands})`)
+  if (!Number.isInteger(hashes) || !Number.isInteger(bands) || hashes < 1 || bands < 1 || hashes % bands !== 0) {
+    throw new TypeError(`groupDuplicates: hashes (${hashes}) must be a positive whole multiple of bands (${bands})`)
   }
 }
 

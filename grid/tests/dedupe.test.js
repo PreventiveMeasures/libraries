@@ -99,6 +99,9 @@ describe('groupDuplicates', () => {
     assert.throws(() => groupDuplicates([], { threshold: 1.5 }), /threshold/u)
     assert.throws(() => groupDuplicates([], { shingle: 0 }), /shingle/u)
     assert.throws(() => groupDuplicates([], { hashes: 10, bands: 4 }), /multiple of bands/u)
+    // Zero and a negative multiple divide evenly, and would make every signature empty.
+    assert.throws(() => groupDuplicates([], { hashes: 0, bands: 16 }), /positive whole multiple/u)
+    assert.throws(() => groupDuplicates([], { hashes: -32, bands: 16 }), /positive whole multiple/u)
     assert.deepEqual([...groupDuplicates([])], [])
   })
 })
@@ -138,6 +141,21 @@ describe('buildTable and select over copies', () => {
     const paged = log.filter((r) => r.systemPrompt.startsWith('You select')).map((r) => r.userContent.find((block) => block.startsWith('Page of')))
     assert.ok(paged.length > 0 && paged.every((page) => !page.includes('Summary of e13') && !page.includes('Summary of e14')))
     assert.ok(paged.every((page) => page.startsWith('Page of 6 rows')), 'twelve distinct rows make two pages of six')
+  })
+
+  it('tells a copy by the property being set, not by its value: a canonical id can be the empty string', async () => {
+    const log = []
+    const entries = [{ id: '', text: 'blank: entry with no id MATCH' }, { id: 'c', text: 'blank: entry with no id MATCH' }, ...entriesOf(4, [])]
+    const table = await buildTable({ task: TASK, entries, model: MODELS.strong, ask: fakeAsk() })
+    assert.equal(table.rows[1].dupOf, '')
+    assert.deepEqual(table.rows[0].duplicates, ['c'])
+    const { results } = await select({
+      ...table, request: { id: 'dup-r2', text: 'the entry with no id' }, models: MODELS, final: 0.5, minFinal: 2,
+      search: { pageSize: 10, pick: 0.5, rounds: 3 }, ask: fakeAsk({ log }),
+    })
+    assert.deepEqual(results.map((r) => [r.id, r.duplicates]), [['', ['c']]])
+    const paged = log.filter((r) => r.systemPrompt.startsWith('You select')).map((r) => r.userContent.find((block) => block.startsWith('Page of')))
+    assert.ok(paged.length > 0 && paged.every((page) => page.startsWith('Page of 5 rows')), 'five distinct rows of six')
   })
 
   it('compacts every entry when told not to group', async () => {

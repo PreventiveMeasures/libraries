@@ -8,7 +8,7 @@ import { setCacheDir } from '@preventive/ai'
 import { newTally } from '../src/call.js'
 import { compact } from '../src/compact.js'
 import { gate, proposeQuestions } from '../src/schema.js'
-import { score } from '../src/score.js'
+import { isQuoted, score } from '../src/score.js'
 import { TASK } from './fake.js'
 
 // What each phase accepts as an answer, and what it sends back for another try. Driven through the
@@ -166,5 +166,18 @@ describe('score', () => {
     const ranked = await score({ ...common(), request: { id: 'gr', text: 'g' }, candidates, concurrency: 1, ask })
     assert.deepEqual(ranked.map((r) => [r.id, r.grounded]), [['g2', true], ['g3', true], ['g1', false]])
     assert.equal(ask.seen.length, 3)
+  })
+
+  it('keeps the punctuation that is part of a quoted token, and drops only the wrapping and the stop', () => {
+    const entry = 'Build with C++ and pass --verbose; see item #1 (the "fast" path).'
+    assert.ok(isQuoted('"C++"', entry))
+    assert.ok(isQuoted('pass --verbose;', entry))
+    assert.ok(isQuoted('item #1', entry))
+    assert.ok(isQuoted('"the "fast" path".', entry))
+    assert.ok(!isQuoted('C#', entry), 'C# is not C')
+    assert.ok(!isQuoted('verbose --', entry))
+    assert.ok(!isQuoted('item #2', entry))
+    assert.ok(!isQuoted('-verbose', 'the verbose flag'), 'a flag is not its bare word')
+    assert.ok(!isQuoted('"..."', entry), 'nothing left to find is not found')
   })
 })

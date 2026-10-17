@@ -47,12 +47,13 @@ export function union(first, second) {
 }
 
 // `rerank` is the window and rounds of the listwise pass, or false to keep the pointwise order.
+// A copy is told by the property being set, not by its value: an id can be the empty string.
 // Rows marked as a copy of another (`dupOf`, set by buildTable) are never searched or scored: the
 // row they copy is, and carries their ids out in the result.
 export async function select({ task, focus, questions, rows, request, models, topK, final = 0.01, minFinal = 20, useGate = true, search: searchOpts = {}, rerank: rerankOpts = {}, concurrency = 20, think, effort, tally = newTally(), ask }) {
   const { strong, search: searchModel, cheap } = resolveModels(models)
   const shared = { task, request, concurrency, think, effort, tally, ask }
-  const live = rows.filter((row) => !row.dupOf)
+  const live = rows.filter((row) => row.dupOf === undefined)
   const target = finalTarget(live.length, final, minFinal)
 
   const routing = useGate
