@@ -196,10 +196,10 @@ export const TASK_BUDGET_MODES = ['never', 'always', 'error']
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'manual']
 
 // The levels a model's reasoning knob takes: the row's own `efforts`, or EFFORTS_THROUGH_MAX for a
-// row that names none. Undefined only for an id the registry doesn't carry, which is left to the
-// provider. Keyed by model rather than by provider because the narrowing is the model's: K3 is
-// reachable through Moonshot direct and through any OpenAI-compatible gateway as
-// moonshotai/kimi-k3, and takes the same three levels either way.
+// row that names none. Empty for a row that thinks with no knob at all. Undefined only for an id
+// the registry doesn't carry, which is left to the provider. Keyed by model rather than by provider
+// because the narrowing is the model's: K3 is reachable through Moonshot direct and through any
+// OpenAI-compatible gateway as moonshotai/kimi-k3, and takes the same three levels either way.
 //
 // Aliases resolve first, so the bare `kimi-k3` a caller may pass narrows the same as the namespaced
 // id. Tolerates a non-string so the server can check effort before it has validated the model
@@ -350,12 +350,13 @@ export function readsCacheBreakpoint(model) {
 
 // Whether the model exposes an effort knob. All thinking-capable models EXCEPT non-adaptive
 // Anthropic -- that branch takes a fixed budget_tokens instead of an effort string, so passing
-// 'high' / 'low' / etc. there is meaningless. Adaptive Anthropic, OpenAI Responses, OpenRouter,
-// Google, etc. all read effort verbatim.
+// 'high' / 'low' / etc. there is meaningless -- and a row naming an empty `efforts`, which thinks
+// but has no level to set. Adaptive Anthropic, OpenAI Responses, OpenRouter, Google, etc. all read
+// effort verbatim.
 export function canEffort(model) {
   if (!canThink(model)) return false
   if (model.startsWith('anthropic/') && !canAdaptive(model)) return false
-  return true
+  return MODELS.get(model).efforts?.length !== 0
 }
 
 // Resolve the actual think/effort values that will hit the wire for a given model + user request.

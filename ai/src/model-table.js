@@ -10,7 +10,7 @@
 // wire value any other provider accepts, and even there only a model that still takes
 // `budget_tokens` has a form for it. A row with no `efforts` takes EFFORTS_THROUGH_MAX, so
 // `manual` is offered only where a row names it, and rejected up front everywhere else instead of
-// failing on the wire.
+// failing on the wire. A row that thinks but takes no level at all names an empty `efforts`.
 export const EFFORTS_THROUGH_MAX = ['low', 'medium', 'high', 'xhigh', 'max']
 const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 
@@ -85,13 +85,14 @@ export const MAIN_MODELS = [
   ['openai/gpt-4.1-mini', { input: 0.4, output: 1.6, cacheReadPrice: 0.1, cacheWritePrice: 0.4, maxTokens: 32768, canThink: false }],
   ['openai/gpt-4o-mini', { input: 0.15, output: 0.6, cacheReadPrice: 0.075, cacheWritePrice: 0.15, maxTokens: 16384, canThink: false }],
   ['openai/gpt-oss-120b', { input: 0.039, output: 0.19, maxTokens: 128 * 1024, canThink: false, openRouterOnly: true }],
-  ['google/gemini-4-argon', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 1024 * 1024, noThink: 'unsupported' }],
+  ['google/gemini-4-argon', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 64 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['google/gemini-3.8-flash', { input: 0.75, output: 3.75, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemma-4-31b-it', { input: 0.14, output: 0.4, maxTokens: 128 * 1024 }],
   ['google/gemma-4-26b-a4b-it', { input: 0.13, output: 0.4, maxTokens: 128 * 1024 }],
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, noThink: 'explicit' }],
+  ['nvidia/nemotron-3.5-super-vl', { input: 0.1, output: 0.4, cacheReadPrice: 0.08, maxTokens: 128 * 1024, noThink: 'explicit', efforts: [] }],
   ['nvidia/nemotron-3-super-120b-a12b', { input: 0.085, output: 0.4, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024 }],
   ['qwen/qwen3.8-max', { input: 2, output: 6, cacheReadPrice: 0.25, maxTokens: 128 * 1024, noThink: 'unsupported' }],
@@ -110,6 +111,8 @@ export const MAIN_MODELS = [
   ['xiaomi/mimo-v2.6-pro', { input: 0.435, output: 0.87, cacheReadPrice: 0.0036, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['xiaomi/mimo-v2.6-flash', { input: 0.14, output: 0.28, cacheReadPrice: 0.0028, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['mistralai/mistral-large-4-0', { input: 0.68, output: 2.09, cacheReadPrice: 0.07, maxTokens: 256 * 1024, noThink: 'explicit', efforts: ['high'] }],
+  ['meta/muse-wonder', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128 * 1024, noThink: 'unsupported' }],
+  ['unbiased/pareto-26.9', { input: 2.5, output: 7.5, maxTokens: 128 * 1024, canThink: false }],
 ]
 
 // Models that run on this machine, which OpenRouter has no endpoint for: Chrome's on-device models,
@@ -161,6 +164,7 @@ export const FREE_MODELS = [
   ['openai/gpt-oss-120b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: false, free: true }],
   ['openai/gpt-oss-20b:free', { input: 0, output: 0, maxTokens: 128 * 1024, canThink: false, free: true }],
   ['nvidia/nemotron-3-ultra-550b-a55b:free', { input: 0, output: 0, maxTokens: 128 * 1024, noThink: 'explicit', free: true }],
+  ['nvidia/nemotron-3.5-super-vl:free', { input: 0, output: 0, maxTokens: 128 * 1024, noThink: 'explicit', efforts: [], free: true }],
   ['nvidia/nemotron-3-super-120b-a12b:free', { input: 0, output: 0, maxTokens: 128 * 1024, noThink: 'explicit', free: true }],
   ['nvidia/nemotron-3.5-lightning:free', { input: 0, output: 0, maxTokens: 128 * 1024, free: true }],
   ['qwen/qwen3.6-plus:free', { input: 0, output: 0, maxTokens: 64 * 1024, canThink: false, free: true }],

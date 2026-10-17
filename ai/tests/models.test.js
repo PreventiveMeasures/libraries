@@ -417,6 +417,8 @@ describe('no-think wire form', () => {
     ['google/gemma-4-31b-it', false, true],
     ['nvidia/nemotron-3-super-120b-a12b', true, true],
     ['nvidia/nemotron-3-super-120b-a12b:free', true, true],
+    ['nvidia/nemotron-3.5-super-vl', true, true],
+    ['nvidia/nemotron-3.5-super-vl:free', true, true],
     ['nvidia/nemotron-3-ultra-550b-a55b', true, true],
     ['nvidia/nemotron-3-ultra-550b-a55b:free', true, true],
     ['qwen/qwen3.6-27b', true, true],
@@ -428,6 +430,8 @@ describe('no-think wire form', () => {
     ['xiaomi/mimo-v2.6-pro', true, true],
     ['xiaomi/mimo-v2.6-flash', true, true],
     ['mistralai/mistral-large-4-0', true, true],
+    // Meta's API 400s on reasoning_effort "none".
+    ['meta/muse-wonder', false, false],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
@@ -490,13 +494,16 @@ describe('claude fable 5.1', () => {
 // names none takes every level through max rather than rejecting a level the
 // model may well take.
 describe('nemotron paid/free pairs', () => {
+  const LADDER = ['low', 'medium', 'high', 'xhigh', 'max']
   const PAIRS = [
-    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125],
-    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2],
-    ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4],
+    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125, LADDER],
+    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2, LADDER],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4, LADDER],
+    // OpenRouter takes no reasoning_effort for Super VL on either route.
+    ['nvidia/nemotron-3.5-super-vl', 0.1, 0.4, []],
   ]
 
-  for (const [paid, input, output] of PAIRS) {
+  for (const [paid, input, output, ladder] of PAIRS) {
     const free = `${paid}:free`
 
     it(`${paid}: registers the paid rate, and the free route at nothing`, () => {
@@ -507,11 +514,11 @@ describe('nemotron paid/free pairs', () => {
       for (const model of [paid, free]) assert.ok(KNOWN_MODELS.includes(model), model)
     })
 
-    it(`${paid}: thinks on both routes, on the default effort ladder`, () => {
+    it(`${paid}: thinks on both routes, ${ladder.length ? 'on the default effort ladder' : 'with no effort to set'}`, () => {
       for (const model of [paid, free]) {
         assert.equal(canThink(model), true, model)
-        assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
-        assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: 'high' }, model)
+        assert.deepEqual(effortsFor(model), ladder, model)
+        assert.deepEqual(normalizeThinkEffort(model, true), { useThink: true, useEffort: ladder.length ? 'high' : undefined }, model)
       }
     })
 
@@ -522,6 +529,24 @@ describe('nemotron paid/free pairs', () => {
       assert.throws(() => validateModel(free), /requires --free/u)
     })
   }
+})
+
+describe('nemotron 3.5 super vl', () => {
+  // NVIDIA sells it nowhere on OpenRouter, so the row takes OpenRouter's
+  // listed price, which Crusoe and DeepInfra charge.
+  it('bills cache reads at the listed $0.08, 0.8x of input rather than 0.10x', () => {
+    assert.equal(baseRate('nvidia/nemotron-3.5-super-vl', 'cacheRead'), 0.08)
+  })
+
+  it('thinks with no effort knob, so an effort is refused up front and none is advertised', () => {
+    for (const model of ['nvidia/nemotron-3.5-super-vl', 'nvidia/nemotron-3.5-super-vl:free']) {
+      assert.equal(canEffort(model), false, model)
+      assert.deepEqual(resolveThinkEffort(model, true), { useThink: true, useEffort: undefined }, model)
+      for (const effort of ['low', 'high', 'max']) assert.throws(() => resolveThinkEffort(model, true, effort), /--effort is not supported/u, `${model} ${effort}`)
+    }
+    assert.deepEqual(supportedModels({ provider: 'openrouter' }).find((m) => m.id === 'nvidia/nemotron-3.5-super-vl').efforts, [])
+    assert.deepEqual(supportedModels({ free: true }).find((m) => m.id === 'nvidia/nemotron-3.5-super-vl:free').efforts, [])
+  })
 })
 
 describe('gemini flash', () => {
@@ -535,25 +560,27 @@ describe('gemini flash', () => {
 })
 
 describe('gemini 4 argon', () => {
-  // Provisional. Google announced it on 2026-09-30 for its Fairwind
-  // Program only, so the id and the thinking controls are guesses until the
-  // API opens and OpenRouter lists it. $2 / $10 is the introductory rate;
-  // $4 / $20 follows, on a date Google hasn't given.
+  // $2 / $10 and $0.10 cached is Google's introductory price, through
+  // 2026-11-30. From 2026-12-01 it is $4 / $20 and $0.20: reprice the row
+  // then.
   const ARGON = 'google/gemini-4-argon'
 
-  it('prices at the introductory $2 / $10 per Mtok, with cached input 95% off', () => {
+  it('prices at the introductory $2 / $10 per Mtok, with cached input at $0.10', () => {
     assert.equal(baseRate(ARGON, 'input'), 2)
     assert.equal(baseRate(ARGON, 'output'), 10)
     assert.equal(baseRate(ARGON, 'cacheRead'), 0.1)
   })
 
-  it('registers the 1M output cap Google announced', () => {
-    assert.equal(getMaxTokens(ARGON), 1024 * 1024)
+  it('registers the default 65,536 output cap, not the 1M that needs long decode', () => {
+    // Google's Vertex endpoints on OpenRouter cap output at 65,536 and AI
+    // Studio's at 943,718, so a default of 1,048,576 fits no endpoint.
+    assert.equal(getMaxTokens(ARGON), 64 * 1024)
   })
 
-  it('thinks with no off switch, like gemini 3.1 pro', () => {
+  it('thinks with no off switch, at low, medium or high', () => {
     assert.equal(canThink(ARGON), true)
     assert.equal(canDisableThink(ARGON), false)
+    assert.deepEqual(effortsFor(ARGON), ['low', 'medium', 'high'])
   })
 })
 
@@ -1161,6 +1188,48 @@ describe('deepseek v4', () => {
   it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
     assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
     assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
+  })
+})
+
+describe('pareto 26.9', () => {
+  const PARETO = 'unbiased/pareto-26.9'
+
+  it('prices at Unbiased\'s $2.50 / $7.50 per Mtok, cache reads at the usual 0.10x', () => {
+    assert.equal(baseRate(PARETO, 'input', 'output'), 2.5 + 7.5)
+    assert.equal(baseRate(PARETO, 'cacheRead'), 0.25)
+  })
+
+  it('registers its endpoint\'s 128K of output', () => {
+    assert.equal(getMaxTokens(PARETO), 128 * 1024)
+  })
+
+  it('takes no reasoning controls, so --think and --effort are refused up front', () => {
+    // Its only endpoint accepts no `reasoning` or `reasoning_effort`.
+    assert.equal(canThink(PARETO), false)
+    assert.equal(canEffort(PARETO), false)
+    assert.throws(() => resolveThinkEffort(PARETO, true), /--think is not supported/u)
+  })
+})
+
+describe('meta muse wonder', () => {
+  const WONDER = 'meta/muse-wonder'
+
+  it('prices at Meta\'s $4 / $20 per Mtok, with cached input at $0.20, 0.05x of input', () => {
+    assert.equal(baseRate(WONDER, 'input', 'output'), 4 + 20)
+    assert.equal(baseRate(WONDER, 'cacheRead'), 0.2)
+  })
+
+  it('registers a 128K output default, leaving the shared window room for the prompt', () => {
+    // Meta publishes no cap beyond the 1,048,576-token window that prompt and
+    // output share. OpenRouter's endpoint takes up to 943,718, but as the
+    // default that would leave ~105K for the prompt.
+    assert.equal(getMaxTokens(WONDER), 128 * 1024)
+  })
+
+  it('reasons on every request, on the ladder through max', () => {
+    assert.equal(canThink(WONDER), true)
+    assert.equal(canDisableThink(WONDER), false)
+    assert.deepEqual(effortsFor(WONDER), ['low', 'medium', 'high', 'xhigh', 'max'])
   })
 })
 

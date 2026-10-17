@@ -29,8 +29,13 @@ function resolveEffort({ think, effort, model }) {
     return undefined
   }
   if (effort === 'manual') throw new Error('Manual effort unsupported on non-Anthropic providers')
-  const level = effort ?? 'high'
   const allowed = effortsFor(model)
+  // A model that thinks with no knob to set: send no level, and refuse one asked for.
+  if (allowed?.length === 0) {
+    if (effort) throw new Error('Model does not support effort')
+    return undefined
+  }
+  const level = effort ?? 'high'
   if (allowed && !allowed.includes(level)) {
     throw new Error(`Effort "${level}" is not supported by this model. Use: ${allowed.join(', ')}`)
   }
