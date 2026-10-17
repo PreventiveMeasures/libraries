@@ -1187,9 +1187,11 @@ describe('meta muse wonder', () => {
     assert.equal(baseRate(WONDER, 'cacheRead'), 0.2)
   })
 
-  it('registers the output cap of OpenRouter\'s Meta endpoint', () => {
-    // Meta publishes none beyond the 1,048,576-token context window.
-    assert.equal(getMaxTokens(WONDER), 943_718)
+  it('registers a 128K output default, leaving the shared window room for the prompt', () => {
+    // Meta publishes no cap beyond the 1,048,576-token window that prompt and
+    // output share. OpenRouter's endpoint takes up to 943,718, but as the
+    // default that would leave ~105K for the prompt.
+    assert.equal(getMaxTokens(WONDER), 128 * 1024)
   })
 
   it('reasons on every request, on the ladder through max', () => {
