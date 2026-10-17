@@ -1179,6 +1179,26 @@ describe('deepseek v4', () => {
   })
 })
 
+describe('pareto 26.9', () => {
+  const PARETO = 'unbiased/pareto-26.9'
+
+  it('prices at Unbiased\'s $2.50 / $7.50 per Mtok, cache reads at the usual 0.10x', () => {
+    assert.equal(baseRate(PARETO, 'input', 'output'), 2.5 + 7.5)
+    assert.equal(baseRate(PARETO, 'cacheRead'), 0.25)
+  })
+
+  it('registers its endpoint\'s 128K of output', () => {
+    assert.equal(getMaxTokens(PARETO), 128 * 1024)
+  })
+
+  it('takes no reasoning controls, so --think and --effort are refused up front', () => {
+    // Its only endpoint accepts no `reasoning` or `reasoning_effort`.
+    assert.equal(canThink(PARETO), false)
+    assert.equal(canEffort(PARETO), false)
+    assert.throws(() => resolveThinkEffort(PARETO, true), /--think is not supported/u)
+  })
+})
+
 describe('meta muse wonder', () => {
   const WONDER = 'meta/muse-wonder'
 

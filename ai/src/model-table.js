@@ -112,6 +112,7 @@ export const MAIN_MODELS = [
   ['xiaomi/mimo-v2.6-flash', { input: 0.14, output: 0.28, cacheReadPrice: 0.0028, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['mistralai/mistral-large-4-0', { input: 0.68, output: 2.09, cacheReadPrice: 0.07, maxTokens: 256 * 1024, noThink: 'explicit', efforts: ['high'] }],
   ['meta/muse-wonder', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128 * 1024, noThink: 'unsupported' }],
+  ['unbiased/pareto-26.9', { input: 2.5, output: 7.5, maxTokens: 128 * 1024, canThink: false }],
 ]
 
 // Models that run on this machine, which OpenRouter has no endpoint for: Chrome's on-device models,
