@@ -144,7 +144,7 @@
   "dependencies": {
     "@chalker/queue": "^1.0.1",
     "@exodus/bytes": "^1.16.0",
-    "@preventive/archive": "^1.2.0",
+    "@preventive/archive": "^1.1.0",
     "@preventive/compare": "^1.2.11",
     "@preventive/diff": "^1.1.0",
     "@preventive/lockfile": "^1.2.0",
