@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertBoolean, assertGhsa, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isRepo, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertBoolean, assertGhsa, assertLevels, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isRepo, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { HttpError, decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
@@ -137,14 +137,15 @@ async function getRepoFile(headers, options) {
 // with nothing in it or the LF blob of a file marked `eol=crlf`, comes
 // from GitHub's listings of the trees, which the id checks as well: a
 // directory at a time, as a recursive listing of a large tree is cut short.
-async function treeTarball(method, headers, repo, tree) {
+// Its symlinks climb no more than `symlinksAbove` levels above its root.
+async function treeTarball(method, headers, repo, tree, symlinksAbove) {
   const listings = new Map()
   const list = (sha) => {
     if (!listings.has(sha)) listings.set(sha, call(headers, repoApi(repo, ['git', 'trees', sha])).then((listing) => (Array.isArray(listing?.tree) ? listing.tree : [])))
     return listings.get(sha)
   }
   const locate = () => repoApi(repo, ['tarball', tree])
-  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list })
+  return await verifiedDownload({ method, dir: 'github/trees', what: tree, ext: 'tgz', algorithm: 'tree', expected: tree, locate, options: { headers, redirect: 'follow' }, list, symlinksAbove })
 }
 
 async function commitTree(method, headers, repo, sha) {
@@ -157,15 +158,15 @@ async function commitTree(method, headers, repo, sha) {
 // now. Its tree's tarball, not its own, in which `git archive` rewrites the
 // files marked `export-subst`.
 async function getRepoTarball(headers, options) {
-  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha })
-  const { repo, sha } = options
+  assertArgs('getRepoTarball', options, { repo: assertRepo, sha: assertSha, symlinksAbove: optional(assertLevels) })
+  const { repo, sha, symlinksAbove } = options
   const tree = await commitTree('getRepoTarball', headers, repo, sha)
-  return await treeTarball('getRepoTarball', headers, repo, tree)
+  return await treeTarball('getRepoTarball', headers, repo, tree, symlinksAbove)
 }
 
 async function getRepoTreeTarball(headers, options) {
-  assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId })
-  return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree)
+  assertArgs('getRepoTreeTarball', options, { repo: assertRepo, tree: assertTreeId, symlinksAbove: optional(assertLevels) })
+  return await treeTarball('getRepoTreeTarball', headers, options.repo, options.tree, options.symlinksAbove)
 }
 
 // Not recursive: GitHub cuts short a recursive listing of a large tree.

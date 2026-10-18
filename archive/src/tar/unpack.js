@@ -57,6 +57,10 @@ const nonePending = () => ({ pax: null, longname: null, longlink: null })
 // global one.
 const NO_RECORDS = new Records()
 
+// The extended headers of every entry with none ahead of it.
+const NO_EXTENDED = Object.freeze([])
+const magicOf = (header) => (header.gnu ? 'gnu' : 'ustar')
+
 class Unpacker {
   #chunks = []
   #offset = 0
@@ -64,6 +68,9 @@ class Unpacker {
   #position = 0
   #names
   #pending = nonePending()
+  // The extended headers read since the last entry, in order: each its
+  // kind and its magic.
+  #extended = []
   #global = null
   // The header whose body is due: { extended, size, at, entry }.
   #awaiting = null
@@ -80,12 +87,14 @@ class Unpacker {
     this.#maxEntries = maxEntries
   }
 
-  push(chunk) {
+  // The entries a chunk completes, each as it is read, so that a chunk
+  // holding many has no more of them held than the one being read.
+  *push(chunk) {
     if (!(chunk instanceof Uint8Array)) throw new ArchiveError('a chunk is not a Uint8Array')
     if (this.#done) {
       this.#trailing(chunk, this.#position)
       this.#position += chunk.length
-      return []
+      return
     }
     if (chunk.length) {
       this.#chunks.push(chunk)
@@ -93,8 +102,10 @@ class Unpacker {
     }
     const out = []
     let more = true
-    while (more && !this.#done) more = this.#awaiting === null ? this.#header() : this.#body(out)
-    return out
+    while (more && !this.#done) {
+      more = this.#awaiting === null ? this.#header() : this.#body(out)
+      yield* out.splice(0)
+    }
   }
 
   end() {
@@ -144,7 +155,8 @@ class Unpacker {
     if (block === null) return false
     const at = this.#position - BLOCK
     if (isZeroBlock(block)) {
-      if (Object.values(this.#pending).some((value) => value !== null)) throw new ArchiveError('an extended header is not followed by an entry', at)
+      // A global header too: one with no entry after it stands for nothing.
+      if (this.#extended.length > 0) throw new ArchiveError('an extended header is not followed by an entry', at)
       if (++this.#zeros === 2) {
         this.#done = true
         const after = this.#position
@@ -161,13 +173,13 @@ class Unpacker {
       this.#awaiting = { extended: null, at, ...this.#resolve(header, at) }
     } else {
       if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
-      this.#awaiting = { extended, size: header.size, at, entry: null }
+      this.#awaiting = { extended, size: header.size, at, entry: null, magic: magicOf(header), octal: header.octal }
     }
     return true
   }
 
   #body(out) {
-    const { extended, size, at, entry } = this.#awaiting
+    const { extended, size, at, entry, magic, octal } = this.#awaiting
     const whole = Math.ceil(size / BLOCK) * BLOCK
     const body = this.#take(whole)
     if (body === null) return false
@@ -186,9 +198,11 @@ class Unpacker {
       // Once, here: a global header stands until another replaces it, and
       // re-reading its keys under every entry is work an archive can ask for.
       sparse(this.#global.keys(), at)
+      this.#extended.push(Object.freeze({ kind: extended, magic, octal }))
     } else {
       if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
+      this.#extended.push(Object.freeze({ kind: extended, magic, octal }))
     }
     return true
   }
@@ -236,7 +250,13 @@ class Unpacker {
       storedLinkname: rawTarget,
       pax: pax ?? NO_RECORDS,
       globalPax: this.#global ?? NO_RECORDS,
+      extended: this.#extended.length ? Object.freeze(this.#extended) : NO_EXTENDED,
+      magic: magicOf(header),
+      typeflag: String.fromCodePoint(header.typeflag),
+      storedMode: header.mode,
+      octal: header.octal,
     }
+    this.#extended = []
     return { entry, size }
   }
 
@@ -248,7 +268,7 @@ class Unpacker {
 
 export function unpack(bytes, options) {
   const unpacker = new Unpacker(true, options)
-  const entries = unpacker.push(bytes)
+  const entries = [...unpacker.push(bytes)]
   unpacker.end()
   return entries
 }

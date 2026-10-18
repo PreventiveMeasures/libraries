@@ -33,6 +33,18 @@ export type EntryType =
 // header has its, every entry without a header the one empty Map -- so it
 // cannot be changed. A value this package does not read is as stored,
 // unchecked, and may hold any character, a control one included.
+// `extended` is the extended headers read since the entry before it, in
+// the order stored, each its kind -- its own pax header, a global one,
+// GNU's long name and long link -- and its magic; the one empty list where
+// none was, and frozen, as a Map is. An extended header, a global one too,
+// with no entry after it is refused. `magic` is the entry's own header's:
+// POSIX's 'ustar', or 'gnu', under which the bytes ustar holds a name's
+// prefix in are GNU's own and not read as one. `typeflag` and `storedMode`
+// are its header's type flag and mode as stored: '\0' where `type` is a
+// 'file' as '0' is, and the file type bits among the permission bits
+// `mode` keeps. `octal` is whether every numeric field of its header -- an
+// extended one's too -- holds octal digits, as POSIX writes them, rather
+// than nothing or GNU's base 256, both of which are read too.
 export interface Entry {
   name: string
   type: EntryType
@@ -50,6 +62,18 @@ export interface Entry {
   storedLinkname: string
   pax: ReadonlyMap<string, string>
   globalPax: ReadonlyMap<string, string>
+  extended: readonly ExtendedHeader[]
+  magic: 'ustar' | 'gnu'
+  typeflag: string
+  storedMode: number
+  octal: boolean
+}
+
+// An extended header, as `extended` lists them.
+export interface ExtendedHeader {
+  kind: 'pax' | 'global' | 'longname' | 'longlink'
+  magic: 'ustar' | 'gnu'
+  octal: boolean
 }
 
 // An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
@@ -117,10 +141,13 @@ export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint
 export function unpack(bytes: Uint8Array, options?: UnpackOptions): Entry[]
 
 // The same a piece at a time, as async generators over a plain or an
-// async iterable. A stream keeps no entry's data, so a name that repeats
-// with the same fields is refused there, and such an archive is for the
-// in-memory call. packStream yields each entry's `data` as the very array
-// it was given.
+// async iterable. unpackStream yields each entry as it is read, however
+// many a chunk holds, its `data` a view of the chunk wherever one holds it
+// whole: an archive whole in memory, given as one chunk, is read an entry
+// at a time and nothing of it copied. A stream keeps no entry's data, so a
+// name that repeats with the same fields is refused there, and such an
+// archive is for the in-memory call. packStream yields each entry's `data`
+// as the very array it was given.
 export function packStream(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
 export function unpackStream(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>, options?: UnpackOptions): AsyncGenerator<Entry, void, undefined>
 

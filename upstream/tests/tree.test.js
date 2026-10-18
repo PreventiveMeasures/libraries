@@ -25,13 +25,15 @@ const edited = (tgz, find, replace, offset = 0) => {
   return gzipSync(tar)
 }
 
-const header = (name, type, size = 0, mode = 0o664) => {
+const header = (name, type, size = 0, mode = 0o664, linkname = '') => {
   const block = Buffer.alloc(512)
   block.write(name, 0)
+  block.write(linkname, 157)
   block.write(mode.toString(8).padStart(7, '0'), 100)
   block.write('0000000', 108)
   block.write('0000000', 116)
   block.write(size.toString(8).padStart(11, '0'), 124)
+  block.write('00000000000', 136)
   block.write('root', 265)
   block.write('root', 297)
   block.write(type, 156)
@@ -68,32 +70,58 @@ describe('gitTreeOfTarball', () => {
     // A commit's, in which `export-subst` files are rewritten.
     assert.equal(await gitTreeOfTarball(COMMIT_TGZ), 'no tree: an entry of type "g"')
     assert.equal(await gitTreeOfTarball(Buffer.from('not gzip')), 'no tree: not gzip, or larger than 1 GiB unpacked')
-    assert.equal(await gitTreeOfTarball(gzipSync(tar.subarray(0, 1000))), 'no tree: the tarball is cut short')
+    assert.equal(await gitTreeOfTarball(gzipSync(tar.subarray(0, 1000))), 'no tree: the archive is truncated at byte 512')
     assert.equal(await gitTreeOfTarball(gzipSync(Buffer.alloc(1024))), 'no tree: an empty tarball')
     assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/lib/', 'acme-app-abc1235/lib/')), /^no tree: an entry outside one top directory/u)
-    assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/lib/', 'acme-app-abc1234/../')), /^no tree: an entry outside one top directory/u)
-    assert.equal(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/run\0', '..\0', 'acme-app-abc1234/'.length)), 'no tree: an entry outside one top directory, "acme-app-abc1234/.."')
+    // A name with a `..` in it, which @preventive/archive refuses outright.
+    assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/lib/', 'acme-app-abc1234/../')), /^no tree: entry name "acme-app-abc1234\/\.\.\/\/" has a \.\. segment/u)
+    assert.match(await gitTreeOfTarball(edited(TREE_TGZ, 'acme-app-abc1234/run\0', '..\0', 'acme-app-abc1234/'.length)), /^no tree: entry name "acme-app-abc1234\/\.\." has a \.\. segment/u)
     // A file alone, with no directory over it, which would otherwise read as the empty tree.
     assert.equal(await gitTreeOfTarball(tarball(header('file', '0'))), 'no tree: an entry outside one top directory, "file"')
     // GitHub's name for it, capitals, dots and all, is the one taken.
     const named = (top) => tarball(header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE'))
     assert.equal(await gitTreeOfTarball(named('PreventiveMeasures-libraries.js-da92dd7')), await gitTreeOfTarball(named('top')))
-    // A top directory that is no directory, which would otherwise hash as any other.
-    for (const top of ['..', '.', '', '..\\..', 'C:', 'a\\..\\..', '-x', 'a b', 'CON', 'nul', 'Com1', 'con.txt', 'LPT9.tar.gz']) {
-      const blocks = [header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE')]
-      assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: an entry outside one top directory, ${JSON.stringify(`${top}/`)}`, top)
+    // A top directory that is no directory, which would otherwise hash as any
+    // other: one @preventive/archive refuses as a name, else as no top.
+    const tops = (top) => tarball(header(`${top}/`, '5', 0, 0o775), header(`${top}/f`, '0', 4), body('SAFE'))
+    for (const top of ['..', '', '..\\..', 'C:', 'a\\..\\..']) assert.match(await gitTreeOfTarball(tops(top)), /^no tree: entry name /u, top)
+    for (const top of ['.', '-x', 'a b', 'CON', 'nul', 'Com1', 'con.txt', 'LPT9.tar.gz']) {
+      assert.equal(await gitTreeOfTarball(tops(top)), `no tree: an entry outside one top directory, ${JSON.stringify(`${top}/`)}`, top)
     }
   })
 
   it('is a reason where a tar extractor would read the tarball other than it is hashed', async () => {
     const top = header('top/', '5', 0, 0o775)
-    const file = [header('top/f', '0', 4), body('SAFEEVIL')]
+    const file = [header('top/f', '0', 4), body('SAFE')]
     assert.equal(await gitTreeOfTarball(tarball(top, file)), 'ef38c2e9ebb915617fbd4a188a4c5d3ba68b8022')
+    // `EVIL` past `SAFE`: in the padding, unless a pax size takes it in.
+    const longer = [header('top/f', '0', 4), body('SAFEEVIL')]
     const tampered = header('top/f', '0', 4)
     tampered[0] = 'T'.codePointAt(0)
     const gnu = header('top/f', '0', 4)
     gnu.write('ustar  \0', 257, 'latin1')
     sign(gnu, 0)
+    // A pax header under GNU's magic, ahead of a POSIX one.
+    const gnuPax = header('PaxHeader', 'x', 14)
+    gnuPax.write('ustar  \0', 257, 'latin1')
+    sign(gnuPax, 0)
+    // A size in GNU's base 256, 0x80 and then the number, under the ustar magic.
+    const base256 = (block, size) => {
+      block.fill(0, 124, 136)
+      block[124] = 0x80
+      block[135] = size
+      sign(block, 0)
+      return block
+    }
+    // A name git holds as bytes that are no UTF-8, as `git archive` writes
+    // it, refused as @preventive/archive refuses it everywhere.
+    const latin1Named = header('top/f', '0', 4)
+    latin1Named.write('top/caf\u00E9', 0, 'latin1')
+    sign(latin1Named, 0)
+    // Owners left blank, which read as 0 and git never writes.
+    const blankOwners = header('top/f', '0', 4)
+    blankOwners.fill(0, 108, 124)
+    sign(blankOwners, 0)
     const owned = header('top/f', '0', 4)
     owned.write('0001750', 108)
     sign(owned, 0)
@@ -101,22 +129,34 @@ describe('gitTreeOfTarball', () => {
     named.write('evil', 265)
     sign(named, 0)
     for (const [blocks, reason] of [
-      [[top, pax('x', [['size', 8]]), file], 'a pax record git does not write, "size"'],
+      [[top, longer], 'the padding after an entry is not zero at byte 512'],
+      [[top, pax('x', [['size', 8]]), longer], 'a pax record git does not write, "size"'],
       [[top, pax('x', [['__proto__', 'x']]), file], 'a pax record git does not write, "__proto__"'],
-      [[top, pax('x', [['path', 'top/a']]), pax('x', [['linkpath', 'x']]), file], 'two pax headers for one entry'],
-      [[top, pax('x', [['linkpath', 'f\0x']]), header('top/l', '2', 0, 0o777)], 'a malformed pax header'],
-      [[top, tampered, body('SAFE')], 'a header that fails its checksum'],
+      [[top, pax('x', [['path', 'top/a'], ['path', 'top/b']]), file], 'pax keyword path repeats at byte 512'],
+      [[top, pax('x', [['path', 'top/a']]), pax('x', [['linkpath', 'x']]), file], 'two pax headers ahead of one entry at byte 1536'],
+      [[top, pax('x', [['linkpath', 'f\0x']]), header('top/l', '2', 0, 0o777)], 'symlink target of "top/l" "f\\u0000x" holds a control or formatting character, or a backslash at byte 1536'],
+      [[top, header('././@LongLink', 'L', 7, 0o644), body('top/ff\0'), file], 'an entry of type "L"'],
+      [[top, tampered, body('SAFE')], 'header checksum does not match at byte 512'],
       [[top, gnu, body('SAFE')], 'a header that is not POSIX ustar'],
+      [[top, gnuPax, body('14 path=top/g\n'), file], 'a header that is not POSIX ustar'],
+      [[top, base256(header('top/f', '0'), 4), body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, base256(header('PaxHeader', 'x'), 14), body('14 path=top/g\n'), file], 'a header git does not write, "top/g"'],
+      [[top, blankOwners, body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, latin1Named, body('SAFE')], 'entry name is not valid UTF-8 at byte 512'],
+      [[top, top, file], 'duplicate entry "top", which only the in-memory call can compare with the earlier one at byte 512'],
+      [[top, file, ...pax('g', [['comment', 'x']])], 'an extended header is not followed by an entry at byte 2560'],
       [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, header('top/f', '0', 4, 0o000), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, header('top/d/', '5', 0, 0o700)], 'a header git does not write, "top/d/"'],
-      [[top, header('top/l', '2', 4, 0o777), body('SAFE')], 'a header git does not write, "top/l"'],
-      [[top, header('top/f/', '0', 4), body('SAFE')], 'a header git does not write, "top/f/"'],
+      [[top, header('top/l', '2', 4, 0o777, 'f'), body('SAFE')], 'a symlink entry has a size at byte 512'],
+      [[top, header('top/f/', '0', 4), body('SAFE')], 'entry name "top/f/" ends in a slash but is not a directory at byte 512'],
       [[top, header('top/d', '5', 0, 0o775)], 'a header git does not write, "top/d"'],
       [[top, owned, body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, named, body('SAFE')], 'a header git does not write, "top/f"'],
-      [[top, header('top/h', '1', 0, 0o664)], 'an entry of type "1"'],
-      [[top, file, Buffer.alloc(1024), header('top/g', '0')], 'data after the end of the tarball'],
+      [[top, file, header('top/h', '1', 0, 0o664, 'top/f')], 'an entry of type "1"'],
+      [[top, header('top/f', '\0', 4), body('SAFE')], 'an entry of type "\\u0000"'],
+      [[top, header('top/f', '0', 4, 0o100664), body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, file, Buffer.alloc(1024), header('top/g', '0')], 'data after the end of the archive at byte 2560'],
     ]) {
       assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: ${reason}`, reason)
     }
@@ -128,7 +168,23 @@ describe('gitTreeOfTarball', () => {
     assert.match(await gitTreeOfTarball(twoFiles), /^[\da-f]{40}$/u)
     // `f`, its blob id, then `g`'s mode and name: as git serializes the two.
     const name = `top/f\0${createHash('sha1').update('blob 4\0SAFE').digest('latin1')}100644 g`
-    assert.equal(await gitTreeOfTarball(tarball(top, pax('x', [['path', name]]), header('top/x', '0', 4), body('EVIL'))), 'no tree: a malformed pax header')
+    assert.equal(await gitTreeOfTarball(tarball(top, pax('x', [['path', name]]), header('top/x', '0', 4), body('EVIL'))), 'no tree: a pax record is not valid UTF-8 at byte 512')
+    assert.match(await gitTreeOfTarball(tarball(top, pax('x', [['path', 'top/f\0g']]), header('top/x', '0', 4), body('EVIL'))), /^no tree: entry name "top\/f\\u0000g" holds a control or formatting character/u)
+  })
+
+  it('takes a symlink above the tarball as far as `symlinksAbove` lets it, none unless given', async () => {
+    // A subtree's, its LICENSE linked to the tree's root, as a monorepo
+    // package's is: one level above the tarball's root.
+    const top = header('top/', '5', 0, 0o775)
+    const linked = tarball(top, header('top/LICENSE', '2', 0, 0o777, '../../LICENSE'))
+    assert.equal(await gitTreeOfTarball(linked), 'no tree: symlink "top/LICENSE" points outside the archive, to "../../LICENSE" at byte 512')
+    const id = await gitTreeOfTarball(linked, { symlinksAbove: 1 })
+    assert.match(id, /^[\da-f]{40}$/u)
+    assert.equal(id, await gitTreeOfTarball(linked, { symlinksAbove: 2 }))
+    assert.equal(await gitTreeOfTarball(tarball(top, header('top/LICENSE', '2', 0, 0o777, '../../../LICENSE')), { symlinksAbove: 1 }),
+      'no tree: symlink "top/LICENSE" points more than 1 level above the archive, to "../../../LICENSE" at byte 512')
+    assert.equal(await gitTreeOfTarball(tarball(top, header('top/LICENSE', '2', 0, 0o777, '/LICENSE')), { symlinksAbove: 9 }),
+      'no tree: symlink target of "top/LICENSE" "/LICENSE" is absolute at byte 512')
   })
 
   it("takes a submodule's commit from `list`, asked only for a tarball with an empty directory, and is the id only for the right one", async () => {

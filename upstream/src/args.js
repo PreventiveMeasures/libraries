@@ -68,6 +68,7 @@ export function assertNames(method, what, names, options, assertName) {
 
 export const assertBoolean = assertion('a boolean', (value) => typeof value === 'boolean')
 export const assertNumber = assertion('a positive integer', (value) => Number.isSafeInteger(value) && value > 0)
+export const assertLevels = assertion('a whole number of levels', (value) => Number.isSafeInteger(value) && value >= 0)
 export const assertLine = assertion('a non-empty single line', (value) => isString(value, 1024) && value.trim() !== '')
 // 65,536 is GitHub's own limit on a body.
 export const assertText = assertion('text with no control characters', (value) => isString(value, 65_536, '\t\n\r'))

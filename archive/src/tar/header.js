@@ -135,6 +135,10 @@ export function encodeHeader(f) {
   return block
 }
 
+// Whether a numeric field holds octal digits, as POSIX writes it, rather
+// than nothing or GNU's base 256, both of which readNumber reads.
+const isOctal = (block, offset, size) => /^ *[0-7]+ *$/u.test(ascii(untilNul(block.subarray(offset, offset + size))))
+
 export function decodeHeader(block, at) {
   if (checksum(block) !== readNumber(block, CHKSUM, 8, 'checksum', at)) throw new ArchiveError('header checksum does not match', at)
   const magic = ascii(block.subarray(MAGIC, MAGIC + 8))
@@ -155,5 +159,7 @@ export function decodeHeader(block, at) {
     ...Object.fromEntries(NUMBERS.map(([key, offset, size]) => [key, readNumber(block, offset, size, key, at, key === 'mtime')])),
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
+    octal: [['checksum', CHKSUM, 8], ...NUMBERS, ...device ? [['devmajor', DEVMAJOR, 8], ['devminor', DEVMINOR, 8]] : []]
+      .every(([, offset, size]) => isOctal(block, offset, size)),
   }
 }

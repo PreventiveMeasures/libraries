@@ -77,6 +77,7 @@ describe('what it refuses', () => {
     ['a file with a link target', () => archive(header({ linkname: utf8('x') })), /a file entry has a link target/u],
     ['padding that is not zero', () => sealedData(), /the padding after an entry is not zero at byte 0/u],
     ['a pax header with nothing after it', () => archive(...pax([['path', 'x']]).slice(0, 2)), /an extended header is not followed by an entry at byte 1024/u],
+    ['a global header with nothing after it', () => archive(header(), ...pax([['comment', 'x']], {}, 0x67).slice(0, 2)), /an extended header is not followed by an entry at byte 1536/u],
     ['two pax headers ahead of one entry', () => archive(...pax([['uid', '1']]).slice(0, 2), ...pax([['gid', '1']])), /two pax headers ahead of one entry at byte 1024/u],
     ['a long name and a pax path for one entry', () => archive(header({ gnu: true, typeflag: 0x4c, name: utf8('././@LongLink'), size: 2 }), padded(utf8('b\0')), ...pax([['path', 'c']])), /both a long name header and a pax path name one entry/u],
     ['a pax header too large to be one', () => archive(header({ typeflag: 0x78, size: 1 << 21 })), /a pax header of 2097152 bytes is longer than any tar writes/u],
@@ -158,7 +159,10 @@ describe('what it reads that GNU tar reads', () => {
     const block = header({ uid: 7, gid: 7 })
     block.fill(0, 108, 124)
     const resealed = sealed(block, () => {})
-    assert.deepEqual([unpack(archive(resealed))[0].uid, unpack(archive(resealed))[0].gid], [0, 0])
+    const [entry] = unpack(archive(resealed))
+    assert.deepEqual([entry.uid, entry.gid, entry.octal], [0, 0, false], 'read, though not as octal digits')
+    // Spaces around the digits are octal still, as older tars wrote them.
+    assert.equal(unpack(archive(sealed(header(), (b) => b.set(latin1('   644  '), 100))))[0].octal, true)
   })
   it('a name again as the same entry, as some packagers write d/f and d/./f', () => {
     const entries = unpack(archive(header({ name: utf8('d/f'), size: 1 }), padded(utf8('x')), header({ name: utf8('d/./f'), size: 1 }), padded(utf8('x'))))
@@ -172,7 +176,8 @@ describe('what it reads that GNU tar reads', () => {
     assert.deepEqual(entries.map((e) => [e.name, e.data.length]), [['a', 0], ['b', 1]])
   })
   it('a NUL typeflag as a file', () => {
-    assert.equal(unpack(archive(header({ typeflag: 0 })))[0].type, 'file')
+    const [nul, zero] = unpack(archive(header({ typeflag: 0 }), header({ name: utf8('b') })))
+    assert.deepEqual([nul.type, nul.typeflag, zero.type, zero.typeflag], ['file', '\0', 'file', '0'])
   })
   it('names with . segments and a directory slash, cleaned, and the root as .', () => {
     const entries = unpack(archive(
@@ -184,10 +189,27 @@ describe('what it reads that GNU tar reads', () => {
     assert.deepEqual(entries.map((e) => [e.type, e.name, e.linkname]), [['directory', '.', ''], ['file', 'a', ''], ['directory', 'd', ''], ['hardlink', 'h', 'a']])
   })
   it('a time below zero in base 256', () => {
-    assert.equal(unpack(archive(header({ gnu: true, mtime: -1 })))[0].mtime, -1)
+    const [entry] = unpack(archive(header({ gnu: true, mtime: -1 })))
+    assert.deepEqual([entry.mtime, entry.octal], [-1, false])
+  })
+  it('a number in base 256 under the ustar magic too, as no `octal` header, an extended header\'s apart', () => {
+    // Its size's 12 bytes as base 256: 0x80, then the number.
+    const sized = (block, size) => sealed(block, (b) => {
+      b.fill(0, 124, 136)
+      b[124] = 0x80
+      b[135] = size
+    })
+    const records = encodePax([['uid', '1']])
+    const [paxed, plain] = unpack(archive(
+      sized(header({ typeflag: 0x78 }), records.length), padded(records), sized(header({ name: utf8('a') }), 5), padded(utf8('hello')),
+      header({ name: utf8('b') }),
+    ))
+    assert.deepEqual([paxed.data.length, paxed.octal, paxed.extended[0].octal], [5, false, false])
+    assert.deepEqual([plain.octal, plain.extended], [true, []])
   })
   it('a mode with the file type bits still in it, as the permission bits', () => {
-    assert.equal(unpack(archive(header({ mode: 0o100644 })))[0].mode, 0o644)
+    const [entry] = unpack(archive(header({ mode: 0o100644 })))
+    assert.deepEqual([entry.mode, entry.storedMode], [0o644, 0o100644])
   })
   it('numbers written the way older tars wrote them', () => {
     const block = sealed(header(), (b) => b.set(latin1('   644  '), 100))
@@ -286,6 +308,27 @@ describe('what the archive stores, beside what is cleaned out of it', () => {
       assert.throws(() => records.clear(), TypeError)
     }
     assert.deepEqual([[...none.pax], [...own.pax], [...own.globalPax]], [[], [['comment', 'x']], [['comment', 'g']]])
+  })
+  it('the extended headers ahead of each entry, in their order, each its kind and magic, and its own header\'s magic', () => {
+    const long = 'n'.repeat(120)
+    const [first, second, third, fourth] = unpack(archive(
+      ...pax([['comment', 'g']], {}, 0x67).slice(0, 2), header({ gnu: true, typeflag: 0x78, size: encodePax([['uid', '1']]).length }), padded(encodePax([['uid', '1']])), header({ name: utf8('a') }),
+      header({ gnu: true, typeflag: 0x4b, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)),
+      header({ gnu: true, typeflag: 0x4c, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)),
+      header({ gnu: true, typeflag: 0x32, name: utf8('l') }),
+      header({ name: utf8('b') }),
+      ...pax([['comment', 'h']], {}, 0x67).slice(0, 2), header({ name: utf8('c') }),
+    ))
+    const kinds = ({ extended }) => extended.map(({ kind, magic }) => `${kind} ${magic}`)
+    assert.deepEqual([first, second, third, fourth].map(kinds), [['global ustar', 'pax gnu'], ['longlink gnu', 'longname gnu'], [], ['global ustar']])
+    assert.deepEqual([first.magic, second.magic, third.magic], ['ustar', 'gnu', 'ustar'], 'a pax header\'s magic apart from its entry\'s')
+    assert.equal(first.uid, 1)
+    assert.ok([first, second, third].every(({ extended }) => Object.isFrozen(extended) && extended.every(Object.isFrozen)))
+    assert.equal(unpack(archive(header({ name: utf8('x') })))[0].extended, third.extended, 'one empty list for every entry with none')
+    for (const recording of RECORDINGS) {
+      const magic = recording.format === 'gnu' ? 'gnu' : 'ustar'
+      for (const entry of unpack(bytesOf(recording))) assert.equal(entry.magic, magic, recording.command)
+    }
   })
   it('a repeat that differs only in what it stores, as the same entry again', () => {
     const entries = unpack(archive(header({ name: utf8('d/f') }), header({ name: utf8('d/./f') })))
