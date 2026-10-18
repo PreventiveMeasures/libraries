@@ -248,6 +248,8 @@ class Unpacker {
       globalPax: this.#global ?? NO_RECORDS,
       extended: this.#extended.length ? Object.freeze(this.#extended) : NO_EXTENDED,
       magic: magicOf(header),
+      typeflag: String.fromCodePoint(header.typeflag),
+      storedMode: header.mode,
     }
     this.#extended = []
     return { entry, size }

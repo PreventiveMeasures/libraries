@@ -39,7 +39,10 @@ export type EntryType =
 // none was, and frozen, as a Map is. An extended header, a global one too,
 // with no entry after it is refused. `magic` is the entry's own header's:
 // POSIX's 'ustar', or 'gnu', under which the bytes ustar holds a name's
-// prefix in are GNU's own and not read as one.
+// prefix in are GNU's own and not read as one. `typeflag` and `storedMode`
+// are its header's type flag and mode as stored: '\0' where `type` is a
+// 'file' as '0' is, and the file type bits among the permission bits
+// `mode` keeps.
 export interface Entry {
   name: string
   type: EntryType
@@ -59,6 +62,8 @@ export interface Entry {
   globalPax: ReadonlyMap<string, string>
   extended: readonly ExtendedHeader[]
   magic: 'ustar' | 'gnu'
+  typeflag: string
+  storedMode: number
 }
 
 // An extended header, as `extended` lists them.

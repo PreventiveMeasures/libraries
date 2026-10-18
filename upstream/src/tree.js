@@ -15,11 +15,11 @@ const MAX_UNPACKED_BYTES = 2 ** 30
 // anything else, a pax `size` or a mode of 0000, would be extracted as it
 // is not hashed. POSIX ustar headers, as under GNU's magic a reader that
 // knows none takes GNU's own bytes for a name's prefix; no extended header
-// but an entry's own pax one. Modes are as its umask, 002 or 022, leaves
-// them: a file 0664 or 0644, 0775 or 0755 executable; a directory 0775 or
-// 0755; a symlink 0777.
+// but an entry's own pax one; type flags and modes as stored. Modes are as
+// its umask, 002 or 022, leaves them: a file 0664 or 0644, 0775 or 0755
+// executable; a directory 0775 or 0755; a symlink 0777.
 const PAX_KEYS = new Set(['path', 'linkpath'])
-const MODES = { file: [0o664, 0o644, 0o775, 0o755], symlink: [0o777], directory: [0o775, 0o755] }
+const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
 // The extended headers git does not write, by the type a tar names them by.
 const FLAGS = { global: 'g', longname: 'L', longlink: 'K' }
 // The top directory is not hashed, so it is held to GitHub's name for it,
@@ -141,20 +141,20 @@ export async function gitTreeOfTarball(gzipped, { expected, list, symlinksAbove 
   }
   const root = new Map()
   let top
-  for (const { storedName, storedLinkname, type, mode, uid, gid, uname, gname, data, pax, extended, magic } of entries) {
+  for (const { storedName, storedLinkname, typeflag, storedMode, uid, gid, uname, gname, data, pax, extended, magic } of entries) {
     const path = nameOf(storedName)
     const flag = extended.find(({ kind }) => kind !== 'pax')
     if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag.kind])}`
     if (magic !== 'ustar' || extended.some((header) => header.magic !== 'ustar')) return 'no tree: a header that is not POSIX ustar'
     const other = [...pax.keys()].find((key) => !PAX_KEYS.has(key))
     if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
-    if (!Object.hasOwn(MODES, type)) return `no tree: an entry of type ${JSON.stringify(type)}`
-    const asGitWrites = MODES[type].includes(mode) && path.endsWith('/') === (type === 'directory')
+    if (!Object.hasOwn(MODES, typeflag)) return `no tree: an entry of type ${JSON.stringify(typeflag)}`
+    const asGitWrites = MODES[typeflag].includes(storedMode) && path.endsWith('/') === (typeflag === '5')
       && uid === 0 && gid === 0 && uname === 'root' && gname === 'root'
     if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
-    const name = type === 'directory' ? null : parts.pop()
+    const name = typeflag === '5' ? null : parts.pop()
     if (!isTop(first) || first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
     let dir = root
     for (const part of parts) {
@@ -164,7 +164,7 @@ export async function gitTreeOfTarball(gzipped, { expected, list, symlinksAbove 
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === 'file' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', data), body: data } : { mode: '120000', id: objectId('blob', Buffer.from(storedLinkname)) })
+    dir.set(name, typeflag === '0' ? { mode: storedMode & 0o100 ? '100755' : '100644', id: objectId('blob', data), body: data } : { mode: '120000', id: objectId('blob', Buffer.from(storedLinkname)) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])

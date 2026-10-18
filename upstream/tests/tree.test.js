@@ -130,7 +130,9 @@ describe('gitTreeOfTarball', () => {
       [[top, header('top/d', '5', 0, 0o775)], 'a header git does not write, "top/d"'],
       [[top, owned, body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, named, body('SAFE')], 'a header git does not write, "top/f"'],
-      [[top, file, header('top/h', '1', 0, 0o664, 'top/f')], 'an entry of type "hardlink"'],
+      [[top, file, header('top/h', '1', 0, 0o664, 'top/f')], 'an entry of type "1"'],
+      [[top, header('top/f', '\0', 4), body('SAFE')], 'an entry of type "\\u0000"'],
+      [[top, header('top/f', '0', 4, 0o100664), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, file, Buffer.alloc(1024), header('top/g', '0')], 'data after the end of the archive at byte 2560'],
     ]) {
       assert.equal(await gitTreeOfTarball(tarball(...blocks)), `no tree: ${reason}`, reason)

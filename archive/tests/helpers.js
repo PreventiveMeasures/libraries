@@ -31,7 +31,7 @@ export const entriesOf = (recording) => recording.entries.map((entry) => ({ ...e
 // Entries with data as text, for a deep comparison that says something
 // when it fails, and with the fields an entry is given alone: what the
 // archive stored besides is looked at on its own.
-const STORED = new Set(['storedName', 'storedLinkname', 'pax', 'globalPax', 'extended', 'magic'])
+const STORED = new Set(['storedName', 'storedLinkname', 'pax', 'globalPax', 'extended', 'magic', 'typeflag', 'storedMode'])
 export const readable = (entries) => entries.map((entry) => ({
   ...Object.fromEntries(Object.entries(entry).filter(([key]) => !STORED.has(key))),
   data: new TextDecoder().decode(entry.data),

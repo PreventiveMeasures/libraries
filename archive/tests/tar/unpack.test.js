@@ -173,7 +173,8 @@ describe('what it reads that GNU tar reads', () => {
     assert.deepEqual(entries.map((e) => [e.name, e.data.length]), [['a', 0], ['b', 1]])
   })
   it('a NUL typeflag as a file', () => {
-    assert.equal(unpack(archive(header({ typeflag: 0 })))[0].type, 'file')
+    const [nul, zero] = unpack(archive(header({ typeflag: 0 }), header({ name: utf8('b') })))
+    assert.deepEqual([nul.type, nul.typeflag, zero.type, zero.typeflag], ['file', '\0', 'file', '0'])
   })
   it('names with . segments and a directory slash, cleaned, and the root as .', () => {
     const entries = unpack(archive(
@@ -188,7 +189,8 @@ describe('what it reads that GNU tar reads', () => {
     assert.equal(unpack(archive(header({ gnu: true, mtime: -1 })))[0].mtime, -1)
   })
   it('a mode with the file type bits still in it, as the permission bits', () => {
-    assert.equal(unpack(archive(header({ mode: 0o100644 })))[0].mode, 0o644)
+    const [entry] = unpack(archive(header({ mode: 0o100644 })))
+    assert.deepEqual([entry.mode, entry.storedMode], [0o644, 0o100644])
   })
   it('numbers written the way older tars wrote them', () => {
     const block = sealed(header(), (b) => b.set(latin1('   644  '), 100))
