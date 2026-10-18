@@ -90,12 +90,14 @@ class Unpacker {
     this.#maxEntries = maxEntries
   }
 
-  push(chunk) {
+  // The entries a chunk completes, each as it is read, so that a chunk
+  // holding many has no more of them held than the one being read.
+  *push(chunk) {
     if (!(chunk instanceof Uint8Array)) throw new ArchiveError('a chunk is not a Uint8Array')
     if (this.#done) {
       this.#trailing(chunk, this.#position)
       this.#position += chunk.length
-      return []
+      return
     }
     if (chunk.length) {
       this.#chunks.push(chunk)
@@ -103,8 +105,10 @@ class Unpacker {
     }
     const out = []
     let more = true
-    while (more && !this.#done) more = this.#awaiting === null ? this.#header() : this.#body(out)
-    return out
+    while (more && !this.#done) {
+      more = this.#awaiting === null ? this.#header() : this.#body(out)
+      yield* out.splice(0)
+    }
   }
 
   end() {
@@ -267,7 +271,7 @@ class Unpacker {
 
 export function unpack(bytes, options) {
   const unpacker = new Unpacker(true, options)
-  const entries = unpacker.push(bytes)
+  const entries = [...unpacker.push(bytes)]
   unpacker.end()
   return entries
 }

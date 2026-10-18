@@ -144,10 +144,13 @@ export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint
 export function unpack(bytes: Uint8Array, options?: UnpackOptions): Entry[]
 
 // The same a piece at a time, as async generators over a plain or an
-// async iterable. A stream keeps no entry's data, so a name that repeats
-// with the same fields is refused there, and such an archive is for the
-// in-memory call. packStream yields each entry's `data` as the very array
-// it was given.
+// async iterable. unpackStream yields each entry as it is read, however
+// many a chunk holds, its `data` a view of the chunk wherever one holds it
+// whole: an archive whole in memory, given as one chunk, is read an entry
+// at a time and nothing of it copied. A stream keeps no entry's data, so a
+// name that repeats with the same fields is refused there, and such an
+// archive is for the in-memory call. packStream yields each entry's `data`
+// as the very array it was given.
 export function packStream(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
 export function unpackStream(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>, options?: UnpackOptions): AsyncGenerator<Entry, void, undefined>
 

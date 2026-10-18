@@ -8,10 +8,6 @@ import { isSha1, matches } from './args.js'
 import { withAttributes, writtenWithCrlf } from './attributes.js'
 
 const MAX_UNPACKED_BYTES = 2 ** 30
-// The tar is read a chunk at a time, each entry taken as it is read, so no
-// more of them are held than one chunk's: a header that repeats an earlier
-// one, which git never writes, is refused where it stands.
-const CHUNK_BYTES = 2 ** 20
 // Read by @preventive/archive, which holds a tarball to its checks -- each
 // header's checksum and fields, the padding and the end, pax records of
 // which none repeats, names and link targets that stay within it, no name
@@ -172,13 +168,13 @@ export async function gitTreeOfTarball(gzipped, { expected, list, symlinksAbove 
     if (error instanceof CompressionError) return 'no tree: not gzip, or larger than 1 GiB unpacked'
     throw error
   }
-  const chunks = function* () {
-    for (let at = 0; at < tar.length; at += CHUNK_BYTES) yield tar.subarray(at, at + CHUNK_BYTES)
-  }
   const root = new Map()
   let top
+  // An entry at a time, each taken into the tree as it is read, its data a
+  // view of the tar: a header that repeats an earlier one, which git never
+  // writes, is refused where it stands, so no run of them is held.
   try {
-    for await (const entry of unpackStream(chunks(), { symlinksAbove })) {
+    for await (const entry of unpackStream([tar], { symlinksAbove })) {
       const reason = take(root, entry, top ??= nameOf(entry.storedName).split('/')[0])
       if (reason !== undefined) return reason
     }

@@ -47,6 +47,19 @@ describe('the streams take the options the in-memory calls take', () => {
   })
 })
 
+describe('unpackStream reads an entry at a time', () => {
+  it('within one chunk too, reading none past the one asked for, its data a view of the chunk', async () => {
+    const bytes = pack([{ name: 'a', data: utf8('x') }, { name: 'b' }])
+    // b's header broken: read only once b is asked for.
+    bytes[1024 + 148] = 0x37
+    const entries = unpackStream([bytes])
+    const { value: first } = await entries.next()
+    assert.equal(first.name, 'a')
+    assert.equal(first.data.buffer, bytes.buffer)
+    await assert.rejects(entries.next(), /header checksum does not match at byte 1024/u)
+  })
+})
+
 describe('unpackStream reads an archive however it is cut', () => {
   for (const recording of RECORDINGS) {
     const bytes = bytesOf(recording)
