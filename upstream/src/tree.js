@@ -2,20 +2,25 @@ import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
 import { CompressionError, decompress } from '@preventive/archive/compression.js'
-import { ArchiveError, unpack } from '@preventive/archive/tar.js'
+import { ArchiveError, unpackStream } from '@preventive/archive/tar.js'
 
 import { isSha1, matches } from './args.js'
 import { withAttributes, writtenWithCrlf } from './attributes.js'
 
 const MAX_UNPACKED_BYTES = 2 ** 30
+// The tar is read a chunk at a time, each entry taken as it is read, so no
+// more of them are held than one chunk's: a header that repeats an earlier
+// one, which git never writes, is refused where it stands.
+const CHUNK_BYTES = 2 ** 20
 // Read by @preventive/archive, which holds a tarball to its checks -- each
 // header's checksum and fields, the padding and the end, pax records of
 // which none repeats, names and link targets that stay within it, no name
 // twice as another entry -- and past those to only what git writes:
 // anything else, a pax `size` or a mode of 0000, would be extracted as it
 // is not hashed. POSIX ustar headers, as under GNU's magic a reader that
-// knows none takes GNU's own bytes for a name's prefix; no extended header
-// but an entry's own pax one; type flags and modes as stored. Modes are as
+// knows none takes GNU's own bytes for a name's prefix, their numbers as
+// octal digits; no extended header but an entry's own pax one; type flags
+// and modes as stored. Modes are as
 // its umask, 002 or 022, leaves them: a file 0664 or 0644, 0775 or 0755
 // executable; a directory 0775 or 0755; a symlink 0777.
 const PAX_KEYS = new Set(['path', 'linkpath'])
@@ -118,6 +123,35 @@ async function mend(dir, sha, listed, base = '', above = []) {
   }
 }
 
+// One entry of a tarball into `root`, the tree being built, whose top
+// directory is `top`, the first entry's: a reason where git writes no such
+// entry there, else nothing.
+function take(root, { storedName, storedLinkname, typeflag, storedMode, uid, gid, uname, gname, data, pax, extended, magic, base256 }, top) {
+  const path = nameOf(storedName)
+  const flag = extended.find(({ kind }) => kind !== 'pax')
+  if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag.kind])}`
+  if (magic !== 'ustar' || extended.some((header) => header.magic !== 'ustar')) return 'no tree: a header that is not POSIX ustar'
+  const other = [...pax.keys()].find((key) => !PAX_KEYS.has(key))
+  if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
+  if (!Object.hasOwn(MODES, typeflag)) return `no tree: an entry of type ${JSON.stringify(typeflag)}`
+  const asGitWrites = MODES[typeflag].includes(storedMode) && path.endsWith('/') === (typeflag === '5')
+    && uid === 0 && gid === 0 && uname === 'root' && gname === 'root'
+    && base256.length === 0 && extended.every((header) => header.base256.length === 0)
+  if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
+  const [first, ...parts] = path.replace(/\/$/u, '').split('/')
+  const name = typeflag === '5' ? null : parts.pop()
+  if (!isTop(first) || first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
+  let dir = root
+  for (const part of parts) {
+    if (!dir.has(part)) dir.set(part, new Map())
+    dir = dir.get(part)
+    if (!(dir instanceof Map)) return `no tree: a file where a directory is, ${JSON.stringify(path)}`
+  }
+  if (name === null) return
+  if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
+  dir.set(name, typeflag === '0' ? { mode: storedMode & 0o100 ? '100755' : '100644', id: objectId('blob', data), body: data } : { mode: '120000', id: objectId('blob', Buffer.from(storedLinkname)) })
+}
+
 // The id of the git tree a gzipped tarball holds, as `git archive` writes
 // one, under a single top directory: a file's mode is its exec bit, a
 // symlink's blob its target. What a tarball cannot show comes from `list`,
@@ -131,40 +165,26 @@ async function mend(dir, sha, listed, base = '', above = []) {
 // as @preventive/archive lets it: a subtree's, linking to the tree's root
 // as a monorepo package's LICENSE does, as many as it is deep, less one.
 export async function gitTreeOfTarball(gzipped, { expected, list, symlinksAbove = 0 } = {}) {
-  let entries
+  let tar
   try {
-    entries = unpack(await decompress(gzipped, 'gzip', { limit: MAX_UNPACKED_BYTES }), { symlinksAbove })
+    tar = await decompress(gzipped, 'gzip', { limit: MAX_UNPACKED_BYTES })
   } catch (error) {
     if (error instanceof CompressionError) return 'no tree: not gzip, or larger than 1 GiB unpacked'
-    if (error instanceof ArchiveError) return `no tree: ${error.message}`
     throw error
+  }
+  const chunks = function* () {
+    for (let at = 0; at < tar.length; at += CHUNK_BYTES) yield tar.subarray(at, at + CHUNK_BYTES)
   }
   const root = new Map()
   let top
-  for (const { storedName, storedLinkname, typeflag, storedMode, uid, gid, uname, gname, data, pax, extended, magic } of entries) {
-    const path = nameOf(storedName)
-    const flag = extended.find(({ kind }) => kind !== 'pax')
-    if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag.kind])}`
-    if (magic !== 'ustar' || extended.some((header) => header.magic !== 'ustar')) return 'no tree: a header that is not POSIX ustar'
-    const other = [...pax.keys()].find((key) => !PAX_KEYS.has(key))
-    if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
-    if (!Object.hasOwn(MODES, typeflag)) return `no tree: an entry of type ${JSON.stringify(typeflag)}`
-    const asGitWrites = MODES[typeflag].includes(storedMode) && path.endsWith('/') === (typeflag === '5')
-      && uid === 0 && gid === 0 && uname === 'root' && gname === 'root'
-    if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
-    const [first, ...parts] = path.replace(/\/$/u, '').split('/')
-    top ??= first
-    const name = typeflag === '5' ? null : parts.pop()
-    if (!isTop(first) || first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
-    let dir = root
-    for (const part of parts) {
-      if (!dir.has(part)) dir.set(part, new Map())
-      dir = dir.get(part)
-      if (!(dir instanceof Map)) return `no tree: a file where a directory is, ${JSON.stringify(path)}`
+  try {
+    for await (const entry of unpackStream(chunks(), { symlinksAbove })) {
+      const reason = take(root, entry, top ??= nameOf(entry.storedName).split('/')[0])
+      if (reason !== undefined) return reason
     }
-    if (name === null) continue
-    if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, typeflag === '0' ? { mode: storedMode & 0o100 ? '100755' : '100644', id: objectId('blob', data), body: data } : { mode: '120000', id: objectId('blob', Buffer.from(storedLinkname)) })
+  } catch (error) {
+    if (error instanceof ArchiveError) return `no tree: ${error.message}`
+    throw error
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])

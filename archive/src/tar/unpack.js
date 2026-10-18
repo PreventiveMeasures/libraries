@@ -60,6 +60,9 @@ const NO_RECORDS = new Records()
 // The extended headers of every entry with none ahead of it.
 const NO_EXTENDED = Object.freeze([])
 const magicOf = (header) => (header.gnu ? 'gnu' : 'ustar')
+// The numeric fields of a header read from base 256: none, for most.
+const NO_BASE256 = Object.freeze([])
+const base256Of = (header) => (header.base256.length ? Object.freeze(header.base256) : NO_BASE256)
 
 class Unpacker {
   #chunks = []
@@ -169,13 +172,13 @@ class Unpacker {
       this.#awaiting = { extended: null, at, ...this.#resolve(header, at) }
     } else {
       if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
-      this.#awaiting = { extended, size: header.size, at, entry: null, magic: magicOf(header) }
+      this.#awaiting = { extended, size: header.size, at, entry: null, magic: magicOf(header), base256: base256Of(header) }
     }
     return true
   }
 
   #body(out) {
-    const { extended, size, at, entry, magic } = this.#awaiting
+    const { extended, size, at, entry, magic, base256 } = this.#awaiting
     const whole = Math.ceil(size / BLOCK) * BLOCK
     const body = this.#take(whole)
     if (body === null) return false
@@ -194,11 +197,11 @@ class Unpacker {
       // Once, here: a global header stands until another replaces it, and
       // re-reading its keys under every entry is work an archive can ask for.
       sparse(this.#global.keys(), at)
-      this.#extended.push(Object.freeze({ kind: extended, magic }))
+      this.#extended.push(Object.freeze({ kind: extended, magic, base256 }))
     } else {
       if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
-      this.#extended.push(Object.freeze({ kind: extended, magic }))
+      this.#extended.push(Object.freeze({ kind: extended, magic, base256 }))
     }
     return true
   }
@@ -250,6 +253,7 @@ class Unpacker {
       magic: magicOf(header),
       typeflag: String.fromCodePoint(header.typeflag),
       storedMode: header.mode,
+      base256: base256Of(header),
     }
     this.#extended = []
     return { entry, size }

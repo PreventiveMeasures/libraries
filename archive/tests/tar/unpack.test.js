@@ -186,7 +186,25 @@ describe('what it reads that GNU tar reads', () => {
     assert.deepEqual(entries.map((e) => [e.type, e.name, e.linkname]), [['directory', '.', ''], ['file', 'a', ''], ['directory', 'd', ''], ['hardlink', 'h', 'a']])
   })
   it('a time below zero in base 256', () => {
-    assert.equal(unpack(archive(header({ gnu: true, mtime: -1 })))[0].mtime, -1)
+    const [entry] = unpack(archive(header({ gnu: true, mtime: -1 })))
+    assert.deepEqual([entry.mtime, entry.base256], [-1, ['mtime']])
+  })
+  it('a number in base 256 under the ustar magic too, named in `base256`, an extended header\'s apart', () => {
+    // Its size's 12 bytes as base 256: 0x80, then the number.
+    const sized = (block, size) => sealed(block, (b) => {
+      b.fill(0, 124, 136)
+      b[124] = 0x80
+      b[135] = size
+    })
+    const records = encodePax([['uid', '1']])
+    const [paxed, plain] = unpack(archive(
+      sized(header({ typeflag: 0x78 }), records.length), padded(records), sized(header({ name: utf8('a') }), 5), padded(utf8('hello')),
+      header({ name: utf8('b') }),
+    ))
+    assert.deepEqual([paxed.data.length, paxed.base256, paxed.extended[0].base256], [5, ['size'], ['size']])
+    assert.deepEqual([plain.base256, plain.extended], [[], []])
+    assert.equal(plain.base256, unpack(archive(header()))[0].base256, 'one empty list for every header with none')
+    assert.ok(Object.isFrozen(paxed.base256) && Object.isFrozen(paxed.extended[0].base256))
   })
   it('a mode with the file type bits still in it, as the permission bits', () => {
     const [entry] = unpack(archive(header({ mode: 0o100644 })))

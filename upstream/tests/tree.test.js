@@ -104,6 +104,14 @@ describe('gitTreeOfTarball', () => {
     const gnuPax = header('PaxHeader', 'x', 14)
     gnuPax.write('ustar  \0', 257, 'latin1')
     sign(gnuPax, 0)
+    // A size in GNU's base 256, 0x80 and then the number, under the ustar magic.
+    const base256 = (block, size) => {
+      block.fill(0, 124, 136)
+      block[124] = 0x80
+      block[135] = size
+      sign(block, 0)
+      return block
+    }
     const owned = header('top/f', '0', 4)
     owned.write('0001750', 108)
     sign(owned, 0)
@@ -121,6 +129,9 @@ describe('gitTreeOfTarball', () => {
       [[top, tampered, body('SAFE')], 'header checksum does not match at byte 512'],
       [[top, gnu, body('SAFE')], 'a header that is not POSIX ustar'],
       [[top, gnuPax, body('14 path=top/g\n'), file], 'a header that is not POSIX ustar'],
+      [[top, base256(header('top/f', '0'), 4), body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, base256(header('PaxHeader', 'x'), 14), body('14 path=top/g\n'), file], 'a header git does not write, "top/g"'],
+      [[top, top, file], 'duplicate entry "top", which only the in-memory call can compare with the earlier one at byte 512'],
       [[top, file, ...pax('g', [['comment', 'x']])], 'an extended header is not followed by an entry at byte 2560'],
       [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, header('top/f', '0', 4, 0o000), body('SAFE')], 'a header git does not write, "top/f"'],

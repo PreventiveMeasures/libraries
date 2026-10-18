@@ -135,6 +135,9 @@ export function encodeHeader(f) {
   return block
 }
 
+// Whether a numeric field is in GNU's base 256 rather than octal digits.
+const isBase256 = (block, offset) => block[offset] === 0x80 || block[offset] === 0xff
+
 export function decodeHeader(block, at) {
   if (checksum(block) !== readNumber(block, CHKSUM, 8, 'checksum', at)) throw new ArchiveError('header checksum does not match', at)
   const magic = ascii(block.subarray(MAGIC, MAGIC + 8))
@@ -155,5 +158,8 @@ export function decodeHeader(block, at) {
     ...Object.fromEntries(NUMBERS.map(([key, offset, size]) => [key, readNumber(block, offset, size, key, at, key === 'mtime')])),
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
+    // The numeric fields read from base 256, by name.
+    base256: [['checksum', CHKSUM], ...NUMBERS, ...device ? [['devmajor', DEVMAJOR], ['devminor', DEVMINOR]] : []]
+      .filter(([, offset]) => isBase256(block, offset)).map(([key]) => key),
   }
 }
