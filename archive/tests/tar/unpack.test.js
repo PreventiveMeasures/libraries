@@ -287,6 +287,25 @@ describe('what the archive stores, beside what is cleaned out of it', () => {
     }
     assert.deepEqual([[...none.pax], [...own.pax], [...own.globalPax]], [[], [['comment', 'x']], [['comment', 'g']]])
   })
+  it('the kinds of the extended headers ahead of each entry, in their order, and its own header\'s magic', () => {
+    const long = 'n'.repeat(120)
+    const [first, second, third, fourth] = unpack(archive(
+      ...pax([['comment', 'g']], {}, 0x67).slice(0, 2), ...pax([['uid', '1']], { name: utf8('a') }),
+      header({ gnu: true, typeflag: 0x4b, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)),
+      header({ gnu: true, typeflag: 0x4c, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)),
+      header({ gnu: true, typeflag: 0x32, name: utf8('l') }),
+      header({ name: utf8('b') }),
+      ...pax([['comment', 'h']], {}, 0x67).slice(0, 2), header({ name: utf8('c') }),
+    ))
+    assert.deepEqual([first.extended, second.extended, third.extended, fourth.extended], [['global', 'pax'], ['longlink', 'longname'], [], ['global']])
+    assert.deepEqual([first.magic, second.magic, third.magic], ['ustar', 'gnu', 'ustar'])
+    assert.ok([first, second, third].every(({ extended }) => Object.isFrozen(extended)))
+    assert.equal(unpack(archive(header({ name: utf8('x') })))[0].extended, third.extended, 'one empty list for every entry with none')
+    for (const recording of RECORDINGS) {
+      const magic = recording.format === 'gnu' ? 'gnu' : 'ustar'
+      for (const entry of unpack(bytesOf(recording))) assert.equal(entry.magic, magic, recording.command)
+    }
+  })
   it('a repeat that differs only in what it stores, as the same entry again', () => {
     const entries = unpack(archive(header({ name: utf8('d/f') }), header({ name: utf8('d/./f') })))
     assert.deepEqual(entries.map((entry) => [entry.name, entry.storedName]), [['d/f', 'd/f'], ['d/f', 'd/./f']])

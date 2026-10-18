@@ -1,56 +1,33 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { gunzipSync } from 'node:zlib'
+
+import { CompressionError, decompress } from '@preventive/archive/compression.js'
+import { ArchiveError, unpack } from '@preventive/archive/tar.js'
 
 import { isSha1, matches } from './args.js'
 import { withAttributes, writtenWithCrlf } from './attributes.js'
 
-const BLOCK = 512
 const MAX_UNPACKED_BYTES = 2 ** 30
-// Only what git writes is read: anything else, a pax `size` or a mode of
-// 0000, would be extracted as it is not hashed. Modes are as its umask,
-// 002 or 022, leaves them: a file 0664 or 0644, 0775 or 0755 executable;
-// a directory 0775 or 0755; a symlink 0777.
+// Read by @preventive/archive, which holds a tarball to its checks -- each
+// header's checksum and fields, the padding and the end, pax records of
+// which none repeats, names and link targets that stay within it, no name
+// twice as another entry -- and past those to only what git writes:
+// anything else, a pax `size` or a mode of 0000, would be extracted as it
+// is not hashed. POSIX ustar headers, as under GNU's magic a reader that
+// knows none takes GNU's own bytes for a name's prefix; no extended header
+// but an entry's own pax one. Modes are as its umask, 002 or 022, leaves
+// them: a file 0664 or 0644, 0775 or 0755 executable; a directory 0775 or
+// 0755; a symlink 0777.
 const PAX_KEYS = new Set(['path', 'linkpath'])
-const MODES = { 0: [0o664, 0o644, 0o775, 0o755], 2: [0o777], 5: [0o775, 0o755] }
+const MODES = { file: [0o664, 0o644, 0o775, 0o755], symlink: [0o777], directory: [0o775, 0o755] }
+// The extended headers git does not write, by the type a tar names them by.
+const FLAGS = { global: 'g', longname: 'L', longlink: 'K' }
 // The top directory is not hashed, so it is held to GitHub's name for it,
 // owner-repo-id: another, `..\..`, `C:` or a Windows device such as
 // `con.txt`, could take an extractor elsewhere.
 const isTop = matches(/^(?!(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$))[\da-z][\w.-]*$/iu)
 
-// Names are kept as latin1 strings, a char per byte, so they sort and hash
-// as the bytes git has.
-const field = (header, start, end) => {
-  const bytes = header.subarray(start, end)
-  const nul = bytes.indexOf(0)
-  return Buffer.from(nul === -1 ? bytes : bytes.subarray(0, nul)).toString('latin1')
-}
-const octal = (header, start, end) => {
-  const text = field(header, start, end).trim()
-  return /^[0-7]{1,12}$/u.test(text) ? Number.parseInt(text, 8) : Number.NaN
-}
 export const objectId = (type, content) => createHash('sha1').update(`${type} ${content.length}\0`).update(content).digest()
-const checksum = (header) => header.reduce((sum, byte, i) => sum + (i >= 148 && i < 156 ? 32 : byte), 0)
-const isZero = (bytes) => bytes.every((byte) => byte === 0)
-
-// `<length> <key>=<value>\n`, the length counting the whole record. A NUL
-// would end a path for an extractor, and a name in a tree for git.
-function paxRecords(body) {
-  const text = Buffer.from(body).toString('latin1')
-  const records = new Map()
-  for (let at = 0; at < text.length;) {
-    const space = text.indexOf(' ', at)
-    const length = text.slice(at, space)
-    const end = at + Number(length)
-    if (!/^[1-9]\d*$/u.test(length) || end > text.length || text[end - 1] !== '\n') return null
-    const record = text.slice(space + 1, end - 1)
-    const equals = record.indexOf('=')
-    if (equals < 1 || record.includes('\0')) return null
-    records.set(record.slice(0, equals), record.slice(equals + 1))
-    at = end
-  }
-  return records
-}
 
 // Git keeps no empty directory: in a tarball, one is a submodule. Each as
 // [the directory holding it, its name, its path].
@@ -73,6 +50,8 @@ function treeId(dir) {
 const EMPTY_TREE = objectId('tree', Buffer.alloc(0)).toString('hex')
 const isName = matches(/^[^\0/]+$/u)
 const isEntry = (entry) => isName(entry?.path) && isSha1(entry.sha)
+// Names are kept as latin1 strings of their UTF-8, a char per byte, so they
+// sort and hash as the bytes git has.
 const nameOf = (path) => Buffer.from(path).toString('latin1')
 const subtree = (sha) => ({ mode: '40000', id: Buffer.from(sha, 'hex') })
 
@@ -147,52 +126,35 @@ async function mend(dir, sha, listed, base = '', above = []) {
 // commit for an empty directory, and, where the id comes out otherwise, the
 // subtrees with nothing in them it leaves out and the blobs of the files it
 // wrote with CRLF for `eol=crlf`. The id is `expected` only if those are
-// right. Where there is no such tree, a reason, never an id.
-export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
-  let bytes
+// right. Where there is no such tree, a reason, never an id. A symlink may
+// climb `symlinksAbove` levels above the tarball's root, none unless given,
+// as @preventive/archive lets it: a subtree's, linking to the tree's root
+// as a monorepo package's LICENSE does, as many as it is deep, less one.
+export async function gitTreeOfTarball(gzipped, { expected, list, symlinksAbove = 0 } = {}) {
+  let entries
   try {
-    bytes = gunzipSync(gzipped, { maxOutputLength: MAX_UNPACKED_BYTES })
-  } catch {
-    return 'no tree: not gzip, or larger than 1 GiB unpacked'
+    entries = unpack(await decompress(gzipped, 'gzip', { limit: MAX_UNPACKED_BYTES }), { symlinksAbove })
+  } catch (error) {
+    if (error instanceof CompressionError) return 'no tree: not gzip, or larger than 1 GiB unpacked'
+    if (error instanceof ArchiveError) return `no tree: ${error.message}`
+    throw error
   }
   const root = new Map()
   let top
-  let pax = null
-  for (let at = 0; ;) {
-    const header = bytes.subarray(at, at + BLOCK)
-    if (header.length < BLOCK) return 'no tree: the tarball is cut short'
-    if (isZero(header)) {
-      if (!isZero(bytes.subarray(at))) return 'no tree: data after the end of the tarball'
-      break
-    }
-    if (Buffer.from(header.subarray(257, 265)).toString('latin1') !== 'ustar\u000000') return 'no tree: a header that is not POSIX ustar'
-    if (octal(header, 148, 156) !== checksum(header)) return 'no tree: a header that fails its checksum'
-    const size = octal(header, 124, 136)
-    const body = bytes.subarray(at + BLOCK, at + BLOCK + size)
-    if (body.length !== size) return 'no tree: the tarball is cut short'
-    at += BLOCK + Math.ceil(size / BLOCK) * BLOCK
-    const type = String.fromCodePoint(header[156])
-    if (type === 'x') {
-      const records = paxRecords(body)
-      if (records === null) return 'no tree: a malformed pax header'
-      const other = [...records.keys()].find((key) => !PAX_KEYS.has(key))
-      if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
-      if (pax !== null) return 'no tree: two pax headers for one entry'
-      pax = records
-      continue
-    }
-    const prefix = field(header, 345, 500)
-    const path = pax?.get('path') ?? (prefix ? `${prefix}/${field(header, 0, 100)}` : field(header, 0, 100))
-    const target = pax?.get('linkpath') ?? field(header, 157, 257)
-    pax = null
+  for (const { storedName, storedLinkname, type, mode, uid, gid, uname, gname, data, pax, extended, magic } of entries) {
+    const path = nameOf(storedName)
+    const flag = extended.find((kind) => kind !== 'pax')
+    if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag])}`
+    if (magic !== 'ustar') return 'no tree: a header that is not POSIX ustar'
+    const other = [...pax.keys()].find((key) => !PAX_KEYS.has(key))
+    if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
     if (!Object.hasOwn(MODES, type)) return `no tree: an entry of type ${JSON.stringify(type)}`
-    const mode = octal(header, 100, 108)
-    const asGitWrites = MODES[type].includes(mode) && (type === '0' || size === 0) && path.endsWith('/') === (type === '5')
-      && octal(header, 108, 116) === 0 && octal(header, 116, 124) === 0 && field(header, 265, 297) === 'root' && field(header, 297, 329) === 'root'
+    const asGitWrites = MODES[type].includes(mode) && path.endsWith('/') === (type === 'directory')
+      && uid === 0 && gid === 0 && uname === 'root' && gname === 'root'
     if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
     const [first, ...parts] = path.replace(/\/$/u, '').split('/')
     top ??= first
-    const name = type === '5' ? null : parts.pop()
+    const name = type === 'directory' ? null : parts.pop()
     if (!isTop(first) || first !== top || name === undefined || [...parts, name].some((part) => ['', '.', '..'].includes(part))) return `no tree: an entry outside one top directory, ${JSON.stringify(path)}`
     let dir = root
     for (const part of parts) {
@@ -202,7 +164,7 @@ export async function gitTreeOfTarball(gzipped, { expected, list } = {}) {
     }
     if (name === null) continue
     if (dir.has(name)) return `no tree: ${JSON.stringify(path)} twice`
-    dir.set(name, type === '0' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', body), body } : { mode: '120000', id: objectId('blob', Buffer.from(target, 'latin1')) })
+    dir.set(name, type === 'file' ? { mode: mode & 0o100 ? '100755' : '100644', id: objectId('blob', data), body: data } : { mode: '120000', id: objectId('blob', Buffer.from(storedLinkname)) })
   }
   if (top === undefined) return 'no tree: an empty tarball'
   const listed = async (sha) => (list && isSha1(sha) ? await list(sha) : [])

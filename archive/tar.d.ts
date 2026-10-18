@@ -33,6 +33,12 @@ export type EntryType =
 // header has its, every entry without a header the one empty Map -- so it
 // cannot be changed. A value this package does not read is as stored,
 // unchecked, and may hold any character, a control one included.
+// `extended` is the kinds of the extended headers read since the entry
+// before it, in the order stored: its own pax header, a global one, GNU's
+// long name and long link; the one empty list where none was, and frozen,
+// as a Map is. `magic` is its own header's: POSIX's 'ustar', or 'gnu',
+// under which the bytes ustar holds a name's prefix in are GNU's own and
+// not read as one.
 export interface Entry {
   name: string
   type: EntryType
@@ -50,7 +56,12 @@ export interface Entry {
   storedLinkname: string
   pax: ReadonlyMap<string, string>
   globalPax: ReadonlyMap<string, string>
+  extended: readonly ExtendedHeader[]
+  magic: 'ustar' | 'gnu'
 }
+
+// The kinds of extended header, as `extended` names them.
+export type ExtendedHeader = 'pax' | 'global' | 'longname' | 'longlink'
 
 // An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
 // `dir/` are taken; only a directory may end in a slash or name the root.

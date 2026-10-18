@@ -4,11 +4,12 @@ import { sep } from 'node:path'
 import { describe, it } from 'node:test'
 
 // `upstream/` is a package of its own, and the point of it is that it is
-// minimal: nothing in it may reach outside itself but node: builtins, and it
-// declares no dependencies — the registry and the API are fetched with the
-// platform's fetch, and even semver is borrowed from the npm that ships
-// beside node rather than installed. Its one optional peer, semver, is
-// required only where there is no npm to borrow it from.
+// minimal: nothing in it may reach outside itself but node: builtins and
+// @preventive/archive, its one dependency, which reads the tarballs it
+// verifies as every reader of them reads them -- the registry and the API
+// are fetched with the platform's fetch, and even semver is borrowed from
+// the npm that ships beside node rather than installed. Its one optional
+// peer, semver, is required only where there is no npm to borrow it from.
 //
 // Enforced here rather than left to review because a single `../` is all it
 // takes to undo, and it reads as harmless in a diff.
@@ -38,6 +39,9 @@ const TEMPLATE_RE = /(?:\bimport|\brequire)\s*\(\s*`(?<spec>[^`$\n]+)`/gu
 
 // The bare specifiers a module may require, each an optional peer dependency.
 const PEERS = { 'src/semver-peer.cjs': ['semver'], 'src/semver.js': ['semver'] }
+// The one dependency, and the entry points of it a module may import.
+const ARCHIVE = '@preventive/archive'
+const isArchive = (spec) => spec === `${ARCHIVE}/tar.js` || spec === `${ARCHIVE}/compression.js`
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 
@@ -66,13 +70,13 @@ describe('upstream/ ships every module it has', () => {
   }
 })
 
-describe('upstream/ imports nothing from outside but node:', () => {
+describe('upstream/ imports nothing from outside but node: and @preventive/archive', () => {
   it('has files to check', () => {
     assert.ok(files.length >= 8, `expected the upstream/ modules, found ${files.length}`)
   })
 
-  it('declares no dependencies but optional peers', () => {
-    assert.equal(manifest.dependencies, undefined)
+  it('declares no dependencies but @preventive/archive, and optional peers', () => {
+    assert.deepEqual(Object.keys(manifest.dependencies), [ARCHIVE])
     const peers = [...new Set(Object.values(PEERS).flat())].toSorted()
     assert.deepEqual(Object.keys(manifest.peerDependencies).toSorted(), peers)
     for (const peer of peers) assert.equal(manifest.peerDependenciesMeta?.[peer]?.optional, true, `${peer} is not an optional peer`)
@@ -80,10 +84,10 @@ describe('upstream/ imports nothing from outside but node:', () => {
 
   for (const file of files) {
     const name = file.href.slice(PKG_DIR.href.length)
-    it(`${name} imports only node: and within upstream/`, () => {
+    it(`${name} imports only node:, @preventive/archive and within upstream/`, () => {
       for (const spec of specifiersOf(readFileSync(file, 'utf8'))) {
-        if (spec.startsWith('node:') || PEERS[name]?.includes(spec)) continue
-        assert.ok(spec.startsWith('.'), `${name} imports ${spec} — upstream/ may only import node: and its own modules`)
+        if (spec.startsWith('node:') || isArchive(spec) || PEERS[name]?.includes(spec)) continue
+        assert.ok(spec.startsWith('.'), `${name} imports ${spec} — upstream/ may only import node:, @preventive/archive and its own modules`)
         assert.ok(new URL(spec, file).href.startsWith(PKG_DIR.href), `${name} imports ${spec}, which is outside upstream/`)
       }
     })

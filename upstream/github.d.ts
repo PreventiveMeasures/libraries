@@ -127,7 +127,7 @@ export interface Client {
   // getRepoTreeTarball's for the tree GitHub names for that commit, asked
   // on every call, cached or not. So its top directory is named for the
   // tree, and files marked `export-subst` are as committed, not rewritten.
-  getRepoTarball(options: { repo: RepoName; sha: string }): Promise<Uint8Array>
+  getRepoTarball(options: { repo: RepoName; sha: string; symlinksAbove?: number }): Promise<Uint8Array>
   // The id of the tree at `directory`, `/`-separated as npm's is, in the
   // full commit `sha`, or of its root without one: from the tree GitHub
   // names for the commit, down GitHub's listings a directory at a time,
@@ -153,7 +153,13 @@ export interface Client {
   // a repo set to include Git LFS objects in archives, which replace the
   // pointers git has; that repo still gets a tree already cached, pointers
   // and all.
-  getRepoTreeTarball(options: { repo: RepoName; tree: string }): Promise<Uint8Array>
+  // It is read as @preventive/archive reads a tarball, and refused for
+  // anything it refuses: a pax record repeated, a name or a symlink that
+  // climbs out of it, an absolute symlink. `symlinksAbove` lets a symlink
+  // climb that many levels above the tarball's root, none unless given: a
+  // subdirectory's, its links reaching the repo's root as a monorepo
+  // package's LICENSE does, needs as many as it is deep, less one.
+  getRepoTreeTarball(options: { repo: RepoName; tree: string; symlinksAbove?: number }): Promise<Uint8Array>
   // The repository's published security advisories, as GitHub's
   // repository advisory objects: every page of 100, each found by the
   // cursor in the one before's Link header. More than 100 pages is an

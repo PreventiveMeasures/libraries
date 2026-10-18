@@ -124,6 +124,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@preventive/archive": "^1.1.0"
+  },
   "peerDependencies": {
     "semver": "^7.5.2"
   },

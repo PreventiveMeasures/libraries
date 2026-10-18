@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { after, afterEach, beforeEach, describe, it } from 'node:test'
 import { gunzipSync, gzipSync } from 'node:zlib'
 
+import { pack } from '@preventive/archive/tar.js'
+
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
+import { gitTreeOfTarball } from '../src/tree.js'
 import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
 import { CRLF, CRLF_ANDROID, CRLF_TGZ, EMPTIES, EMPTIES_D, EMPTIES_N, EMPTIES_TGZ, LISTINGS, NESTED, NESTED_COMMIT, NESTED_LIB, NESTED_TGZ, SUBMODULE, SUBMODULE_COMMIT, SUBMODULE_TGZ, TREE, TREE_LIB, TREE_TGZ } from './tree-fixtures.js'
 
@@ -133,7 +136,25 @@ describe('getRepoTreeTarball', () => {
     }
     await assert.rejects(client().getRepoTreeTarball({ repo: 'acme', tree: TREE }), /getRepoTreeTarball: repo must be "owner\/name"/u)
     await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE, path: 'lib' }), /getRepoTreeTarball: unknown option path/u)
+    for (const symlinksAbove of [-1, 1.5, '1', null]) {
+      await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree: TREE, symlinksAbove }), /getRepoTreeTarball: symlinksAbove must be a whole number of levels/u, String(symlinksAbove))
+    }
     assert.deepEqual(calls, [])
+  })
+
+  it('holds a symlink above the tarball to `symlinksAbove`, downloaded or cached', async () => {
+    // A subdirectory's, its LICENSE linked to the repo's root, one level
+    // above the tarball's, as a monorepo package's is.
+    const owned = { mode: 0o777, uname: 'root', gname: 'root' }
+    const tgz = gzipSync(pack([{ name: 'top', type: 'directory', ...owned, mode: 0o775 }, { name: 'top/LICENSE', type: 'symlink', linkname: '../../LICENSE', ...owned }], { format: 'ustar', symlinksAbove: 1 }))
+    const tree = await gitTreeOfTarball(tgz, { symlinksAbove: 1 })
+    stub({ tarballs: { [tree]: tgz } })
+    await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree }), /got no tree: symlink "top\/LICENSE" points outside the archive, to "\.\.\/\.\.\/LICENSE"/u)
+    assert.deepEqual(await readdir(TREES).catch(() => []), [], 'nothing cached')
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree, symlinksAbove: 1 })), tgz)
+    forbidRequests()
+    assert.deepEqual(Buffer.from(await client().getRepoTreeTarball({ repo: 'acme/app', tree, symlinksAbove: 1 })), tgz, 'served from the cache')
+    await assert.rejects(client().getRepoTreeTarball({ repo: 'acme/app', tree }), /from the cache: expected [\da-f]{40}, got no tree: symlink "top\/LICENSE" points outside the archive/u, 'held to it from the cache too')
   })
 
   it('throws a HttpError for a failed tarball', async () => {

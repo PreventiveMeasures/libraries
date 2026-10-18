@@ -20,10 +20,11 @@ const DIGESTS = {
 // whether set or not (read, never written; a mismatch is passed over),
 // else the cache set, or a `cache` store in its place (readBytes; a
 // mismatch throws), else what `locate` answers, checked and then kept as
-// writeBytes keeps it.
-export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], ours = false, cache, locate, options = {}, list }) {
+// writeBytes keeps it. A tree's `list` and `symlinksAbove` are
+// gitTreeOfTarball's.
+export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], ours = false, cache, locate, options = {}, list, symlinksAbove }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
-  const digest = (bytes) => DIGESTS[algorithm](bytes, { expected, list })
+  const digest = (bytes) => DIGESTS[algorithm](bytes, { expected, list, symlinksAbove })
   const key = `${what}.${ext}`
   for (const path of ours ? [...local, ...ourCachePaths(dir, key)] : local) {
     const bytes = await readRegularFile(path)

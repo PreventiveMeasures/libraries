@@ -68,7 +68,7 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
       '@preventive/archive':
-        specifier: 1.0.0
+        specifier: ^1.1.0
         version: link:../archive
       '@preventive/compare':
         specifier: ^1.2.11
@@ -110,7 +110,11 @@ importers:
         specifier: ^0.152.0
         version: 0.152.0
 
-  upstream: {}
+  upstream:
+    dependencies:
+      '@preventive/archive':
+        specifier: ^1.1.0
+        version: link:../archive
 
   vfs:
     devDependencies:

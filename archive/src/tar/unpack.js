@@ -57,6 +57,9 @@ const nonePending = () => ({ pax: null, longname: null, longlink: null })
 // global one.
 const NO_RECORDS = new Records()
 
+// The extended headers of every entry with none ahead of it.
+const NO_EXTENDED = Object.freeze([])
+
 class Unpacker {
   #chunks = []
   #offset = 0
@@ -64,6 +67,8 @@ class Unpacker {
   #position = 0
   #names
   #pending = nonePending()
+  // The kinds of the extended headers read since the last entry, in order.
+  #extended = []
   #global = null
   // The header whose body is due: { extended, size, at, entry }.
   #awaiting = null
@@ -186,9 +191,11 @@ class Unpacker {
       // Once, here: a global header stands until another replaces it, and
       // re-reading its keys under every entry is work an archive can ask for.
       sparse(this.#global.keys(), at)
+      this.#extended.push(extended)
     } else {
       if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
+      this.#extended.push(extended)
     }
     return true
   }
@@ -236,7 +243,10 @@ class Unpacker {
       storedLinkname: rawTarget,
       pax: pax ?? NO_RECORDS,
       globalPax: this.#global ?? NO_RECORDS,
+      extended: this.#extended.length ? Object.freeze(this.#extended) : NO_EXTENDED,
+      magic: header.gnu ? 'gnu' : 'ustar',
     }
+    this.#extended = []
     return { entry, size }
   }
 
