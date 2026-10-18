@@ -113,6 +113,11 @@ describe('gitTreeOfTarball', () => {
       sign(block, 0)
       return block
     }
+    // A name git holds as bytes that are no UTF-8, as `git archive` writes
+    // it, refused as @preventive/archive refuses it everywhere.
+    const latin1Named = header('top/f', '0', 4)
+    latin1Named.write('top/caf\u00E9', 0, 'latin1')
+    sign(latin1Named, 0)
     // Owners left blank, which read as 0 and git never writes.
     const blankOwners = header('top/f', '0', 4)
     blankOwners.fill(0, 108, 124)
@@ -137,6 +142,7 @@ describe('gitTreeOfTarball', () => {
       [[top, base256(header('top/f', '0'), 4), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, base256(header('PaxHeader', 'x'), 14), body('14 path=top/g\n'), file], 'a header git does not write, "top/g"'],
       [[top, blankOwners, body('SAFE')], 'a header git does not write, "top/f"'],
+      [[top, latin1Named, body('SAFE')], 'entry name is not valid UTF-8 at byte 512'],
       [[top, top, file], 'duplicate entry "top", which only the in-memory call can compare with the earlier one at byte 512'],
       [[top, file, ...pax('g', [['comment', 'x']])], 'an extended header is not followed by an entry at byte 2560'],
       [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a header git does not write, "top/f"'],
