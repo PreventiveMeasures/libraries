@@ -143,9 +143,9 @@ export async function gitTreeOfTarball(gzipped, { expected, list, symlinksAbove 
   let top
   for (const { storedName, storedLinkname, type, mode, uid, gid, uname, gname, data, pax, extended, magic } of entries) {
     const path = nameOf(storedName)
-    const flag = extended.find((kind) => kind !== 'pax')
-    if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag])}`
-    if (magic !== 'ustar') return 'no tree: a header that is not POSIX ustar'
+    const flag = extended.find(({ kind }) => kind !== 'pax')
+    if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag.kind])}`
+    if (magic !== 'ustar' || extended.some((header) => header.magic !== 'ustar')) return 'no tree: a header that is not POSIX ustar'
     const other = [...pax.keys()].find((key) => !PAX_KEYS.has(key))
     if (other !== undefined) return `no tree: a pax record git does not write, ${JSON.stringify(other)}`
     if (!Object.hasOwn(MODES, type)) return `no tree: an entry of type ${JSON.stringify(type)}`

@@ -77,6 +77,7 @@ describe('what it refuses', () => {
     ['a file with a link target', () => archive(header({ linkname: utf8('x') })), /a file entry has a link target/u],
     ['padding that is not zero', () => sealedData(), /the padding after an entry is not zero at byte 0/u],
     ['a pax header with nothing after it', () => archive(...pax([['path', 'x']]).slice(0, 2)), /an extended header is not followed by an entry at byte 1024/u],
+    ['a global header with nothing after it', () => archive(header(), ...pax([['comment', 'x']], {}, 0x67).slice(0, 2)), /an extended header is not followed by an entry at byte 1536/u],
     ['two pax headers ahead of one entry', () => archive(...pax([['uid', '1']]).slice(0, 2), ...pax([['gid', '1']])), /two pax headers ahead of one entry at byte 1024/u],
     ['a long name and a pax path for one entry', () => archive(header({ gnu: true, typeflag: 0x4c, name: utf8('././@LongLink'), size: 2 }), padded(utf8('b\0')), ...pax([['path', 'c']])), /both a long name header and a pax path name one entry/u],
     ['a pax header too large to be one', () => archive(header({ typeflag: 0x78, size: 1 << 21 })), /a pax header of 2097152 bytes is longer than any tar writes/u],
@@ -287,19 +288,21 @@ describe('what the archive stores, beside what is cleaned out of it', () => {
     }
     assert.deepEqual([[...none.pax], [...own.pax], [...own.globalPax]], [[], [['comment', 'x']], [['comment', 'g']]])
   })
-  it('the kinds of the extended headers ahead of each entry, in their order, and its own header\'s magic', () => {
+  it('the extended headers ahead of each entry, in their order, each its kind and magic, and its own header\'s magic', () => {
     const long = 'n'.repeat(120)
     const [first, second, third, fourth] = unpack(archive(
-      ...pax([['comment', 'g']], {}, 0x67).slice(0, 2), ...pax([['uid', '1']], { name: utf8('a') }),
+      ...pax([['comment', 'g']], {}, 0x67).slice(0, 2), header({ gnu: true, typeflag: 0x78, size: encodePax([['uid', '1']]).length }), padded(encodePax([['uid', '1']])), header({ name: utf8('a') }),
       header({ gnu: true, typeflag: 0x4b, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)),
       header({ gnu: true, typeflag: 0x4c, name: utf8('././@LongLink'), size: long.length + 1 }), padded(utf8(`${long}\0`)),
       header({ gnu: true, typeflag: 0x32, name: utf8('l') }),
       header({ name: utf8('b') }),
       ...pax([['comment', 'h']], {}, 0x67).slice(0, 2), header({ name: utf8('c') }),
     ))
-    assert.deepEqual([first.extended, second.extended, third.extended, fourth.extended], [['global', 'pax'], ['longlink', 'longname'], [], ['global']])
-    assert.deepEqual([first.magic, second.magic, third.magic], ['ustar', 'gnu', 'ustar'])
-    assert.ok([first, second, third].every(({ extended }) => Object.isFrozen(extended)))
+    const kinds = ({ extended }) => extended.map(({ kind, magic }) => `${kind} ${magic}`)
+    assert.deepEqual([first, second, third, fourth].map(kinds), [['global ustar', 'pax gnu'], ['longlink gnu', 'longname gnu'], [], ['global ustar']])
+    assert.deepEqual([first.magic, second.magic, third.magic], ['ustar', 'gnu', 'ustar'], 'a pax header\'s magic apart from its entry\'s')
+    assert.equal(first.uid, 1)
+    assert.ok([first, second, third].every(({ extended }) => Object.isFrozen(extended) && extended.every(Object.isFrozen)))
     assert.equal(unpack(archive(header({ name: utf8('x') })))[0].extended, third.extended, 'one empty list for every entry with none')
     for (const recording of RECORDINGS) {
       const magic = recording.format === 'gnu' ? 'gnu' : 'ustar'

@@ -30,7 +30,7 @@ const FILES = new Set(['file', 'contiguous-file'])
 // ahead of each entry, in their order.
 function checkPaxSizes(entries, where) {
   for (const { storedName, pax, extended } of entries) {
-    if (pax.has('size') && extended.indexOf('pax') < extended.length - 1) {
+    if (pax.has('size') && extended.findIndex(({ kind }) => kind === 'pax') < extended.length - 1) {
       throw new DeptreeError(`${quote(storedName)} has a pax size ahead of another extended header, which tar's releases read otherwise`, where)
     }
   }

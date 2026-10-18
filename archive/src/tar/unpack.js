@@ -59,6 +59,7 @@ const NO_RECORDS = new Records()
 
 // The extended headers of every entry with none ahead of it.
 const NO_EXTENDED = Object.freeze([])
+const magicOf = (header) => (header.gnu ? 'gnu' : 'ustar')
 
 class Unpacker {
   #chunks = []
@@ -67,7 +68,8 @@ class Unpacker {
   #position = 0
   #names
   #pending = nonePending()
-  // The kinds of the extended headers read since the last entry, in order.
+  // The extended headers read since the last entry, in order: each its
+  // kind and its magic.
   #extended = []
   #global = null
   // The header whose body is due: { extended, size, at, entry }.
@@ -149,7 +151,8 @@ class Unpacker {
     if (block === null) return false
     const at = this.#position - BLOCK
     if (isZeroBlock(block)) {
-      if (Object.values(this.#pending).some((value) => value !== null)) throw new ArchiveError('an extended header is not followed by an entry', at)
+      // A global header too: one with no entry after it stands for nothing.
+      if (this.#extended.length > 0) throw new ArchiveError('an extended header is not followed by an entry', at)
       if (++this.#zeros === 2) {
         this.#done = true
         const after = this.#position
@@ -166,13 +169,13 @@ class Unpacker {
       this.#awaiting = { extended: null, at, ...this.#resolve(header, at) }
     } else {
       if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
-      this.#awaiting = { extended, size: header.size, at, entry: null }
+      this.#awaiting = { extended, size: header.size, at, entry: null, magic: magicOf(header) }
     }
     return true
   }
 
   #body(out) {
-    const { extended, size, at, entry } = this.#awaiting
+    const { extended, size, at, entry, magic } = this.#awaiting
     const whole = Math.ceil(size / BLOCK) * BLOCK
     const body = this.#take(whole)
     if (body === null) return false
@@ -191,11 +194,11 @@ class Unpacker {
       // Once, here: a global header stands until another replaces it, and
       // re-reading its keys under every entry is work an archive can ask for.
       sparse(this.#global.keys(), at)
-      this.#extended.push(extended)
+      this.#extended.push(Object.freeze({ kind: extended, magic }))
     } else {
       if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
-      this.#extended.push(extended)
+      this.#extended.push(Object.freeze({ kind: extended, magic }))
     }
     return true
   }
@@ -244,7 +247,7 @@ class Unpacker {
       pax: pax ?? NO_RECORDS,
       globalPax: this.#global ?? NO_RECORDS,
       extended: this.#extended.length ? Object.freeze(this.#extended) : NO_EXTENDED,
-      magic: header.gnu ? 'gnu' : 'ustar',
+      magic: magicOf(header),
     }
     this.#extended = []
     return { entry, size }

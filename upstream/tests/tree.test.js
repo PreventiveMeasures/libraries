@@ -100,6 +100,10 @@ describe('gitTreeOfTarball', () => {
     const gnu = header('top/f', '0', 4)
     gnu.write('ustar  \0', 257, 'latin1')
     sign(gnu, 0)
+    // A pax header under GNU's magic, ahead of a POSIX one.
+    const gnuPax = header('PaxHeader', 'x', 14)
+    gnuPax.write('ustar  \0', 257, 'latin1')
+    sign(gnuPax, 0)
     const owned = header('top/f', '0', 4)
     owned.write('0001750', 108)
     sign(owned, 0)
@@ -116,6 +120,8 @@ describe('gitTreeOfTarball', () => {
       [[top, header('././@LongLink', 'L', 7, 0o644), body('top/ff\0'), file], 'an entry of type "L"'],
       [[top, tampered, body('SAFE')], 'header checksum does not match at byte 512'],
       [[top, gnu, body('SAFE')], 'a header that is not POSIX ustar'],
+      [[top, gnuPax, body('14 path=top/g\n'), file], 'a header that is not POSIX ustar'],
+      [[top, file, ...pax('g', [['comment', 'x']])], 'an extended header is not followed by an entry at byte 2560'],
       [[top, header('top/f', '0', 4, 0o4775), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, header('top/f', '0', 4, 0o000), body('SAFE')], 'a header git does not write, "top/f"'],
       [[top, header('top/d/', '5', 0, 0o700)], 'a header git does not write, "top/d/"'],
