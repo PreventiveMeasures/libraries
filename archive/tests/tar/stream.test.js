@@ -72,7 +72,7 @@ describe('unpackStream reads an archive however it is cut', () => {
   it('with what the archive stores, as unpack() hands it out', async () => {
     for (const recording of RECORDINGS) {
       const bytes = bytesOf(recording)
-      const stored = (entries) => entries.map(({ storedName, storedLinkname, pax, globalPax, extended, magic, typeflag, storedMode, base256 }) => ({ storedName, storedLinkname, pax, globalPax, extended, magic, typeflag, storedMode, base256 }))
+      const stored = (entries) => entries.map(({ storedName, storedLinkname, pax, globalPax, extended, magic, typeflag, storedMode, octal }) => ({ storedName, storedLinkname, pax, globalPax, extended, magic, typeflag, storedMode, octal }))
       assert.deepEqual(stored(await all(unpackStream(split(bytes, 7)))), stored(unpack(bytes)))
     }
   })

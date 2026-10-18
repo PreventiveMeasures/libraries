@@ -159,7 +159,10 @@ describe('what it reads that GNU tar reads', () => {
     const block = header({ uid: 7, gid: 7 })
     block.fill(0, 108, 124)
     const resealed = sealed(block, () => {})
-    assert.deepEqual([unpack(archive(resealed))[0].uid, unpack(archive(resealed))[0].gid], [0, 0])
+    const [entry] = unpack(archive(resealed))
+    assert.deepEqual([entry.uid, entry.gid, entry.octal], [0, 0, false], 'read, though not as octal digits')
+    // Spaces around the digits are octal still, as older tars wrote them.
+    assert.equal(unpack(archive(sealed(header(), (b) => b.set(latin1('   644  '), 100))))[0].octal, true)
   })
   it('a name again as the same entry, as some packagers write d/f and d/./f', () => {
     const entries = unpack(archive(header({ name: utf8('d/f'), size: 1 }), padded(utf8('x')), header({ name: utf8('d/./f'), size: 1 }), padded(utf8('x'))))
@@ -187,9 +190,9 @@ describe('what it reads that GNU tar reads', () => {
   })
   it('a time below zero in base 256', () => {
     const [entry] = unpack(archive(header({ gnu: true, mtime: -1 })))
-    assert.deepEqual([entry.mtime, entry.base256], [-1, ['mtime']])
+    assert.deepEqual([entry.mtime, entry.octal], [-1, false])
   })
-  it('a number in base 256 under the ustar magic too, named in `base256`, an extended header\'s apart', () => {
+  it('a number in base 256 under the ustar magic too, as no `octal` header, an extended header\'s apart', () => {
     // Its size's 12 bytes as base 256: 0x80, then the number.
     const sized = (block, size) => sealed(block, (b) => {
       b.fill(0, 124, 136)
@@ -201,10 +204,8 @@ describe('what it reads that GNU tar reads', () => {
       sized(header({ typeflag: 0x78 }), records.length), padded(records), sized(header({ name: utf8('a') }), 5), padded(utf8('hello')),
       header({ name: utf8('b') }),
     ))
-    assert.deepEqual([paxed.data.length, paxed.base256, paxed.extended[0].base256], [5, ['size'], ['size']])
-    assert.deepEqual([plain.base256, plain.extended], [[], []])
-    assert.equal(plain.base256, unpack(archive(header()))[0].base256, 'one empty list for every header with none')
-    assert.ok(Object.isFrozen(paxed.base256) && Object.isFrozen(paxed.extended[0].base256))
+    assert.deepEqual([paxed.data.length, paxed.octal, paxed.extended[0].octal], [5, false, false])
+    assert.deepEqual([plain.octal, plain.extended], [true, []])
   })
   it('a mode with the file type bits still in it, as the permission bits', () => {
     const [entry] = unpack(archive(header({ mode: 0o100644 })))

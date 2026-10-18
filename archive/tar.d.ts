@@ -42,9 +42,9 @@ export type EntryType =
 // prefix in are GNU's own and not read as one. `typeflag` and `storedMode`
 // are its header's type flag and mode as stored: '\0' where `type` is a
 // 'file' as '0' is, and the file type bits among the permission bits
-// `mode` keeps. `base256` names the numeric fields of its header -- an
-// extended one's too -- stored in GNU's base 256 rather than as octal
-// digits, the one empty list where none was.
+// `mode` keeps. `octal` is whether every numeric field of its header -- an
+// extended one's too -- holds octal digits, as POSIX writes them, rather
+// than nothing or GNU's base 256, both of which are read too.
 export interface Entry {
   name: string
   type: EntryType
@@ -66,18 +66,15 @@ export interface Entry {
   magic: 'ustar' | 'gnu'
   typeflag: string
   storedMode: number
-  base256: readonly NumericField[]
+  octal: boolean
 }
 
 // An extended header, as `extended` lists them.
 export interface ExtendedHeader {
   kind: 'pax' | 'global' | 'longname' | 'longlink'
   magic: 'ustar' | 'gnu'
-  base256: readonly NumericField[]
+  octal: boolean
 }
-
-// A header's numeric fields, as `base256` names them.
-export type NumericField = 'checksum' | 'mode' | 'uid' | 'gid' | 'size' | 'mtime' | 'devmajor' | 'devminor'
 
 // An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
 // `dir/` are taken; only a directory may end in a slash or name the root.

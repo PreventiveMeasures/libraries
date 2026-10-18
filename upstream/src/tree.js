@@ -122,7 +122,7 @@ async function mend(dir, sha, listed, base = '', above = []) {
 // One entry of a tarball into `root`, the tree being built, whose top
 // directory is `top`, the first entry's: a reason where git writes no such
 // entry there, else nothing.
-function take(root, { storedName, storedLinkname, typeflag, storedMode, uid, gid, uname, gname, data, pax, extended, magic, base256 }, top) {
+function take(root, { storedName, storedLinkname, typeflag, storedMode, uid, gid, uname, gname, data, pax, extended, magic, octal }, top) {
   const path = nameOf(storedName)
   const flag = extended.find(({ kind }) => kind !== 'pax')
   if (flag !== undefined) return `no tree: an entry of type ${JSON.stringify(FLAGS[flag.kind])}`
@@ -132,7 +132,7 @@ function take(root, { storedName, storedLinkname, typeflag, storedMode, uid, gid
   if (!Object.hasOwn(MODES, typeflag)) return `no tree: an entry of type ${JSON.stringify(typeflag)}`
   const asGitWrites = MODES[typeflag].includes(storedMode) && path.endsWith('/') === (typeflag === '5')
     && uid === 0 && gid === 0 && uname === 'root' && gname === 'root'
-    && base256.length === 0 && extended.every((header) => header.base256.length === 0)
+    && octal && extended.every((header) => header.octal)
   if (!asGitWrites) return `no tree: a header git does not write, ${JSON.stringify(path)}`
   const [first, ...parts] = path.replace(/\/$/u, '').split('/')
   const name = typeflag === '5' ? null : parts.pop()
