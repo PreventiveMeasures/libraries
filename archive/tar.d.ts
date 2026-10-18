@@ -77,23 +77,44 @@ export interface EntryInput {
 // 'ustar' refuses what it cannot hold, 'pax' holds everything.
 export type Format = 'gnu' | 'ustar' | 'pax'
 
+// `symlinksAbove` lets a relative symlink target climb up to that many
+// levels above the archive's root, none by default: for a directory
+// archived on its own, as GitHub archives a tree, that links to the files
+// of the tree it was cut from -- `LICENSE -> ../../LICENSE` in a tree's
+// `packages/a/`, archived under one top directory, climbs one. Past the root
+// the archive cannot tell where a target leads, not even back into itself
+// by the name it is extracted under, so what it passes through there is
+// the caller's to know. An absolute target is refused regardless, and what
+// one call reads with it, another writes with it.
+export interface SymlinkOptions {
+  symlinksAbove?: number
+}
+
 // `blocking` is tar's -b: zero padding to a multiple of that many 512-byte
 // blocks, 20 by default; 1 pads nothing past the two zero end blocks.
-export interface PackOptions {
+export interface PackOptions extends SymlinkOptions {
   format?: Format
   blocking?: number
+}
+
+// `maxEntries` bounds how many entries the archive may hold, every kind
+// counted and a repeat again, its extended headers not: past it the call
+// throws with `limited` set, at the header that crosses it, before that
+// entry is read. No bound by default.
+export interface UnpackOptions extends SymlinkOptions {
+  maxEntries?: number
 }
 
 // Both refuse a name that repeats as a different entry -- anything but the
 // same fields and the same bytes again, however either was stored -- an
 // entry inside something that is not a directory, a symlink whose target
-// climbs out of the archive or passes through anything but a directory, and
-// a hard link to no earlier entry. A hard link to a symlink, directly or
-// down a chain of hard links, is a second name for it, and its target is
-// walked again from that name, which a target safe where the symlink sits
-// need not survive.
+// climbs out of the archive, further than `symlinksAbove` lets it, or
+// passes through anything in it but a directory, and a hard link to no
+// earlier entry. A hard link to a symlink, directly or down a chain of hard
+// links, is a second name for it, and its target is walked again from that
+// name, which a target safe where the symlink sits need not survive.
 export function pack(entries: Iterable<EntryInput>, options?: PackOptions): Uint8Array
-export function unpack(bytes: Uint8Array): Entry[]
+export function unpack(bytes: Uint8Array, options?: UnpackOptions): Entry[]
 
 // The same a piece at a time, as async generators over a plain or an
 // async iterable. A stream keeps no entry's data, so a name that repeats
@@ -101,10 +122,13 @@ export function unpack(bytes: Uint8Array): Entry[]
 // in-memory call. packStream yields each entry's `data` as the very array
 // it was given.
 export function packStream(entries: Iterable<EntryInput> | AsyncIterable<EntryInput>, options?: PackOptions): AsyncGenerator<Uint8Array, void, undefined>
-export function unpackStream(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>): AsyncGenerator<Entry, void, undefined>
+export function unpackStream(chunks: Iterable<Uint8Array> | AsyncIterable<Uint8Array>, options?: UnpackOptions): AsyncGenerator<Entry, void, undefined>
 
 // `offset` is where in the archive the reader gave up; unset from the writer.
+// `limited` is true where a bound the caller set stopped it, rather than
+// anything wrong with the archive.
 export class ArchiveError extends Error {
-  constructor(detail: string, offset?: number)
+  constructor(detail: string, offset?: number, options?: { limited?: boolean })
   offset: number | undefined
+  limited: boolean
 }

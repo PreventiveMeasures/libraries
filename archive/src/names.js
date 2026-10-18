@@ -7,12 +7,18 @@
 // drive rather than from the archive. A symlink target may use `..`, but
 // is followed from where the link sits and refused if it climbs above the
 // archive or passes through anything but a directory, which is how a
-// chain of links would climb. A hard link to a symlink, directly or down a
-// chain of hard links, is a second name for it, and is held to the same walk
-// from where that name sits, since a target safe under `a/b/` need not be
-// safe at the root. Lengths are bounded by what a filesystem takes at all:
-// PATH_MAX for the whole as the archive stores it, a directory's slash
-// counted, and NAME_MAX for a segment, in bytes.
+// chain of links would climb. A caller may let a relative target climb up
+// to a number of levels above the archive's root, as a directory archived
+// on its own links to the files of the tree it was cut from: past the root
+// the archive cannot tell where a target leads -- not even back into
+// itself, by the name it is extracted under -- so what it passes through
+// there is the caller's to know. An absolute target is refused regardless.
+// A hard link to a symlink, directly or down a chain of hard links, is a
+// second name for it, and is held to the same walk from where that name
+// sits, since a target safe under `a/b/` need not be safe at the root.
+// Lengths are bounded by what a filesystem takes at all: PATH_MAX for the
+// whole as the archive stores it, a directory's slash counted, and NAME_MAX
+// for a segment, in bytes.
 //
 // A name may repeat only as the same entry again, field for field and byte
 // for byte (some npm packagers write `d/f` and `d/./f` both): two different
@@ -72,25 +78,36 @@ export function cleanPath(path, what, directory = false) {
   return name
 }
 
+// The levels above the archive's root a caller lets a symlink target climb
+// (`symlinksAbove`): none unless given.
+export function levelsAbove(above = 0) {
+  if (!(Number.isSafeInteger(above) && above >= 0)) throw new ArchiveError(`symlinksAbove ${String(above)} is not a whole number of levels`)
+  return above
+}
+
 // Checks the target, walked from the link's directory, never climbs above
-// the archive, and returns its steps: each segment it goes into, or `..` to
-// come back out of one. The walk is counted rather than spelled out, since
-// spelling out the path at every step of a deep one costs its depth squared.
-export function checkSymlinkTarget(name, target) {
+// the archive, or no more than `above` levels above it, and returns its
+// steps: each segment it goes into, or `..` to come back out of one. The
+// walk is counted rather than spelled out, since spelling out the path at
+// every step of a deep one costs its depth squared.
+export function checkSymlinkTarget(name, target, above = 0) {
   const steps = checkText(target, `symlink target of ${quote(name)}`).filter((segment) => segment !== '' && segment !== '.')
   let depth = name.split('/').length - 1
   for (const step of steps) {
     depth += step === '..' ? -1 : 1
-    if (depth < 0) throw new ArchiveError(`symlink ${quote(name)} points outside the archive, to ${quote(target)}`)
+    if (depth < -above) {
+      const how = above === 0 ? 'outside the archive' : `more than ${above} level${above === 1 ? '' : 's'} above the archive`
+      throw new ArchiveError(`symlink ${quote(name)} points ${how}, to ${quote(target)}`)
+    }
   }
   return steps
 }
 
 // The name and link target of an entry, cleaned and checked.
-export function cleanNames(path, type, target) {
+export function cleanNames(path, type, target, above = 0) {
   const name = cleanPath(path, 'entry name', type === 'directory')
   let linkname = target
-  if (type === 'symlink') checkSymlinkTarget(name, target)
+  if (type === 'symlink') checkSymlinkTarget(name, target, above)
   else if (type === 'hardlink') linkname = cleanPath(target, `hard link target of ${quote(name)}`)
   return { name, linkname }
 }
@@ -123,10 +140,11 @@ const FIELDS = ['type', 'mode', 'uid', 'gid', 'mtime', 'uname', 'gname', 'linkna
 // directory may still be named as one. An entry inside a non-directory is
 // refused -- that is the shape of a path through a symlink -- and so is a
 // symlink target that walks through one, in either order, so no chain of
-// links leads out of the archive. Whether entries are kept with their data
-// decides what a repeat can be compared with: the in-memory calls keep
-// them, and a stream keeps the fields alone and refuses what it cannot
-// compare.
+// links leads out of the archive; where `above` lets a target climb out, a
+// chain can only end at the link that does, so it climbs no further. Whether
+// entries are kept with their data decides what a repeat can be compared
+// with: the in-memory calls keep them, and a stream keeps the fields alone
+// and refuses what it cannot compare.
 //
 // The names are a tree walked a segment at a time, so a lookup hashes one
 // segment rather than a whole path, and a walk down a deep one costs its
@@ -136,9 +154,17 @@ const FIELDS = ['type', 'mode', 'uid', 'gid', 'mtime', 'uname', 'gname', 'linkna
 export class Names {
   #root = node()
   #keep
+  #above
 
-  constructor(keep = false) {
+  // `above` is levelsAbove's, checked.
+  constructor(keep = false, above = 0) {
     this.#keep = keep
+    this.#above = above
+  }
+
+  // The levels a symlink target may climb above the root, for cleanNames.
+  get above() {
+    return this.#above
   }
 
   // `entry` is cleaned, with its data.
@@ -183,15 +209,18 @@ export class Names {
     if (type === 'symlink') this.#symlink(name, entry.linkname, `symlink ${quote(name)}`)
   }
 
-  // A target followed from `at`: it has to stay inside the archive, and every
-  // path it walks through has to be a directory -- each one it stands on short
-  // of the last step, the archive root aside. `what` names it in a refusal.
+  // A target followed from `at`: it has to stay inside the archive, or climb
+  // out of it no further than `above` allows, and every path it walks through
+  // inside it has to be a directory -- each one it stands on short of the
+  // last step, the archive root aside. Out of it, nothing it passes is the
+  // archive's. `what` names it in a refusal.
   #symlink(at, target, what) {
-    const steps = checkSymlinkTarget(at, target)
+    const steps = checkSymlinkTarget(at, target, this.#above)
     const path = at.split('/').slice(0, -1)
     const nodes = this.#walk(path)
     for (const [i, step] of steps.entries()) {
       if (step === '..') {
+        if (path.length === 0) return
         path.pop()
         nodes.pop()
       } else {

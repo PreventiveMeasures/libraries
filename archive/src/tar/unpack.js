@@ -8,7 +8,7 @@ import { EMPTY } from '../bytes.js'
 import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
 import { BLOCK, EXTENDED_TYPEFLAGS, TYPEFLAGS, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
-import { Names, cleanNames } from '../names.js'
+import { Names, cleanNames, levelsAbove } from '../names.js'
 import { Records, decodePax } from './pax.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
 
@@ -69,11 +69,15 @@ class Unpacker {
   #awaiting = null
   #zeros = 0
   #done = false
+  #count = 0
+  #maxEntries
 
   // `keep` holds entries for a repeat to be compared with, which only the
-  // in-memory call can afford.
-  constructor(keep = false) {
-    this.#names = new Names(keep)
+  // in-memory call can afford; the options are unpack's.
+  constructor(keep, { symlinksAbove, maxEntries = Infinity } = {}) {
+    if (maxEntries !== Infinity && !(Number.isSafeInteger(maxEntries) && maxEntries >= 0)) throw new ArchiveError(`maxEntries ${String(maxEntries)} is not a whole number of entries`)
+    this.#names = new Names(keep, levelsAbove(symlinksAbove))
+    this.#maxEntries = maxEntries
   }
 
   push(chunk) {
@@ -152,6 +156,8 @@ class Unpacker {
     const header = decodeHeader(block, at)
     const extended = EXTENDED.get(header.typeflag)
     if (extended === undefined) {
+      // Counted at its header, before anything is made of it or its data read.
+      if (++this.#count > this.#maxEntries) throw new ArchiveError(`the archive holds more than ${this.#maxEntries} entries`, at, { limited: true })
       this.#awaiting = { extended: null, at, ...this.#resolve(header, at) }
     } else {
       if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
@@ -200,7 +206,7 @@ class Unpacker {
     if (longlink !== null && record('linkpath') !== undefined) throw new ArchiveError('both a long link header and a pax linkpath name one entry', at)
     const rawName = longname ?? record('path') ?? this.#headerName(header, at)
     const rawTarget = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
-    const { name, linkname } = located(() => cleanNames(rawName, type, rawTarget), at)
+    const { name, linkname } = located(() => cleanNames(rawName, type, rawTarget, this.#names.above), at)
     const number = (key, parse = paxNumber) => {
       const value = record(key)
       return value === undefined ? header[key] : parse(value, key, at)
@@ -240,15 +246,15 @@ class Unpacker {
   }
 }
 
-export function unpack(bytes) {
-  const unpacker = new Unpacker(true)
+export function unpack(bytes, options) {
+  const unpacker = new Unpacker(true, options)
   const entries = unpacker.push(bytes)
   unpacker.end()
   return entries
 }
 
-export async function* unpackStream(chunks) {
-  const unpacker = new Unpacker()
+export async function* unpackStream(chunks, options) {
+  const unpacker = new Unpacker(false, options)
   for await (const chunk of chunks) yield* unpacker.push(chunk)
   unpacker.end()
 }

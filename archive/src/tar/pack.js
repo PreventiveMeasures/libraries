@@ -7,7 +7,7 @@ import { EMPTY, concat, isAscii } from '../bytes.js'
 import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
 import { ArchiveError } from '../error.js'
 import { BLOCK, EXTENDED_TYPEFLAGS, NAME_SIZE, OWNER_SIZE, PREFIX_SIZE, TYPEFLAGS, encodeHeader, fitsOctal, isDevice, octalMax } from './header.js'
-import { Names, cleanNames } from '../names.js'
+import { Names, cleanNames, levelsAbove } from '../names.js'
 import { encodePax } from './pax.js'
 import { checkString, encodeUtf8, hasUnsafe, quote } from '../text.js'
 
@@ -148,15 +148,15 @@ function encodeEntry(e, format) {
 
 // `keep` holds entries for a repeat to be compared with, which only the
 // in-memory call can afford.
-function packer({ format = 'gnu', blocking = 20 } = {}, keep = false) {
+function packer({ format = 'gnu', blocking = 20, symlinksAbove } = {}, keep = false) {
   if (!FORMATS.has(format)) throw new ArchiveError(`format ${quote(String(format))} is not gnu, ustar or pax`)
   if (!Number.isSafeInteger(blocking) || blocking < 1) throw new ArchiveError('blocking is not a positive integer')
-  const names = new Names(keep)
+  const names = new Names(keep, levelsAbove(symlinksAbove))
   let total = 0
   return {
     add(entry) {
       const e = normalize(entry)
-      const cleaned = { ...e, ...cleanNames(e.name, e.type, e.linkname) }
+      const cleaned = { ...e, ...cleanNames(e.name, e.type, e.linkname, names.above) }
       names.add(cleaned)
       const chunks = encodeEntry(cleaned, format)
       for (const chunk of chunks) total += chunk.length

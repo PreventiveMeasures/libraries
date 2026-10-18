@@ -25,6 +25,28 @@ async function* later(items) {
 
 const all = (iterable) => Array.fromAsync(iterable)
 
+describe('the streams take the options the in-memory calls take', () => {
+  it('unpackStream stops at the header past maxEntries, reading on no further', async () => {
+    const bytes = pack([{ name: 'a', data: utf8('x') }, { name: 'b', data: utf8('y') }, { name: 'c' }])
+    let pulled = 0
+    function* chunks() {
+      for (const chunk of split(bytes, 512)) {
+        pulled++
+        yield chunk
+      }
+    }
+    await assert.rejects(all(unpackStream(chunks(), { maxEntries: 1 })), (error) => error.limited && error.offset === 1024)
+    assert.equal(pulled, 3, 'a\'s header and data, then b\'s header')
+  })
+  it('a symlink above the archive, both ways, within the levels given', async () => {
+    const entries = [{ name: 'l', type: 'symlink', linkname: '../x' }]
+    await assert.rejects(all(packStream(entries)), /points outside the archive/u)
+    const bytes = concat(await all(packStream(entries, { symlinksAbove: 1 })))
+    await assert.rejects(all(unpackStream([bytes])), /points outside the archive/u)
+    assert.equal((await all(unpackStream([bytes], { symlinksAbove: 1 })))[0].linkname, '../x')
+  })
+})
+
 describe('unpackStream reads an archive however it is cut', () => {
   for (const recording of RECORDINGS) {
     const bytes = bytesOf(recording)

@@ -293,6 +293,56 @@ describe('what the archive stores, beside what is cleaned out of it', () => {
   })
 })
 
+describe('a symlink above the archive, where a caller lets one', () => {
+  // A tree's directory archived on its own, as GitHub archives one, under one
+  // top directory: its LICENSE links to the tree's root, one level above.
+  const tree = () => pack([{ name: 'top', type: 'directory' }, { name: 'top/LICENSE', type: 'symlink', linkname: '../../LICENSE' }], { symlinksAbove: 1 })
+  it('is refused by default', () => {
+    assert.throws(() => unpack(tree()), (error) => error instanceof ArchiveError && error.message === 'symlink "top/LICENSE" points outside the archive, to "../../LICENSE" at byte 512' && !error.limited)
+  })
+  it('is read within the levels given, and packs back with them alone', () => {
+    const entries = unpack(tree(), { symlinksAbove: 1 })
+    assert.deepEqual(entries.map(({ name, type, linkname }) => [name, type, linkname]), [['top', 'directory', ''], ['top/LICENSE', 'symlink', '../../LICENSE']])
+    assertBytes(pack(entries, { symlinksAbove: 1 }), tree())
+    assert.throws(() => pack(entries), /points outside the archive/u)
+  })
+  it('is refused past them, and absolute whatever they are', () => {
+    const deeper = archive(header({ typeflag: 0x32, name: utf8('l'), linkname: utf8('../../x') }))
+    assert.throws(() => unpack(deeper, { symlinksAbove: 1 }), /symlink "l" points more than 1 level above the archive, to "\.\.\/\.\.\/x" at byte 0/u)
+    assert.equal(unpack(deeper, { symlinksAbove: 2 })[0].linkname, '../../x')
+    assert.throws(() => unpack(archive(header({ typeflag: 0x32, name: utf8('l'), linkname: utf8('/x') })), { symlinksAbove: 9 }), /symlink target of "l" "\/x" is absolute/u)
+  })
+  it('takes a whole number of levels', () => {
+    for (const bad of [-1, 1.5, '1']) {
+      assert.throws(() => unpack(tree(), { symlinksAbove: bad }), /symlinksAbove .+ is not a whole number of levels/u)
+      assert.throws(() => pack([], { symlinksAbove: bad }), /symlinksAbove .+ is not a whole number of levels/u)
+    }
+  })
+})
+
+describe('a bound on its entries, where a caller sets one', () => {
+  const three = () => pack([{ name: 'a' }, { name: 'd', type: 'directory' }, { name: 'd/l', type: 'symlink', linkname: '../a' }])
+  it('reads up to it, every kind of entry counted', () => {
+    for (const maxEntries of [3, 4, Infinity, undefined]) assert.equal(unpack(three(), { maxEntries }).length, 3)
+    assert.deepEqual(unpack(pack([]), { maxEntries: 0 }), [])
+  })
+  it('throws with `limited` set at the header that crosses it', () => {
+    assert.throws(() => unpack(three(), { maxEntries: 2 }), (error) => error instanceof ArchiveError && error.limited && error.message === 'the archive holds more than 2 entries at byte 1024')
+    assert.throws(() => unpack(three(), { maxEntries: 0 }), (error) => error.limited && error.offset === 0)
+  })
+  it('counts a repeat again, and no extended header', () => {
+    assert.equal(unpack(pack([{ name: 'x'.repeat(150) }]), { maxEntries: 1 }).length, 1)
+    assert.equal(unpack(pack([{ name: 'x'.repeat(150) }], { format: 'pax' }), { maxEntries: 1 }).length, 1)
+    assert.throws(() => unpack(pack([{ name: 'a' }, { name: 'a' }]), { maxEntries: 1 }), (error) => error.limited)
+  })
+  it('leaves `limited` unset for anything wrong with the archive', () => {
+    assert.throws(() => unpack(three().subarray(0, 1100), { maxEntries: 9 }), (error) => error instanceof ArchiveError && error.limited === false)
+  })
+  it('takes a whole number of entries', () => {
+    for (const bad of [-1, 1.5, '3', null]) assert.throws(() => unpack(three(), { maxEntries: bad }), /maxEntries .+ is not a whole number of entries/u, String(bad))
+  })
+})
+
 describe('what it hands back', () => {
   it('data that views the archive where it arrived whole', () => {
     const bytes = pack([{ name: 'a', data: utf8('hello') }])

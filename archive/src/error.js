@@ -1,10 +1,12 @@
 // `offset` is where in the archive the reader gave up, in bytes; the
-// writer leaves it unset.
+// writer leaves it unset. `limited` is true where a bound the caller set
+// stopped it, rather than anything wrong with the archive.
 export class ArchiveError extends Error {
-  constructor(detail, offset) {
+  constructor(detail, offset, { limited = false } = {}) {
     super(offset === undefined ? detail : `${detail} at byte ${offset}`)
     this.name = 'ArchiveError'
     this.offset = offset
+    this.limited = limited
   }
 }
 
@@ -16,6 +18,6 @@ export function located(fn, at) {
     return fn()
   } catch (error) {
     if (!(error instanceof ArchiveError) || error.offset !== undefined) throw error
-    throw new ArchiveError(error.message, at)
+    throw new ArchiveError(error.message, at, { limited: error.limited })
   }
 }

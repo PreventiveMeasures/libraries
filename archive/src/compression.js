@@ -8,10 +8,9 @@ import { ArchiveError } from './error.js'
 
 export class CompressionError extends ArchiveError {
   constructor(detail, { bytes, limited = false, cause }) {
-    super(detail)
+    super(detail, undefined, { limited })
     this.name = 'CompressionError'
     this.bytes = bytes
-    this.limited = limited
     this.cause = cause
   }
 }
