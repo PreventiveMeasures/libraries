@@ -61,17 +61,21 @@ export interface CompareOptions {
 // compare the same. `label` names each hunk the way -p does; the two label
 // lines a diff opens with are the caller's to write in front of the result.
 // 'brief' is -q: whether they differ at all, without searching for how.
-// `minimal` turns off the search's cutoff. A run that could sit in more than
-// one place is settled in every format, as diff settles it; `slide: false`
-// leaves where the search put it instead. Such a run moves into the lines
-// the two files share at either end only as far as the context printed
-// there, or `horizon` (--horizon-lines) if that is more, which is why `diff`
-// and `-U0` can agree where `-u` does not.
+// `minimal` is --minimal: a shortest change set, with neither the search's
+// cutoff nor the lines diff otherwise sets aside before searching -- those
+// matching nothing in the other file, and some matching many; `discard:
+// false` keeps the cutoff but searches every line. A run that could sit in
+// more than one place is settled in every format, as diff settles it;
+// `slide: false` leaves where the search put it instead. Such a run moves
+// into the lines the two files share at either end only as far as the
+// context printed there, or `horizon` (--horizon-lines) if that is more,
+// which is why `diff` and `-U0` can agree where `-u` does not.
 export function diff(a: string, b: string, options?: CompareOptions & {
   format?: 'unified' | 'context' | 'normal' | 'brief'
   context?: number
   label?: ((index: number) => string | null) | null
   minimal?: boolean
+  discard?: boolean
   slide?: boolean
   horizon?: number
 }): string
@@ -84,6 +88,7 @@ export function diff(a: string, b: string, options?: CompareOptions & {
 // `applyChangeSet(a, changeSet(a, b))` is `b`.
 export function changeSet(a: string, b: string, options?: CompareOptions & {
   minimal?: boolean
+  discard?: boolean
   slide?: boolean
   horizon?: number
 }): Block[]

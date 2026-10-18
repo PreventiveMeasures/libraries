@@ -3,7 +3,12 @@
 // first 8000 bytes, so a file git diffs as bytes may be binary here.
 
 import { utf8toString } from '@exodus/bytes/utf8.js'
-import { DiffError, changeSet, formatChangeSet } from '@preventive/diff'
+import { DiffError, changeSet as diffChangeSet, formatChangeSet } from '@preventive/diff'
+
+// diff's search, less the lines GNU diff sets aside before it: git sets
+// aside lines by rules of its own, and GNU's would leave the counts git
+// prints further from compare's than searching every line does.
+const changeSet = (a, b, options) => diffChangeSet(a, b, { ...options, discard: false })
 
 // A link's content is its target, as git stores it; a missing side is empty.
 export function textOf(file) {
