@@ -44,9 +44,18 @@ export interface EntryInput {
   linkname?: string
 }
 
+// `symlinksAbove` lets a relative symlink target climb up to that many
+// levels above the archive's root, none by default, as tar.d.ts tells: past
+// the root, what a target passes through is the caller's to know. An
+// absolute target is refused regardless, and what one call reads with it,
+// another writes with it.
+export interface SymlinkOptions {
+  symlinksAbove?: number
+}
+
 // 'deflate' (the default) deflates each file and keeps the result only
 // where it is smaller, as Info-ZIP does; 'store' compresses nothing.
-export interface ZipOptions {
+export interface ZipOptions extends SymlinkOptions {
   method?: 'deflate' | 'store'
 }
 
@@ -54,19 +63,19 @@ export interface ZipOptions {
 // stored and deflated alike, a symlink's target included. Each entry has to
 // come out at exactly the size it declares, so the sum is checked against
 // the central directory before anything is inflated, and past the limit
-// the call rejects. No limit by default.
-export interface UnzipOptions {
+// the call rejects, with `limited` set. No limit by default.
+export interface UnzipOptions extends SymlinkOptions {
   limit?: number
 }
 
 // Both refuse a name that repeats as a different entry -- anything but the
 // same fields and the same bytes again, however either was stored -- an
 // entry inside something that is not a directory, and a symlink whose
-// target climbs out of the archive or passes through anything but a
-// directory. unzip() also refuses an entry carrying a Unicode path extra
-// field, a second name that other readers take over the one in the header.
-// Neither takes or makes zip64, so an archive holds at most 65534 entries
-// and stays under 4 GiB.
+// target climbs out of the archive, further than `symlinksAbove` lets it,
+// or passes through anything in it but a directory. unzip() also refuses
+// an entry carrying a Unicode path extra field, a second name that other
+// readers take over the one in the header. Neither takes or makes zip64,
+// so an archive holds at most 65534 entries and stays under 4 GiB.
 export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>
 export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>
 
@@ -83,7 +92,10 @@ export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[
 export function unzipStream(archive: Uint8Array | Blob, options?: UnzipOptions): AsyncGenerator<Entry, void, undefined>
 
 // `offset` is where in the archive the reader gave up; unset from the writer.
+// `limited` is true where a bound the caller set stopped it, rather than
+// anything wrong with the archive.
 export class ArchiveError extends Error {
-  constructor(detail: string, offset?: number)
+  constructor(detail: string, offset?: number, options?: { limited?: boolean })
   offset: number | undefined
+  limited: boolean
 }

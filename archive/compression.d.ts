@@ -21,9 +21,11 @@ export function compress(bytes: Uint8Array, format: string, options?: Options): 
 export function decompress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>
 
 // `offset` is where in the archive the reader gave up; unset here.
+// `limited` is true where a bound the caller set stopped it.
 export class ArchiveError extends Error {
-  constructor(detail: string, offset?: number)
+  constructor(detail: string, offset?: number, options?: { limited?: boolean })
   offset: number | undefined
+  limited: boolean
 }
 
 // What a stream refused: `bytes` is what it had put out by then, kept for a

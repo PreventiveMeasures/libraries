@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Names, checkSymlinkTarget, cleanNames, cleanPath } from '../src/names.js'
+import { Names, checkSymlinkTarget, cleanNames, cleanPath, levelsAbove } from '../src/names.js'
 import { quote } from '../src/text.js'
 import { cpuMs, utf8 } from './helpers.js'
 
@@ -119,6 +119,37 @@ describe('a symlink target stays inside the archive', () => {
   }
 })
 
+describe('a symlink target climbs above the archive only as far as a caller lets it', () => {
+  // As a tree's directory archived on its own links to the tree's root.
+  const fine = [['l', '../x', 1], ['a/l', '../../x', 1], ['a/b/l', '../../../x', 1], ['l', '../../x', 2], ['l', '../a/../../x', 2], ['l', '../x/y/z', 1]]
+  for (const [name, target, above] of fine) {
+    it(`${name} -> ${target}, ${above} above`, () => checkSymlinkTarget(name, target, above))
+  }
+  const refused = [
+    ['l', '../../x', 1, /symlink "l" points more than 1 level above the archive, to "\.\.\/\.\.\/x"/u],
+    ['l', '../../../x', 2, /points more than 2 levels above the archive/u],
+    ['l', '../x/../../y', 1, /points more than 1 level above the archive/u],
+    ['l', '/x', 5, /is absolute/u],
+    ['l', 'C:/x', 5, /starts with a drive letter/u],
+  ]
+  for (const [name, target, above, message] of refused) {
+    it(`refuses ${name} -> ${target}, ${above} above`, () => assert.throws(() => checkSymlinkTarget(name, target, above), message))
+  }
+  it('says outside, not above, where none is let', () => {
+    assert.throws(() => checkSymlinkTarget('l', '../x'), /symlink "l" points outside the archive, to "\.\.\/x"/u)
+    assert.throws(() => checkSymlinkTarget('l', '../x', 0), /points outside the archive/u)
+  })
+  it('takes a whole number of levels, none unless given', () => {
+    assert.equal(levelsAbove(), 0)
+    assert.equal(levelsAbove(3), 3)
+    for (const bad of [-1, 1.5, '1', null, Number.NaN, Infinity]) assert.throws(() => levelsAbove(bad), /symlinksAbove .+ is not a whole number of levels/u, String(bad))
+  })
+  it('cleans an entry\'s names to the same levels', () => {
+    assert.deepEqual(cleanNames('a/l', 'symlink', '../../x', 1), { name: 'a/l', linkname: '../../x' })
+    assert.throws(() => cleanNames('a/l', 'symlink', '../../x'), /points outside the archive/u)
+  })
+})
+
 describe('the names seen so far', () => {
   const entry = (name, type = 'file', linkname = '', over = {}) => ({
     name, type, linkname, mode: 0o644, uid: 0, gid: 0, mtime: 0, uname: '', gname: '', devmajor: 0, devminor: 0, data: new Uint8Array(0), ...over,
@@ -213,6 +244,26 @@ describe('the names seen so far', () => {
     after(entry('a', 'symlink', 'b')).add(entry('l', 'symlink', 'a'))
     after(entry('d/s', 'symlink', '..')).add(entry('d/l', 'symlink', '../d/s'))
     after(entry('l', 'symlink', 'a/x')).add(entry('a', 'directory'))
+  })
+  it('lets a symlink out only as far as `above`, walking nothing of the archive past its root', () => {
+    const above = (levels, ...entries) => {
+      const names = new Names(true, levels)
+      for (const e of entries) names.add(e)
+      return names
+    }
+    assert.equal(above(2).above, 2)
+    above(1).add(entry('l', 'symlink', '../x'))
+    assert.throws(() => above(1).add(entry('l', 'symlink', '../../x')), /points more than 1 level above the archive/u)
+    // Past the root, f is the parent's, not the archive's file f.
+    above(1, entry('f')).add(entry('l', 'symlink', '../f/x'))
+    // Inside the archive, what a target walks through is held as ever.
+    assert.throws(() => above(1, entry('f')).add(entry('l', 'symlink', 'f/../../x')), /the target of symlink "l" passes through "f", which is not a directory/u)
+    // A chain can end at a link out, never pass through one.
+    above(1, entry('a', 'symlink', '../x')).add(entry('d/l', 'symlink', '../a'))
+    assert.throws(() => above(1, entry('a', 'symlink', '../x')).add(entry('l', 'symlink', 'a/y')), /passes through "a", which is not a directory/u)
+    // a/b/s -> ../../x lands inside; reached as h at the root, it climbs two.
+    assert.throws(() => above(1, entry('a/b/s', 'symlink', '../../x')).add(entry('h', 'hardlink', 'a/b/s')), /symlink "h" points more than 1 level above the archive/u)
+    above(2, entry('a/b/s', 'symlink', '../../x')).add(entry('h', 'hardlink', 'a/b/s'))
   })
   it('lets a hard link name an earlier non-directory entry', () => {
     after(entry('a')).add(entry('b', 'hardlink', 'a'))

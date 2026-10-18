@@ -23,7 +23,7 @@ import { EMPTY, sameBytes } from '../bytes.js'
 import { DEFAULT_MODE } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
 import { CENTRAL, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './format.js'
-import { Names, cleanNames } from '../names.js'
+import { Names, cleanNames, levelsAbove } from '../names.js'
 import { decodeUtf8, quote } from '../text.js'
 
 const DESCRIPTOR = 0x08074b50
@@ -232,7 +232,7 @@ async function entryOf(source, entry, names) {
   const body = method === 8 ? await inflate(raw, usize, at) : raw
   if (crc32(body) !== entry.crc) throw new ArchiveError('the data does not match its CRC-32', at)
   const target = type === 'symlink' ? decodeUtf8(body, 'symlink target', at) : ''
-  const named = located(() => cleanNames(rawName, type, target), at)
+  const named = located(() => cleanNames(rawName, type, target, names.above), at)
   const out = { ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName }
   located(() => names.add(out), at)
   return out
@@ -241,8 +241,9 @@ async function entryOf(source, entry, names) {
 // The entries one at a time, the layout all checked before the first.
 // `keep` holds entries for a repeat to be compared with, which only the
 // in-memory call can afford.
-async function* entries(source, { limit = Infinity } = {}, keep = false) {
+async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep = false) {
   if (limit !== Infinity && !(Number.isSafeInteger(limit) && limit >= 0)) throw new ArchiveError(`limit ${String(limit)} is not a whole number of bytes`)
+  const above = levelsAbove(symlinksAbove)
   const { end, r } = await findEnd(source)
   const count = r.u16(end + 8)
   if (r.u16(end + 4) !== 0 || r.u16(end + 6) !== 0 || count !== r.u16(end + 10)) throw new ArchiveError('the archive spans several disks', end)
@@ -260,7 +261,7 @@ async function* entries(source, { limit = Infinity } = {}, keep = false) {
   for (let i = 0; i < count; i++) {
     const entry = await readCentral(directory, pos)
     total += entry.usize
-    if (total > limit) throw new ArchiveError(`the entries come to more than ${limit} bytes`, pos)
+    if (total > limit) throw new ArchiveError(`the entries come to more than ${limit} bytes`, pos, { limited: true })
     list.push(entry)
     pos = entry.next
   }
@@ -282,7 +283,7 @@ async function* entries(source, { limit = Infinity } = {}, keep = false) {
     expected = await readLocal(locals, entry, boundaries[i], stops[i])
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
-  const names = new Names(keep)
+  const names = new Names(keep, above)
   for (const entry of list) yield await entryOf(source, entry, names)
 }
 

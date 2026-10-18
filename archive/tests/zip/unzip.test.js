@@ -141,6 +141,13 @@ describe('what it reads', () => {
     const [l] = await unzip(archive([entry('l', utf8('a/b'), { attributes: 0o120777 * 0x10000 })]))
     assert.deepEqual([l.type, l.linkname, l.data.length], ['symlink', 'a/b', 0])
   })
+  it('a symlink above the archive within the levels given, none by default', async () => {
+    const link = (target) => archive([entry('l', utf8(target), { attributes: 0o120777 * 0x10000 })])
+    await assert.rejects(unzip(link('../x')), /symlink "l" points outside the archive/u)
+    assert.equal((await unzip(link('../x'), { symlinksAbove: 1 }))[0].linkname, '../x')
+    await assert.rejects(unzip(link('../../x'), { symlinksAbove: 1 }), /symlink "l" points more than 1 level above the archive/u)
+    await assert.rejects(unzip(link('../x'), { symlinksAbove: -1 }), /symlinksAbove -1 is not a whole number of levels/u)
+  })
   it('default modes from a maker that is not Unix, or that recorded none', async () => {
     const [f, d] = await unzip(archive([entry('a', utf8('x'), { madeBy: 20, attributes: 0x20 }), entry('d/', new Uint8Array(0), { madeBy: 20, attributes: 0x10 })]))
     assert.deepEqual([f.mode, d.mode], [0o644, 0o755])
@@ -266,7 +273,7 @@ describe('what it refuses', () => {
     const bytes = archive([entry('a', utf8('x')), entry('b', data, { body, method: 8 }), entry('l', utf8('a'), { attributes: 0o120777 * 0x10000 })])
     // Three local records, then the first central record of 47 bytes.
     const second = 32 + 31 + body.length + 32 + 47
-    await assert.rejects(unzip(bytes, { limit: 3001 }), (error) => error instanceof ArchiveError && error.message === `the entries come to more than 3001 bytes at byte ${second + 47}`)
+    await assert.rejects(unzip(bytes, { limit: 3001 }), (error) => error instanceof ArchiveError && error.limited && error.message === `the entries come to more than 3001 bytes at byte ${second + 47}`)
     await assert.rejects(unzip(bytes, { limit: 3000 }), (error) => error instanceof ArchiveError && error.offset === second)
     await assert.rejects(unzip(bytes, { limit: 0 }), /the entries come to more than 0 bytes/u)
   })

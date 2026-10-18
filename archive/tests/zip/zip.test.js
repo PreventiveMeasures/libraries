@@ -46,6 +46,12 @@ describe('zip reads back as what it was given', () => {
     assert.ok(bytes.length < 3000)
     assert.equal(methodAt(await zip([{ name: 'big', data: new Uint8Array(3000).fill(0x62) }], { method: 'store' }), 0), 0)
   })
+  it('writes a symlink above the archive within the levels given, none by default', async () => {
+    const entries = [{ name: 'l', type: 'symlink', linkname: '../x' }]
+    await assert.rejects(zip(entries), /symlink "l" points outside the archive/u)
+    const bytes = await zip(entries, { symlinksAbove: 1 })
+    assert.equal((await unzip(bytes, { symlinksAbove: 1 }))[0].linkname, '../x')
+  })
   it('takes a name again as the same entry, and cleans names', async () => {
     const entries = await unzip(await zip([{ name: './d/f', data: utf8('x') }, { name: 'd/./f', data: utf8('x') }, { name: 'd/', type: 'directory' }]))
     assert.deepEqual(entries.map((e) => e.name), ['d/f', 'd/f', 'd'])

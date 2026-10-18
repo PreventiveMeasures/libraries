@@ -8,7 +8,7 @@ import { concat, isAscii } from '../bytes.js'
 import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
 import { ArchiveError } from '../error.js'
 import { CENTRAL, END, LOCAL, TYPE_BITS, deflate, record, toDos } from './format.js'
-import { Names, cleanNames } from '../names.js'
+import { Names, cleanNames, levelsAbove } from '../names.js'
 import { encodeUtf8, quote } from '../text.js'
 
 const METHODS = new Set(['deflate', 'store'])
@@ -39,16 +39,16 @@ function normalize(entry) {
 // 0x5455: flag bit 0 and the mtime, as Info-ZIP writes in the central copy.
 const timestamp = (mtime) => record([[2, 0x5455], [2, 5], [1, 1], [4, mtime]])
 
-export async function zip(entries, { method = 'deflate' } = {}) {
+export async function zip(entries, { method = 'deflate', symlinksAbove } = {}) {
   if (!METHODS.has(method)) throw new ArchiveError(`method ${quote(String(method))} is not deflate or store`)
-  const names = new Names(true)
+  const names = new Names(true, levelsAbove(symlinksAbove))
   const locals = []
   const centrals = []
   let offset = 0
   let count = 0
   for (const given of entries) {
     const entry = normalize(given)
-    const e = { ...entry, ...cleanNames(entry.name, entry.type, entry.linkname) }
+    const e = { ...entry, ...cleanNames(entry.name, entry.type, entry.linkname, names.above) }
     names.add(e)
     if (++count > MAX_ENTRIES) throw new ArchiveError(`more than ${MAX_ENTRIES} entries would need zip64`)
     const name = encodeUtf8(wireName(e), 'entry name')
