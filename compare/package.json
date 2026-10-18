@@ -115,7 +115,7 @@
   },
   "dependencies": {
     "@exodus/bytes": "^1.16.0",
-    "@preventive/diff": "^1.0.2"
+    "@preventive/diff": "^1.1.0"
   },
   "peerDependencies": {
     "css-tree": ">=3.2.1",
