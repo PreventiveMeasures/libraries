@@ -95,6 +95,15 @@ test('evidence read at different commits, or at a branch, names no audited commi
   assert.deepEqual(branch.map((report) => report.data.findings[0].auditedCommit), [undefined, undefined])
 })
 
+test('the audited commit is compared and kept in lowercase, the evidence URLs as written', () => {
+  const text = document.replace('a/a/blob/abcdef012345', 'a/a/blob/AbCdEf012345').replace('blob/abcdef012345/f/g/h.js', 'blob/ABCDEF012345/f/g/h.js')
+  const [a, b] = parseGenericMarkdownToReports(text).map((report) => report.data.findings[0])
+  assert.equal(a.auditedCommit, 'abcdef012345')
+  assert.equal(b.auditedCommit, 'abcdef012345', 'one commit in two casings is still one commit')
+  assert.ok(a.location.includes('/blob/AbCdEf012345/'))
+  assert.ok(b.evidence[1].url.includes('/blob/ABCDEF012345/'))
+})
+
 test('groups repeated product rows in summary order and accepts CRLF, BOM and a document title', () => {
   const extra = block(99, 'AAA-03', 'Product A', 'a/a')
   const text = document.replace('| 8 |', '| 7 | AAA-03 | Product A | P2 | Another. |\n| 8 |') + '\n\n' + extra
