@@ -80,7 +80,7 @@ importers:
         specifier: ^1.2.0
         version: link:../lockfile
       '@preventive/upstream':
-        specifier: ^1.2.0
+        specifier: ^1.3.0
         version: link:../upstream
       '@preventive/vfs':
         specifier: 1.0.0-beta.4
