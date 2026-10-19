@@ -66,6 +66,7 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   assert.equal(a.line, '100-110')
   assert.equal(a.auditedCommit, 'abcdef012345')
   assert.equal(a.commitHash, undefined, 'a code reference commit is not where the bug was introduced')
+  assert.equal(b.auditedCommit, 'abcdef012345')
   assert.equal(a.repo.github, 'a/a')
   assert.equal(b.repo.github, 'a/b')
   assert.equal(b.evidence.length, 2)
@@ -82,6 +83,16 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   const loaded = await loadFindings(document)
   assert.deepEqual(loaded.findings.map((f) => f.sourceId), ['AAA-02', 'BBB-05'])
   assert.equal(loaded.data.repo, undefined, 'a multi-product document has no single report-level repo')
+})
+
+test('evidence read at different commits, or at a branch, names no audited commit', () => {
+  const mixed = document.replace('blob/abcdef012345/f/g/h.js', 'blob/0123456789ab/f/g/h.js')
+  const [a, b] = parseGenericMarkdownToReports(mixed).map((report) => report.data.findings[0])
+  assert.equal(a.auditedCommit, 'abcdef012345')
+  assert.equal(b.auditedCommit, undefined)
+  assert.deepEqual(b.evidence.map((row) => row.url.split('/')[6]), ['abcdef012345', '0123456789ab'], 'each evidence row keeps its own commit')
+  const branch = parseGenericMarkdownToReports(document.replaceAll('blob/abcdef012345/', 'blob/main/'))
+  assert.deepEqual(branch.map((report) => report.data.findings[0].auditedCommit), [undefined, undefined])
 })
 
 test('groups repeated product rows in summary order and accepts CRLF, BOM and a document title', () => {

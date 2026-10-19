@@ -39,9 +39,11 @@ function assignReferences(row, finding, text, repoPrefixes) {
   const evidence = refs.flatMap((link) => link.evidence ?? [])
   if (evidence.length) {
     Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
-    // A reference's commit is where the code was read, not where the bug landed.
-    const ref = refs.find((link) => link.evidence).ref
-    if (isCommitHash(ref)) finding.auditedCommit = ref
+    // A reference's commit is where the code was read, not where the bug landed;
+    // stamped only when every evidence row was read at that one commit.
+    const commits = new Set(refs.filter((link) => link.evidence).map((link) => link.ref))
+    const [ref] = commits
+    if (commits.size === 1 && isCommitHash(ref)) finding.auditedCommit = ref
   }
 }
 
