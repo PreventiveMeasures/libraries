@@ -39,8 +39,13 @@ function assignReferences(row, finding, text, repoPrefixes) {
   const evidence = refs.flatMap((link) => link.evidence ?? [])
   if (evidence.length) {
     Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
-    const ref = refs.find((link) => link.evidence).ref
-    if (isCommitHash(ref)) finding.commitHash = ref
+    // A reference's commit is where the code was read, not where the bug landed;
+    // stamped, in lowercase and at its longest spelling, only when every evidence
+    // row was read at that one commit: all links name one repository, so a hash
+    // the longest one starts with names the same commit.
+    const commits = refs.filter((link) => link.evidence).map((link) => link.ref.toLowerCase())
+    const longest = commits.reduce((a, b) => (b.length > a.length ? b : a))
+    if (commits.every((ref) => isCommitHash(ref) && longest.startsWith(ref))) finding.auditedCommit = longest
   }
 }
 

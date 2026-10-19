@@ -64,7 +64,9 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   assert.equal(a.evidence[0].file, 'c/d/e.js')
   assert.ok(a.location.endsWith('/c/d/e.js#L100-L110'))
   assert.equal(a.line, '100-110')
-  assert.equal(a.commitHash, 'abcdef012345')
+  assert.equal(a.auditedCommit, 'abcdef012345')
+  assert.equal(a.commitHash, undefined, 'a code reference commit is not where the bug was introduced')
+  assert.equal(b.auditedCommit, 'abcdef012345')
   assert.equal(a.repo.github, 'a/a')
   assert.equal(b.repo.github, 'a/b')
   assert.equal(b.evidence.length, 2)
@@ -81,6 +83,35 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   const loaded = await loadFindings(document)
   assert.deepEqual(loaded.findings.map((f) => f.sourceId), ['AAA-02', 'BBB-05'])
   assert.equal(loaded.data.repo, undefined, 'a multi-product document has no single report-level repo')
+})
+
+test('evidence read at different commits, or at a branch, names no audited commit', () => {
+  const mixed = document.replace('blob/abcdef012345/f/g/h.js', 'blob/0123456789ab/f/g/h.js')
+  const [a, b] = parseGenericMarkdownToReports(mixed).map((report) => report.data.findings[0])
+  assert.equal(a.auditedCommit, 'abcdef012345')
+  assert.equal(b.auditedCommit, undefined)
+  assert.deepEqual(b.evidence.map((row) => row.url.split('/')[6]), ['abcdef012345', '0123456789ab'], 'each evidence row keeps its own commit')
+  const branch = parseGenericMarkdownToReports(document.replaceAll('blob/abcdef012345/', 'blob/main/'))
+  assert.deepEqual(branch.map((report) => report.data.findings[0].auditedCommit), [undefined, undefined])
+})
+
+test('the audited commit is compared and kept in lowercase, the evidence URLs as written', () => {
+  const text = document.replace('a/a/blob/abcdef012345', 'a/a/blob/AbCdEf012345').replace('blob/abcdef012345/f/g/h.js', 'blob/ABCDEF012345/f/g/h.js')
+  const [a, b] = parseGenericMarkdownToReports(text).map((report) => report.data.findings[0])
+  assert.equal(a.auditedCommit, 'abcdef012345')
+  assert.equal(b.auditedCommit, 'abcdef012345', 'one commit in two casings is still one commit')
+  assert.ok(a.location.includes('/blob/AbCdEf012345/'))
+  assert.ok(b.evidence[1].url.includes('/blob/ABCDEF012345/'))
+})
+
+test('an abbreviated hash agrees with the longer one it starts, which is kept', () => {
+  const full = 'abcdef0123456789abcdef0123456789abcdef01'
+  const audited = (text) => parseGenericMarkdownToReports(text)[1].data.findings[0].auditedCommit
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', `blob/${full}/f/g/h.js`)), full)
+  assert.equal(audited(document.replace('a/b/blob/abcdef012345/c', `a/b/blob/${full.toUpperCase()}/c`)), full)
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', 'blob/abcdef0123456/f/g/h.js')), 'abcdef0123456')
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', 'blob/abcdef012346/f/g/h.js')), undefined)
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', 'blob/abcdef/f/g/h.js')), undefined, 'too short to be a hash')
 })
 
 test('groups repeated product rows in summary order and accepts CRLF, BOM and a document title', () => {
@@ -210,6 +241,8 @@ test('generic findings survive a Markdown export with IDs, repositories and narr
     for (const { url } of f.evidence) assert.equal(markdown.split(url).length - 1, url === f.location ? 2 : 1, `${url} is written only as Location and Evidence`)
   }
   assert.doesNotMatch(markdown, /code references/iu)
+  assert.match(markdown, /\*\*Commit audited:\*\* `abcdef012345`/u)
+  assert.doesNotMatch(markdown, /introduced in/iu)
   assert.deepEqual(result.findings.map((f) => f.id), findings.map((f) => f.id))
   assert.deepEqual(result.findings.map((f) => f.repo), findings.map((f) => f.repo))
   assert.equal(result.findings[0].reproduction, findings[0].reproduction)
