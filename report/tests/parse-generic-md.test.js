@@ -64,7 +64,8 @@ test('splits the generic Markdown example by product and matches IDs, not ordina
   assert.equal(a.evidence[0].file, 'c/d/e.js')
   assert.ok(a.location.endsWith('/c/d/e.js#L100-L110'))
   assert.equal(a.line, '100-110')
-  assert.equal(a.commitHash, 'abcdef012345')
+  assert.equal(a.auditedCommit, 'abcdef012345')
+  assert.equal(a.commitHash, undefined, 'a code reference commit is not where the bug was introduced')
   assert.equal(a.repo.github, 'a/a')
   assert.equal(b.repo.github, 'a/b')
   assert.equal(b.evidence.length, 2)
@@ -210,6 +211,8 @@ test('generic findings survive a Markdown export with IDs, repositories and narr
     for (const { url } of f.evidence) assert.equal(markdown.split(url).length - 1, url === f.location ? 2 : 1, `${url} is written only as Location and Evidence`)
   }
   assert.doesNotMatch(markdown, /code references/iu)
+  assert.match(markdown, /\*\*Commit audited:\*\* `abcdef012345`/u)
+  assert.doesNotMatch(markdown, /introduced in/iu)
   assert.deepEqual(result.findings.map((f) => f.id), findings.map((f) => f.id))
   assert.deepEqual(result.findings.map((f) => f.repo), findings.map((f) => f.repo))
   assert.equal(result.findings[0].reproduction, findings[0].reproduction)
