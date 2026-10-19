@@ -104,6 +104,16 @@ test('the audited commit is compared and kept in lowercase, the evidence URLs as
   assert.ok(b.evidence[1].url.includes('/blob/ABCDEF012345/'))
 })
 
+test('an abbreviated hash agrees with the longer one it starts, which is kept', () => {
+  const full = 'abcdef0123456789abcdef0123456789abcdef01'
+  const audited = (text) => parseGenericMarkdownToReports(text)[1].data.findings[0].auditedCommit
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', `blob/${full}/f/g/h.js`)), full)
+  assert.equal(audited(document.replace('a/b/blob/abcdef012345/c', `a/b/blob/${full.toUpperCase()}/c`)), full)
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', 'blob/abcdef0123456/f/g/h.js')), 'abcdef0123456')
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', 'blob/abcdef012346/f/g/h.js')), undefined)
+  assert.equal(audited(document.replace('blob/abcdef012345/f/g/h.js', 'blob/abcdef/f/g/h.js')), undefined, 'too short to be a hash')
+})
+
 test('groups repeated product rows in summary order and accepts CRLF, BOM and a document title', () => {
   const extra = block(99, 'AAA-03', 'Product A', 'a/a')
   const text = document.replace('| 8 |', '| 7 | AAA-03 | Product A | P2 | Another. |\n| 8 |') + '\n\n' + extra
