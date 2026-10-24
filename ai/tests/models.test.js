@@ -438,6 +438,7 @@ describe('no-think wire form', () => {
     // Same shape as fable 5, arrived at from the other direction: K3 has no
     // opt-out on either route, so omitting the effort field is all we can do.
     ['moonshotai/kimi-k3', false, false],
+    ['moonshotai/kimi-k3.1-pro', false, false],
     // Astra and 6.1 Sol reject `reasoning_effort: 'none'` and floor at
     // `low`, so thinking cannot be turned off on any of these rows — pro
     // least of all, since pro IS a reasoning mode.
@@ -1014,6 +1015,37 @@ describe('resolveModel (alias canonicalization)', () => {
   })
 })
 
+describe('Kimi K3.1 Pro (moonshotai/kimi-k3.1-pro)', () => {
+  const MODEL = 'moonshotai/kimi-k3.1-pro'
+  const bill = (legs) => calculateCost(MODEL, { ...emptyUsage(), ...legs })
+
+  it("prices at Moonshot's $2 / $10 per Mtok, with no tier past any context length", () => {
+    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 2 + 10)
+  })
+
+  it('bills cache hits at $0.20, a 5-minute write at the input rate, and a 1-hour one at 2x', () => {
+    // Moonshot charges $2.00 for a 5m write, not the 1.25x ($2.50) default.
+    assert.equal(bill({ cacheRead: 1_000_000 }), 0.2)
+    assert.equal(bill({ cacheWrite5m: 1_000_000 }), 2)
+    assert.equal(bill({ cacheWrite1h: 1_000_000 }), 4)
+  })
+
+  it("caps output at Moonshot's max_completion_tokens default", () => {
+    assert.equal(getMaxTokens(MODEL), 131_072)
+  })
+
+  it('always reasons, at low, high or max', () => {
+    assert.equal(canThink(MODEL), true)
+    assert.equal(canDisableThink(MODEL), false)
+    assert.deepEqual(effortsFor(MODEL), ['low', 'high', 'max'])
+  })
+
+  it('resolves the bare id Moonshot\'s docs use', () => {
+    assert.equal(resolveModel('kimi-k3.1-pro'), MODEL)
+    assert.equal(isRecognizedModel('kimi-k3.1-pro'), true)
+  })
+})
+
 describe('Kimi K3 (moonshotai/kimi-k3)', () => {
   const MODEL = 'moonshotai/kimi-k3'
 
@@ -1454,7 +1486,10 @@ describe('supportedModels', () => {
   })
 
   it('gives moonshot the rows under its own namespace', () => {
-    assert.deepEqual(supportedModels({ provider: 'moonshot' }), [{ id: 'moonshotai/kimi-k3', efforts: ['low', 'high', 'max'] }])
+    assert.deepEqual(supportedModels({ provider: 'moonshot' }), [
+      { id: 'moonshotai/kimi-k3.1-pro', efforts: ['low', 'high', 'max'] },
+      { id: 'moonshotai/kimi-k3', efforts: ['low', 'high', 'max'] },
+    ])
   })
 
   it('refuses every other provider by name', () => {
