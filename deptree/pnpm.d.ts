@@ -259,12 +259,36 @@ export interface PnpmProject {
 // copy, one with a node_modules, which pnpm drops where it builds the
 // package. A `vfs` is not taken with it.
 //
+// `lazy`, false unless given true, lays the tree out as sizeEstimateOnly
+// does, each package's directory made and left empty and each link made,
+// but fetches nothing, not even a version document: each package is
+// unpacked into it once asked for by the tree's `unpack`, and only then
+// fetched, as `metadata` and `cache` say. A package unpacked is what the
+// full tree has at its path, file for file, patched and fixed as linking
+// bins fixes it, and held to every check of its tarball, package.json and
+// patch the full tree holds it to; one never asked for is never fetched, so
+// a lockfile one of those checks would refuse is laid out all the same, and
+// refused where that package is unpacked. Which of a package's bins pnpm
+// links turns on the others' bins, and is read only where it could change
+// the package's files: a bin pnpm would make executable, or whose CRLF `#!`
+// line it would make LF; one that is a directory, which pnpm 9 and 12 fail
+// on; or any bin of a patched package. With the hoisted linker where any
+// patch is configured, so does what pnpm's build pass does to a package it
+// builds, patched or with an install script, which is read for every such
+// package. The first such unpack fetches every package not unpacked yet,
+// reading those that are back from the tree, as the full tree does, and
+// keeps them all. Where the files could change the layout, the lockfile is
+// refused as with sizeEstimateOnly. A `vfs` is not taken with it, nor
+// `sizeEstimateOnly`.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with
 // `project` and none of them.
 export type PnpmTreeOptions = PnpmTreeGiven | PnpmTreeRead
 
 export type PnpmLayoutOptions = PnpmTreeOptions & { sizeEstimateOnly: true, vfs?: undefined }
+
+export type PnpmLazyOptions = PnpmTreeOptions & { lazy: true, sizeEstimateOnly?: false, vfs?: undefined }
 
 export interface PnpmTreeGiven {
   lockfile: string
@@ -278,6 +302,7 @@ export interface PnpmTreeGiven {
   metadata?: boolean
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
+  lazy?: boolean
 }
 
 export interface PnpmTreeRead {
@@ -292,6 +317,7 @@ export interface PnpmTreeRead {
   metadata?: boolean
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
+  lazy?: boolean
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the
@@ -304,7 +330,8 @@ export interface PnpmTreeRead {
 // With `sizeEstimateOnly`, `tarballs` counts the packages fetched by their
 // version document alone; `files` is 0, as none is written, and `bytes`
 // what the sizes of those installed add up to, each copy's, of those with
-// one.
+// one. With `lazy`, `tarballs`, `files` and `bytes` count what is unpacked,
+// each 0 until `unpack` is asked, which adds to them.
 export interface PnpmTreeStats {
   projects: number
   snapshots: number
@@ -377,6 +404,21 @@ export interface PnpmLayout {
   vfs: Vfs
   stats: PnpmTreeStats
   installed: PnpmLaidOut[]
+}
+
+// With `lazy`: `vfs` a new one, of the tree's directories and links, which
+// `unpack` writes each package's files into; `installed` each snapshot, with
+// nothing its version document says, as none is fetched. `unpack` takes the
+// paths of snapshots as `installed` lists them, and resolves once each is
+// unpacked, to their entries in that order, with what each one's version
+// document says where `metadata` has it fetched. Each is unpacked once,
+// however often and at once it is asked for, and a few tarballs are fetched at
+// a time; each is written whole or not at all, and one refused rejects the
+// call, and each call that asks for it after, with the DeptreeError the full
+// tree is refused with, once every package the call asks for is done. A path
+// the tree installs no package at is a TypeError.
+export interface PnpmLazyTree extends PnpmTree {
+  unpack(paths: Iterable<string>): Promise<PnpmInstalled[]>
 }
 
 // The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
@@ -567,6 +609,7 @@ export interface PnpmLayout {
 // and its cause is their LockfileError or YamlError. A TypeError is thrown
 // for options of the wrong type.
 export function buildPnpmTree(options: PnpmLayoutOptions): Promise<PnpmLayout>
+export function buildPnpmTree(options: PnpmLazyOptions): Promise<PnpmLazyTree>
 export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>
 
 // The directories of the projects pnpm finds in `project`, by which

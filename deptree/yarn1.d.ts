@@ -144,10 +144,10 @@ export interface Yarn1Project {
 // cache is read all the same. Other tools' caches are read for tarballs
 // whatever it is. A TypeError is thrown for anything else.
 //
-// `sizeEstimateOnly`, which buildPnpmTree and buildNpmTree take for a tree's
-// directories and links alone, is not taken, as yarn hoists and leaves out
-// packages by what their package.json says, which only their tarballs
-// hold: a TypeError is thrown for it given true.
+// `sizeEstimateOnly` and `lazy`, which buildPnpmTree and buildNpmTree take
+// for a tree's directories and links alone, are not taken, as yarn hoists
+// and leaves out packages by what their package.json says, which only their
+// tarballs hold: a TypeError is thrown for either given true.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`; or read, with `project` and none of them. `project`

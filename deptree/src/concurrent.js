@@ -22,6 +22,20 @@ export async function eachConcurrently(items, job, whereOf) {
   if (failure !== undefined) throw failure.error
 }
 
+// A job a few at a time across calls, as eachConcurrently runs them within
+// one: what a lazy tree fetches as each package is asked for.
+export function limited() {
+  const queue = new Queue(CONCURRENCY)
+  return async (job) => {
+    await queue.claim()
+    try {
+      return await job()
+    } finally {
+      queue.release()
+    }
+  }
+}
+
 // Each of `values` awaited at once, the first failure by position thrown once
 // all have ended, as eachConcurrently throws one.
 export async function settled(values) {

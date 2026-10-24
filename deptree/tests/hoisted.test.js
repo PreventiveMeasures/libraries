@@ -112,22 +112,22 @@ for (const [i, t] of TARBALLS.entries()) {
   t.dist = { unpackedSize: 1000 * (i + 1) }
 }
 
-const build = async ({ host = HOST, npmrc = NPMRC, sizeEstimateOnly, ...spec }) => {
+const build = async ({ host = HOST, npmrc = NPMRC, sizeEstimateOnly, lazy, ...spec }) => {
   const calls = stubRegistry(TARBALLS)
   const { lockfile, manifests, patches } = workspace(spec)
-  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, npmrc, workspace: Object.keys(spec.projects).length > 1 ? WORKSPACE : undefined, host, sizeEstimateOnly })
-  return { vfs, installed, stats, calls, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
+  const { vfs, installed, stats, unpack } = await buildPnpmTree({ lockfile, manifests, patches, npmrc, workspace: Object.keys(spec.projects).length > 1 ? WORKSPACE : undefined, host, sizeEstimateOnly, lazy })
+  return { vfs, installed, stats, unpack, calls, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
 }
 
 // pnpm 11 reads its settings, the patches with them, from pnpm-workspace.yaml.
 const HOST_11 = { ...HOST, pnpm: '11.28.4' }
-const build11 = async ({ host = HOST_11, settings = '', sizeEstimateOnly, ...spec }) => {
+const build11 = async ({ host = HOST_11, settings = '', sizeEstimateOnly, lazy, ...spec }) => {
   stubRegistry(TARBALLS)
   const { lockfile, manifests, patches } = workspace({ ...spec, major: 11 })
   const patching = spec.patched ? `patchedDependencies:\n  ${spec.patched}: patches/p.patch\n` : ''
   const workspaceYaml = `${WORKSPACE}nodeLinker: hoisted\npackageImportMethod: copy\n${patching}${settings}`
-  const { vfs, installed, stats } = await buildPnpmTree({ lockfile, manifests, patches, workspace: workspaceYaml, host, sizeEstimateOnly })
-  return { vfs, installed, stats, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
+  const { vfs, installed, stats, unpack } = await buildPnpmTree({ lockfile, manifests, patches, workspace: workspaceYaml, host, sizeEstimateOnly, lazy })
+  return { vfs, installed, stats, unpack, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
 }
 
 const DEBUG = { 'debug@2.6.9': { dependencies: { ms: 'ms@2.0.0' } }, 'ms@2.0.0': {}, 'ms@2.1.3': {} }
@@ -281,6 +281,72 @@ describe('buildPnpmTree with the hoisted linker and sizeEstimateOnly', () => {
   })
 })
 
+// Each copy unpacked as it is asked for: as the full tree has it, which of a
+// copy's bins pnpm links, and what its build pass does, read of every package
+// where one unpacked has a bin that would be fixed.
+describe('buildPnpmTree with the hoisted linker and lazy', () => {
+  // Each path the tree has, with its mode, a file's bytes and a link's target.
+  const contents = (vfs) => [...vfs.walk('/')].map(({ path, type }) => {
+    if (type === 'symlink') return `${path} -> ${vfs.readlink(path)}`
+    return `${path} ${type} ${vfs.lstat(path).mode.toString(8)}${type === 'file' ? ` ${createHash('sha256').update(vfs.readFile(path)).digest('hex')}` : ''}`
+  }).toSorted()
+  const BINS = {
+    projects: { '.': { dependencies: { tool: 'tool@1.0.0', zzz: 'zzz@1.0.0' } }, 'packages/a': { dependencies: { tool: 'tool@1.0.0' } } },
+    snapshots: { 'tool@1.0.0': {}, 'zzz@1.0.0': {} },
+  }
+  const OWN = {
+    projects: { '.': { dependencies: { tool: 'tool@1.0.0', 'needs-zzz': 'needs-zzz@1.0.0' } } },
+    snapshots: { 'tool@1.0.0': {}, 'zzz@1.0.0': {}, 'needs-zzz@1.0.0': { dependencies: { zzz: 'zzz@1.0.0' } } },
+  }
+  const BUILDER = {
+    projects: { '.': { dependencies: { builder: 'builder@1.0.0', tool: 'tool@1.0.0', zzz: 'zzz@1.0.0', ms: `ms@2.0.0(patch_hash=${H})` } } },
+    snapshots: { 'builder@1.0.0': { dependencies: { tool: 'tool@1.0.0' } }, 'tool@1.0.0': {}, 'zzz@1.0.0': {}, [`ms@2.0.0(patch_hash=${H})`]: {} },
+    patched: 'ms@2.0.0',
+  }
+
+  it('unpacks every copy as the full tree has it, fetching nothing before', async () => {
+    const SPREAD = {
+      projects: {
+        '.': { dependencies: { ms: 'ms@2.1.3', a: 'workspace:packages/a' } },
+        'packages/a': { dependencies: { ms: 'ms@2.0.0', debug: 'debug@2.6.9', b: 'workspace:packages/b' } },
+        'packages/b': { dependencies: { debug: 'debug@4.3.4' } },
+      },
+      snapshots: { ...DEBUG, 'debug@4.3.4': { dependencies: { ms: 'ms@2.1.3' } } },
+    }
+    for (const spec of [SPREAD, LEAVES, BINS, OWN, BUILDER]) {
+      const full = await build(spec)
+      const lazy = await build({ ...spec, lazy: true })
+      assert.deepEqual(lazy.calls, [])
+      assert.deepEqual(await lazy.unpack(lazy.installed.map(({ path }) => path).toReversed()), full.installed.toReversed())
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs))
+      assert.deepEqual(lazy.stats, full.stats)
+    }
+    for (const spec of [{ ...NESTED, host: { ...HOST, pnpm: '11.25.0' } }, { ...BINS }, { ...BUILDER }]) {
+      const full = await build11(spec)
+      const lazy = await build11({ ...spec, lazy: true })
+      assert.deepEqual(await lazy.unpack(lazy.installed.map(({ path }) => path)), full.installed)
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs))
+    }
+  })
+
+  // tool's cli.js is fixed or not as builder's build links it: unpacked alone,
+  // it is read with every package, as the full tree reads them.
+  it('unpacks a copy whose bin pnpm\'s build pass fixes as the full tree has it', async () => {
+    const full = await build(BUILDER)
+    const lazy = await build({ ...BUILDER, lazy: true })
+    await lazy.unpack(['node_modules/tool'])
+    assert.equal(lazy.vfs.stat('/node_modules/tool/cli.js').mode, 0o755)
+    assert.equal(lazy.vfs.readText('/node_modules/tool/cli.js'), full.vfs.readText('/node_modules/tool/cli.js'))
+    assert.equal(lazy.calls.filter((url) => url.endsWith('.tgz')).length, 4)
+  })
+
+  it('refuses from 10.21 to before 11.25 a package of copies one of which has a node_modules, as with sizeEstimateOnly', async () => {
+    const refused = (pnpm) => new RegExp(`^DeptreeError: "debug@2\\.6\\.9\\(patch_hash=[\\da-f]+\\)": pnpm ${pnpm.replaceAll('.', '\\.')} builds one of its copies .*: "packages\\/a\\/node_modules\\/debug\\/node_modules" may be dropped, which with lazy is not known, and is not supported$`, 'u')
+    await assert.rejects(build({ ...NESTED, lazy: true }), refused('10.33.4'))
+    await assert.rejects(build11({ ...NESTED, host: { ...HOST, pnpm: '11.24.0' }, lazy: true }), refused('11.24.0'))
+  })
+})
+
 describe('buildPnpmTree with the hoisted linker and a patch', () => {
   it('patches every copy, as pnpm 10 from 10.21 links them all to the one it patches', async () => {
     const { vfs, stats } = await build(LEAVES)
@@ -387,6 +453,11 @@ describe('buildPnpmTree with pnpm 11\'s hoisted linker', () => {
       patch: DELETE,
     }
     await assert.rejects(build11(leaves), /^DeptreeError: "ms@2\.0\.0\(patch_hash=[\da-f]+\)": pnpm 11\.28\.4 patches one of its copies, and links its files into the others, which keep "index\.js" the patch deletes, which is not supported$/u)
+    // Unpacked lazily, a copy is refused alike, though it has no bins.
+    const lazy = await build11({ ...leaves, lazy: true })
+    assert.deepEqual(await lazy.unpack(['node_modules/ms']), lazy.installed.filter(({ path }) => path === 'node_modules/ms'))
+    await assert.rejects(lazy.unpack(['packages/b/node_modules/ms']), /^DeptreeError: "ms@2\.0\.0\(patch_hash=[\da-f]+\)": pnpm 11\.28\.4 patches one of its copies, and links its files into the others, which keep "index\.js" the patch deletes, which is not supported$/u)
+    assert.deepEqual(lazy.vfs.readdir('/packages/b/node_modules/ms'), [])
     const one = { ...leaves, projects: { '.': { dependencies: { ms: `ms@2.0.0(patch_hash=${HD})` } } }, snapshots: { [`ms@2.0.0(patch_hash=${HD})`]: {} } }
     const { vfs } = await build11(one)
     assert.deepEqual(vfs.readdir('/node_modules/ms'), ['package.json'])
