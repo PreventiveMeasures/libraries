@@ -954,6 +954,17 @@ describe('moonshot adapter — Kimi K3 on Moonshot direct', () => {
     })
   })
 
+  it('sends K3.1 Pro under its bare id, with no off switch on think=false', () => {
+    withMoonshot(() => {
+      const on = buildRequestBody('moonshotai/kimi-k3.1-pro', 1000, 'sys', messages, { think: true, effort: 'low' })
+      assert.equal(on.model, 'kimi-k3.1-pro')
+      assert.equal(on.reasoning_effort, 'low')
+      const off = buildRequestBody('moonshotai/kimi-k3.1-pro', 1000, 'sys', messages)
+      assert.equal(off.reasoning_effort, undefined)
+      assert.equal(off.reasoning, undefined)
+    })
+  })
+
   it('think emits the flat reasoning_effort string, defaulting to high', () => {
     withMoonshot(() => {
       assert.equal(buildRequestBody(MODEL, 1000, 'sys', messages, { think: true }).reasoning_effort, 'high')

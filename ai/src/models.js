@@ -57,14 +57,15 @@ const BLOCKED = new Set([
 // entry. Resolve it at the input boundary instead, so one run's cache, request, and cost all key
 // off the tier it points at rather than splitting across alias and target.
 //
-// Bare `kimi-k3` gets the same treatment for a different reason: it's the id Moonshot's own docs
-// use -- and the one the adapter puts on the wire -- so operators reach for it, but unresolved it
-// matches no registry row. Every lookup would then quietly take its default: canThink false (so
+// Bare `kimi-k3` and `kimi-k3.1-pro` get the same treatment for a different reason: each is the id
+// Moonshot's own docs use -- and the one the adapter puts on the wire -- so operators reach for it,
+// but unresolved it matches no registry row. Every lookup would then quietly take its default: canThink false (so
 // thinking switches OFF on a model that always reasons and bills for it), a 64k output cap instead
 // of 131k, no price, and a cache dir that never shares with the namespaced id.
 const MODEL_ALIASES = new Map([
   ['openai/gpt-5.6', 'openai/gpt-5.6-sol'],
   ['kimi-k3', 'moonshotai/kimi-k3'],
+  ['kimi-k3.1-pro', 'moonshotai/kimi-k3.1-pro'],
 ])
 
 export function resolveModel(model) {

@@ -104,6 +104,7 @@ export const MAIN_MODELS = [
   ['deepseek/deepseek-v4-pro', { input: 1.32, output: 3.96, cacheReadPrice: 0.044, maxTokens: 384 * 1024, noThink: 'explicit', efforts: ['high', 'xhigh'] }],
   ['x-ai/grok-4.7', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: { above: 200_000, input: 2, output: 2 }, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
   ['z-ai/glm-5.3', { input: 1.4, output: 4.4, cacheReadPrice: 0.26, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
+  ['moonshotai/kimi-k3.1-pro', { input: 2, output: 10, cacheWritePrice: 2, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a little cheaper but
   // reports its own per-request cost, which wins over this table, so one row serves both routes.
   // `maxTokens` is the output default.
