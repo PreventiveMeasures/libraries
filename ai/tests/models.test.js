@@ -1075,6 +1075,12 @@ describe('Kimi K3 (moonshotai/kimi-k3)', () => {
     assert.equal(calculateCost(MODEL, { ...emptyUsage(), cacheRead: 1_000_000 }), 0.3)
   })
 
+  it('bills a 5-minute cache write at the input rate and a 1-hour one at 2x, as Moonshot does', () => {
+    // $3.00 and $6.00 per Mtok, not the 1.25x ($3.75) default for the 5m leg.
+    assert.equal(calculateCost(MODEL, { ...emptyUsage(), cacheWrite5m: 1_000_000 }), 3)
+    assert.equal(calculateCost(MODEL, { ...emptyUsage(), cacheWrite1h: 1_000_000 }), 6)
+  })
+
   it('is a paid model — usable without --free, rejected with it', () => {
     assert.doesNotThrow(() => validateModel(MODEL))
     assert.throws(() => validateModel(MODEL, { free: true }), /is not free/u)
