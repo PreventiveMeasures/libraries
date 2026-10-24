@@ -570,3 +570,81 @@ describe('the layout alone', () => {
     await assert.rejects(buildNpmTree(given({ sizeEstimateOnly: true, vfs: new Vfs() })), /^TypeError: vfs is not taken with sizeEstimateOnly, whose tree has no files to mount$/u)
   })
 })
+
+// The same layout, with nothing fetched; each package unpacked into it
+// once asked for, the bins the lockfile says it links fixed.
+describe('the layout, unpacked lazily', () => {
+  const PACKAGES = ['node_modules/@s/same', 'node_modules/a', 'node_modules/b', 'node_modules/d', 'node_modules/x', 'packages/w/node_modules/a']
+  const under = (written, path) => written.filter((line) => line.startsWith(`${path}/`) && line !== `${path}/ 755`)
+  const told = () => TARBALLS.map((t) => (t.name === 'b' ? { ...t, document: { gitHead: 'b'.repeat(40) } } : t))
+
+  it('makes the directories and links of the tree, each package\'s empty, and fetches nothing', async () => {
+    stubRegistry(told())
+    const full = await buildNpmTree(given())
+    const calls = stubRegistry(told())
+    const lazy = await buildNpmTree(given({ lazy: true }))
+    assert.deepEqual(calls, [])
+    assert.deepEqual(listing(lazy.vfs), NPM_11.filter((line) => !PACKAGES.some((path) => under([line], path).length > 0)))
+    assert.deepEqual(lazy.installed, full.installed.map((copy) => ({ ...copy, ...ABOUT })))
+    assert.deepEqual(lazy.stats, { ...full.stats, tarballs: 0, files: 0, bytes: 0 })
+  })
+
+  // @s/same claims `same` first, so d's cli.js is left as it is; a's bin is
+  // linked, and its CRLF made LF.
+  it('unpacks a package asked for as the full tree has it, fetching its tarball and document alone', async () => {
+    stubRegistry(told())
+    const full = await buildNpmTree(given())
+    const lazy = await buildNpmTree(given({ lazy: true }))
+    for (const path of ['node_modules/d', 'node_modules/a', 'node_modules/b']) {
+      const calls = stubRegistry(told())
+      const [{ name, version }] = await lazy.unpack([path])
+      assert.deepEqual(calls.toSorted(), [url(name, version), `https://registry.npmjs.org/${name}/${version}`], path)
+      assert.deepEqual(under(listing(lazy.vfs), path), under(NPM_11, path), path)
+    }
+    assert.deepEqual(await lazy.unpack(['node_modules/b']), full.installed.filter(({ path }) => path === 'node_modules/b'))
+    assert.equal(lazy.stats.tarballs, 3)
+    assert.deepEqual(under(listing(lazy.vfs), 'node_modules/@s/same'), [], 'one not asked for is left empty')
+  })
+
+  it('unpacks every package as the full tree has it, as npm 10 and 11 install it', async () => {
+    for (const host of [HOST, NPM10]) {
+      stubRegistry(told())
+      const full = await buildNpmTree(given({ host }))
+      const lazy = await buildNpmTree(given({ host, lazy: true }))
+      assert.deepEqual(await lazy.unpack(lazy.installed.map(({ path }) => path).toReversed()), full.installed.toReversed(), host.npm)
+      assert.deepEqual(listing(lazy.vfs), listing(full.vfs), host.npm)
+      assert.deepEqual(lazy.stats, full.stats, host.npm)
+    }
+  })
+
+  it('unpacks each package once, however often and at once it is asked for', async () => {
+    stubRegistry(TARBALLS)
+    const lazy = await buildNpmTree(given({ lazy: true, metadata: false }))
+    const calls = stubRegistry(TARBALLS)
+    const [twice, once] = await Promise.all([lazy.unpack(['node_modules/b', 'node_modules/x', 'node_modules/b']), lazy.unpack(new Set(['node_modules/x']))])
+    assert.equal(twice[0], twice[2])
+    assert.equal(once[0], twice[1])
+    assert.deepEqual(calls.toSorted(), [url('b', '1.0.0'), url('c', '1.0.0')])
+  })
+
+  it('refuses a package once it is unpacked, as the full tree refuses it, and leaves the others as they are', async () => {
+    const broken = () => TARBALLS.map((t) => (t.name === 'b' ? { ...t, served: T['c@1.0.0'].bytes } : t))
+    stubRegistry(broken())
+    const refused = await buildNpmTree(given()).then(() => assert.fail('the full tree is refused'), (error) => error)
+    stubRegistry(broken())
+    const lazy = await buildNpmTree(given({ lazy: true }))
+    await assert.rejects(lazy.unpack(['node_modules/x', 'node_modules/b']), { name: 'DeptreeError', message: refused.message })
+    await assert.rejects(lazy.unpack(['node_modules/b']), { name: 'DeptreeError', message: refused.message })
+    assert.deepEqual(lazy.vfs.readdir('/node_modules/b'), [])
+    assert.deepEqual(lazy.vfs.readdir('/node_modules/x'), ['index.js', 'package.json'])
+  })
+
+  it('takes lazy only as a boolean, with neither sizeEstimateOnly nor a Vfs, and unpacks the packages the tree installs alone', async () => {
+    await assert.rejects(buildNpmTree(given({ lazy: 1 })), /^TypeError: lazy must be a boolean, or left out$/u)
+    await assert.rejects(buildNpmTree(given({ lazy: true, sizeEstimateOnly: true })), /^TypeError: lazy is not taken with sizeEstimateOnly, which fetches no tarball to unpack$/u)
+    await assert.rejects(buildNpmTree(given({ lazy: true, vfs: new Vfs() })), /^TypeError: vfs is not taken with lazy, whose tree is unpacked a package at a time$/u)
+    stubRegistry(TARBALLS)
+    const { unpack } = await buildNpmTree(given({ lazy: true }))
+    await assert.rejects(unpack(['node_modules/w']), /^TypeError: "node_modules\/w" is not the path of a package the tree installs$/u)
+  })
+})

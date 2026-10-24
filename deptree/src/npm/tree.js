@@ -1,17 +1,20 @@
 // The tree `npm ci --ignore-scripts` makes, but node_modules/.bin and npm's
 // node_modules/.package-lock.json. With `sizeEstimateOnly`, its directories
 // and links alone, each package's sized by its version document, of which
-// nothing is fetched but those documents.
+// nothing is fetched but those documents. With `lazy`, its directories and
+// links alone too, fetching nothing, and each package unpacked into it as
+// it is asked for (lazyUnpacker).
 
 import { parseNpmLockfile } from '@preventive/lockfile/npm.js'
 import { Vfs } from '@preventive/vfs'
 import { dirname, relative } from '@preventive/vfs/path.js'
 import { satisfies, valid, validRange } from '@preventive/upstream/semver.js'
-import { eachConcurrently } from '../concurrent.js'
-import { DeptreeError, quote } from '../error.js'
+import { eachConcurrently, limited } from '../concurrent.js'
+import { DeptreeError, quote, refusalOf } from '../error.js'
+import { unpacker, writeInto } from '../lazy.js'
 import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
-import { fetchSize, fetchingOf } from '../tarball.js'
-import { fixBins } from './bins.js'
+import { NO_ABOUT, fetchSize, fetchingOf } from '../tarball.js'
+import { claimedBins, fixBins, fixClaimed } from './bins.js'
 import { skippedOf } from './compat.js'
 import { graphOf } from './graph.js'
 import { checkHost, inputsOf } from './inputs.js'
@@ -50,9 +53,9 @@ function checkSpecs(lockfile, host) {
   }
 }
 
-// Every URL is checked before any is fetched. With `sizeEstimateOnly`, a
-// package's size alone, with no files.
-async function fetchAll(nodes, host, fetching) {
+// Each tarball, with the packages it is, as it is fetched once for all of
+// them. Every URL is checked before any is fetched.
+function tarballsOf(nodes) {
   const tarballs = new Map()
   for (const node of nodes) {
     const tarball = registryTarball(node.pkg, whereOf(node))
@@ -60,6 +63,11 @@ async function fetchAll(nodes, host, fetching) {
     if (!tarballs.has(key)) tarballs.set(key, { tarball, where: whereOf(node), nodes: [] })
     tarballs.get(key).nodes.push(node)
   }
+  return tarballs
+}
+
+// With `sizeEstimateOnly`, a package's size alone, with no files.
+async function fetchAll(tarballs, host, fetching) {
   const fetched = new Map()
   const fetch = (tarball, where) => (fetching.sizeEstimateOnly ? fetchSize(tarball.name, tarball.version, tarball.integrity, where, fetching) : fetchNpmPackage(tarball, where, host.ratio ? checkRatio : undefined, fetching))
   await eachConcurrently(tarballs.values(), async ({ tarball, where, nodes: copies }) => {
@@ -82,17 +90,17 @@ function residueOf(nodes, skipped) {
 }
 
 // With `sizeEstimateOnly`, each package's directory alone is made, and its
-// size counted.
-function writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly }) {
+// size counted; with `lazy`, its directory alone.
+function writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly, lazy }) {
   const vfs = new Vfs()
   const stats = { files: 0, bytes: 0, links: 0 }
   for (const node of kept) {
-    const { files, dirs, size } = fetched.get(node)
-    if (sizeEstimateOnly) {
+    if (sizeEstimateOnly || lazy) {
       makeDirs(vfs, node.location)
-      stats.bytes += size ?? 0
+      if (sizeEstimateOnly) stats.bytes += fetched.get(node).size ?? 0
       continue
     }
+    const { files, dirs } = fetched.get(node)
     const fixed = changed.get(node.location)
     writeFiles(vfs, node.location, { dirs, files: fixed === undefined ? files : new Map([...files].map(([path, file]) => [path, fixed.get(path) ?? file])) }, stats)
   }
@@ -104,6 +112,49 @@ function writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly
   }
   for (const dir of residue) makeDirs(vfs, dir)
   return { vfs, stats }
+}
+
+// A lazy tree's unpack (../lazy.js): each tarball fetched once for all the
+// packages it is, a few at a time, and held to what the full tree holds it
+// to; each package written as the full tree writes it, with the bins it
+// links fixed, which the lockfile alone tells. A tarball's files are let go
+// once each of its packages is unpacked.
+function lazyUnpacker({ vfs, kept, tarballOf, settings, host, fetching, stats, folded, entryOf }) {
+  const limit = limited()
+  const claimed = settings.binLinks ? claimedBins(kept) : new Map()
+  const left = new Map([...new Set(tarballOf.values())].map((group) => [group, group.nodes.length]))
+  const fetched = new Map()
+  const counted = new Set()
+  const fetchOnce = (group) => {
+    if (!fetched.has(group)) {
+      fetched.set(group, limit(() => fetchNpmPackage(group.tarball, group.where, host.ratio ? checkRatio : undefined, fetching)).then((got) => {
+        counted.add(group)
+        stats.tarballs = counted.size
+        return { ...got, integrity: group.tarball.integrity }
+      }, (error) => {
+        throw refusalOf(error, group.where)
+      }))
+    }
+    return fetched.get(group)
+  }
+  return unpacker(new Map(kept.map((node) => [node.location, node])), async (node) => {
+    const group = tarballOf.get(node)
+    const got = await fetchOnce(group)
+    const tree = new Vfs()
+    const written = { files: 0, bytes: 0, links: 0 }
+    try {
+      const fixed = claimed.has(node.location) ? fixClaimed(node.location, claimed.get(node.location), got) : new Map()
+      writeFiles(tree, node.location, { dirs: got.dirs, files: fixed.size === 0 ? got.files : new Map([...got.files].map(([path, file]) => [path, fixed.get(path) ?? file])) }, written)
+      writeInto(vfs, tree, folded)
+    } catch (error) {
+      throw refusalOf(error, whereOf(node))
+    }
+    stats.files += written.files
+    stats.bytes += written.bytes
+    left.set(group, left.get(group) - 1)
+    if (left.get(group) === 0) fetched.delete(group)
+    return entryOf(node, got)
+  })
 }
 
 // The lockfile reader refuses what does not parse.
@@ -120,6 +171,7 @@ export async function buildNpmTree(options) {
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   const fetching = fetchingOf(options ?? {})
   if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
+  if (fetching.lazy && into !== undefined) throw new TypeError('vfs is not taken with lazy, whose tree is unpacked a package at a time')
   const host = checkHost(given)
   const folded = host.os === 'darwin'
   const inputs = inputsOf(options ?? {}, folded)
@@ -136,16 +188,21 @@ export async function buildNpmTree(options) {
   const nodes = graphOf(lockfile, manifests)
   const skipped = skippedOf(nodes, host, settings)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))
-  const { fetched, tarballs } = await fetchAll(kept, host, fetching)
-  const changed = settings.binLinks && !fetching.sizeEstimateOnly ? fixBins(kept, fetched) : new Map()
+  const tarballs = tarballsOf(kept)
+  const { fetched, tarballs: count } = fetching.lazy ? { fetched: new Map(), tarballs: 0 } : await fetchAll(tarballs, host, fetching)
+  const changed = settings.binLinks && !fetching.sizeEstimateOnly && !fetching.lazy ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
-  const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly: fetching.sizeEstimateOnly })
+  const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly: fetching.sizeEstimateOnly, lazy: fetching.lazy })
   const packages = Object.keys(lockfile.packages).length
-  const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs, ...written }
-  const installed = kept.map((node) => {
+  const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs: count, ...written }
+  const entryOf = (node, { integrity, about, size }) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
-    const { integrity, about, size } = fetched.get(node)
     return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer, ...fetching.sizeEstimateOnly ? { size } : {} }
-  })
-  return { vfs: mount(vfs, into, folded), stats, installed }
+  }
+  const tarballOf = new Map([...tarballs.values()].flatMap((group) => group.nodes.map((node) => [node, group])))
+  // With `lazy`, by the lockfile's integrity, and nothing a document says yet.
+  const installed = kept.map((node) => entryOf(node, fetched.get(node) ?? { integrity: tarballOf.get(node).tarball.integrity, about: NO_ABOUT }))
+  const tree = mount(vfs, into, folded)
+  if (!fetching.lazy) return { vfs: tree, stats, installed }
+  return { vfs: tree, stats, installed, unpack: lazyUnpacker({ vfs: tree, kept, tarballOf, settings, host, fetching, stats, folded, entryOf }) }
 }

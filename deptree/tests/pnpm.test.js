@@ -5,7 +5,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, YamlError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
-import { ABOUT, HOST, memoryStore, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball } from './registry.js'
+import { ABOUT, HOST, memoryStore, paths, rawTar, sri, stubFailingRegistry, stubRegistry, tarball, url as tgz } from './registry.js'
 
 // A lockfile with a package of every kind this builds, from tarballs made
 // here; then one change at a time, each refused with where and why.
@@ -14,6 +14,12 @@ const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
 const hex = (text) => createHash('sha256').update(text).digest('hex')
+// MD5 in base32, as pnpm 9 hashes a patch.
+const md5 = (text) => {
+  let bits = ''
+  for (const byte of createHash('md5').update(text).digest()) bits += byte.toString(2).padStart(8, '0')
+  return bits.padEnd(130, '0').match(/.{5}/gu).map((chunk) => 'abcdefghijklmnopqrstuvwxyz234567'[Number.parseInt(chunk, 2)]).join('')
+}
 
 const PATCH = `diff --git a/index.js b/index.js
 index 0000000..1111111 100644
@@ -148,6 +154,14 @@ const root = ({ pnpm = {}, ...fields } = {}) => JSON.stringify({
 
 const buildResult = ({ manifest = root(), ...options } = {}) => buildPnpmTree({ lockfile: lockfile(), manifests: { '.': manifest }, patches: { 'patches/p.patch': PATCH }, host: HOST, ...options })
 const build = async (options) => (await buildResult(options)).vfs
+// Each path the tree has, with its mode, a file's bytes and a link's target,
+// in order, as a lazy tree's are written in another.
+const contents = (vfs, under = '/') => [...vfs.walk('/')].filter(({ path }) => path.startsWith(under)).map(({ path, type }) => {
+  const { mode } = vfs.lstat(path)
+  if (type === 'symlink') return `${path} -> ${vfs.readlink(path)}`
+  return `${path} ${type} ${mode.toString(8)}${type === 'file' ? ` ${hex(vfs.readFile(path))}` : ''}`
+}).toSorted()
+const tgzs = (calls) => calls.filter((called) => called.endsWith('.tgz'))
 const HOST_9 = { ...HOST, pnpm: '9.15.9' }
 const HOST_11 = { ...HOST, pnpm: '11.28.2' }
 const HOST_12 = { ...HOST, pnpm: '12.8.1' }
@@ -829,11 +843,6 @@ const UNPATCHED = root({ pnpm: { patchedDependencies: undefined } })
 // `*eslint*` and `*prettier*` publicly by default. Each as real installs of
 // pnpm 9.15.9 have it.
 describe('buildPnpmTree for pnpm 9', () => {
-  const md5 = (text) => {
-    let bits = ''
-    for (const byte of createHash('md5').update(text).digest()) bits += byte.toString(2).padStart(8, '0')
-    return bits.padEnd(130, '0').match(/.{5}/gu).map((chunk) => 'abcdefghijklmnopqrstuvwxyz234567'[Number.parseInt(chunk, 2)]).join('')
-  }
   const H9 = md5(PATCH)
   const lockfile9 = () => lockfile({ patchHash: H9 })
   const built = (options = {}) => buildResult({ lockfile: lockfile9(), host: HOST_9, ...options })
@@ -1401,6 +1410,23 @@ describe('buildPnpmTree into a given Vfs', () => {
       })
     })
 
+    // Its cli.js is fixed as it is linked, which turns on the bins of every
+    // package, as the full tree reads them.
+    it('unpacks it with lazy as the full tree has it, fetching every package for its bin', async () => {
+      const later = 'overrides:\n  foo: file:./vendor/foo\n'
+      for (const [host, manifest, workspace] of [[HOST_9, v10], [HOST, v10], [HOST_11, rootWith(), later], [HOST_12, rootWith(), later]]) {
+        stubRegistry([await app])
+        const project = createVfs({ 'package.json': manifest, ...vendored })
+        const full = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': manifest }, workspace, host, project })
+        const calls = stubRegistry([await app])
+        const lazy = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': manifest }, workspace, host, project, lazy: true })
+        assert.deepEqual(lazy.vfs.readdir(FOO), [], host.pnpm)
+        assert.deepEqual(await lazy.unpack([FOO.slice(1)]), full.installed.filter(({ name }) => name === 'foo'), host.pnpm)
+        assert.deepEqual(contents(lazy.vfs, FOO), contents(full.vfs, FOO), host.pnpm)
+        assert.deepEqual(tgzs(calls), [tgz('app', '1.0.0')], host.pnpm)
+      }
+    })
+
     it('sizes it by the files it installs with sizeEstimateOnly, as read before a bin is fixed', async () => {
       const calls = stubRegistry([{ ...await app, dist: { unpackedSize: 3 } }])
       const project = createVfs({ 'package.json': v10, ...vendored })
@@ -1749,5 +1775,128 @@ describe('buildPnpmTree with sizeEstimateOnly', () => {
   it('takes sizeEstimateOnly only as a boolean, and no Vfs to mount into', async () => {
     await assert.rejects(buildResult({ sizeEstimateOnly: 'yes' }), /^TypeError: sizeEstimateOnly must be a boolean, or left out$/u)
     await assert.rejects(buildResult({ sizeEstimateOnly: true, vfs: createVfs({}) }), /^TypeError: vfs is not taken with sizeEstimateOnly, whose tree has no files to mount$/u)
+  })
+})
+
+// The tree's directories and links, as sizeEstimateOnly lays them out, with
+// nothing fetched; each package unpacked into it once asked for.
+describe('buildPnpmTree with lazy', () => {
+  const LODASH = 'node_modules/.pnpm/lodash@4.17.21/node_modules/lodash'
+  const A = 'node_modules/.pnpm/a@1.0.0_c@2.0.0/node_modules/a'
+  const told = TARBALLS.map((t) => (t.name === 'lodash' ? { ...t, document: { gitHead: 'a'.repeat(40), homepage: 'https://lodash.com/' } } : t))
+  // pnpm 11 and 12 read the patches from pnpm-workspace.yaml.
+  const versions = [[HOST_9, { lockfile: lockfile({ patchHash: md5(PATCH) }) }], [HOST], [HOST_11, { lockfile: flatLockfile(), manifest: UNPATCHED, workspace: PATCHED_IN_YAML }], [HOST_12, { lockfile: flatLockfile(), manifest: UNPATCHED, workspace: PATCHED_IN_YAML }]]
+  const inPackages = (vfs, installed) => contents(vfs).filter((line) => installed.some(({ path }) => line.startsWith(`/${path}/`)))
+
+  it('lays out the tree as sizeEstimateOnly does, each package\'s directory empty, and fetches nothing', async () => {
+    stubRegistry(told)
+    const full = await buildResult()
+    const calls = stubRegistry(told)
+    const lazy = await buildResult({ lazy: true })
+    assert.deepEqual(calls, [])
+    assert.deepEqual(contents(lazy.vfs), contents(full.vfs).filter((line) => !inPackages(full.vfs, full.installed).includes(line)))
+    for (const { path } of lazy.installed) assert.deepEqual(lazy.vfs.readdir(`/${path}`), [], path)
+    assert.deepEqual(lazy.installed, full.installed.map((copy) => ({ ...copy, ...ABOUT })))
+    assert.deepEqual(lazy.stats, { ...full.stats, tarballs: 0, files: 0, bytes: 0 })
+  })
+
+  it('unpacks a package asked for as the full tree has it, fetching its tarball and document alone', async () => {
+    stubRegistry(told)
+    const full = await buildResult()
+    const calls = stubRegistry(told)
+    const lazy = await buildResult({ lazy: true })
+    assert.deepEqual(await lazy.unpack([LODASH]), full.installed.filter(({ path }) => path === LODASH))
+    assert.deepEqual(calls.toSorted(), [tgz('lodash', '4.17.21'), 'https://registry.npmjs.org/lodash/4.17.21'])
+    assert.deepEqual(contents(lazy.vfs, `/${LODASH}/`), contents(full.vfs, `/${LODASH}/`))
+    for (const { path } of lazy.installed) if (path !== LODASH) assert.deepEqual(lazy.vfs.readdir(`/${path}`), [], path)
+    const files = contents(full.vfs, `/${LODASH}/`).filter((line) => line.includes(' file '))
+    assert.deepEqual(lazy.stats, { ...full.stats, tarballs: 1, files: files.length, bytes: ['package.json', 'lodash.js'].reduce((sum, name) => sum + full.vfs.readFile(`/${LODASH}/${name}`).length, 0) })
+    assert.equal(lazy.vfs.realpath('/node_modules/my-lodash/lodash.js'), `/${LODASH}/lodash.js`)
+  })
+
+  it('unpacks each package once, however often and at once it is asked for', async () => {
+    stubRegistry(TARBALLS)
+    const lazy = await buildResult({ lazy: true, metadata: false })
+    const calls = stubRegistry(TARBALLS)
+    const [twice, once] = await Promise.all([lazy.unpack([LODASH, A, LODASH]), lazy.unpack(new Set([A]))])
+    assert.deepEqual(twice.map(({ path }) => path), [LODASH, A, LODASH])
+    assert.equal(twice[0], twice[2])
+    assert.equal(once[0], twice[1])
+    await lazy.unpack([LODASH])
+    assert.deepEqual(calls.toSorted(), [tgz('a', '1.0.0'), tgz('lodash', '4.17.21')])
+    assert.equal(lazy.stats.tarballs, 2)
+  })
+
+  it('unpacks every package as the full tree has it, as each pnpm installs it', async () => {
+    for (const [host, given] of versions) {
+      stubRegistry(told)
+      const full = await buildResult({ host, ...given })
+      const lazy = await buildResult({ host, ...given, lazy: true })
+      assert.deepEqual(await lazy.unpack(lazy.installed.map(({ path }) => path)), full.installed, host.pnpm)
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs), host.pnpm)
+      assert.deepEqual(lazy.stats, full.stats, host.pnpm)
+    }
+  })
+
+  // pnpm links t's `t` over u's, and fixes t's file as it does, CRLF and all,
+  // which turns on u's bins: t is unpacked once every package is fetched, as
+  // the full tree reads them. d's bin is executable and LF already, which
+  // linking leaves as it is, whatever is linked: it is unpacked alone.
+  it('fetches every package to unpack one whose bin linking would fix, and none for one it leaves as it is', async () => {
+    const bins = await Promise.all([
+      tarball('t', '1.0.0', { 'cli.js': '#!/usr/bin/env node\r\nrun()\r\n' }, { manifest: { bin: { t: 'cli.js' } } }),
+      tarball('u', '1.0.0', { 'u.js': '#!/usr/bin/env node\r\n' }, { manifest: { bin: { t: 'u.js' } } }),
+      tarball('d', '1.0.0', { 'bin/d.js': { data: '#!/usr/bin/env node\n', mode: 0o755 } }, { manifest: { bin: { d: 'bin/d.js' } } }),
+    ])
+    const dir = (name) => `node_modules/.pnpm/${name}@1.0.0/node_modules/${name}`
+    for (const host of [HOST_9, HOST, HOST_11, HOST_12]) {
+      const full = await only(bins, { fields: '    hasBin: true\n', host })
+      const lazy = await only(bins, { fields: '    hasBin: true\n', host, lazy: true, metadata: false })
+      const calls = stubRegistry(bins)
+      await lazy.unpack([dir('d')])
+      assert.deepEqual(calls, [tgz('d', '1.0.0')], host.pnpm)
+      await lazy.unpack([dir('t')])
+      assert.deepEqual(new Set(tgzs(calls)), new Set(['d', 't', 'u'].map((name) => tgz(name, '1.0.0'))), host.pnpm)
+      const fetched = calls.length
+      await lazy.unpack([dir('u')])
+      assert.equal(calls.length, fetched, 'u is at hand already')
+      assert.equal(lazy.stats.tarballs, 3, host.pnpm)
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs), host.pnpm)
+    }
+  })
+
+  it('refuses a package once it is unpacked, as the full tree refuses it, and leaves the others as they are', async () => {
+    const broken = told.map((t) => (t.name === 'lodash' ? { ...t, served: TARBALLS[0].bytes } : t))
+    stubRegistry(broken)
+    const refused = await buildResult().then(() => assert.fail('the full tree is refused'), (error) => error)
+    stubRegistry(broken)
+    const lazy = await buildResult({ lazy: true })
+    await assert.rejects(lazy.unpack([A, LODASH]), { name: 'DeptreeError', message: refused.message })
+    await assert.rejects(lazy.unpack([LODASH]), { name: 'DeptreeError', message: refused.message })
+    assert.deepEqual(lazy.vfs.readdir(`/${LODASH}`), [])
+    assert.deepEqual(lazy.vfs.readdir(`/${A}`), ['index.js', 'package.json'])
+  })
+
+  it('holds a package unpacked to its package.json as the full tree does', async () => {
+    const renamed = await tarball('lodash', '4.17.21', { 'lodash.js': 'lodash' }, { manifest: { name: 'not-lodash' } })
+    const served = TARBALLS.map((t) => (t.name === 'lodash' ? { ...renamed, integrity: t.integrity, bytes: renamed.bytes, served: renamed.bytes } : t))
+    const locked = lockfile().replace(`resolution: {integrity: ${I.lodash}}`, `resolution: {integrity: ${renamed.integrity}}`)
+    stubRegistry(served.map((t) => (t.name === 'lodash' ? { ...t, integrity: renamed.integrity } : t)))
+    const refused = await buildResult({ lockfile: locked }).then(() => assert.fail('the full tree is refused'), (error) => error)
+    const lazy = await buildResult({ lockfile: locked, lazy: true })
+    await assert.rejects(lazy.unpack([LODASH]), { name: 'DeptreeError', message: refused.message })
+    assert.match(refused.message, /package\.json is for "not-lodash@4\.17\.21"$/u)
+  })
+
+  it('takes lazy only as a boolean, with neither sizeEstimateOnly nor a Vfs, and unpacks the packages the tree installs alone', async () => {
+    await assert.rejects(buildResult({ lazy: 'yes' }), /^TypeError: lazy must be a boolean, or left out$/u)
+    await assert.rejects(buildResult({ lazy: true, sizeEstimateOnly: true }), /^TypeError: lazy is not taken with sizeEstimateOnly, which fetches no tarball to unpack$/u)
+    await assert.rejects(buildResult({ lazy: true, vfs: createVfs({}) }), /^TypeError: vfs is not taken with lazy, whose tree is unpacked a package at a time$/u)
+    stubRegistry(TARBALLS)
+    const { unpack } = await buildResult({ lazy: true })
+    await assert.rejects(unpack(LODASH), /^TypeError: paths must be an iterable of the paths of packages the tree installs$/u)
+    await assert.rejects(unpack(['node_modules/my-lodash']), /^TypeError: "node_modules\/my-lodash" is not the path of a package the tree installs$/u)
+    await assert.rejects(unpack([1]), /^TypeError: "1" is not the path of a package the tree installs$/u)
+    assert.equal((await buildResult()).unpack, undefined)
   })
 })

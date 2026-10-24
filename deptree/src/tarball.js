@@ -89,16 +89,20 @@ export const NO_ABOUT = Object.freeze(aboutOf({}))
 
 // What a tree's options say of what it fetches from npm's registry:
 // `metadata`, true unless given false; `cache`, as upstream's CacheOptions
-// take it, which keeps each version's document and tarball; and
+// take it, which keeps each version's document and tarball;
 // `sizeEstimateOnly`, false unless given true, for each version's document
-// alone (fetchSize).
-export function fetchingOf({ metadata = true, cache, sizeEstimateOnly = false }) {
+// alone (fetchSize); and `lazy`, false unless given true, for nothing until a
+// package is unpacked, and then its tarball, as without it. The two are
+// refused together: a tree is laid out with sizes alone, or to be unpacked.
+export function fetchingOf({ metadata = true, cache, sizeEstimateOnly = false, lazy = false }) {
   if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
   if (cache !== undefined && cache !== false && (typeof cache?.read !== 'function' || typeof cache?.write !== 'function')) {
     throw new TypeError('cache must be false, or a store with read and write, or left out')
   }
   if (typeof sizeEstimateOnly !== 'boolean') throw new TypeError('sizeEstimateOnly must be a boolean, or left out')
-  return { metadata, cache, sizeEstimateOnly }
+  if (typeof lazy !== 'boolean') throw new TypeError('lazy must be a boolean, or left out')
+  if (lazy && sizeEstimateOnly) throw new TypeError('lazy is not taken with sizeEstimateOnly, which fetches no tarball to unpack')
+  return { metadata, cache, sizeEstimateOnly, lazy }
 }
 
 const SHA512 = /^sha512-[\d+/A-Za-z]{86}==$/u

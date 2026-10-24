@@ -3,6 +3,7 @@
 // dependency the lockfile left out of a snapshot would leave the package to
 // find it wherever it is hoisted, if anywhere.
 
+import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNesting } from '../manifest.js'
@@ -118,6 +119,15 @@ export function checkDependencies(manifest, read, pkg, packages, where) {
   for (const name of names(pkg.optionalDependencies)) {
     if (!optional.has(name)) throw new DeptreeError(`the lockfile gives it ${quote(name)} as optional, which its package.json does not`, where)
   }
+}
+
+// What is held of a package's files once fetched, for one of its snapshots:
+// its package.json, as the hook has it, asks for what the snapshot gives it.
+export function checkFetched(node, got, { lockfile, hook, fresh }) {
+  if (got.manifest === undefined) return
+  got.read ??= hook(got.manifest, `${quote(packageKeyOf(node.key))}: package.json`)
+  checkDependencies(got.manifest, got.read, node.pkg, lockfile.packages, quote(node.key))
+  fresh?.(node, got.read)
 }
 
 export async function fetchPackage(pkg, where, major, fetching) {

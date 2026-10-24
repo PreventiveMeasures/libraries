@@ -208,12 +208,13 @@ export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules
 // tarball tells, and puts hardlinks of it in place of the others, dropping
 // their node_modules. A package of more than one copy, one with a
 // node_modules, may lose it. `placed` are the copies, as hoistedLayout
-// places them.
-export function checkNoneDropped(placed, pnpm) {
+// places them; `option` the one the tree is laid out with, which does not
+// know it: sizeEstimateOnly or lazy.
+export function checkNoneDropped(placed, pnpm, option = 'sizeEstimateOnly') {
   const placedIn = new Set(placed.values().map((node) => node.modules))
   for (const [key, copies] of Map.groupBy(placed.values(), (node) => node.key)) {
     const nested = copies.length > 1 ? copies.find((copy) => placedIn.has(`${copy.dir}/node_modules`)) : undefined
-    if (nested !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which with sizeEstimateOnly is not known, and is not supported`, quote(key))
+    if (nested !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which with ${option} is not known, and is not supported`, quote(key))
   }
 }
 

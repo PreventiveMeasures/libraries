@@ -140,9 +140,23 @@ export interface NpmProject {
 // undefined where the document names none. What is checked of a package's
 // tarball and files is not, so a lockfile one of those checks would refuse is
 // laid out all the same. A `vfs` is not taken with it.
+//
+// `lazy`, false unless given true, lays the tree out as sizeEstimateOnly
+// does, each package's directory made and left empty and each link made,
+// but fetches nothing, not even a version document: each package is
+// unpacked into it once asked for by the tree's `unpack`, and only then
+// fetched, as `metadata` and `cache` say. A package unpacked is what the
+// full tree has at its path, file for file, with the bins it links fixed,
+// which the lockfile alone tells, and held to every check of its tarball and
+// files the full tree holds it to; one never asked for is never fetched, so
+// a lockfile one of those checks would refuse is laid out all the same, and
+// refused where that package is unpacked. A `vfs` is not taken with it, nor
+// `sizeEstimateOnly`.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
 export type NpmLayoutOptions = NpmTreeOptions & { sizeEstimateOnly: true, vfs?: undefined }
+
+export type NpmLazyOptions = NpmTreeOptions & { lazy: true, sizeEstimateOnly?: false, vfs?: undefined }
 
 export interface NpmTreeGiven {
   lockfile: string
@@ -154,6 +168,7 @@ export interface NpmTreeGiven {
   metadata?: boolean
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
+  lazy?: boolean
 }
 
 export interface NpmTreeRead {
@@ -166,6 +181,7 @@ export interface NpmTreeRead {
   metadata?: boolean
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
+  lazy?: boolean
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the
@@ -175,7 +191,9 @@ export interface NpmTreeRead {
 // is written; `links` the workspaces linked. With `sizeEstimateOnly`,
 // `tarballs` counts those fetched by their version document alone; `files`
 // is 0, as none is written, and `bytes` what the sizes of those installed
-// add up to, each copy's, of those with one.
+// add up to, each copy's, of those with one. With `lazy`, `tarballs`,
+// `files` and `bytes` count what is unpacked, each 0 until `unpack` is
+// asked, which adds to them.
 export interface NpmTreeStats {
   packages: number
   installed: number
@@ -241,6 +259,21 @@ export interface NpmLayout {
   vfs: Vfs
   stats: NpmTreeStats
   installed: NpmLaidOut[]
+}
+
+// With `lazy`: `vfs` a new one, of the tree's directories and links, which
+// `unpack` writes each package's files into; `installed` each package, with
+// nothing its version document says, as none is fetched. `unpack` takes the
+// paths of packages as `installed` lists them, and resolves once each is
+// unpacked, to their entries in that order, with what each one's version
+// document says where `metadata` has it fetched. Each is unpacked once,
+// however often and at once it is asked for, and a few tarballs are fetched at
+// a time; each is written whole or not at all, and one refused rejects the
+// call, and each call that asks for it after, with the DeptreeError the full
+// tree is refused with, once every package the call asks for is done. A path
+// the tree installs no package at is a TypeError.
+export interface NpmLazyTree extends NpmTree {
+  unpack(paths: Iterable<string>): Promise<NpmInstalled[]>
 }
 
 // The node_modules tree `npm ci --ignore-scripts` makes, with host.npm,
@@ -333,6 +366,7 @@ export interface NpmLayout {
 // each is refused with a DeptreeError or a LockfileError that says where.
 // A TypeError is thrown for options of the wrong type.
 export function buildNpmTree(options: NpmLayoutOptions): Promise<NpmLayout>
+export function buildNpmTree(options: NpmLazyOptions): Promise<NpmLazyTree>
 export function buildNpmTree(options: NpmTreeOptions): Promise<NpmTree>
 
 // The directories of the projects npm finds in `project`, by which

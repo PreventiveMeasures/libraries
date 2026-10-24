@@ -664,6 +664,7 @@ describe('buildYarn1Tree refuses', () => {
     await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, metadata: 1 }), { name: 'TypeError', message: 'metadata must be a boolean, or left out' })
     await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, cache: 'store' }), { name: 'TypeError', message: 'cache must be false, or a store with read and write, or left out' })
     await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, sizeEstimateOnly: true }), { name: 'TypeError', message: 'sizeEstimateOnly is not taken for yarn 1, which hoists and leaves out packages by what their package.json says, which only their tarballs hold' })
+    await assert.rejects(buildYarn1Tree({ project: project(), host: HOST, lazy: true }), { name: 'TypeError', message: 'lazy is not taken for yarn 1, which hoists and leaves out packages by what their package.json says, which only their tarballs hold' })
   })
 
   it('a lockfile the lockfile reader refuses', async () => {
