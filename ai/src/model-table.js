@@ -108,7 +108,7 @@ export const MAIN_MODELS = [
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a little cheaper but
   // reports its own per-request cost, which wins over this table, so one row serves both routes.
   // `maxTokens` is the output default.
-  ['moonshotai/kimi-k3', { input: 3, output: 15, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
+  ['moonshotai/kimi-k3', { input: 3, output: 15, cacheWritePrice: 3, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['xiaomi/mimo-v2.6-pro', { input: 0.435, output: 0.87, cacheReadPrice: 0.0036, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['xiaomi/mimo-v2.6-flash', { input: 0.14, output: 0.28, cacheReadPrice: 0.0028, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['mistralai/mistral-large-4-0', { input: 0.68, output: 2.09, cacheReadPrice: 0.07, maxTokens: 256 * 1024, noThink: 'explicit', efforts: ['high'] }],
