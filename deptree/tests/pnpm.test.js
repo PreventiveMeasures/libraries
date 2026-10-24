@@ -1839,9 +1839,10 @@ describe('buildPnpmTree with lazy', () => {
   })
 
   // pnpm links t's `t` over u's, and fixes t's file as it does, CRLF and all,
-  // which turns on u's bins: t is unpacked once every package is fetched, as
-  // the full tree reads them. d's bin is executable and LF already, which
-  // linking leaves as it is, whatever is linked: it is unpacked alone.
+  // which turns on u's bins: t is unpacked once every package is at hand, as
+  // the full tree reads them, d read back from the tree. d's bin is
+  // executable and LF already, which linking leaves as it is, whatever is
+  // linked: it is unpacked alone.
   it('fetches every package to unpack one whose bin linking would fix, and none for one it leaves as it is', async () => {
     const bins = await Promise.all([
       tarball('t', '1.0.0', { 'cli.js': '#!/usr/bin/env node\r\nrun()\r\n' }, { manifest: { bin: { t: 'cli.js' } } }),
@@ -1856,7 +1857,7 @@ describe('buildPnpmTree with lazy', () => {
       await lazy.unpack([dir('d')])
       assert.deepEqual(calls, [tgz('d', '1.0.0')], host.pnpm)
       await lazy.unpack([dir('t')])
-      assert.deepEqual(new Set(tgzs(calls)), new Set(['d', 't', 'u'].map((name) => tgz(name, '1.0.0'))), host.pnpm)
+      assert.deepEqual(tgzs(calls).toSorted(), ['d', 't', 'u'].map((name) => tgz(name, '1.0.0')), `${host.pnpm}: d is read back as it was unpacked, not fetched again`)
       const fetched = calls.length
       await lazy.unpack([dir('u')])
       assert.equal(calls.length, fetched, 'u is at hand already')

@@ -272,10 +272,14 @@ export interface PnpmProject {
 // links turns on the others' bins, and is read only where it could change
 // the package's files: a bin pnpm would make executable, or whose CRLF `#!`
 // line it would make LF; one that is a directory, which pnpm 9 and 12 fail
-// on; or any bin of a patched package. The first such unpack fetches every
-// package, as the full tree does, and keeps them all. Where the files could
-// change the layout, the lockfile is refused as with sizeEstimateOnly. A
-// `vfs` is not taken with it, nor `sizeEstimateOnly`.
+// on; or any bin of a patched package. With the hoisted linker where any
+// patch is configured, so does what pnpm's build pass does to a package it
+// builds, patched or with an install script, which is read for every such
+// package. The first such unpack fetches every package not unpacked yet,
+// reading those that are back from the tree, as the full tree does, and
+// keeps them all. Where the files could change the layout, the lockfile is
+// refused as with sizeEstimateOnly. A `vfs` is not taken with it, nor
+// `sizeEstimateOnly`.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with

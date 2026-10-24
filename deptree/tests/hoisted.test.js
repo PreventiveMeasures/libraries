@@ -453,6 +453,11 @@ describe('buildPnpmTree with pnpm 11\'s hoisted linker', () => {
       patch: DELETE,
     }
     await assert.rejects(build11(leaves), /^DeptreeError: "ms@2\.0\.0\(patch_hash=[\da-f]+\)": pnpm 11\.28\.4 patches one of its copies, and links its files into the others, which keep "index\.js" the patch deletes, which is not supported$/u)
+    // Unpacked lazily, a copy is refused alike, though it has no bins.
+    const lazy = await build11({ ...leaves, lazy: true })
+    assert.deepEqual(await lazy.unpack(['node_modules/ms']), lazy.installed.filter(({ path }) => path === 'node_modules/ms'))
+    await assert.rejects(lazy.unpack(['packages/b/node_modules/ms']), /^DeptreeError: "ms@2\.0\.0\(patch_hash=[\da-f]+\)": pnpm 11\.28\.4 patches one of its copies, and links its files into the others, which keep "index\.js" the patch deletes, which is not supported$/u)
+    assert.deepEqual(lazy.vfs.readdir('/packages/b/node_modules/ms'), [])
     const one = { ...leaves, projects: { '.': { dependencies: { ms: `ms@2.0.0(patch_hash=${HD})` } } }, snapshots: { [`ms@2.0.0(patch_hash=${HD})`]: {} } }
     const { vfs } = await build11(one)
     assert.deepEqual(vfs.readdir('/node_modules/ms'), ['package.json'])

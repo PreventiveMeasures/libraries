@@ -181,7 +181,8 @@ const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 // pnpm keeps only its state in node_modules/.pnpm. `fixes` are what linking
 // bins does to the files, with what pnpm's build pass does to them, read once
 // every package's files are at hand; with `sizeEstimateOnly` they are not
-// followed, nor with `lazy` but where a package unpacked needs them.
+// followed, nor with `lazy` but where a package unpacked needs them. `builds`
+// tells, where any patch is configured, what the build pass builds.
 async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
@@ -201,14 +202,15 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const linked = readLinked(links, byDir, manifests, project)
   const prod = prodPackages(lockfile, skipped, directories)
   const dev = (node) => !prod.has(packageIdOf(node.key, node.pkg, directories))
+  const builds = building ? (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major) : undefined
   const fixes = () => {
     const idOf = since('11.23.0') ? (key) => packageIdOf(key, lockfile.packages[key], directories) : (key) => key
     const changesOf = (node) => parsedPatch(patched, node.pkg.patchHash).parsed
-    const builds = building ? hoistedBuilds(byDir, new Set(projects), (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major), { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
-    const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds, hardlinks, keepsModules, idOf, major })
+    const built = building ? hoistedBuilds(byDir, new Set(projects), builds, { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
+    const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds: built, hardlinks, keepsModules, idOf, major })
     return { targets, executable: new Map() }
   }
-  return { byDir, links, fixes, tarballs, dev, checks }
+  return { byDir, links, fixes, builds, tarballs, dev, checks }
 }
 
 // The isolated layout: each package in node_modules/.pnpm, linked from what
@@ -276,7 +278,7 @@ export async function buildPnpmTree(options) {
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const { byDir, links, fixes, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
+  const { byDir, links, fixes, builds, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()
 
@@ -309,5 +311,5 @@ export async function buildPnpmTree(options) {
   const tree = mount(vfs, into, folded)
   if (!fetching.lazy) return { vfs: tree, stats, installed: listed }
   const entryOf = (node) => installedOf(node, dev(node), patched, false)
-  return { vfs: tree, stats, installed: listed, unpack: lazyUnpacker({ vfs: tree, byDir, stats, fixes, checks, patched, composing, entryOf, fetching, folded }) }
+  return { vfs: tree, stats, installed: listed, unpack: lazyUnpacker({ vfs: tree, byDir, stats, fixes, builds, checks, patched, composing, entryOf, fetching, folded }) }
 }
