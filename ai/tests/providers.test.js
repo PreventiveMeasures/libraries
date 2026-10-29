@@ -638,13 +638,14 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   it('think=false on openai (Responses) names effort none on a model that reasons by default', () => {
     withProvider('openai', 'OPENAI_API_KEY', () => {
-      for (const model of ['openai/gpt-6-sol', 'openai/gpt-5.6-luna', 'openai/gpt-5.5']) {
+      for (const model of ['openai/gpt-6-sol', 'openai/gpt-6.1-terra', 'openai/gpt-5.6-luna', 'openai/gpt-5.5']) {
         assert.deepEqual(buildRequestBody(model, 1000, 'sys', messages).reasoning, { effort: 'none' }, model)
       }
       assert.equal(buildRequestBody('openai/gpt-5.4', 1000, 'sys', messages).reasoning, undefined)
       assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).reasoning, undefined)
       assert.equal(buildRequestBody('openai/gpt-6.1-sol', 1000, 'sys', messages).reasoning, undefined)
       assert.deepEqual(buildRequestBody('openai/gpt-6-sol-pro', 1000, 'sys', messages).reasoning, { mode: 'pro' })
+      assert.deepEqual(buildRequestBody('openai/gpt-6.1-terra-pro', 1000, 'sys', messages).reasoning, { mode: 'pro' })
     })
   })
 
