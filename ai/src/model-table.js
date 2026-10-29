@@ -21,8 +21,8 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // `longContext` bills every request at its base rates.
 //
 // OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on the gpt-6
-// trio, gpt-6.1-sol, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of those. The
-// minis, nano and codex have none.
+// trio, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of
+// those. The minis, nano and codex have none.
 //
 // Of the Anthropic rows only haiku-5.5 takes one, inline: its two rate cards are 5x apart on every
 // leg past a 100K prompt. For the rest that is the published price rather than a gap: Opus, Sonnet
@@ -62,6 +62,8 @@ export const MAIN_MODELS = [
   ['openai/gpt-6.1-sol-pro', { input: 2, output: 10, cacheReadPrice: 0.1, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6.1-sol', reasoningMode: 'pro' }],
   ['openai/gpt-6-sol', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
   ['openai/gpt-6-sol-pro', { input: 2, output: 10, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-sol', reasoningMode: 'pro' }],
+  ['openai/gpt-6.1-terra', { input: 1, output: 5, cacheReadPrice: 0.05, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
+  ['openai/gpt-6.1-terra-pro', { input: 1, output: 5, cacheReadPrice: 0.05, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6.1-terra', reasoningMode: 'pro' }],
   ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true }],
   ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
   // 4 / 20 is Sol's PROMOTIONAL rate, which OpenAI's pricing page publishes as its table price and

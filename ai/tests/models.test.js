@@ -446,6 +446,8 @@ describe('no-think wire form', () => {
     ['openai/gpt-6-astra-pro', false, false],
     ['openai/gpt-6.1-sol', false, false],
     ['openai/gpt-6.1-sol-pro', false, false],
+    ['openai/gpt-6.1-terra', true, true],
+    ['openai/gpt-6.1-terra-pro', false, false],
     ['made/up-model', false, true],
   ]) {
     it(model, () => {
@@ -609,6 +611,7 @@ describe('cache-write rates', () => {
   for (const [model, write] of [
     ['openai/gpt-6-astra', 12.5],
     ['openai/gpt-6.1-sol', 2.5],
+    ['openai/gpt-6.1-terra', 1.25],
     ['openai/gpt-5.6-sol', 5],
     ['openai/gpt-5.6-terra', 2.5],
     ['openai/gpt-5.6-luna', 0.25],
@@ -640,6 +643,7 @@ describe('long-context tier', () => {
   for (const [model, input, cached, write, output] of [
     ['openai/gpt-6-astra', 20, 2, 25, 75],
     ['openai/gpt-6.1-sol', 4, 0.2, 5, 15],
+    ['openai/gpt-6.1-terra', 2, 0.1, 2.5, 7.5],
     ['openai/gpt-6-sol', 4, 0.4, 5, 15],
     ['openai/gpt-6-luna', 0.2, 0.02, 0.25, 0.75],
     ['openai/gpt-5.6-sol', 8, 0.8, 10, 30],
@@ -676,7 +680,7 @@ describe('long-context tier', () => {
 
   it('gives each openrouter pro alias its base model\'s tier, the way it shares its base rate', () => {
     const long = { input: MTOK, output: MTOK, cacheRead: MTOK }
-    for (const base of ['openai/gpt-6-astra', 'openai/gpt-6.1-sol', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna']) {
+    for (const base of ['openai/gpt-6-astra', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna']) {
       assert.equal(bill(`${base}-pro`, long), bill(base, long), base)
     }
   })
@@ -892,6 +896,31 @@ describe('gpt-6.1 sol', () => {
   })
 })
 
+describe('gpt-6.1 terra', () => {
+  const TERRA61 = 'openai/gpt-6.1-terra'
+
+  it('registers the published $1 / $5 per Mtok and a 128,000 max_tokens', () => {
+    assert.equal(baseRate(TERRA61, 'input', 'output'), 1 + 5)
+    assert.equal(getMaxTokens(TERRA61), 128_000)
+  })
+
+  it('bills cache reads at the published $0.05, 0.05x of input as on 6.1 sol, and writes at 1.25x', () => {
+    assert.equal(baseRate(TERRA61, 'cacheRead'), 0.05)
+    assert.equal(baseRate(TERRA61, 'cacheWrite5m'), 1.25)
+  })
+
+  it('takes the ladder through max, and turns thinking off with effort none, as 6.1 sol cannot', () => {
+    assert.deepEqual(effortsFor(TERRA61), ['low', 'medium', 'high', 'xhigh', 'max'])
+    assert.equal(canDisableThink(TERRA61), true)
+    assert.equal(needsExplicitNoThink(TERRA61), true)
+    assert.equal(canDisableThink(`${TERRA61}-pro`), false)
+  })
+
+  it('reads the explicit cache breakpoint, as every gpt-5.6-and-later row does', () => {
+    for (const model of [TERRA61, `${TERRA61}-pro`]) assert.equal(readsCacheBreakpoint(model), true, model)
+  })
+})
+
 // Two different things are called "pro" here. One is a MODE on another
 // model — same weights and same rate, just more tokens spent thinking — so
 // the row names its base as the wire model and 'pro' as the mode. The other
@@ -900,6 +929,7 @@ describe('openai pro rows', () => {
   const MODES = [
     ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
     ['openai/gpt-6.1-sol-pro', 'openai/gpt-6.1-sol'],
+    ['openai/gpt-6.1-terra-pro', 'openai/gpt-6.1-terra'],
     ['openai/gpt-6-sol-pro', 'openai/gpt-6-sol'],
     ['openai/gpt-6-luna-pro', 'openai/gpt-6-luna'],
     ['openai/gpt-5.6-sol-pro', 'openai/gpt-5.6-sol'],
