@@ -92,7 +92,8 @@ export interface NpmProject {
 // otherwise. omit, include, production, dev, only, also, optional, os,
 // cpu, libc, workspace, workspaces, location, umask, prefix, globalconfig,
 // userconfig, allow-scripts and a credential not scoped to a registry are
-// refused, whatever their value; so are two settings npm takes as
+// refused, whatever their value, which of the dependencies are installed
+// being `production`'s to say; so are two settings npm takes as
 // exclusive, set together, and a section. Any other setting is passed
 // over: npm reads it for where it fetches from, how, what it prints, or
 // another command, and the tree is held to the lockfile's integrities
@@ -152,6 +153,18 @@ export interface NpmProject {
 // a lockfile one of those checks would refuse is laid out all the same, and
 // refused where that package is unpacked. A `vfs` is not taken with it, nor
 // `sizeEstimateOnly`.
+//
+// `production`, false unless given true, builds the tree `npm ci
+// --omit=dev` makes: each package the lockfile's flags, as npm takes them,
+// say dev dependencies alone reach is left out, as is what is beneath it,
+// and its bins are linked by none of its names. npm 10 makes every
+// package's directory before it leaves those out, and so leaves the
+// directories they were in, a scope's or a workspace's node_modules, which
+// the tree has too, empty; it holds each of them that is not optional to
+// the host as without it, and leaves out nothing for one that is and that
+// the host cannot run. npm 11 holds to the host none of them but those that
+// are optional, each left out with its optionalSet where the host cannot
+// run it, as without it. A workspace is linked all the same.
 export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
 
 export type NpmLayoutOptions = NpmTreeOptions & { sizeEstimateOnly: true, vfs?: undefined }
@@ -169,6 +182,7 @@ export interface NpmTreeGiven {
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
   lazy?: boolean
+  production?: boolean
 }
 
 export interface NpmTreeRead {
@@ -182,6 +196,7 @@ export interface NpmTreeRead {
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
   lazy?: boolean
+  production?: boolean
 }
 
 // What buildNpmTree counts, all of it plain numbers: `packages` the
@@ -193,7 +208,8 @@ export interface NpmTreeRead {
 // is 0, as none is written, and `bytes` what the sizes of those installed
 // add up to, each copy's, of those with one. With `lazy`, `tarballs`,
 // `files` and `bytes` count what is unpacked, each 0 until `unpack` is
-// asked, which adds to them.
+// asked, which adds to them. With `production`, those it leaves out are
+// counted in neither `installed` nor `skipped`.
 export interface NpmTreeStats {
   packages: number
   installed: number
@@ -218,7 +234,8 @@ export interface NpmTreeStats {
 // those
 // npm installs by, the lockfile's as npm 10 takes them and as npm 11 works
 // them out again: `dev` is whether dev dependencies alone reach it, which
-// --omit=dev leaves out; `optional` whether optional dependencies alone
+// --omit=dev leaves out, and so none is with `production`; `optional`
+// whether optional dependencies alone
 // reach it, which --omit=optional leaves out; `devOptional` whether either
 // is, or both together, which --omit=dev with --omit=optional leaves out;
 // `peer` whether peer dependencies alone reach it, which --omit=peer
@@ -276,13 +293,13 @@ export interface NpmLazyTree extends NpmTree {
   unpack(paths: Iterable<string>): Promise<NpmInstalled[]>
 }
 
-// The node_modules tree `npm ci --ignore-scripts` makes, with host.npm,
-// into a project with no node_modules yet: rooted at the lockfile's
-// directory, each package's files unpacked where the lockfile puts it,
-// and each workspace linked as node_modules/<its name>, by a relative link
-// to its directory, with what the lockfile puts beneath it in that
-// directory's own node_modules. The tree holds node_modules and nothing
-// else of the projects.
+// The node_modules tree `npm ci --ignore-scripts` makes, with `production`
+// --omit=dev too, with host.npm, into a project with no node_modules yet:
+// rooted at the lockfile's directory, each package's files unpacked where
+// the lockfile puts it, and each workspace linked as node_modules/<its
+// name>, by a relative link to its directory, with what the lockfile puts
+// beneath it in that directory's own node_modules. The tree holds
+// node_modules and nothing else of the projects.
 //
 // Each package is unpacked as npm's tar unpacks it: the first segment of
 // each name dropped; a file alone kept, so that a link, a device and a

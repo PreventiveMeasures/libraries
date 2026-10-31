@@ -48,6 +48,11 @@ export function checkHostKeys(host, keys, wanted) {
   if (host === null || typeof host !== 'object') throw new TypeError(`host must be an object with ${wanted}`)
   for (const key of keys) if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
 }
+// `production`, false unless given true, as each manager's builder takes it.
+export function productionOf({ production = false }) {
+  if (typeof production !== 'boolean') throw new TypeError('production must be a boolean, or left out')
+  return production
+}
 export function checkLeftOut(values, all = 'both') {
   for (const [name, value] of Object.entries(values)) if (value !== undefined) throw new TypeError(`${name} must be left out where lockfile is: ${all} are read from project`)
 }

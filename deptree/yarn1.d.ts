@@ -149,6 +149,9 @@ export interface Yarn1Project {
 // and leaves out packages by what their package.json says, which only their
 // tarballs hold: a TypeError is thrown for either given true.
 //
+// `production`, false unless given true, builds the tree `yarn install
+// --production` makes, as below.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`; or read, with `project` and none of them. `project`
 // given with `lockfile` is read only to tell whether a tag a top-level
@@ -165,6 +168,7 @@ export interface Yarn1TreeGiven {
   vfs?: Vfs
   metadata?: boolean
   cache?: CacheOptions['cache']
+  production?: boolean
 }
 
 export interface Yarn1TreeRead {
@@ -177,6 +181,7 @@ export interface Yarn1TreeRead {
   vfs?: Vfs
   metadata?: boolean
   cache?: CacheOptions['cache']
+  production?: boolean
 }
 
 // What buildYarn1Tree counts, all of it plain numbers: `packages` the
@@ -213,8 +218,8 @@ export interface Yarn1TreeStats {
 // each peer yarn finds, looked for from where what asks for it is, as Node
 // finds it and yarn marks what an install requires, past what the host
 // cannot run. Two copies of one package may differ: one beneath a
-// devDependency that only it needs is dev. `optional` is whether optional
-// dependencies alone reach this copy, so.
+// devDependency that only it needs is dev. With `production`, none is.
+// `optional` is whether optional dependencies alone reach this copy, so.
 export interface Yarn1Installed {
   path: string
   name: string
@@ -240,12 +245,13 @@ export interface Yarn1Tree {
 }
 
 // The node_modules tree `yarn install --frozen-lockfile --ignore-scripts`
-// makes, with host.yarn's node_modules linker, into a project with no
-// node_modules yet: rooted at the lockfile's directory, each package's
-// files copied where yarn hoists it, and each workspace linked where yarn
-// hoists it, by a relative link to its directory, with what yarn hoists
-// beneath it in that directory's own node_modules. The tree holds
-// node_modules and nothing else of the projects.
+// makes, with `production` --production too, with host.yarn's node_modules
+// linker, into a project with no node_modules yet: rooted at the lockfile's
+// directory, each package's files copied where yarn hoists it, and each
+// workspace linked where yarn hoists it, by a relative link to its
+// directory, with what yarn hoists beneath it in that directory's own
+// node_modules. The tree holds node_modules and nothing else of the
+// projects.
 //
 // The lockfile is resolved as yarn resolves it, in yarn's order, which
 // decides where a package goes: the resolutions' patterns, then the root's
@@ -258,6 +264,16 @@ export interface Yarn1Tree {
 // path, as yarn applies it, and not to one of the root's own; it resolves
 // to a semver range, or to the registry's own tarball or a directory of
 // the project, as below.
+//
+// With `production`, as --production has yarn install it: no workspace's
+// devDependencies are asked for, nor their entries read; the root's are
+// asked for all the same, resolved, fetched, checked and hoisted as without
+// it, but marked ignored, as yarn marks them, so each copy is installed only
+// where something else needs it, with what it alone needs left out. So a
+// devDependency of the root still takes the place it is hoisted to, which a
+// version another package needs is kept from, as without it; and one the
+// host cannot run fails as it does without it, though the tree leaves it
+// out.
 //
 // Scripts are always ignored, as `--ignore-scripts` has yarn ignore them,
 // whatever the settings say. No .bin is written, nor yarn's own

@@ -75,16 +75,19 @@ const whereOf = (node) => `packages[${quote(node.location)}]`
 
 // npm 11 checks optional packages in inventory order, passing over one an
 // earlier set took; npm 10 checks them all as it extracts. What is in the
-// node_modules of a node left out goes with it.
-export function skippedOf(nodes, host, settings) {
+// node_modules of a node left out goes with it. Of those `omitted` leaves
+// out, npm 10 checks only those that are not optional, before it extracts,
+// and npm 11 only those that are.
+export function skippedOf(nodes, host, settings, omitted = new Set()) {
   const skipped = new Set()
   for (const node of nodes.values()) {
     if (node.kind !== 'package') continue
     const where = whereOf(node)
     if (!node.pkg.optional) {
-      checkRuns(node.manifest, host, where, settings.engineStrict, ', and it is not optional')
+      if (host.reuse || !omitted.has(node)) checkRuns(node.manifest, host, where, settings.engineStrict, ', and it is not optional')
       continue
     }
+    if (host.reuse && omitted.has(node)) continue
     if (!host.reuse && skipped.has(node)) continue
     if (checkEngine(node.manifest, host) === undefined && checkPlatform(node.manifest, host, where) === undefined) continue
     for (const member of optionalSet(node, host, skipped)) skipped.add(member)
@@ -92,6 +95,16 @@ export function skippedOf(nodes, host, settings) {
   for (const node of skipped) {
     if (node.kind !== 'package') throw new DeptreeError('left out with an optional package the host cannot run, which is not supported', node.kind === 'link' ? whereOf(node) : `importers[${quote(node.location)}]`)
   }
-  const under = (node) => node.parent !== undefined && (skipped.has(nodes.get(node.parent)) || under(nodes.get(node.parent)))
-  return new Set([...nodes.values()].filter((node) => skipped.has(node) || under(node)))
+  return withBeneath(nodes, skipped)
 }
+
+// `set`, and what is in the node_modules of each of its nodes.
+function withBeneath(nodes, set) {
+  const under = (node) => node.parent !== undefined && (set.has(nodes.get(node.parent)) || under(nodes.get(node.parent)))
+  return new Set([...nodes.values()].filter((node) => set.has(node) || under(node)))
+}
+
+// What --omit=dev leaves out: each package the lockfile's flags say only dev
+// dependencies reach, and so what is beneath it, as the lockfile reader holds
+// the flags to what depends on each.
+export const omittedOf = (nodes) => new Set([...nodes.values()].filter((node) => node.kind === 'package' && node.pkg.dev))

@@ -122,11 +122,12 @@ export function checkDependencies(manifest, read, pkg, packages, where) {
 }
 
 // What is held of a package's files once fetched, for one of its snapshots:
-// its package.json, as the hook has it, asks for what the snapshot gives it.
+// its package.json, as the hook has it, asks for what the snapshot gives it,
+// as `lockfile` has it, though the tree has fewer of its edges.
 export function checkFetched(node, got, { lockfile, hook, fresh }) {
   if (got.manifest === undefined) return
   got.read ??= hook(got.manifest, `${quote(packageKeyOf(node.key))}: package.json`)
-  checkDependencies(got.manifest, got.read, node.pkg, lockfile.packages, quote(node.key))
+  checkDependencies(got.manifest, got.read, lockfile.packages[node.key], lockfile.packages, quote(node.key))
   fresh?.(node, got.read)
 }
 

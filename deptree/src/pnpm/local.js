@@ -115,6 +115,6 @@ export function createFreshnessCheck(lockfile, major) {
     }
   }
   return (node, read) => {
-    if (direct.has(node.key)) checkFresh(read, node.pkg, lockfile.packages, quote(node.key))
+    if (direct.has(node.key)) checkFresh(read, lockfile.packages[node.key], lockfile.packages, quote(node.key))
   }
 }

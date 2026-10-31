@@ -22,6 +22,7 @@ const DEFAULTS = {
   packageExtensions: undefined,
   ignoredOptionalDependencies: [],
   autoInstallPeers: true,
+  resolvePeersFromWorkspaceRoot: true,
   dedupePeers: false,
   peersSuffixMaxLength: 1000,
   packages: undefined,
@@ -258,7 +259,7 @@ describe('readSettings', () => {
     [{ npmrc: 'force=true\n' }, /^\.npmrc:1: force: true is not supported: optional packages the host cannot run are left out$/u],
     [{ npmrc: 'recursive-install=false\n' }, /every project is installed/u],
     [{ npmrc: 'lockfile-dir=..\n' }, /the lockfile is the one given/u],
-    [{ npmrc: 'only=prod\n' }, /dependencies and devDependencies are both installed/u],
+    [{ npmrc: 'only=prod\n' }, /is for the production option to say/u],
     [{ npmrc: 'shamefully-flatten=true\n' }, /its old name is not read/u],
     [{ npmrc: 'use-node-version=20.0.0\n' }, /the Node a tree is built for/u],
     [{ npmrc: 'git-branch-lockfile=true\n' }, /the lockfile is the one given/u],
@@ -278,7 +279,7 @@ describe('readSettings', () => {
     [{ workspace: 'ignoredOptionalDependencies: x\n' }, /^pnpm-workspace\.yaml: ignoredOptionalDependencies: expected a list of strings, found "x"$/u],
     [{ workspace: 'nodeVersion: "20"\n' }, /"20" is not an exact version/u],
     [{ workspace: 'patchedDependencies:\n  a@1.0.0: /abs.patch\n' }, /an absolute patch path is not supported/u],
-    [{ npmrc: 'production=true\n' }, /devDependencies are installed/u],
+    [{ npmrc: 'production=true\n' }, /whether devDependencies are installed is for the production option/u],
   ]
   for (const [input, pattern] of refused) {
     it(`refuses ${JSON.stringify(input)}`, () => {

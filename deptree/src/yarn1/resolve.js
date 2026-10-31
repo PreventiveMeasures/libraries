@@ -57,11 +57,12 @@ function directoryOf(range, where) {
 }
 
 // What a package asks for, in yarn's order. A lockfile entry's are patterns;
-// one the lockfile reader links to a workspace has lost its range.
-function asked(info, where) {
+// one the lockfile reader links to a workspace has lost its range. A
+// workspace's devDependencies are asked for, but with --production.
+function asked(info, where, production) {
   const workspace = info.kind === 'workspace'
   const lists = workspace ? info.workspace.manifest : info.entry
-  const kinds = [['dependencies', false, false], ['optionalDependencies', true, false], ...workspace ? [['devDependencies', false, true]] : []]
+  const kinds = [['dependencies', false, false], ['optionalDependencies', true, false], ...workspace && !production ? [['devDependencies', false, true]] : []]
   return kinds.flatMap(([kind, optional, dev]) => Object.entries(lists[kind] ?? {}).map(([name, value]) => {
     if (!workspace && value.startsWith('link:')) throw new DeptreeError(`its dependency on ${quote(name)} is a workspace, which is not supported`, where)
     return { pattern: workspace ? `${name}@${value}` : value, optional, dev }
@@ -80,8 +81,8 @@ function locOf({ kind, name, version, entry, dir }) {
 }
 
 class Resolver {
-  constructor({ lockfile, workspaces, rules, isDirectory }) {
-    Object.assign(this, { lockfile, workspaces, rules, isDirectory })
+  constructor({ lockfile, workspaces, rules, isDirectory, production = false }) {
+    Object.assign(this, { lockfile, workspaces, rules, isDirectory, production })
     this.patterns = new Map()
     this.byName = new Map()
     this.delayed = []
@@ -160,7 +161,7 @@ class Resolver {
       dir: info.dir,
       patterns: [],
       requests: [request],
-      asked: asked(info, quote(request.pattern)),
+      asked: asked(info, quote(request.pattern), this.production),
       optional: request.optional,
     }
     this.addPattern(request.pattern, ref)

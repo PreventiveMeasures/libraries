@@ -139,6 +139,7 @@ function derive(get, major) {
     packageExtensions: get('packageExtensions'),
     ignoredOptionalDependencies: get('ignoredOptionalDependencies') ?? [],
     autoInstallPeers: get('autoInstallPeers') ?? true,
+    resolvePeersFromWorkspaceRoot: get('resolvePeersFromWorkspaceRoot') ?? true,
     dedupePeers: get('dedupePeers') ?? false,
     peersSuffixMaxLength: get('peersSuffixMaxLength') ?? 1000,
     packages: get('packages'),

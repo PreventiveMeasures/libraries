@@ -87,7 +87,7 @@ export const READ = {
   lockfile: only('boolean', true, 'the tree is the lockfile\'s'),
   packageLock: only('boolean', true, 'the tree is the lockfile\'s'),
   optional: only('boolean', true, 'optional dependencies are installed'),
-  production: only('boolean', false, 'devDependencies are installed'),
+  production: only('boolean', false, 'whether devDependencies are installed is for the production option to say'),
   dev: only('boolean', false, 'dependencies are installed'),
   ignorePatchFailures: { ...only('boolean', false, 'a patch that does not apply is an error'), rc: false },
   force: only('boolean', false, 'optional packages the host cannot run are left out'),
@@ -99,7 +99,7 @@ export const READ = {
   mergeGitBranchLockfilesBranchPattern: { kind: 'texts', check: never('the lockfile is the one given') },
   lockfileDir: { kind: 'text', check: never('the lockfile is the one given, at the root of the tree') },
   lockfileDirectory: { kind: 'text', check: never('the lockfile is the one given, at the root of the tree') },
-  only: { kind: 'text', check: never('dependencies and devDependencies are both installed') },
+  only: { kind: 'text', check: never('which of dependencies and devDependencies are installed is for the production option to say') },
   filter: { kind: 'texts', check: never('every project is installed') },
   filterProd: { kind: 'texts', check: never('every project is installed') },
   useNodeVersion: { kind: 'text', check: never('the Node a tree is built for is the host\'s, or nodeVersion') },
@@ -119,6 +119,8 @@ export const READ = {
   nodeVersion: { kind: 'text', check: checkNodeVersion },
   autoInstallPeers: { kind: 'boolean' },
   dedupePeers: { kind: 'boolean' },
+  // Which edges to optional peers pnpm 11 and 12 leave out with --prod (production.js).
+  resolvePeersFromWorkspaceRoot: { kind: 'boolean' },
   peersSuffixMaxLength: { kind: 'count' },
   // Whether a directory package's snapshots share hardlinked files (tree.js).
   packageImportMethod: { kind: 'importMethod' },
@@ -225,7 +227,7 @@ const IGNORED = new Set([
   'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'blockExoticSubdeps', 'catalogMode',
   'dedupeInjectedDeps', 'dedupePeerDependents', 'ignoreCompatibilityDb', 'linkWorkspacePackages', 'lockfileIncludeTarballUrl',
   'minimumReleaseAge', 'minimumReleaseAgeExclude', 'peerDependencyRules', 'preferWorkspacePackages',
-  'registrySupportsTimeField', 'resolutionMode', 'resolvePeersFromWorkspaceRoot', 'saveExact', 'savePrefix',
+  'registrySupportsTimeField', 'resolutionMode', 'saveExact', 'savePrefix',
   'saveWorkspaceProtocol', 'strictPeerDependencies',
   // the network and its credentials, which @preventive/upstream handles
   'alwaysAuth', 'ca', 'cafile', 'cert', 'email', 'fetchRetries', 'fetchRetryFactor', 'fetchRetryMaxtimeout',

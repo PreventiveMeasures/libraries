@@ -78,7 +78,7 @@ export class Hoister {
     const ref = this.resolved(pattern)
     if (parent && !this.tree.get(parent.key)) return null
     const isIncompatible = ref.incompatible === true
-    const isRequired = !isIncompatible && (isDirectRequire || parent?.isRequired === true)
+    const isRequired = !isIncompatible && ((isDirectRequire && !ref.ignore) || parent?.isRequired === true)
     const parts = (parent?.parts ?? []).concat(ref.name)
     const key = implode(parts)
     const info = { key, parts, ref, isDirectRequire, isRequired, isIncompatible }
