@@ -83,14 +83,15 @@ function opener(rest, paragraph, within = paragraph) {
     if (m) return { html: ends, close: typeof close === 'function' ? close(m) : close }
   }
   if (!paragraph && HTML_TAG_LINE_RE.test(tag)) return { html: BLANK_RE, close: null }
-  const item = THEMATIC_RE.test(rest) ? null : LIST_MARKER_RE.exec(rest)
+  const thematic = THEMATIC_RE.test(rest)
+  const item = thematic ? null : LIST_MARKER_RE.exec(rest)
   if (item && !(paragraph && within && /^ *(?:\d*[02-9]|\d+\d)[.)]/u.test(item[0]))) {
     // Five spaces or more after the marker are one, and indented code.
     const gap = / +$/u.exec(item[0])[0].length
     return { item: gap > 4 ? item[0].length - gap + 1 : item[0].length }
   }
   // An empty item can't interrupt a paragraph.
-  const empty = THEMATIC_RE.test(rest) || (paragraph && within) ? null : EMPTY_ITEM_RE.exec(rest)
+  const empty = thematic || (paragraph && within) ? null : EMPTY_ITEM_RE.exec(rest)
   if (empty) return { item: empty[0].trimEnd().length + 1 }
   return INTERRUPT_RE.test(rest) || null
 }

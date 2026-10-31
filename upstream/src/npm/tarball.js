@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -6,7 +5,7 @@ import { assertArgs, assertPackage, assertPackageName, isPlainObject, isSha, opt
 import { assertCache } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { NPM_REGISTRY, decode } from '../http.js'
-import { readNpmCached } from './cacache.js'
+import { contentPath, readNpmCached } from './cacache.js'
 import { getDocument, withNpmToken } from './registry.js'
 import { checkedDist, getVersion, matchingDist } from './versions.js'
 
@@ -25,8 +24,7 @@ function npmCacheDirs() {
 // npm 5+ (cacache) files a tarball by its sha512, npm 4 and before as
 // <name>/<version>/package.tgz; ~/.audit as <org>:<name>-<version>.tgz.
 function localPaths(name, version, integrity) {
-  const hex = Buffer.from(integrity.slice('sha512-'.length), 'base64').toString('hex')
-  const npm = npmCacheDirs().flatMap((root) => [join(root, '_cacache/content-v2/sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4)), join(root, name, version, 'package.tgz')])
+  const npm = npmCacheDirs().flatMap((root) => [contentPath(join(root, '_cacache'), integrity.slice('sha512-'.length)), join(root, name, version, 'package.tgz')])
   return [...npm, join(homedir(), '.audit/cache/tgz', `${name.replace(/^@/u, '').replace('/', ':')}-${version}.tgz`)]
 }
 
@@ -117,7 +115,7 @@ export async function getPublishTimes(name) {
   const time = record(json.time)
   const times = new Map()
   for (const version of Object.keys(record(json.versions))) {
-    const at = readTime(Object.hasOwn(time, version) ? time[version] : undefined)
+    const at = readTime(own(time, version))
     if (at !== undefined) times.set(version, at)
   }
   return times

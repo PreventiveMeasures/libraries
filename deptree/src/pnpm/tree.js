@@ -255,9 +255,7 @@ async function buildIsolated({ lockfile, checked, settings, host, project, hook,
 export async function buildPnpmTree(options) {
   const { project, host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const fetching = fetchingOf(options ?? {})
-  if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
-  if (fetching.lazy && into !== undefined) throw new TypeError('vfs is not taken with lazy, whose tree is unpacked a package at a time')
+  const fetching = fetchingOf(options ?? {}, into)
   const production = productionOf(options ?? {})
   if (project !== undefined) checkProject(project)
   const machine = checkHost(given)

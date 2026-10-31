@@ -38,7 +38,7 @@ export function detailsOf(text, id) {
   return { details: text }
 }
 
-const SEVERITIES = new Set(['critical', 'high', 'moderate', 'low', 'info'])
+export const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info']
 const isCvssVector = matches(/^CVSS:[34]\.\d(?:\/[A-Z]{1,4}:[A-Z]{1,2})+$/u)
 const isCwe = matches(/^CWE-\d{1,6}$/u)
 
@@ -48,7 +48,7 @@ const isCwe = matches(/^CWE-\d{1,6}$/u)
 export function metrics({ severity, score, vector, cwe }) {
   const word = typeof severity === 'string' ? severity.toLowerCase().replace(/^medium$/u, 'moderate') : undefined
   return {
-    ...(SEVERITIES.has(word) && { severity: word }),
+    ...(SEVERITIES.includes(word) && { severity: word }),
     ...(typeof score === 'number' && score > 0 && score <= 10 && { cvss: score }),
     ...(isCvssVector(vector) && { cvssVector: vector }),
     cwe: isStrings(cwe) ? cwe.filter(isCwe) : [],

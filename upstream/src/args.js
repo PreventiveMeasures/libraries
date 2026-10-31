@@ -102,9 +102,9 @@ export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` an
 // A root's name as Podfile.lock has it, and @preventive/lockfile reads it:
 // printable ASCII but for spaces, parentheses, slashes and backslashes, no
 // `.` first, which the spec linter refuses, and 1024 characters at most.
-export const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?!\.)[!-'*-.0-[\]-~]+$/u))
+const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?!\.)[!-'*-.0-[\]-~]+$/u))
 // Pod::Version's pattern, as Podfile.lock writes a version.
-export const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
+const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
 // A package's name and version, as a registry's getters take them.
 const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {
   assertName(method, 'name', name)

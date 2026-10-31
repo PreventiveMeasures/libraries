@@ -26,6 +26,7 @@ function ruleOf(pnpm, major) {
 }
 
 const edgesOf = (deps) => Object.values(deps).filter((target) => !target.startsWith('link:'))
+const prodEdgesOf = ({ dependencies, optionalDependencies }) => edgesOf({ ...dependencies, ...optionalDependencies })
 
 // The groups that end a key, each without its parentheses, the patch hash's
 // first where the key has one; a key the lockfile reader takes has them
@@ -89,7 +90,7 @@ function satisfactionEdges(lockfile, rule, fromRoot) {
   const importers = Object.values(lockfile.importers)
   const direct = importers.map((importer) => new Set(directOf(importer)))
   const rootDev = fromRoot && lockfile.importers['.'] !== undefined ? new Set(edgesOf(lockfile.importers['.'].devDependencies)) : new Set()
-  const next = (key) => (key in lockfile.packages ? edgesOf({ ...lockfile.packages[key].dependencies, ...lockfile.packages[key].optionalDependencies }) : [])
+  const next = (key) => (key in lockfile.packages ? prodEdgesOf(lockfile.packages[key]) : [])
   const groups = Map.groupBy(entries, ({ target }) => (rootDev.has(target) ? '' : direct.flatMap((keys, i) => (keys.has(target) ? [] : [i])).join(',')))
   for (const [listing, group] of groups) {
     const seeds = listing === '' ? [] : listing.split(',').flatMap((i) => directOf(importers[Number(i)]))
@@ -124,8 +125,8 @@ export function productionLockfile(lockfile, { pnpm, major, resolvePeersFromWork
   const rule = ruleOf(pnpm, major)
   const edges = rule === undefined ? new Map() : satisfactionEdges(lockfile, rule, resolvePeersFromWorkspaceRoot)
   const walked = { ...lockfile, importers, packages: without(lockfile.packages, edges, () => true) }
-  const starts = Object.values(importers).flatMap(({ dependencies, optionalDependencies }) => edgesOf({ ...dependencies, ...optionalDependencies }))
-  const picked = reachable(starts, (key) => edgesOf({ ...walked.packages[key].dependencies, ...walked.packages[key].optionalDependencies }))
+  const starts = Object.values(importers).flatMap(prodEdgesOf)
+  const picked = reachable(starts, (key) => prodEdgesOf(walked.packages[key]))
   const packages = Object.fromEntries(Object.entries(lockfile.packages).filter(([key]) => picked.has(key)))
   return { walked, installing: { ...lockfile, importers, packages: without(packages, edges, (target) => !picked.has(target)) } }
 }

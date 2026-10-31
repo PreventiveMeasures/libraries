@@ -5,7 +5,7 @@
 import { fileName } from '../crate/path.js'
 import { matches, parseVersion, parseVersionReq } from '../crate/semver.js'
 import { LockfileError, at, attempt, quote } from '../error.js'
-import { field, optional } from '../shape.js'
+import { field, optional, orEmpty } from '../shape.js'
 import { TomlError } from '../toml/error.js'
 import { parseToml } from '../toml/parse.js'
 import { isTable } from '../toml/value.js'
@@ -74,7 +74,7 @@ function readLibName(value, where) {
 // `[lib] name`, or the package's, `-` read as `_`, as cargo names the
 // library; its path as written. A filesystem says whether there is one.
 function readLib(doc, name) {
-  const lib = doc.lib ?? Object.create(null)
+  const lib = orEmpty(doc.lib)
   return { name: field(lib, 'name', 'lib', readLibName) ?? name.replaceAll('-', '_'), path: field(lib, 'path', 'lib', string) }
 }
 

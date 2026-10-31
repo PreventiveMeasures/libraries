@@ -142,15 +142,21 @@ async function build(values, common) {
   report(tally, Date.now() - started)
 }
 
-async function selectOne(values, common) {
-  if (!values.table || !values.request) fail(`select needs --table and --request\n\n${USAGE}`)
+// What select and eval read alike: the cut, the fraction read in full, the stages switched off, and
+// the table.
+function selectOptions(values) {
   // The flags before the files: a flag that cannot be read is the caller's to fix first.
   const topK = values.top === undefined ? undefined : whole(values.top, 'top')
   const final = number(values.final, 'final', 0.01)
-  const table = readJSON(values.table)
+  return { ...readJSON(values.table), topK, final, useGate: !values['no-gate'], rerank: values['no-rerank'] ? false : {} }
+}
+
+async function selectOne(values, common) {
+  if (!values.table || !values.request) fail(`select needs --table and --request\n\n${USAGE}`)
+  const options = selectOptions(values)
   const request = { id: values.id ?? values.request, text: readFileSync(values.request, 'utf8').trim() }
   const started = Date.now()
-  const result = await select({ ...common, ...table, request, topK, final, useGate: !values['no-gate'], rerank: values['no-rerank'] ? false : {} })
+  const result = await select({ ...common, ...options, request })
   const { results, reranked, gate, stages, fullStages, tally } = result
   if (gate.reason) note(`gate: ${gate.reason}${gate.extraQuestions.length ? ` (+${gate.extraQuestions.length} columns)` : ''}${gate.fullScan ? ' (full scan)' : ''}`)
   for (const s of [...stages, ...fullStages]) note(`stage ${s.stage}: ${s.rows} rows -> ${s.survivors} over ${s.pages} pages`)
@@ -170,13 +176,11 @@ const fixed = (value) => value.toFixed(2)
 
 async function evalCases(values, common) {
   if (!values.table || !values.cases) fail(`eval needs --table and --cases\n\n${USAGE}`)
-  const topK = values.top === undefined ? undefined : whole(values.top, 'top')
-  const final = number(values.final, 'final', 0.01)
-  const table = readJSON(values.table)
+  const options = selectOptions(values)
   const cases = readLines(values.cases).map(({ id, text, relevant }) => ({ request: { id, text }, relevant }))
   const started = Date.now()
   const { runs, recall, precision, mrr, tally } = await evaluate({
-    ...common, ...table, cases, topK, final, useGate: !values['no-gate'], rerank: values['no-rerank'] ? false : {},
+    ...common, ...options, cases,
     onCase: (run) => {
       const lost = `${run.belowCut.length ? `  below cut: ${run.belowCut.join(' ')}` : ''}${run.dropped.length ? `  dropped: ${run.dropped.join(' ')}` : ''}`
       note(`${run.id}  recall ${fixed(run.recall)}  precision ${fixed(run.precision)}  rr ${fixed(run.reciprocalRank)}${lost}`)

@@ -101,7 +101,7 @@ function compareVersions(a, b) {
     return [core.split('.').map(Number), pre ? pre.split('.') : []]
   }
   const [[coreA, preA], [coreB, preB]] = [parse(a), parse(b)]
-  for (let i = 0; i < 3; i++) if ((coreA[i] || 0) !== (coreB[i] || 0)) return (coreA[i] || 0) - (coreB[i] || 0) || a.localeCompare(b)
+  for (let i = 0; i < 3; i++) if ((coreA[i] || 0) !== (coreB[i] || 0)) return (coreA[i] || 0) - (coreB[i] || 0)
   if (!preA.length || !preB.length) return preB.length - preA.length
   for (let i = 0; i < Math.min(preA.length, preB.length); i++) {
     const [x, y] = [preA[i], preB[i]]

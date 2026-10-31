@@ -99,7 +99,7 @@ const listed = (bundled) => (bundled === false || (Array.isArray(bundled) && bun
 
 // `read` is the package.json as hook.js's hook has it, and `packages` the
 // lockfile's, by which a `file:` target is the directory it resolves to.
-export function checkDependencies(manifest, read, pkg, packages, where) {
+function checkDependencies(manifest, read, pkg, packages, where) {
   const bundled = bundledOf(manifest)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
   for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
