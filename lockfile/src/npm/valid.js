@@ -8,7 +8,7 @@
 // tarball has, though npm looks into it. A directory out of the project
 // npm leaves to itself.
 
-import { LockfileError, attempt, quote } from '../error.js'
+import { LockfileError, attempt, placed, quote } from '../error.js'
 import { joinRelative } from '../names.js'
 import { sshOf } from './hosted.js'
 import { readResolved, readSpec } from './spec.js'
@@ -116,15 +116,12 @@ export function isValid(edge, semver) {
 }
 
 function check(edge, semver) {
-  const where = edgeAt(edge)
   if (edge.type === 'peerOptional') return
+  const where = edgeAt(edge)
   if (edge.to === undefined) {
     throw new LockfileError(`${quote(edge.spec)} is met by nothing where npm looks for ${quote(edge.name)}, so npm would install it`, where)
   }
-  const why = attempt(() => problem(edge, semver, true), (error) => {
-    if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
-    throw error
-  })
+  const why = placed(() => problem(edge, semver, true), where)
   if (why !== undefined) throw new LockfileError(why, where)
 }
 

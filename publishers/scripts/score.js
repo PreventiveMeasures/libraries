@@ -30,7 +30,9 @@ const percent = (part, all) => `${((100 * part) / all).toFixed(1)}%`
 const sum = (of) => of.reduce((total, v) => total + v.versions, 0)
 const byPairs = (of, names) => percent(of.filter((v) => names.has(v.publisher)).length, of.length)
 const byVersions = (of, names) => percent(sum(of.filter((v) => names.has(v.publisher))), sum(of))
-const known = (list, n) => new Set(ranked(accounts, list).slice(0, n).map((a) => a.name))
+// Each list's accounts in order, ranked once for every cutoff.
+const rankedNames = new Map(LISTS.map((list) => [list, ranked(accounts, list).map((a) => a.name)]))
+const known = (list, n) => new Set(rankedNames.get(list).slice(0, n))
 const table = (head, body) => [`| ${head.join(' | ')} |`, `| :--- |${' ---: |'.repeat(head.length - 1)}`, ...body.map((row) => `| ${row.join(' | ')} |`)].join('\n')
 
 const bar = format(MIN_DOWNLOADS)

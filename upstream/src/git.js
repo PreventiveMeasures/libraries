@@ -52,7 +52,6 @@ export async function findGitCheckout(dir) {
   const dirs = start && await isDirectory(start) ? await findGitDirs(start) : null
   if (dirs === null) return {}
   const directory = relative(dirs.root, start).split(sep).join('/')
-  const github = await originGitHub(dirs.commonDir)
-  const commit = await headCommit(dirs.gitDir, dirs.commonDir)
+  const [github, commit] = await Promise.all([originGitHub(dirs.commonDir), headCommit(dirs.gitDir, dirs.commonDir)])
   return { ...(github && { github }), directory, ...(github && { url: `https://github.com/${github}` }), ...(commit && { commit }) }
 }

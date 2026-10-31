@@ -88,6 +88,14 @@ function* kept(a, b, sameA, sameB) {
   }
 }
 
+// Those pairs in runs kept together: each pair's lines the next after the last's.
+function* runsOf(pairs) {
+  for (let end = 1, start = 0; start < pairs.length; start = end++) {
+    while (end < pairs.length && pairs[end][0] === pairs[end - 1][0] + 1 && pairs[end][1] === pairs[end - 1][1] + 1) end++
+    yield pairs.slice(start, end)
+  }
+}
+
 // A run of lines' tokens (`list`) and the variable each stands for (`at`): the
 // place a variable stood one token alike any other's. Null past MAX_TOKENS.
 const PLACE = '*', TOKEN = /[\p{ID_Continue}$\u200C\u200D]+|\S/gu
@@ -133,9 +141,7 @@ function placed(ka, a0, a1, kb, b0, b1) {
   const a = tokens(ka, a0, a1), b = a && tokens(kb, b0, b1)
   if (!b) return []
   const found = [], pairs = [...kept(a.list, b.list, (x, y) => a.at[x] === a.at[y], (x, y) => b.at[x] === b.at[y])]
-  for (let end = 1, start = 0; start < pairs.length; start = end++) {
-    while (end < pairs.length && pairs[end][0] === pairs[end - 1][0] + 1 && pairs[end][1] === pairs[end - 1][1] + 1) end++
-    const run = pairs.slice(start, end)
+  for (const run of runsOf(pairs)) {
     if (run.some(([x]) => ties(a.list[x]))) for (const [x, y, loose] of run) if (a.at[x] && !loose) found.push([a.at[x], b.at[y]])
   }
   return found
@@ -154,10 +160,7 @@ function moves(ka, kb, blocks, alike) {
   const news = at(['b0', 'b1']), olds = at(['a0', 'a1'])
   const same = (k, lines) => (x, y) => reading(k)(lines[x], lines[y])
   const pairs = [...kept(plain(olds.map((i) => ka.keys[i])), plain(news.map((j) => kb.keys[j])), same(ka, olds), same(kb, news))]
-  for (let end = 1, start = 0; start < pairs.length; start = end++) {
-    while (end < pairs.length && pairs[end][0] === pairs[end - 1][0] + 1 && pairs[end][1] === pairs[end - 1][1] + 1) end++
-    if (end - start >= ANCHORED_RUN) for (const [x, y, loose] of pairs.slice(start, end)) if (!loose) alike(ka.lines[olds[x]], kb.lines[news[y]])
-  }
+  for (const run of runsOf(pairs)) if (run.length >= ANCHORED_RUN) for (const [x, y, loose] of run) if (!loose) alike(ka.lines[olds[x]], kb.lines[news[y]])
 }
 
 // Pairs of lines counted, a long run of unchanged ones apart from the rest, as

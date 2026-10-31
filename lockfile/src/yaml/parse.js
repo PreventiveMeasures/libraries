@@ -319,9 +319,7 @@ function workflowCompact(doc, line, indent, depth, spaces) {
     return parseNode(doc, column, depth + 1)
   }
   advance(doc)
-  const value = workflowNode(doc, rest.startsWith('#') ? '' : rest, indent, depth, line)
-  if (anchor !== null) doc.anchors.set(anchor, value)
-  return value
+  return workflowValue(doc, text, indent, depth, line)
 }
 
 // A mapping's key at the start of a line, and what follows it; with

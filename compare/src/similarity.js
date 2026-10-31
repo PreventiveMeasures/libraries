@@ -15,7 +15,7 @@ const spanHash = (accum1, accum2) => ((accum1 + Math.imul(accum2, 0x61)) >>> 0) 
 // The bytes a span ends after: git's LF, and for code minified onto a line or
 // a few (chunks.js), punctuation too, so that an edit shifts no span past it.
 const endingAfter = (chars) => Uint8Array.from({ length: 256 }, (_, c) => Number(c === 0x0A || chars.includes(String.fromCodePoint(c))))
-export const LINES = endingAfter('')
+const LINES = endingAfter('')
 export const PUNCTUATION = endingAfter(',;={}')
 
 // Bytes per span hash, a span ending after a byte `ends` has or 64 bytes;

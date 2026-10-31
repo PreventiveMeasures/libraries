@@ -84,11 +84,20 @@ function commandReader(nodes, projects, major) {
   }
 }
 
+// The lockfile has no hasBin for a directory, whose bins pnpm 12 reads.
+const mayHaveBinIn = (nodes) => (dir) => nodes.get(dir)?.pkg.hasBin === true || nodes.get(dir)?.pkg.resolution.type === 'directory'
+
+// The names a project of `manifest` depends on itself.
+const ownNames = (manifest) => new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+
+// A package's link in the root's node_modules, where pnpm hoists publicly.
+const PUBLIC = /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u
+
 // pnpm's preferDirectCmds for a project of `manifest`: of the commands of
 // `entries`, [alias, directory], those of its own dependencies, then of the
 // others those whose names none of them has.
 function preferOwn(entries, manifest, commandsOfDir) {
-  const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+  const own = ownNames(manifest)
   const commands = entries.flatMap(([alias, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: own.has(alias) })))
   const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
   return [...commands.filter((command) => command.direct), ...commands.filter((command) => !names.has(command.name))]
@@ -98,8 +107,7 @@ function preferOwn(entries, manifest, commandsOfDir) {
 // `building` is whether any patch is configured, `peers` autoInstallPeers.
 export function binTargets({ nodes, projects, direct, links, publicHoist, building, peers, major }) {
   const commandsOfDir = commandReader(nodes, projects, major)
-  // The lockfile has no hasBin for a directory, whose bins pnpm 12 reads.
-  const mayHaveBin = (dir) => nodes.get(dir)?.pkg.hasBin === true || nodes.get(dir)?.pkg.resolution.type === 'directory'
+  const mayHaveBin = mayHaveBinIn(nodes)
 
   const { fixed, contested, link } = linker(major)
 
@@ -135,11 +143,10 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
     let linked
     if (id === '.' && publicHoist) {
       const manifest = projects.get('.')
-      const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+      const own = ownNames(manifest)
       const isOwn = (path) => own.has(path.slice('node_modules/'.length))
       // pnpm 12 links what it hoists of the projects apart, before.
-      const entries = [...links].filter(([path, dir]) => /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path)
-        && (major < 12 || isOwn(path) || mayHaveBin(dir)))
+      const entries = [...links].filter(([path, dir]) => PUBLIC.test(path) && (major < 12 || isOwn(path) || mayHaveBin(dir)))
       relink ||= major >= 12 && entries.some(([path, dir]) => !isOwn(path) && mayHaveBin(dir))
       linked = link(preferOwn(entries.map(([path, dir]) => [path.slice('node_modules/'.length), dir]), manifest, commandsOfDir), { ordered: false, where, fixNode: relink })
     } else {
@@ -163,7 +170,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
 // again what their first link did, and fixes nothing of theirs. The others
 // are read as having no bins (lazy.js).
 export function binReads({ nodes, projects, direct, links, publicHoist, peers, major }) {
-  const mayHaveBin = (dir) => nodes.get(dir)?.pkg.hasBin === true || nodes.get(dir)?.pkg.resolution.type === 'directory'
+  const mayHaveBin = mayHaveBinIn(nodes)
   const reads = new Set()
   for (const node of nodes.values()) {
     if (mayHaveBin(node.dir) || node.pkg.bundledDependencies !== undefined) reads.add(node.dir)
@@ -173,10 +180,9 @@ export function binReads({ nodes, projects, direct, links, publicHoist, peers, m
   for (const [id, children] of direct) {
     if (major >= 11 && peers) for (const dir of peersOf(children, nodes)) reads.add(dir)
     if (id === '.' && publicHoist) {
-      const manifest = projects.get('.')
-      const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+      const own = ownNames(projects.get('.'))
       for (const [path, dir] of links) {
-        if (/^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path) && (major < 12 || own.has(path.slice('node_modules/'.length)))) reads.add(dir)
+        if (PUBLIC.test(path) && (major < 12 || own.has(path.slice('node_modules/'.length)))) reads.add(dir)
       }
     } else if (major < 11) {
       for (const dir of children.values()) reads.add(dir)
@@ -213,8 +219,8 @@ function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
     for (const [target, { owner, why }] of phaseContested) mark(target, owner, before, why)
   }
   for (const [build, marks] of groups) {
-    for (const rel of new Set(marks.map((item) => item.rel))) {
-      const mine = marks.filter((item) => item.rel === rel && (!item.before || build.candidates.includes(item.owner)))
+    for (const [rel, marked] of Map.groupBy(marks, (item) => item.rel)) {
+      const mine = marked.filter((item) => !item.before || build.candidates.includes(item.owner))
       const after = mine.filter((item) => !item.before)
       const before = mine.filter((item) => item.before)
       const beforeFixed = new Set(before.filter((item) => item.why === undefined).map(({ owner }) => owner))

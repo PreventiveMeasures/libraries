@@ -21,7 +21,7 @@ import { compose, writeNode } from './write.js'
 // is a directory; or the package is patched, which is held to its bins as
 // linked; or its commands cannot be read alone. Else its files are as fetched
 // and patched, whatever pnpm links of its bins, and of anything else's.
-export function bound(node, major, builds) {
+function bound(node, major, builds) {
   if (builds?.(node)) return true
   let bins
   try {
@@ -134,7 +134,7 @@ export async function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, ea
     await eachConcurrently(early.nodes, prepare, (node) => quote(node.key))
     early.check()
   }
-  return unpacker(new Map([...byDir.values()].map((node) => [node.dir, node])), async (node) => {
+  return unpacker(byDir, async (node) => {
     await prepare(node)
     const { targets, executable } = bound(node, major, builds) ? await fixesFor(node) : { targets: new Map(), executable: new Map() }
     const tree = new Vfs()

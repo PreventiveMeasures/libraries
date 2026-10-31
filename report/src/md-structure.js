@@ -38,7 +38,7 @@ export function isCommitHash(s) {
 
 // The matches of `re` (global, for `matchAll`) outside a fence: the
 // heading lines a splitter cuts at, a snippet's own left in it.
-export function unfencedMatches(text, re) {
+function unfencedMatches(text, re) {
   const ranges = fenceRanges(text)
   return [...text.matchAll(re)].filter((m) => !inFence(ranges, m.index))
 }
@@ -313,6 +313,8 @@ function codeSpanEnds(text) {
   return ends
 }
 
+const SPACE_RE = /\s/u
+
 // What a bare destination can close on, at every position: the `)` that
 // balances each `(`, and -- for the reading that needs no balance -- the
 // next `)` and the next whitespace. Whitespace ends a bare destination
@@ -326,7 +328,7 @@ function destinationEnds(text) {
   const nextLine = new Int32Array(n + 1).fill(-1)
   for (let i = n - 1; i >= 0; i--) {
     nextClose[i] = text[i] === ')' ? i : nextClose[i + 1]
-    nextSpace[i] = /\s/u.test(text[i]) ? i : nextSpace[i + 1]
+    nextSpace[i] = SPACE_RE.test(text[i]) ? i : nextSpace[i + 1]
     nextAngle[i] = text[i] === '>' ? i : nextAngle[i + 1]
     nextLine[i] = text[i] === '\n' ? i : nextLine[i + 1]
   }

@@ -94,7 +94,8 @@ export const NO_ABOUT = Object.freeze(aboutOf({}))
 // alone (fetchSize); and `lazy`, false unless given true, for nothing until a
 // package is unpacked, and then its tarball, as without it. The two are
 // refused together: a tree is laid out with sizes alone, or to be unpacked.
-export function fetchingOf({ metadata = true, cache, sizeEstimateOnly = false, lazy = false }) {
+// Each is refused with `into`, a Vfs given to mount the tree's files into.
+export function fetchingOf({ metadata = true, cache, sizeEstimateOnly = false, lazy = false }, into) {
   if (typeof metadata !== 'boolean') throw new TypeError('metadata must be a boolean, or left out')
   if (cache !== undefined && cache !== false && (typeof cache?.read !== 'function' || typeof cache?.write !== 'function')) {
     throw new TypeError('cache must be false, or a store with read and write, or left out')
@@ -102,6 +103,8 @@ export function fetchingOf({ metadata = true, cache, sizeEstimateOnly = false, l
   if (typeof sizeEstimateOnly !== 'boolean') throw new TypeError('sizeEstimateOnly must be a boolean, or left out')
   if (typeof lazy !== 'boolean') throw new TypeError('lazy must be a boolean, or left out')
   if (lazy && sizeEstimateOnly) throw new TypeError('lazy is not taken with sizeEstimateOnly, which fetches no tarball to unpack')
+  if (sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
+  if (lazy && into !== undefined) throw new TypeError('vfs is not taken with lazy, whose tree is unpacked a package at a time')
   return { metadata, cache, sizeEstimateOnly, lazy }
 }
 

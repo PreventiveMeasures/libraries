@@ -166,11 +166,8 @@ export function workspaceHoists(placed, lockfile, { hoistPattern, publicHoistPat
 // of a patched one's patch; `pnpm` the version, for what is refused.
 export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules = false, idOf = (key) => key, changesOf, pnpm = '10' }) {
   const first = new Map()
-  const placedIn = new Set()
-  for (const node of byDir.values()) {
-    if (!first.has(idOf(node.key))) first.set(idOf(node.key), node.dir)
-    placedIn.add(node.modules)
-  }
+  for (const node of byDir.values()) if (!first.has(idOf(node.key))) first.set(idOf(node.key), node.dir)
+  const dropping = mayDrop(byDir)
   const childrenOf = (node) => Object.entries({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }).map(([alias, key]) => [alias, first.get(idOf(key))]).filter(([, dir]) => dir !== undefined)
   const tops = [...byDir.values()].filter((node) => projects.has(node.modules)).map((node) => node.dir)
   const reached = reachable(tops, (dir) => childrenOf(byDir.get(dir)).map(([, child]) => child))
@@ -194,7 +191,7 @@ export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules
     } else if (copies.length > 1) {
       const own = node.files.keys().find((path) => path.split('/').includes('node_modules'))
       if (own !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, and makes the others hardlinks of it, with no ${quote(own)}, which is not supported`, quote(key))
-      const nested = copies.find((copy) => placedIn.has(`${copy.dir}/node_modules`))
+      const nested = dropping.get(key)
       if (nested !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which is not supported`, quote(key))
     }
     built.push({ key, copies: copies.map((copy) => copy.dir), candidates, children: childrenOf(node) })

@@ -129,7 +129,7 @@ function readList(doc, key) {
 function checkSorted(items) {
   for (let i = 1; i < items.length; i++) {
     const [a, b] = [items[i - 1].pkg, items[i].pkg]
-    if (items[i - 1].dev !== items[i].dev) continue
+    if (a.dev !== b.dev) continue
     const order = compareBytes(a.name, b.name) || compareBytes(a.version, b.version)
     if (order > 0) throw new LockfileError(`out of the order Composer sorts packages in, by name then version, after ${quote(a.name)}`, items[i].where)
   }
@@ -177,7 +177,7 @@ export function parseComposerLock(text, options = {}) {
   for (const [key, dev] of [['packages', false], ['packages-dev', true]]) {
     for (const [index, value] of readList(doc, key).entries()) {
       const where = `${key}[${index}]`
-      items.push({ ...readPackage(value, where, dev), where, dev })
+      items.push({ ...readPackage(value, where, dev), where })
     }
   }
   checkSorted(items)
