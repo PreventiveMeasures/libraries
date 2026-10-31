@@ -25,34 +25,29 @@ export function supports(format) {
   }
 }
 
-// A stream's chunks, through async iteration where the platform has it on
-// streams, and a reader where it does not.
-async function* chunksOf(stream) {
-  if (Symbol.asyncIterator in stream) return yield* stream
+// A stream's chunks: the stream itself where the platform iterates streams,
+// and a reader's where it does not. Either cancels the stream when the loop
+// reading it is left before its end.
+async function* readerChunks(stream) {
   const reader = stream.getReader()
-  for (let next = await reader.read(); !next.done; next = await reader.read()) yield next.value
+  try {
+    for (let next = await reader.read(); !next.done; next = await reader.read()) yield next.value
+  } finally {
+    reader.cancel().catch(() => {})
+  }
 }
-
-// Output past `limit` is refused where it is, not after it has all been
-// made: erroring the bound cancels the stream behind it. A bound that is
-// no number (NaN) refuses everything, not nothing.
-function bounded(limit) {
-  let total = 0
-  return new TransformStream({
-    transform(chunk, controller) {
-      total += chunk.length
-      if (total <= limit) controller.enqueue(chunk)
-      else controller.error(new RangeError(`output past ${limit} bytes`))
-    },
-  })
-}
+const chunksOf = (stream) => (Symbol.asyncIterator in stream ? stream : readerChunks(stream))
 
 // The stream is made here, so a format the runtime lacks rejects with the
-// platform's own error, as a bad argument rather than bad data. Output is
-// gathered in the pieces the stream makes and joined at the end, or, given
-// `into`, copied into it as each piece comes and the piece let go: joining
-// holds the output twice at the end, which a caller who knows how much is
-// coming need not pay.
+// platform's own error, as a bad argument rather than bad data. The bytes
+// go in as one write, which the stream takes in as it can, rather than in
+// a Blob's pieces, each a turn of its own. Output is gathered in the pieces
+// the stream makes and joined at the end, or, given `into`, copied into it
+// as each piece comes and the piece let go: joining holds the output twice
+// at the end, which a caller who knows how much is coming need not pay.
+// Output past `limit` is refused where it is, not after it has all been
+// made: leaving the loop cancels the stream. A bound that is no number
+// (NaN) refuses everything, not nothing.
 async function through(bytes, Stream, format, limit, verb, into) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the data is not a Uint8Array')
   const transform = new Stream(format)
@@ -64,8 +59,13 @@ async function through(bytes, Stream, format, limit, verb, into) {
     if (into !== undefined) return into.subarray(0, length)
     return chunks.length === 1 ? chunks[0] : concat(chunks)
   }
+  // The stream's own failure is read from its output; the writes fail with it.
+  const writer = transform.writable.getWriter()
+  writer.write(bytes).catch(() => {})
+  writer.close().catch(() => {})
   try {
-    for await (const chunk of chunksOf(new Blob([bytes]).stream().pipeThrough(transform).pipeThrough(bounded(limit)))) {
+    for await (const chunk of chunksOf(transform.readable)) {
+      if (!(length + chunk.length <= limit)) throw new RangeError(`output past ${limit} bytes`)
       if (into === undefined) chunks.push(chunk)
       else into.set(chunk, length)
       length += chunk.length
