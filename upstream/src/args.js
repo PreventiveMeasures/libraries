@@ -99,6 +99,12 @@ export const assertSoldeerName = assertion('a Soldeer package name', matches(/^(
 // Soldeer takes any version but an empty one. Its registry has semver
 // (`5.7.0-rc.0`, `1.0.2-solc-0.8-simulate`), bare numbers and commit hashes.
 export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` and `-`', matches(/^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u))
+// A root's name as Podfile.lock has it, and @preventive/lockfile reads it:
+// printable ASCII but for spaces, parentheses, slashes and backslashes, no
+// `.` first, which the spec linter refuses, and 1024 characters at most.
+export const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?!\.)[!-'*-.0-[\]-~]+$/u))
+// Pod::Version's pattern, as Podfile.lock writes a version.
+export const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
 // A package's name and version, as a registry's getters take them.
 const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {
   assertName(method, 'name', name)
@@ -107,5 +113,8 @@ const assertNameVersion = (assertName, assertVersion) => (method, name, version)
 export const assertCrate = assertNameVersion(assertCrateName, assertCrateVersion)
 export const assertPackage = assertNameVersion(assertPackageName, assertPackageVersion)
 export const assertSoldeerPackage = assertNameVersion(assertSoldeerName, assertSoldeerVersion)
+export const assertPod = assertNameVersion(assertPodName, assertPodVersion)
 // As Cargo.lock and soldeer.lock write a checksum.
 export const assertSha256 = assertion('a sha256 in lowercase hex', matches(/^[\da-f]{64}$/u))
+// As Podfile.lock writes a podspec's checksum.
+export const assertSha1 = assertion('a sha1 in lowercase hex', isSha1)

@@ -6,11 +6,13 @@ import { request } from './http.js'
 import { gitTreeOfTarball } from './tree.js'
 
 // A hash as each registry writes it: npm's integrity, one sha512 in base64
-// after `sha512-`; crates.io's and Soldeer's checksum, a sha256 in hex; a
-// git tree id for a tarball of that tree.
+// after `sha512-`; crates.io's and Soldeer's checksum, a sha256 in hex;
+// Podfile.lock's checksum of a podspec, a sha1 in hex; a git tree id for a
+// tarball of that tree.
 const DIGESTS = {
   sha512: (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
   sha256: (bytes) => createHash('sha256').update(bytes).digest('hex'),
+  sha1: (bytes) => createHash('sha1').update(bytes).digest('hex'),
   tree: gitTreeOfTarball,
 }
 
@@ -20,12 +22,12 @@ const DIGESTS = {
 // whether set or not (read, never written; a mismatch is passed over),
 // else the cache set, or a `cache` store in its place (readBytes; a
 // mismatch throws), else what `locate` answers, checked and then kept as
-// writeBytes keeps it. A tree's `list` and `symlinksAbove` are
-// gitTreeOfTarball's.
-export async function verifiedDownload({ method, dir, what, ext, algorithm, expected, local = [], ours = false, cache, locate, options = {}, list, symlinksAbove }) {
+// writeBytes keeps it, as `entry`, `what` unless given. A tree's `list`
+// and `symlinksAbove` are gitTreeOfTarball's.
+export async function verifiedDownload({ method, dir, what, entry = what, ext, algorithm, expected, local = [], ours = false, cache, locate, options = {}, list, symlinksAbove }) {
   assert.ok(Object.hasOwn(DIGESTS, algorithm) && typeof expected === 'string' && expected !== '', `${method}: nothing to check ${what} against`)
   const digest = (bytes) => DIGESTS[algorithm](bytes, { expected, list, symlinksAbove })
-  const key = `${what}.${ext}`
+  const key = `${entry}.${ext}`
   for (const path of ours ? [...local, ...ourCachePaths(dir, key)] : local) {
     const bytes = await readRegularFile(path)
     if (bytes && await digest(bytes) === expected) return bytes
@@ -35,10 +37,10 @@ export async function verifiedDownload({ method, dir, what, ext, algorithm, expe
     assert.ok(actual === expected, `${method}: integrity mismatch for ${what} from ${from}: expected ${expected}, got ${actual}`)
     return bytes
   }
-  const cached = await readBytes(dir, what, key, cache)
+  const cached = await readBytes(dir, entry, key, cache)
   if (cached) return await check(cached, cache ? 'the store' : 'the cache')
   const url = await locate()
   const bytes = await check(await request(url, { ...options, as: 'bytes' }), url)
-  await writeBytes(dir, what, key, bytes, cache)
+  await writeBytes(dir, entry, key, bytes, cache)
   return bytes
 }

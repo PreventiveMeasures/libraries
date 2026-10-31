@@ -37,11 +37,12 @@ export const defaultCacheDir: string | undefined
 // with no request. Point it only at storage that
 // nothing less trusted than the caller can write, never a cache shared
 // with or restored from lower-trust jobs. Tarballs, crates (cargo.js), zips
-// (soldeer.js) and tree tarballs (github.js) don't rely on this, since
-// they are checked against their integrity on every call; and the version
-// documents kept here (getMeta) never supply an integrity, only confirm
-// one a caller gives (verifyDist, and getMeta with a `dist`). A call's `cache` option, where it has
-// one, keeps what it caches elsewhere, or writes none of it here.
+// (soldeer.js), podspecs (cocoapods.js) and tree tarballs (github.js) don't
+// rely on this, since they are checked against their integrity on every
+// call; and the version documents kept here (getMeta) never supply an
+// integrity, only confirm one a caller gives (verifyDist, and getMeta with
+// a `dist`). A call's `cache` option, where it has one, keeps what it
+// caches elsewhere, or writes none of it here.
 export function setCacheDir(dir?: string | false): void
 
 // A store of the caller's, a database's say, for what would otherwise be
