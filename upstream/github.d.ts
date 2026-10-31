@@ -180,6 +180,16 @@ export interface Client {
   // found as getRepoTreeId finds it: GitHub's listing, hashed back to the
   // tree's id, so none is left out or changed.
   listRepoDir(options: { repo: RepoName; sha: string; directory?: string }): Promise<RepoDirEntry[]>
+  // Every entry of the full commit `sha`'s tree, `path` the one from its
+  // root: GitHub's listing of the tree with every tree under it, each of
+  // those hashed back to its id, so none is left out, changed or added.
+  // Where GitHub cuts that short, past 100,000 entries or 7 MB, its own
+  // listing instead, then each tree's in it the same way, as GitHub
+  // advises; with `paths`, only the trees those paths are in, so another
+  // tree's entries may be left out. No more than `maxTrees` trees (500 by
+  // default) are listed, six at once: past them, the rest are left out
+  // too, and `cut` is true.
+  listRepoTree(options: { repo: RepoName; sha: string; paths?: string[]; maxTrees?: number }): Promise<{ entries: RepoDirEntry[]; cut: boolean }>
   // Every page of the repo's branches, as GitHub lists them, each with the
   // commit at its head; more than `maxPages` (100 by default) pages of 100
   // is an error, as is a branch with no commit.

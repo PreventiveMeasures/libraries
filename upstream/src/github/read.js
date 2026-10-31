@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertBoolean, assertGhsa, assertLevels, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, assertion, isRefName, isRepo, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertBoolean, assertGhsa, assertLevels, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, assertion, isRefName, isRepo, isRepoPath, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { HttpError, decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
+import { pool } from '../pool.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
+const MAX_TREES = 500
+const TREES_AT_ONCE = 6
 
 // A list of exactly `maxPages` full pages is whole only if the next is empty.
 async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
@@ -275,6 +278,40 @@ async function* filesIn(method, headers, repo, tree, base) {
   }
 }
 
+const assertPaths = assertion('an array of paths inside a repository', (value) => Array.isArray(value) && value.every(isRepoPath))
+
+// Every entry of a commit's tree, by its path from the root, as
+// listTreeDeep lists it; where GitHub cuts that short, the tree's own
+// listing, then each tree in it the same way, only those `paths` are in
+// if given, `maxTrees` trees listed at most. Whether some were left
+// unlisted is `cut`.
+async function listRepoTree(headers, options) {
+  assertArgs('listRepoTree', options, { repo: assertRepo, sha: assertSha, paths: optional(assertPaths), maxTrees: optional(assertNumber) })
+  const { repo, sha, paths, maxTrees = MAX_TREES } = options
+  const dirs = paths && new Set(paths.flatMap((path) => path.split('/').slice(0, -1).map((_, at, names) => names.slice(0, at + 1).join('/'))))
+  const at = (base, entries) => entries.map(({ path, mode, type, sha: id }) => ({ path: `${base}${path}`, mode, type, sha: id }))
+  const entries = []
+  let cut = false
+  let listed = 0
+  let round = [{ tree: await commitTree('listRepoTree', headers, repo, sha), base: '' }]
+  while (round.length > 0) {
+    const asked = round.slice(0, maxTrees - listed)
+    cut ||= asked.length < round.length
+    listed += asked.length
+    const answers = await pool(asked, TREES_AT_ONCE, async ({ tree, base }) => {
+      const deep = await listTreeDeep('listRepoTree', headers, repo, tree)
+      return { base, deep, own: deep ?? await listTree('listRepoTree', headers, repo, tree) }
+    })
+    round = []
+    for (const { base, deep, own } of answers) {
+      const found = at(base, own)
+      entries.push(...found)
+      if (deep === null) round.push(...found.filter(({ path, type }) => type === 'tree' && (dirs?.has(path) ?? true)).map(({ path, sha: tree }) => ({ tree, base: `${path}/` })))
+    }
+  }
+  return { entries, cut }
+}
+
 const byPath = (a, b) => (a.path < b.path ? -1 : 1)
 
 async function findRepoLockfiles(headers, options) {
@@ -348,5 +385,5 @@ async function listRepoAdvisories(headers, options) {
   return (await Array.fromAsync(cursorPages('listRepoAdvisories', headers, pageUrl))).flat()
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, listRepoBranches, compareCommits, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, listRepoBranches, compareCommits, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, listRepoTree, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)
