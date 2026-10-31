@@ -22,9 +22,9 @@ describe('createWriteClient', () => {
 
   it('reads as the read client does, and writes', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
-      'createBranch', 'createCommit', 'createPR', 'findRepoLockfiles', 'forkRepo',
+      'compareCommits', 'createBranch', 'createCommit', 'createPR', 'findRepoLockfiles', 'forkRepo',
       'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
-      'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listRepoTags', 'listUserRepos',
+      'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoBranches', 'listRepoDir', 'listRepoTags', 'listUserRepos',
     ])
     assert.equal(HttpError, ReadError)
   })
