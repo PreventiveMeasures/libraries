@@ -70,7 +70,9 @@ export interface Pod {
   root: string
   // As its podspec has it, a root's and its subspecs' one.
   version: string
-  // What its podspec depends on, on every platform the podspec names.
+  // What its podspec depends on, on every platform the podspec names, each
+  // once: a name may be in two, as two platforms ask for it by two
+  // requirements.
   dependencies: PodDependency[]
 }
 

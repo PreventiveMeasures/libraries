@@ -187,15 +187,13 @@ describe('the layout', () => {
     refuses(`${BASE}\n`, 'line 47: expected the end of the file, as CocoaPods 1.17.0 writes it')
   })
 
-  // Lockfile.generate lists what a pod depends on once each, and sorted,
-  // and YAMLHelper sorts it again: a root and its own subspec both, as
-  // `RCT-Folly` and `RCT-Folly/Fabric`, come one after the other. A list
-  // of two sorted runs, as React Native's rn-tester has of
-  // React-RCTSettings, comes from no CocoaPods.
+  // Lockfile.generate lists what a pod depends on sorted, and YAMLHelper
+  // sorts it again: a root and its own subspec both, as `RCT-Folly` and
+  // `RCT-Folly/Fabric`, come one after the other.
   it('takes a root and its own subspec among what a pod depends on, and the list sorted alone', () => {
     const deps = (...names) => edit(['    - Missing (< 2.0, >= 1.0)', names.map((name) => `    - ${name}`).join('\n')])
     assert.deepEqual(parsePodfileLock(deps('Core', 'Core/Base', 'Missing (< 2.0, >= 1.0)')).pods.Git.dependencies.map((dependency) => dependency.name), ['Core', 'Core/Base', 'Missing'])
-    refuses(deps('Core', 'Core/Base', 'Missing (< 2.0, >= 1.0)', 'Core', 'Core/Base'), 'line 9: expected "    - Core", as CocoaPods 1.17.0 writes it, found "    - Core/Base"')
+    refuses(deps('Core/Base', 'Core', 'Missing (< 2.0, >= 1.0)'), 'line 8: expected "    - Core", as CocoaPods 1.17.0 writes it, found "    - Core/Base"')
   })
 
   it('quotes yes, no, on and off from CocoaPods 1.10, and dates from 1.13', () => {
@@ -256,6 +254,20 @@ describe('pods', () => {
     refuses(edit(['(< 2.0, >= 1.0)', '(from `../Missing`)']), '"Missing (from `../Missing`)" names an external source, which only the Podfile\'s dependencies do', at)
   })
 
+  // Lockfile.generate lists what Dependency#to_s writes of each dependency
+  // of a pod uniq: a name twice only by two requirements, as one podspec
+  // asks for it by one on iOS and by another on macOS. React Native's
+  // rn-tester lists RCT-Folly twice under React-RCTSettings, in a list of
+  // two sorted runs, and no CocoaPods writes either.
+  it('refuses what a pod depends on twice, though a name may be in two', () => {
+    const deps = (...names) => edit(['    - Missing (< 2.0, >= 1.0)', names.map((name) => `    - ${name}`).join('\n')])
+    const two = parsePodfileLock(deps('Missing (< 2.0, >= 1.0)', 'Missing (~> 3.0)')).pods.Git.dependencies
+    assert.deepEqual(plain(two), [{ name: 'Missing', requirements: ['< 2.0', '>= 1.0'] }, { name: 'Missing', requirements: ['~> 3.0'] }])
+    const at = 'PODS[3]["Git (0.1.0)"]'
+    refuses(deps('Missing (< 2.0, >= 1.0)', 'Missing (< 2.0, >= 1.0)'), 'a second "Missing (< 2.0, >= 1.0)", where CocoaPods lists each dependency of a pod once', `${at}[1]`)
+    refuses(deps('Core', 'Core/Base', 'Missing (< 2.0, >= 1.0)', 'Core', 'Core/Base'), 'a second "Core", where CocoaPods lists each dependency of a pod once', `${at}[3]`)
+  })
+
   it('refuses a pod twice, and a root\'s pods at two versions', () => {
     refuses(edit(['  - Other (1.2.3)', '  - Other (1.2.3)\n  - Other (1.2.4)']), 'a second "Other"', 'PODS[6]')
     refuses(edit(['  - Core/Base (2.0.0):', '  - Core/Base (2.0.1):']), 'at "2.0.1", where its root\'s other pods are at "2.0.0"', 'PODS[2]')
@@ -303,7 +315,11 @@ describe('the Podfile\'s dependencies', () => {
     refuses(edit(['  - Core (~> 2.0)', '  - Core (~> 2.0)\n  - Core/Missing']), '"Core/Missing" is no pod in PODS', 'DEPENDENCIES[2]')
   })
 
-  it('takes a name twice, as two targets ask for it', () => {
+  // Podfile#dependencies is uniq, but Dependency#to_s leaves out the spec
+  // repo a dependency names, and Lockfile.generate does not uniq what it
+  // writes: two targets that ask for a pod alike, but of two spec repos,
+  // `:source`, list it twice.
+  it('takes a dependency twice, as two targets ask for it of two spec repos', () => {
     assert.equal(parsePodfileLock(edit(['  - Core (~> 2.0)', '  - Core (~> 2.0)\n  - Core (~> 2.0)'])).dependencies.length, 5)
   })
 
