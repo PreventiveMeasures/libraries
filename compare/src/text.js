@@ -43,7 +43,7 @@ const ignoring = (options) => (options.whitespace ?? 'none') !== 'none' || Boole
 
 // Whether `blocks` take `a` to `b` as diff holds its own change set to, under
 // options already checked (checkLineOptions): blocksHold's test, and noLonger's.
-export function holds(a, b, blocks, { whitespace, ignoreCase }) {
+export function changeSetHolds(a, b, blocks, { whitespace, ignoreCase }) {
   try {
     formatChangeSet(a, b, blocks, { format: 'normal', ignoreCase, whitespace })
     return true
@@ -64,7 +64,7 @@ function noLonger(a, b, options, blocks, minded) {
     ? [block(a0, a1, b0, b1)]
     : changeSet(A.slice(a0, a1).join(''), B.slice(b0, b1).join(''), options).map((part) => block(a0 + part.a0, a0 + part.a1, b0 + part.b0, b0 + part.b1))))
   // Blocks put together from diffs of their own are held to what diff holds its own to.
-  const best = changes(again) < changes(blocks) && holds(a, b, again, options) ? again : blocks
+  const best = changes(again) < changes(blocks) && changeSetHolds(a, b, again, options) ? again : blocks
   return changes(best) < changes(minded) ? best : minded
 }
 
