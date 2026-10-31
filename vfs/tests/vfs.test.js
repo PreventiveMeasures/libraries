@@ -25,6 +25,40 @@ describe('files', () => {
     assert.equal(fs.readFile('/a'), fs.readFile('/a'), 'the same array each time')
   })
 
+  it('adopt the bytes they are handed over, as they are, a Buffer as a plain Uint8Array', () => {
+    const fs = new Vfs()
+    const given = new Uint8Array([1, 2])
+    fs.writeFile('/a', given, { adopt: true })
+    assert.equal(fs.readFile('/a'), given, 'not a copy')
+    const buffer = Buffer.from('abc')
+    fs.writeFile('/b', buffer, { adopt: true })
+    const held = fs.readFile('/b')
+    assert.equal(held.constructor, Uint8Array)
+    assert.deepEqual([held.buffer, held.byteOffset, held.length], [buffer.buffer, buffer.byteOffset, 3], 'over the same bytes')
+    fs.writeFile('/c', 'text', { adopt: true })
+    assert.equal(fs.readText('/c'), 'text', 'text is stored as its UTF-8 all the same')
+    for (const adopt of [1, 'yes', null]) assert.throws(() => fs.writeFile('/d', given, { adopt }), TypeError)
+    assert.equal(fs.isFile('/d'), false)
+  })
+
+  it('never append into what is past bytes they were handed over, nor bytes a rewrite gave them', () => {
+    const fs = new Vfs()
+    const block = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7])
+    fs.writeFile('/a', block.subarray(0, 4), { adopt: true })
+    fs.writeFile('/b', block.subarray(4), { adopt: true })
+    fs.appendFile('/a', new Uint8Array([9, 9]))
+    assert.deepEqual(fs.readFile('/a'), new Uint8Array([0, 1, 2, 3, 9, 9]))
+    assert.deepEqual(fs.readFile('/b'), new Uint8Array([4, 5, 6, 7]))
+    assert.deepEqual(block, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]), 'what was handed over is left as it was')
+    // A file grown by appends that is then written over holds what it was given, which it does not grow into either.
+    fs.appendFile('/g', 'ab')
+    fs.appendFile('/g', 'c')
+    fs.writeFile('/g', block.subarray(0, 2), { adopt: true })
+    fs.appendFile('/g', 'z')
+    assert.deepEqual(block, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]))
+    assert.deepEqual(fs.readFile('/g'), new Uint8Array([0, 1, 0x7a]))
+  })
+
   it('keep their inode across a rewrite, and are truncated by one', () => {
     const fs = new Vfs()
     fs.writeFile('/a', 'long text')
@@ -754,6 +788,20 @@ describe('mount', () => {
     again.mount(tree)
     assert.deepEqual(tar(again).map((entry) => entry.name), ['.', 'a', 'd', 'd/l', 'grown', 'h'])
     assert.equal(again.readText('/a'), 'two')
+  })
+
+  it('shares a grown file\'s bytes, room to spare and all, which an append to either leaves the other\'s as it was', () => {
+    const tree = new Vfs()
+    for (const part of ['x', 'y', 'z']) tree.appendFile('/grown', part)
+    const held = tree.readFile('/grown')
+    assert.ok(held.byteOffset + held.length < held.buffer.byteLength, 'room to spare')
+    const fs = new Vfs()
+    fs.mount(tree)
+    assert.equal(fs.readFile('/grown'), held, 'held once')
+    tree.appendFile('/grown', 'v')
+    fs.appendFile('/grown', 'w')
+    assert.deepEqual([tree.readText('/grown'), fs.readText('/grown')], ['xyzv', 'xyzw'])
+    assert.equal(new TextDecoder().decode(held), 'xyz', 'and bytes handed out earlier as they were')
   })
 
   it('copies a Vfs mounted into itself as it was when called', () => {
