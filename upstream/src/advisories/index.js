@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertRepo, assertion, isIterable, optional, sameName } from '../args.js'
 import { assertCache } from '../cache.js'
-import { order } from './common.js'
+import { SEVERITIES, order } from './common.js'
 import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
@@ -37,7 +37,6 @@ function collect(packages) {
 // Which of an advisory's rows stands for it: npm's registry's, then OSV's,
 // then its repository's.
 const SOURCES = ['registry', 'osv', 'repository']
-const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info']
 const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
 // An advisory's rows as one: the first's by source, what it lacks from the

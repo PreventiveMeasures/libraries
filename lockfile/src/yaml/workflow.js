@@ -9,8 +9,8 @@ import { YamlError, excerpt } from './error.js'
 
 // The bounds a document's aliases are held to, as though each were a copy
 // of what its anchor names: the nodes it comes to, and how deep.
-export const MAX_EXPANDED = 2 ** 20
-export const MAX_EXPANDED_DEPTH = 128
+const MAX_EXPANDED = 2 ** 20
+const MAX_EXPANDED_DEPTH = 128
 
 // A tab is read in a block scalar's text and a comment line alone: YAML
 // refuses one that indents, and GitHub's workflows have them in scripts.

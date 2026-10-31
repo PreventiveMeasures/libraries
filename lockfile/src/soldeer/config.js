@@ -36,7 +36,7 @@ function readDependency(value, where) {
   table(value, where)
   const other = Object.keys(value).find((key) => !OPTIONS.has(key))
   if (other !== undefined) throw new LockfileError('a field Soldeer does not read', at(where, other))
-  for (const key of OPTIONS) if (key !== 'version' && value[key] !== undefined) string(value[key], at(where, key))
+  for (const key of OPTIONS) if (key !== 'version') field(value, key, where, string)
   const { url, git, rev } = value
   const kind = git === undefined ? (url === undefined ? 'registry' : 'URL') : 'git'
   const read = { kind, version: readVersion(value.version, at(where, 'version')), url, git, rev }
