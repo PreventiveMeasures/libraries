@@ -5,8 +5,8 @@ import { afterEach, describe, it } from 'node:test'
 
 import { createClient } from '../github.js'
 import { FORMATS, lockfileOf, projectFormats } from '../src/lockfiles.js'
-import { gitTreeOfListing, objectId } from '../src/tree.js'
-import { SHA, forbidRequests, json, stubGitHub } from './github-stub.js'
+import { objectId } from '../src/tree.js'
+import { SHA, deepOf, forbidRequests, json, stubTrees as stub, stubGitHub, treeOf } from './github-stub.js'
 
 const realFetch = globalThis.fetch
 afterEach(() => {
@@ -21,41 +21,6 @@ const FILE = blob('{}\n')
 const LINK = { mode: '120000', type: 'blob', sha: blob('../pnpm-lock.yaml').sha }
 const SUBMODULE = { mode: '160000', type: 'commit', sha: '89e6c98d92887913cadf06b2adb97f26cde4849b' }
 
-// The tree of `files`, by path, and GitHub's listing of each tree in it,
-// by id.
-function treeOf(files) {
-  const listings = {}
-  const build = (paths) => {
-    const entries = [...Map.groupBy(Object.entries(paths), ([path]) => path.split('/')[0])].map(([name, group]) => {
-      if (group.length === 1 && group[0][0] === name) return { path: name, ...group[0][1] }
-      return { path: name, mode: '040000', type: 'tree', sha: build(Object.fromEntries(group.map(([path, entry]) => [path.slice(name.length + 1), entry]))) }
-    })
-    const sha = gitTreeOfListing(entries)
-    listings[sha] = entries
-    return sha
-  }
-  return { tree: build(files), listings }
-}
-
-// A tree's listing with every tree's under it, by paths from it.
-const deepOf = (listings, id) => listings[id].flatMap((entry) => [entry, ...(entry.type === 'tree' ? deepOf(listings, entry.sha).map((under) => ({ ...under, path: `${entry.path}/${under.path}` })) : [])])
-
-// GitHub, for acme/app at SHA: its commit of `tree`, and a listing of each
-// tree, `?recursive=1` asked, cut short for each in `truncated`, with a
-// `url` on each entry and a `size` on each blob, as GitHub answers.
-function stub({ tree, listings }, { truncated = [], deep = {} } = {}) {
-  return stubGitHub(({ url }) => {
-    const { pathname, search } = new URL(url)
-    if (pathname === `/repos/acme/app/git/commits/${SHA}`) return json({ sha: SHA, tree: { sha: tree } })
-    const id = /^\/repos\/acme\/app\/git\/trees\/(?<id>[\da-f]{40})$/u.exec(pathname)?.groups.id
-    if (!Object.hasOwn(listings, id) || !['', '?recursive=1'].includes(search)) return json({ message: 'Not Found' }, 404)
-    const recursive = search !== ''
-    const cut = recursive && truncated.includes(id)
-    const entries = recursive ? (Object.hasOwn(deep, id) ? deep[id] : deepOf(listings, id)) : listings[id]
-    const answered = entries && (cut ? entries.slice(0, 2) : entries).map((entry) => ({ ...entry, ...(entry.type === 'blob' && { size: 3 }), url: `${API}/git/${entry.type}s/${entry.sha}` }))
-    return json({ sha: id, url: `${API}/git/trees/${id}`, tree: answered, truncated: cut })
-  })
-}
 const urls = (calls) => calls.map(({ url }) => url.slice(API.length))
 const find = (options) => client().findRepoLockfiles({ repo: 'acme/app', sha: SHA, ...options })
 
