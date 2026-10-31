@@ -1,7 +1,7 @@
 {
   "name": "@preventive/upstream",
   "version": "1.3.0",
-  "description": "Minimal npm, crates.io, Soldeer, GitHub and git checkout clients",
+  "description": "Minimal npm, crates.io, Soldeer, CocoaPods trunk, GitHub and git checkout clients",
   "type": "module",
   "exports": {
     "./advisories.js": {
@@ -11,6 +11,10 @@
     "./cargo.js": {
       "types": "./cargo.d.ts",
       "default": "./cargo.js"
+    },
+    "./cocoapods.js": {
+      "types": "./cocoapods.d.ts",
+      "default": "./cocoapods.js"
     },
     "./github.js": {
       "types": "./github.d.ts",
@@ -52,6 +56,8 @@
     "advisories.js",
     "cargo.d.ts",
     "cargo.js",
+    "cocoapods.d.ts",
+    "cocoapods.js",
     "github.d.ts",
     "github.js",
     "git.d.ts",
@@ -79,6 +85,7 @@
     "src/cache.js",
     "src/cargo/crate.js",
     "src/cargo/repos.js",
+    "src/cocoapods.js",
     "src/download.js",
     "src/git.js",
     "src/github/client.js",
