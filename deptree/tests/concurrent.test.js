@@ -7,7 +7,7 @@ const wait = (ms) => new Promise((resolve) => {
 })
 
 describe('eachConcurrently', () => {
-  it('runs each job once, eight at a time', async () => {
+  it('runs each job once, sixteen at a time', async () => {
     const done = []
     let open = 0
     let most = 0
@@ -18,7 +18,7 @@ describe('eachConcurrently', () => {
       open--
       done.push(i)
     })
-    assert.equal(most, 8)
+    assert.equal(most, 16)
     assert.deepEqual(done.toSorted((a, b) => a - b), Array.from({ length: 20 }, (_, i) => i))
   })
 
@@ -36,6 +36,6 @@ describe('eachConcurrently', () => {
     })
     await assert.rejects(run, (error) => error === first)
     assert.equal(open, 0)
-    assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7])
+    assert.deepEqual(started, Array.from({ length: 16 }, (_, i) => i))
   })
 })
