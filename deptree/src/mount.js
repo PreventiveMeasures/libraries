@@ -116,7 +116,7 @@ export function writeFiles(vfs, root, { dirs, files, links = new Map() }, stats,
     if (skip(path)) continue
     const at = checkWrite(vfs, root, path, real)
     try {
-      vfs.writeFile(at, file.data, { mode: file.mode })
+      vfs.writeFile(at, file.data, { mode: file.mode, adopt: true })
     } catch (error) {
       throw asRefusal(error, 'written', `${root}/${path}`)
     }

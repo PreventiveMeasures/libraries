@@ -8,7 +8,8 @@
 // folds the two, so every component is checked where it stands. Nothing here
 // reads a clock: `mtime` is what a caller set, in whole seconds, and 0 until
 // then. A file's bytes are returned as they are stored, never copied, and
-// stored as a copy of what was written: hold them, do not write into them.
+// stored as a copy of what was written, or as written where the writer
+// hands them over (writeFile's `adopt`): hold them, do not write into them.
 // A name is what a filesystem holds: text with an encoding, of at most 255
 // bytes of UTF-8, with no `/` and no NUL. A link's target is text with an
 // encoding too, of at most PATH_MAX bytes, as a filesystem and an archive
@@ -179,8 +180,8 @@ export class Vfs {
   // trailing slash, the caller's or on the target of a link followed last,
   // asks for a directory, which open(2) neither makes nor writes: once the
   // way there is walked, EISDIR whatever the last name holds, unfollowed.
-  #write(path, data, update, mode, mtime) {
-    const bytes = encode(data, path)
+  #write(path, data, update, mode, mtime, adopt = false) {
+    const bytes = adopt && data instanceof Uint8Array ? plain(data) : encode(data, path)
     const found = this.#locate(path, { follow: !slashed(path), create: true })
     if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
     if (found.node === undefined) this.#set(found, this.#inode('file', { bytes }, mode, mtime), path)
@@ -188,11 +189,14 @@ export class Vfs {
   }
 
   // Creates the file or truncates it; the inode stays, so a hard link sees it.
-  writeFile(path, data, { mode, mtime } = {}) {
-    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes, ...meta(node, mode, mtime) }), mode, mtime)
+  // With `adopt`, bytes given are stored as they are, not copied: the writer
+  // hands them over, and writes into them no more, as a reader does not.
+  writeFile(path, data, { mode, mtime, adopt = false } = {}) {
+    if (typeof adopt !== 'boolean') throw wrongType('adopt', adopt, 'a boolean')
+    this.#write(path, data, (node, bytes) => Object.assign(node, { bytes, grows: false, ...meta(node, mode, mtime) }), mode, mtime, adopt)
   }
 
-  appendFile(path, data) { this.#write(path, data, (node, bytes) => { node.bytes = append(node.bytes, bytes) }) }
+  appendFile(path, data) { this.#write(path, data, append) }
 
   // mkdir(2) never follows the last link, so a link there is a name taken,
   // and a trailing slash changes nothing: any name taken is EEXIST. With
@@ -392,6 +396,10 @@ export function checkTime(mtime) {
   return mtime
 }
 
+// Bytes handed over, as a plain Uint8Array over them, not a copy: a Buffer's
+// own methods are not a file's.
+const plain = (bytes) => (bytes.constructor === Uint8Array ? bytes : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length))
+
 // Text is stored as its UTF-8, and only text that has one; bytes are copied.
 export function encode(data, path) {
   if (typeof data === 'string') {
@@ -405,24 +413,29 @@ export function encode(data, path) {
 // A copy of an inode, numbered 0 until a mount puts it in place, so one
 // refused takes no number, and its entries left to fill if it is a
 // directory. A file's bytes are shared, as nothing writes into bytes once
-// stored, unless their buffer has room past them, which append below
-// would grow either inode into.
+// stored but an append, into room its own inode was given (append below),
+// which the copy is not.
 function copyOf({ type, mode, mtime, bytes, target, size }) {
   const copy = { ino: 0, type, mode, mtime }
   if (type === 'directory') copy.entries = new Map()
   else if (type === 'symlink') Object.assign(copy, { target, size })
-  else copy.bytes = bytes.byteOffset + bytes.length === bytes.buffer.byteLength ? bytes : bytes.slice()
+  else copy.bytes = bytes
   return copy
 }
 
 // Appends in amortized linear time: a file that grows gets a buffer with
-// room to spare and a view over the part in use. A view handed out earlier
-// covers only its own length, which an append past its end leaves as it was.
-function append(current, more) {
+// room to spare and a view over the part in use, and `grows` while it holds
+// it. Only such room is written into: a buffer bytes were handed over in, or
+// shared from another inode, may hold what is past them, and is left as it
+// is. A view handed out earlier covers only its own length, which an append
+// past its end leaves as it was.
+function append(node, more) {
+  const current = node.bytes
   const length = current.length + more.length
-  const room = current.byteOffset + length <= current.buffer.byteLength
+  const room = node.grows === true && current.byteOffset + length <= current.buffer.byteLength
   const bytes = room ? new Uint8Array(current.buffer, current.byteOffset, length) : new Uint8Array(Math.max(length, current.length * 2)).subarray(0, length)
   if (!room) bytes.set(current)
   bytes.set(more, current.length)
-  return bytes
+  node.bytes = bytes
+  node.grows = true
 }
