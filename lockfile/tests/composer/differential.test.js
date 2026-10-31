@@ -95,9 +95,10 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
 
   // PHP before 8.4 keeps a separator at the end of a version as an empty
   // part, which the port drops, as 8.4 and later do: a pair with one is
-  // compared there alone.
+  // compared where PHP drops it alone, as asked of PHP itself, whatever
+  // version it says it is.
   it('version_compare alike', () => {
-    const before84 = composer([['php']])[0].value < 80400
+    const before84 = composer([['compare', '1_', '1']])[0].value !== 0
     const words = ['1', '2', '10', '0', '00', '99999999999999999999', '.', '..', '-', '_', '+', 'a', 'b', 'alpha', 'beta', 'RC', 'rc', 'dev', 'pl', 'p', 'patch', '#', 'x', 'stable', ' ', '#N#', 'é']
     const word = () => Array.from({ length: Math.floor(generator.next() * 6) }, () => generator.pick(words)).join('')
     const pairs = Array.from({ length: 4000 }, () => [word(), generator.next() < 0.3 ? generator.pick(versions) : word()])
