@@ -202,8 +202,9 @@ const GITHUB_REPOS = 'https://api.github.com/repos/'
 const GITHUB_REPO_BY_ID = /^https:\/\/api\.github\.com\/(repositories\/(\d+))$/u
 
 // Beside the fetch stubbed already, GitHub's API for `repos`, each by
-// `owner/name`: { id, commit, tree, tarball, listings }, the listings each
-// tree's entries by its id, or { location } for one renamed or transferred,
+// `owner/name`: { id, commit, tree, tarball, listings, tags, branches }, the
+// listings each tree's entries by its id, the tags and the branches each
+// one's commit by its name, or { location } for one renamed or transferred,
 // which GitHub redirects there, as it does to the repository by its `id`.
 // Returns what was asked of it, from the repo on.
 export function stubGitHub(repos) {
@@ -226,10 +227,32 @@ export function stubGitHub(repos) {
     const [kind, id] = [rest.slice(0, -1).join('/'), rest.at(-1)]
     if (repo === undefined) return notFound()
     if (repo.location !== undefined) return Promise.resolve(new Response('', { status: 301, headers: { location: repo.location } }))
+    if (kind === 'git/ref/tags' && Object.hasOwn(repo.tags ?? {}, id)) return Promise.resolve(Response.json({ ref: `refs/tags/${id}`, object: { type: 'commit', sha: repo.tags[id] } }))
+    if (kind === 'git/ref/heads' && Object.hasOwn(repo.branches ?? {}, id)) return Promise.resolve(Response.json({ ref: `refs/heads/${id}`, object: { type: 'commit', sha: repo.branches[id] } }))
     if (kind === 'git/commits' && id === repo.commit) return Promise.resolve(Response.json({ sha: repo.commit, tree: { sha: repo.tree } }))
     if (kind === 'tarball' && id === repo.tree) return Promise.resolve(new Response(repo.tarball))
     if (kind === 'git/trees' && Object.hasOwn(repo.listings, id)) return Promise.resolve(Response.json({ sha: id, tree: repo.listings[id], truncated: false }))
     return notFound()
+  }
+  return calls
+}
+
+// Beside the fetch stubbed already, trunk's CDN for `podspecs`, each a
+// podspec's bytes by `<name>@<version>`, at the path CocoaPods shards it
+// under. Returns what was asked of it.
+export function stubTrunk(podspecs) {
+  const served = globalThis.fetch
+  const calls = []
+  const byUrl = new Map(Object.entries(podspecs).map(([id, bytes]) => {
+    const [name, version] = id.split('@')
+    const shard = [...createHash('md5').update(name).digest('hex').slice(0, 3)].join('/')
+    return [`https://cdn.cocoapods.org/Specs/${shard}/${encodeURIComponent(name)}/${version}/${encodeURIComponent(name)}.podspec.json`, bytes]
+  }))
+  globalThis.fetch = (input, init) => {
+    const asked = String(input)
+    if (!asked.startsWith('https://cdn.cocoapods.org/')) return served(input, init)
+    calls.push(asked)
+    return Promise.resolve(byUrl.has(asked) ? new Response(byUrl.get(asked)) : new Response('Not found', { status: 404 }))
   }
   return calls
 }

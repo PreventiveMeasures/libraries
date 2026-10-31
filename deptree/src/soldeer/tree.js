@@ -8,7 +8,7 @@ import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { configOf } from './config.js'
-import { checkoutOf, githubRepoOf } from './git.js'
+import { checkoutOf, githubRepoOf } from '../github.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
 

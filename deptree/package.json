@@ -23,6 +23,10 @@
     "./cargo.js": {
       "types": "./cargo.d.ts",
       "default": "./cargo.js"
+    },
+    "./cocoapods.js": {
+      "types": "./cocoapods.d.ts",
+      "default": "./cocoapods.js"
     }
   },
   "bin": {
@@ -33,6 +37,8 @@
     "LICENSE-MIT",
     "cargo.d.ts",
     "cargo.js",
+    "cocoapods.d.ts",
+    "cocoapods.js",
     "npm.d.ts",
     "npm.js",
     "pnpm.d.ts",
@@ -50,8 +56,17 @@
     "src/cargo/registry.js",
     "src/cargo/tree.js",
     "src/cargo/workspace.js",
+    "src/cocoapods/clean.js",
+    "src/cocoapods/fnmatch.js",
+    "src/cocoapods/inputs.js",
+    "src/cocoapods/install.js",
+    "src/cocoapods/podspec.js",
+    "src/cocoapods/podtree.js",
+    "src/cocoapods/source.js",
+    "src/cocoapods/tree.js",
     "src/concurrent.js",
     "src/error.js",
+    "src/github.js",
     "src/glob.js",
     "src/hash.js",
     "src/lazy.js",
@@ -104,7 +119,6 @@
     "src/pnpm/write.js",
     "src/project.js",
     "src/soldeer/config.js",
-    "src/soldeer/git.js",
     "src/soldeer/inputs.js",
     "src/soldeer/tree.js",
     "src/soldeer/zip.js",
