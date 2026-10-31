@@ -75,7 +75,7 @@ async function fetchAll(tarballs, host, fetching) {
     const pkg = { ...await fetch(tarball, where), integrity: tarball.integrity }
     for (const node of copies) fetched.set(node, pkg)
   }, ({ where }) => where)
-  return { fetched, tarballs: tarballs.size }
+  return fetched
 }
 
 // npm 10 makes every package's directory before leaving out those the host
@@ -195,12 +195,12 @@ export async function buildNpmTree(options) {
   const skipped = skippedOf(nodes, host, settings, omitted)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node) && !omitted.has(node))
   const tarballs = tarballsOf(kept)
-  const { fetched, tarballs: count } = fetching.lazy ? { fetched: new Map(), tarballs: 0 } : await fetchAll(tarballs, host, fetching)
+  const fetched = fetching.lazy ? new Map() : await fetchAll(tarballs, host, fetching)
   const changed = settings.binLinks && !fetching.sizeEstimateOnly && !fetching.lazy ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, new Set([...skipped, ...omitted])) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly: fetching.sizeEstimateOnly, lazy: fetching.lazy })
   const packages = Object.keys(lockfile.packages).length
-  const stats = { packages, installed: kept.length, skipped: packages - kept.length - omitted.size, tarballs: count, ...written }
+  const stats = { packages, installed: kept.length, skipped: packages - kept.length - omitted.size, tarballs: fetching.lazy ? 0 : tarballs.size, ...written }
   const entryOf = (node, { integrity, about, size }) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
     return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer, ...fetching.sizeEstimateOnly ? { size } : {} }

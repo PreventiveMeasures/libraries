@@ -38,7 +38,7 @@ async function fetchAll(refs, first, fetching) {
   const fetched = new Map()
   const times = new Map()
   const tarballs = new Map(refs.map((ref) => [ref, registryTarball(ref.entry, fetchedName(ref), whereOf(ref))]))
-  await eachConcurrently([...first.values()], async (ref) => {
+  await eachConcurrently(first.values(), async (ref) => {
     fetched.set(ref, await fetchYarnPackage(tarballs.get(ref), whereOf(ref), times, fetching))
   }, whereOf)
   for (const ref of refs) {

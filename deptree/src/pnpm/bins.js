@@ -302,14 +302,16 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
   return fixedFiles(nodes, fixed, contested, major)
 }
 
+// pnpm 9 and 12 read each linked file's `#!` line. '' is the package.
+export function failsAsDirectory(node, path, major) {
+  if (major >= 10 && major < 12) return false
+  const prefix = `${path}/`
+  return path === '' || node.files.keys().some((name) => name.startsWith(prefix))
+}
+
 function fixedFiles(nodes, fixed, contested, major) {
-  // pnpm 9 and 12 read each linked file's `#!` line. '' is the package.
   const checkDirectory = (node, path) => {
-    if (major >= 10 && major < 12) return
-    const prefix = `${path}/`
-    if (path === '' || node.files.keys().some((name) => name.startsWith(prefix))) {
-      throw new DeptreeError(`its bin ${quote(path === '' ? '.' : path)} is a directory, which pnpm ${major} fails on`, quote(node.key))
-    }
+    if (failsAsDirectory(node, path, major)) throw new DeptreeError(`its bin ${quote(path === '' ? '.' : path)} is a directory, which pnpm ${major} fails on`, quote(node.key))
   }
   for (const [target, { owner, why }] of contested) {
     const node = nodes.get(owner)
@@ -317,7 +319,7 @@ function fixedFiles(nodes, fixed, contested, major) {
     checkDirectory(node, path)
     const file = node.files.get(path)
     if (fixed.has(target) || file?.data === undefined) continue
-    if (executableMode(file.mode, major) === file.mode && (major >= 12 || (crlfShebang(file.data) === -1 && node.pkg.patchHash === undefined))) continue
+    if (!fixChanges(file, major) && (major >= 12 || node.pkg.patchHash === undefined)) continue
     throw new DeptreeError(`whether pnpm makes ${quote(path)} executable turns on ${why}`, quote(node.key))
   }
   const byNode = new Map()
@@ -332,6 +334,9 @@ function fixedFiles(nodes, fixed, contested, major) {
 }
 
 export const executableMode = (mode, major) => (major >= 11 ? mode | 0o111 : 0o755)
+
+// Whether fixBin changes `file`.
+export const fixChanges = (file, major) => executableMode(file.mode, major) !== file.mode || (major < 12 && crlfShebang(file.data) !== -1)
 
 // pnpm reads and writes the file as UTF-8, which changes one that is not.
 export function fixBin(file, where, major) {

@@ -6,8 +6,8 @@ import { Vfs } from '@preventive/vfs'
 import { eachConcurrently, limited } from '../concurrent.js'
 import { quote, refusalOf } from '../error.js'
 import { unpacker, writeInto } from '../lazy.js'
-import { NO_ABOUT, crlfShebang } from '../tarball.js'
-import { executableMode } from './bins.js'
+import { NO_ABOUT } from '../tarball.js'
+import { failsAsDirectory, fixChanges } from './bins.js'
 import { binsOf } from './commands.js'
 import { checkFetched, fetchPackage } from './package.js'
 import { compose, writeNode } from './write.js'
@@ -32,10 +32,10 @@ function bound(node, major, builds) {
   if (bins.size === 0) return false
   if (node.pkg.patchHash !== undefined) return true
   for (const path of bins.keys()) {
-    if ((major < 10 || major >= 12) && (path === '' || node.files.keys().some((name) => name.startsWith(`${path}/`)))) return true
+    if (failsAsDirectory(node, path, major)) return true
     const file = node.files.get(path)
     if (file?.data === undefined) continue
-    if (executableMode(file.mode, major) !== file.mode || (major < 12 && crlfShebang(file.data) !== -1)) return true
+    if (fixChanges(file, major)) return true
   }
   return false
 }
