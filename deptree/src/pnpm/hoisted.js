@@ -202,20 +202,29 @@ export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules
   return built
 }
 
-// Where hoistedBuilds is not followed, as for a tree's layout alone, where
-// any patch is configured, from pnpm 10.21 to before 11.25: pnpm builds one
-// copy of each package patched or with an install script, which only its
-// tarball tells, and puts hardlinks of it in place of the others, dropping
-// their node_modules. A package of more than one copy, one with a
-// node_modules, may lose it. `placed` are the copies, as hoistedLayout
-// places them; `option` the one the tree is laid out with, which does not
-// know it: sizeEstimateOnly or lazy.
-export function checkNoneDropped(placed, pnpm, option = 'sizeEstimateOnly') {
+// Where any patch is configured, from pnpm 10.21 to before 11.25, pnpm
+// builds one copy of each package patched or with an install script, which
+// only its tarball tells, and puts hardlinks of it in place of the others,
+// dropping their node_modules (hoistedBuilds): the packages of more than one
+// copy, one with a node_modules, which may lose it, by key, each with that
+// copy. `placed` are the copies, as hoistedLayout places them.
+export function mayDrop(placed) {
   const placedIn = new Set(placed.values().map((node) => node.modules))
+  const dropping = new Map()
   for (const [key, copies] of Map.groupBy(placed.values(), (node) => node.key)) {
     const nested = copies.length > 1 ? copies.find((copy) => placedIn.has(`${copy.dir}/node_modules`)) : undefined
-    if (nested !== undefined) throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which with ${option} is not known, and is not supported`, quote(key))
+    if (nested !== undefined) dropping.set(key, nested)
   }
+  return dropping
+}
+
+// For a tree's layout alone, which fetches nothing, any of `dropping` is
+// refused, as which pnpm builds is not known.
+export function checkNoneDropped(dropping, pnpm) {
+  const [first] = dropping
+  if (first === undefined) return
+  const [key, nested] = first
+  throw new DeptreeError(`pnpm ${pnpm} builds one of its copies where any patch is configured, if it is patched or has an install script, and makes the others hardlinks of it, dropping their node_modules: ${quote(`${nested.dir}/node_modules`)} may be dropped, which with sizeEstimateOnly is not known, and is not supported`, quote(key))
 }
 
 // What linkBins reads to link bins (bins.js): each node_modules pnpm fills,

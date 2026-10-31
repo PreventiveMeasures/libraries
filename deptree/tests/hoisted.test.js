@@ -35,6 +35,7 @@ const TARBALLS = await Promise.all([
   tarball('mac', '2.0.0'),
   tarball('needs-mac', '1.0.0', {}, { manifest: { dependencies: { mac: '2.0.0' } } }),
   tarball('needs-zzz', '1.0.0', {}, { manifest: { dependencies: { zzz: '1.0.0' } } }),
+  tarball('lone', '1.0.0', { 'bin/k.js': '#!k\n' }, { manifest: { bin: '', directories: { bin: 'bin' }, scripts: { postinstall: 'node -e 0' } } }),
 ])
 const byKey = new Map(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
 
@@ -122,12 +123,12 @@ const build = async ({ host = HOST, npmrc = NPMRC, sizeEstimateOnly, lazy, ...sp
 // pnpm 11 reads its settings, the patches with them, from pnpm-workspace.yaml.
 const HOST_11 = { ...HOST, pnpm: '11.28.4' }
 const build11 = async ({ host = HOST_11, settings = '', sizeEstimateOnly, lazy, ...spec }) => {
-  stubRegistry(TARBALLS)
+  const calls = stubRegistry(TARBALLS)
   const { lockfile, manifests, patches } = workspace({ ...spec, major: 11 })
   const patching = spec.patched ? `patchedDependencies:\n  ${spec.patched}: patches/p.patch\n` : ''
   const workspaceYaml = `${WORKSPACE}nodeLinker: hoisted\npackageImportMethod: copy\n${patching}${settings}`
   const { vfs, installed, stats, unpack } = await buildPnpmTree({ lockfile, manifests, patches, workspace: workspaceYaml, host, sizeEstimateOnly, lazy })
-  return { vfs, installed, stats, unpack, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
+  return { vfs, installed, stats, unpack, calls, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
 }
 
 const DEBUG = { 'debug@2.6.9': { dependencies: { ms: 'ms@2.0.0' } }, 'ms@2.0.0': {}, 'ms@2.1.3': {} }
@@ -340,10 +341,63 @@ describe('buildPnpmTree with the hoisted linker and lazy', () => {
     assert.equal(lazy.calls.filter((url) => url.endsWith('.tgz')).length, 4)
   })
 
-  it('refuses from 10.21 to before 11.25 a package of copies one of which has a node_modules, as with sizeEstimateOnly', async () => {
-    const refused = (pnpm) => new RegExp(`^DeptreeError: "debug@2\\.6\\.9\\(patch_hash=[\\da-f]+\\)": pnpm ${pnpm.replaceAll('.', '\\.')} builds one of its copies .*: "packages\\/a\\/node_modules\\/debug\\/node_modules" may be dropped, which with lazy is not known, and is not supported$`, 'u')
-    await assert.rejects(build({ ...NESTED, lazy: true }), refused('10.33.4'))
-    await assert.rejects(build11({ ...NESTED, host: { ...HOST, pnpm: '11.24.0' }, lazy: true }), refused('11.24.0'))
+  // As BUILDER, with debug and its ms, which have no bins and link none, and
+  // lone, which pnpm builds, and whose bins the lockfile says it has none
+  // of: a `bin` of empty text beside a directories.bin, which pnpm links all
+  // the same. tool is unpacked with the packages with bins, the one patched
+  // and builder, which pnpm builds and which links tool's; lone is read as
+  // having none, and has the fixes read again once unpacked, with its own.
+  it('fetches only the packages whose bins are read, and those whose build links them, to unpack one whose bin is fixed', async () => {
+    const spec = {
+      projects: { '.': { dependencies: { ...BUILDER.projects['.'].dependencies, debug: 'debug@4.3.4', lone: 'lone@1.0.0' } } },
+      snapshots: { ...BUILDER.snapshots, 'debug@4.3.4': { dependencies: { ms: 'ms@2.1.3' } }, 'ms@2.1.3': {}, 'lone@1.0.0': {} },
+      patched: BUILDER.patched,
+    }
+    const tgzs = (calls) => calls.filter((url) => url.endsWith('.tgz')).map((url) => url.slice(url.lastIndexOf('/') + 1)).toSorted()
+    for (const builder of [build, build11]) {
+      const full = await builder(spec)
+      assert.equal(full.vfs.stat('/node_modules/lone/bin/k.js').mode, 0o755)
+      const lazy = await builder({ ...spec, lazy: true })
+      await lazy.unpack(['node_modules/tool'])
+      assert.deepEqual(tgzs(lazy.calls), ['builder-1.0.0.tgz', 'ms-2.0.0.tgz', 'tool-1.0.0.tgz', 'zzz-1.0.0.tgz'])
+      assert.equal(lazy.vfs.readText('/node_modules/tool/cli.js'), full.vfs.readText('/node_modules/tool/cli.js'))
+      assert.equal(lazy.vfs.stat('/node_modules/tool/cli.js').mode, 0o755)
+      await lazy.unpack(['node_modules/lone'])
+      assert.equal(lazy.vfs.stat('/node_modules/lone/bin/k.js').mode, 0o755)
+      await lazy.unpack(lazy.installed.map(({ path }) => path))
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs))
+      assert.deepEqual(lazy.stats, full.stats)
+    }
+  })
+
+  // From 10.21 to before 11.25, pnpm drops the node_modules of a copy of a
+  // package of more than one where it builds the package: debug@2.6.9 is
+  // fetched with the tree, which is refused as the full tree is where pnpm
+  // builds it, patched, and laid out where it does not.
+  it('fetches with the tree from 10.21 to before 11.25 a package of copies one of which has a node_modules, and refuses it where pnpm builds it', async () => {
+    const UNBUILT = {
+      projects: {
+        '.': { dependencies: { debug: 'debug@4.3.4', ms: `ms@2.1.3(patch_hash=${H})` } },
+        'packages/a': { dependencies: { debug: 'debug@2.6.9', ms: `ms@2.1.3(patch_hash=${H})` } },
+        'packages/b': { dependencies: { debug: 'debug@2.6.9', ms: `ms@2.1.3(patch_hash=${H})` } },
+      },
+      snapshots: { 'debug@2.6.9': { dependencies: { ms: 'ms@2.0.0' } }, 'debug@4.3.4': { dependencies: { ms: `ms@2.1.3(patch_hash=${H})` } }, 'ms@2.0.0': {}, [`ms@2.1.3(patch_hash=${H})`]: {} },
+      patched: 'ms@2.1.3',
+    }
+    const HOST_1124 = { ...HOST, pnpm: '11.24.0' }
+    for (const [builder, host] of [[build, HOST], [build11, HOST_1124]]) {
+      const refused = await builder({ ...NESTED, host }).then(() => assert.fail('the full tree is refused'), (error) => error)
+      assert.match(refused.message, /builds one of its copies where any patch is configured, and makes the others hardlinks of it, dropping their node_modules: "packages\/a\/node_modules\/debug\/node_modules" may be dropped, which is not supported$/u)
+      await assert.rejects(builder({ ...NESTED, host, lazy: true }), { name: 'DeptreeError', message: refused.message })
+      const full = await builder({ ...UNBUILT, host })
+      assert.ok(full.vfs.isDirectory('/packages/a/node_modules/debug/node_modules/ms'), host.pnpm)
+      const lazy = await builder({ ...UNBUILT, host, lazy: true })
+      assert.deepEqual(lazy.calls.filter((url) => url.endsWith('.tgz')).map((url) => url.slice(url.lastIndexOf('/') + 1)), ['debug-2.6.9.tgz'], host.pnpm)
+      assert.equal(lazy.stats.tarballs, 1, host.pnpm)
+      await lazy.unpack(lazy.installed.map(({ path }) => path))
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs), host.pnpm)
+      assert.deepEqual(lazy.stats, full.stats, host.pnpm)
+    }
   })
 })
 
