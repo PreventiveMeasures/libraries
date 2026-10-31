@@ -1,7 +1,10 @@
 import { Queue } from '@chalker/queue'
 import { refusalOf } from './error.js'
 
-const CONCURRENCY = 8
+// Sixteen at a time, as pnpm's network-concurrency is by default: a cold
+// fetch waits on the registry for each tarball and its version document, a
+// warm one on the main thread, which more at once does not speed.
+const CONCURRENCY = 16
 
 // A few at a time, so a large lockfile does not start every request at once.
 // The first failure is thrown once every started job has ended, so that none
