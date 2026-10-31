@@ -232,6 +232,23 @@ function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
   }
 }
 
+// The packages of `nodes` whose files hoistedBinTargets reads, with
+// hoistedBuilds where any patch is configured (`building`), but those it
+// reads as pnpm's hoisted linker reads each package in a node_modules it
+// fills, which the lockfile says have no bins, and those it reads for their
+// own build alone: building one none of whose dependencies have bins, as
+// `packages`, the lockfile's, say, links nothing of the others'. The others
+// are read as having no bins, and as built where patched alone (lazy.js).
+export function hoistedBinReads({ nodes, building, packages }) {
+  const reads = new Set()
+  for (const node of nodes.values()) {
+    const { hasBin, resolution, bundledDependencies, patchHash, dependencies, optionalDependencies } = node.pkg
+    if (hasBin || resolution.type === 'directory' || bundledDependencies !== undefined) reads.add(node.dir)
+    else if (building && (patchHash !== undefined || Object.values({ ...dependencies, ...optionalDependencies }).some((key) => packages[key]?.hasBin))) reads.add(node.dir)
+  }
+  return reads
+}
+
 // pnpm's hoisted linker links the bins of each node_modules it fills, by
 // what it reads there, as it fills it; then each project's again, with its
 // links in, a command of its own dependencies over any other. `modules` are

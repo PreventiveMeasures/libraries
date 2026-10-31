@@ -16,10 +16,10 @@ import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkNoModules, fold, makeDirs, mount, writeLink } from '../mount.js'
 import { checkProject } from '../project.js'
 import { NO_ABOUT, REGISTRY, fetchSize, fetchingOf, tarballUrl } from '../tarball.js'
-import { binReads, binTargets, hoistedBinTargets, requiresBuild } from './bins.js'
+import { binReads, binTargets, hoistedBinReads, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
-import { checkNoneDropped, hoistedBuilds, hoistedLayout, hoistedModules, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
+import { checkNoneDropped, hoistedBuilds, hoistedLayout, hoistedModules, mayDrop, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { lazyUnpacker } from './lazy.js'
@@ -182,7 +182,8 @@ const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 // bins does to the files, with what pnpm's build pass does to them, read once
 // every package's files are at hand; with `sizeEstimateOnly` they are not
 // followed, nor with `lazy` but where a package unpacked needs them. `builds`
-// tells, where any patch is configured, what the build pass builds.
+// tells, where any patch is configured, what the build pass builds; `reads`
+// the packages the fixes read the files of (hoistedBinReads).
 async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
@@ -197,20 +198,24 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const building = Object.keys(settings.patchedDependencies ?? {}).length > 0
   const hardlinks = since('10.21.0')
   const keepsModules = since('11.25.0')
-  if ((fetching.sizeEstimateOnly || fetching.lazy) && building && hardlinks && !keepsModules) checkNoneDropped(placed, host.pnpm, fetching.lazy ? 'lazy' : 'sizeEstimateOnly')
+  const dropping = building && hardlinks && !keepsModules ? mayDrop(placed) : new Map()
+  if (fetching.sizeEstimateOnly) checkNoneDropped(dropping, host.pnpm)
   const { byDir, tarballs, checks } = await fetchNodes(placed, lockfile, hook, project, host, fetching)
   const linked = readLinked(links, byDir, manifests, project)
   const prod = prodPackages(lockfile, skipped, directories)
   const dev = (node) => !prod.has(packageIdOf(node.key, node.pkg, directories))
   const builds = building ? (node) => node.pkg.patchHash !== undefined || requiresBuild(node.manifest, node.files, major) : undefined
+  const idOf = since('11.23.0') ? (key) => packageIdOf(key, lockfile.packages[key], directories) : (key) => key
+  const changesOf = (node) => parsedPatch(patched, node.pkg.patchHash).parsed
+  const builtOf = (built) => hoistedBuilds(byDir, new Set(projects), built, { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm })
   const fixes = () => {
-    const idOf = since('11.23.0') ? (key) => packageIdOf(key, lockfile.packages[key], directories) : (key) => key
-    const changesOf = (node) => parsedPatch(patched, node.pkg.patchHash).parsed
-    const built = building ? hoistedBuilds(byDir, new Set(projects), builds, { hardlinks, keepsModules, idOf, changesOf, pnpm: host.pnpm }) : []
+    const built = building ? builtOf(builds) : []
     const targets = hoistedBinTargets({ nodes: byDir, projects: new Map([...manifests, ...linked]), modules: hoistedModules(byDir, links, projects, manifests, lockfile), builds: built, hardlinks, keepsModules, idOf, major })
     return { targets, executable: new Map() }
   }
-  return { byDir, links, fixes, builds, tarballs, dev, checks }
+  // With lazy, those that may drop a node_modules are fetched with the tree.
+  const early = dropping.size === 0 ? undefined : { nodes: [...byDir.values()].filter((node) => dropping.has(node.key)), check: () => builtOf((node) => dropping.has(node.key) && builds(node)) }
+  return { byDir, links, fixes, reads: () => hoistedBinReads({ nodes: byDir, building, packages: lockfile.packages }), builds, early, tarballs, dev, checks }
 }
 
 // The isolated layout: each package in node_modules/.pnpm, linked from what
@@ -280,7 +285,7 @@ export async function buildPnpmTree(options) {
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const { byDir, links, fixes, reads, builds, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
+  const { byDir, links, fixes, reads, builds, early, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()
 
@@ -313,5 +318,5 @@ export async function buildPnpmTree(options) {
   const tree = mount(vfs, into, folded)
   if (!fetching.lazy) return { vfs: tree, stats, installed: listed }
   const entryOf = (node) => installedOf(node, dev(node), patched, false)
-  return { vfs: tree, stats, installed: listed, unpack: lazyUnpacker({ vfs: tree, byDir, stats, fixes, reads, builds, checks, patched, composing, entryOf, fetching, folded }) }
+  return { vfs: tree, stats, installed: listed, unpack: await lazyUnpacker({ vfs: tree, byDir, stats, fixes, reads, builds, early, checks, patched, composing, entryOf, fetching, folded }) }
 }

@@ -261,9 +261,10 @@ export interface PnpmProject {
 //
 // `lazy`, false unless given true, lays the tree out as sizeEstimateOnly
 // does, each package's directory made and left empty and each link made,
-// but fetches nothing, not even a version document: each package is
-// unpacked into it once asked for by the tree's `unpack`, and only then
-// fetched, as `metadata` and `cache` say. A package unpacked is what the
+// but fetches nothing, not even a version document, but where the files
+// could change the layout (below): each package is unpacked into it once
+// asked for by the tree's `unpack`, and only then fetched, as `metadata`
+// and `cache` say. A package unpacked is what the
 // full tree has at its path, file for file, patched and fixed as linking
 // bins fixes it, and held to every check of its tarball, package.json and
 // patch the full tree holds it to; one never asked for is never fetched, so
@@ -282,12 +283,24 @@ export interface PnpmProject {
 // the lockfile says (a project's dependencies with pnpm 9 and 10, their
 // peers with pnpm 11 and 12, and those beside a dependency outside the tree
 // with pnpm 9 to 11), and directories, which are read with the tree; with
-// the hoisted linker, every package. Any other is read as having no bins,
-// as the lockfile says: where a patch is configured and pnpm builds one,
-// the bins it links of its own are read once it is unpacked, which turn on
-// nothing else's. Where the files could change the layout, the lockfile is
-// refused as with sizeEstimateOnly. A `vfs` is not taken with it, nor
-// `sizeEstimateOnly`.
+// the hoisted linker, those the lockfile says have bins, those that bundle
+// others, and directories, and where a patch is configured, those patched
+// and those that depend on one with bins, whose bins pnpm's build pass
+// links where it builds one. Any other is read as having no bins, as the
+// lockfile says, and with the hoisted linker as not built: where a patch is
+// configured and pnpm builds one, what that does to it, and the bins it
+// links of its own, are read once it is unpacked, which turn on nothing
+// else's. The hoisted linker links the bins of each package it puts in a
+// node_modules, whatever the lockfile says: one whose package.json's `bin`
+// is empty text, false or 0 beside a directories.bin, which pnpm 10's
+// lockfile says has none, has bins all the same, and the others' bins of
+// their names in that node_modules are fixed as though it had none. Where
+// the files could change the layout, with the hoisted linker of pnpm 10.21
+// to before 11.25 where any patch is configured, a package of more than one
+// copy, one with a node_modules, is fetched with the tree, held to its
+// checks then, and the lockfile refused as the full tree refuses it where
+// pnpm builds the package. A
+// `vfs` is not taken with it, nor `sizeEstimateOnly`.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with

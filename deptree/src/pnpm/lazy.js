@@ -68,8 +68,9 @@ function filesIn(vfs, dir, dirs) {
 // is bound once unpacked has the fixes read again, with its own files. A
 // package's files are let go once it is unpacked, and its tarball once each
 // of its snapshots is, but a patched one's, and every one's once the fixes
-// are read.
-export function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, checks, patched, composing, entryOf, fetching, folded }) {
+// are read. `early.nodes` are fetched before anything is unpacked, and held
+// to `early.check()`.
+export async function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, early, checks, patched, composing, entryOf, fetching, folded }) {
   const { major } = composing
   const limit = limited()
   const fetched = new Map()
@@ -129,6 +130,10 @@ export function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, checks, 
     if (made === undefined && node.pkg.resolution.type !== 'directory' && node.pkg.patchHash === undefined) Object.assign(node, { files: undefined, unpacked: true })
   }
 
+  if (early !== undefined) {
+    await eachConcurrently(early.nodes, prepare, (node) => quote(node.key))
+    early.check()
+  }
   return unpacker(new Map([...byDir.values()].map((node) => [node.dir, node])), async (node) => {
     await prepare(node)
     const { targets, executable } = bound(node, major, builds) ? await fixesFor(node) : { targets: new Map(), executable: new Map() }
