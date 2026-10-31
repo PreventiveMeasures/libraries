@@ -1410,9 +1410,10 @@ describe('buildPnpmTree into a given Vfs', () => {
       })
     })
 
-    // Its cli.js is fixed as it is linked, which turns on the bins of every
-    // package, as the full tree reads them.
-    it('unpacks it with lazy as the full tree has it, fetching every package for its bin', async () => {
+    // Its cli.js is fixed as it is linked, which turns on the bins of the
+    // other packages: app's, which the lockfile says has none, pnpm 9 and 10
+    // read all the same, as the root project depends on it.
+    it('unpacks it with lazy as the full tree has it, fetching for its bin those whose bins pnpm reads', async () => {
       const later = 'overrides:\n  foo: file:./vendor/foo\n'
       for (const [host, manifest, workspace] of [[HOST_9, v10], [HOST, v10], [HOST_11, rootWith(), later], [HOST_12, rootWith(), later]]) {
         stubRegistry([await app])
@@ -1423,7 +1424,7 @@ describe('buildPnpmTree into a given Vfs', () => {
         assert.deepEqual(lazy.vfs.readdir(FOO), [], host.pnpm)
         assert.deepEqual(await lazy.unpack([FOO.slice(1)]), full.installed.filter(({ name }) => name === 'foo'), host.pnpm)
         assert.deepEqual(contents(lazy.vfs, FOO), contents(full.vfs, FOO), host.pnpm)
-        assert.deepEqual(tgzs(calls), [tgz('app', '1.0.0')], host.pnpm)
+        assert.deepEqual(tgzs(calls), host === HOST_9 || host === HOST ? [tgz('app', '1.0.0')] : [], host.pnpm)
       }
     })
 
@@ -1783,6 +1784,7 @@ describe('buildPnpmTree with sizeEstimateOnly', () => {
 describe('buildPnpmTree with lazy', () => {
   const LODASH = 'node_modules/.pnpm/lodash@4.17.21/node_modules/lodash'
   const A = 'node_modules/.pnpm/a@1.0.0_c@2.0.0/node_modules/a'
+  const D = 'node_modules/.pnpm/d@1.0.0/node_modules/d'
   const told = TARBALLS.map((t) => (t.name === 'lodash' ? { ...t, document: { gitHead: 'a'.repeat(40), homepage: 'https://lodash.com/' } } : t))
   // pnpm 11 and 12 read the patches from pnpm-workspace.yaml.
   const versions = [[HOST_9, { lockfile: lockfile({ patchHash: md5(PATCH) }) }], [HOST], [HOST_11, { lockfile: flatLockfile(), manifest: UNPATCHED, workspace: PATCHED_IN_YAML }], [HOST_12, { lockfile: flatLockfile(), manifest: UNPATCHED, workspace: PATCHED_IN_YAML }]]
@@ -1839,11 +1841,11 @@ describe('buildPnpmTree with lazy', () => {
   })
 
   // pnpm links t's `t` over u's, and fixes t's file as it does, CRLF and all,
-  // which turns on u's bins: t is unpacked once every package is at hand, as
-  // the full tree reads them, d read back from the tree. d's bin is
+  // which turns on u's bins: t is unpacked once every package with bins is at
+  // hand, as the full tree reads them, d read back from the tree. d's bin is
   // executable and LF already, which linking leaves as it is, whatever is
   // linked: it is unpacked alone.
-  it('fetches every package to unpack one whose bin linking would fix, and none for one it leaves as it is', async () => {
+  it('fetches the packages with bins to unpack one whose bin linking would fix, and none for one it leaves as it is', async () => {
     const bins = await Promise.all([
       tarball('t', '1.0.0', { 'cli.js': '#!/usr/bin/env node\r\nrun()\r\n' }, { manifest: { bin: { t: 'cli.js' } } }),
       tarball('u', '1.0.0', { 'u.js': '#!/usr/bin/env node\r\n' }, { manifest: { bin: { t: 'u.js' } } }),
@@ -1863,6 +1865,66 @@ describe('buildPnpmTree with lazy', () => {
       assert.equal(calls.length, fetched, 'u is at hand already')
       assert.equal(lazy.stats.tarballs, 3, host.pnpm)
       assert.deepEqual(contents(lazy.vfs), contents(full.vfs), host.pnpm)
+    }
+  })
+
+  // With a patch configured, pnpm builds p, patched, which links nothing it
+  // did not link before. d's bin, which linking fixes, turns on the bins of
+  // the packages the lockfile says have some, and of those pnpm reads
+  // whatever it says: pnpm 9 and 10 the root project's dependencies', pnpm
+  // 11 and 12 the peers of those.
+  it('fetches only the packages whose bins pnpm reads to unpack one whose bin linking would fix', async () => {
+    const loose = await tarball('d', '1.0.0', { 'bin/d.js': '#!/usr/bin/env node\n' }, { manifest: { bin: { d: 'bin/d.js' } } })
+    const served = TARBALLS.map((t) => (t.name === 'd' ? loose : t))
+    for (const [host, given] of versions) {
+      const options = { host, ...given, lockfile: (given?.lockfile ?? lockfile()).replace(I.d, loose.integrity), metadata: false }
+      stubRegistry(served)
+      const full = await buildResult(options)
+      assert.equal(full.vfs.stat(`/${D}/bin/d.js`).mode, 0o755, host.pnpm)
+      const calls = stubRegistry(served)
+      const lazy = await buildResult({ ...options, lazy: true })
+      await lazy.unpack([D])
+      const read = host === HOST_9 || host === HOST ? ['Up', 'a', 'd', 'e', 'lodash', 'p'] : ['c', 'd']
+      assert.deepEqual(tgzs(calls).toSorted(), served.filter((t) => read.includes(t.name)).map((t) => tgz(t.name, t.version)), host.pnpm)
+      await lazy.unpack(lazy.installed.map(({ path }) => path))
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs), host.pnpm)
+      assert.deepEqual(lazy.stats, full.stats, host.pnpm)
+    }
+  })
+
+  // k, under b, has bins the lockfile says it has none of: a `bin` of empty
+  // text beside a directories.bin, which pnpm 10 links where it builds k, as
+  // it has an install script and a patch is configured. Read as having none
+  // for d's fixes, which turn on nothing of k's but its own, k has them read
+  // again once it is unpacked; as has one whose engines.runtime the full tree
+  // is refused for, which is refused then.
+  it('reads the fixes again for a package read as having no bins, which it has once unpacked', async () => {
+    const loose = await tarball('d', '1.0.0', { 'bin/d.js': '#!/usr/bin/env node\n' }, { manifest: { bin: { d: 'bin/d.js' } } })
+    const K = 'node_modules/.pnpm/k@1.0.0/node_modules/k'
+    const manifests = [{ bin: '', directories: { bin: 'bin' }, scripts: { postinstall: 'k' } }, { engines: { runtime: { name: 'node', onFail: 'download' } }, scripts: { postinstall: 'k' } }]
+    for (const [i, manifest] of manifests.entries()) {
+      const k = await tarball('k', '1.0.0', { 'bin/k.js': '#!k\n' }, { manifest })
+      const served = [...TARBALLS.map((t) => (t.name === 'd' ? loose : t)), k]
+      const locked = lockfile().replace(I.d, loose.integrity)
+        .replace('  lodash@4.17.21:\n    resolution', `  k@1.0.0:\n    resolution: {integrity: ${k.integrity}}\n\n  lodash@4.17.21:\n    resolution`)
+        .replace('      d: 1.0.0\n', '      d: 1.0.0\n      k: 1.0.0\n')
+        .replace('  lodash@4.17.21: {}\n', '  k@1.0.0: {}\n\n  lodash@4.17.21: {}\n')
+      stubRegistry(served)
+      const full = await buildResult({ lockfile: locked, metadata: false }).catch((error) => error)
+      const calls = stubRegistry(served)
+      const lazy = await buildResult({ lockfile: locked, lazy: true, metadata: false })
+      await lazy.unpack([D])
+      assert.ok(!tgzs(calls).includes(tgz('k', '1.0.0')), 'k is read as having no bins')
+      if (i === 1) {
+        assert.match(full.message, /^"k@1\.0\.0": its engines\.runtime has pnpm look for a Node/u)
+        await assert.rejects(lazy.unpack([K]), { name: 'DeptreeError', message: full.message })
+        continue
+      }
+      assert.equal(full.vfs.stat(`/${K}/bin/k.js`).mode, 0o755)
+      await lazy.unpack([K])
+      assert.deepEqual(contents(lazy.vfs, `/${K}/`), contents(full.vfs, `/${K}/`))
+      await lazy.unpack(lazy.installed.map(({ path }) => path))
+      assert.deepEqual(contents(lazy.vfs), contents(full.vfs))
     }
   })
 

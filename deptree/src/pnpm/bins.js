@@ -157,6 +157,34 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   return fixedFiles(nodes, fixed, contested, major)
 }
 
+// The packages of `nodes` whose files binTargets reads, given the same
+// options, but those it reads for their own build alone, which the lockfile
+// says have no bins: building one whose children are all packages links
+// again what their first link did, and fixes nothing of theirs. The others
+// are read as having no bins (lazy.js).
+export function binReads({ nodes, projects, direct, links, publicHoist, peers, major }) {
+  const mayHaveBin = (dir) => nodes.get(dir)?.pkg.hasBin === true || nodes.get(dir)?.pkg.resolution.type === 'directory'
+  const reads = new Set()
+  for (const node of nodes.values()) {
+    if (mayHaveBin(node.dir) || node.pkg.bundledDependencies !== undefined) reads.add(node.dir)
+    const children = [...node.children.values()]
+    if (major < 12 && !children.every((dir) => nodes.has(dir))) for (const dir of [node.dir, ...children]) reads.add(dir)
+  }
+  for (const [id, children] of direct) {
+    if (major >= 11 && peers) for (const dir of peersOf(children, nodes)) reads.add(dir)
+    if (id === '.' && publicHoist) {
+      const manifest = projects.get('.')
+      const own = new Set(Object.keys({ ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }))
+      for (const [path, dir] of links) {
+        if (/^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u.test(path) && (major < 12 || own.has(path.slice('node_modules/'.length)))) reads.add(dir)
+      }
+    } else if (major < 11) {
+      for (const dir of children.values()) reads.add(dir)
+    }
+  }
+  return new Set([...reads].filter((dir) => nodes.has(dir)))
+}
+
 // The copies of one package pnpm's build pass makes hardlinks of the one it
 // builds (hoisted.js): what is fixed in that one before, as each copy's own
 // bins are where pnpm fills its node_modules, is in all; and so is what is

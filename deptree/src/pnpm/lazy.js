@@ -61,12 +61,15 @@ function filesIn(vfs, dir, dirs) {
 // full tree writes it, `patched` and `composing` being what compose takes, and
 // listed by `entryOf`. What linking bins fixes of it turns on the other
 // packages' bins only where a package is bound (above): the first such
-// unpack fetches every package not yet unpacked, and reads them all by
-// `fixes`, as the full tree does: one unpacked before is read back from the
-// tree, where it is as it came. A package's files are let go once it is
-// unpacked, and its tarball once each of its snapshots is, but a patched
-// one's, and every one's once the fixes are read.
-export function lazyUnpacker({ vfs, byDir, stats, fixes, builds, checks, patched, composing, entryOf, fetching, folded }) {
+// unpack fetches those of `reads()` not unpacked yet, every package where it
+// is not given, and reads the fixes by `fixes`, as the full tree does, one
+// unpacked before read back from the tree, where it is as it came, and one
+// not at hand read as having no bins, as the lockfile says. One read so that
+// is bound once unpacked has the fixes read again, with its own files. A
+// package's files are let go once it is unpacked, and its tarball once each
+// of its snapshots is, but a patched one's, and every one's once the fixes
+// are read.
+export function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, checks, patched, composing, entryOf, fetching, folded }) {
   const { major } = composing
   const limit = limited()
   const fetched = new Map()
@@ -99,11 +102,24 @@ export function lazyUnpacker({ vfs, byDir, stats, fixes, builds, checks, patched
     checkFetched(node, got, checks)
     Object.assign(node, { files: got.files, manifest: got.manifest, about: got.about ?? NO_ABOUT })
   }
-  const allFixes = () => {
+  // The fixes, with the packages not at hand read as having no bins.
+  const readFixes = () => {
+    const stubs = [...byDir.values()].filter((node) => node.files === undefined)
+    const manifests = stubs.map((node) => node.manifest)
+    for (const node of stubs) Object.assign(node, { files: new Map(), manifest: {} })
+    try {
+      return { ...fixes(), stubbed: new Set(stubs.map((node) => node.dir)) }
+    } finally {
+      for (const [i, node] of stubs.entries()) Object.assign(node, { files: undefined, manifest: manifests[i] })
+    }
+  }
+  const fixesFor = async (node) => {
     made ??= (async () => {
-      await eachConcurrently(byDir.values(), prepare, (node) => quote(node.key))
-      return fixes()
+      const read = reads?.()
+      await eachConcurrently([...byDir.values()].filter((other) => read?.has(other.dir) ?? true), prepare, (other) => quote(other.key))
+      return readFixes()
     })()
+    if ((await made).stubbed.has(node.dir)) made = Promise.try(readFixes)
     return made
   }
   const release = (node) => {
@@ -115,7 +131,7 @@ export function lazyUnpacker({ vfs, byDir, stats, fixes, builds, checks, patched
 
   return unpacker(new Map([...byDir.values()].map((node) => [node.dir, node])), async (node) => {
     await prepare(node)
-    const { targets, executable } = bound(node, major, builds) ? await allFixes() : { targets: new Map(), executable: new Map() }
+    const { targets, executable } = bound(node, major, builds) ? await fixesFor(node) : { targets: new Map(), executable: new Map() }
     const tree = new Vfs()
     const written = { files: 0, bytes: 0 }
     try {
