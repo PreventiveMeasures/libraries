@@ -356,6 +356,35 @@ describe('deptree compare', async () => {
   })
 })
 
+describe('deptree compare --production', async () => {
+  const home = temp('deptree-bin-production-')
+  const project = join(home, 'project')
+  const a = await tarball('a', '1.0.0', { 'index.js': 'a\n' })
+  const b = await tarball('b', '1.0.0', { 'index.js': 'b\n' })
+  writeDisk(home, side({ 'cache/a/1.0.0/package.tgz': file(a.bytes), 'cache/b/1.0.0/package.tgz': file(b.bytes) }))
+  const manifest = { name: 'project', version: '1.0.0', dependencies: { a: '1.0.0' }, devDependencies: { b: '1.0.0' } }
+  const entry = (t, rest = {}) => ({ version: '1.0.0', resolved: url(t.name, '1.0.0'), integrity: t.integrity, ...rest })
+  const lock = { name: 'project', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': manifest, 'node_modules/a': entry(a), 'node_modules/b': entry(b, { dev: true }) } }
+  const json = (value) => `${JSON.stringify(value, null, 2)}\n`
+  // As npm ci --omit=dev leaves node_modules.
+  writeDisk(project, side({
+    'package.json': file(json(manifest)),
+    'package-lock.json': file(json(lock)),
+    'node_modules/a/package.json': file(JSON.stringify({ name: 'a', version: '1.0.0' })),
+    'node_modules/a/index.js': file('a\n'),
+  }))
+
+  it('builds the tree with devDependencies left out', () => {
+    const r = cli(home, ['compare', '--npm', '11.12.1', '--production', project])
+    assert.equal(r.stdout, '')
+    assert.match(r.stderr, /^the same$/mu)
+    assert.equal(r.status, 0)
+    const full = cli(home, ['compare', '--npm', '11.12.1', project])
+    assert.equal(full.stdout, '+ node_modules/b/\n')
+    assert.equal(full.status, 1)
+  })
+})
+
 describe('deptree compare, with Soldeer', () => {
   const home = temp('deptree-bin-soldeer-')
   const project = join(home, 'project')
@@ -429,5 +458,8 @@ describe('deptree compare, with Cargo', async () => {
     const unpinned = cli(home, ['compare', project])
     assert.match(unpinned.stderr, /^deptree: Cargo\.lock: give --cargo <version>/mu)
     assert.equal(unpinned.status, 2)
+    const production = cli(home, ['compare', '--cargo', '1.97.0', '--production', project])
+    assert.match(production.stderr, /^deptree: Cargo\.lock: --production is not taken: cargo vendor vendors dev-dependencies too$/mu)
+    assert.equal(production.status, 2)
   })
 })

@@ -1,6 +1,7 @@
 // A node_modules tree as `yarn install --frozen-lockfile --ignore-scripts`
-// makes it in a directory with no node_modules yet. Not written:
-// node_modules/.bin, yarn's .yarn-integrity, and anything a script builds.
+// makes it in a directory with no node_modules yet, and with `production`, as
+// --production does too. Not written: node_modules/.bin, yarn's
+// .yarn-integrity, and anything a script builds.
 
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs } from '@preventive/vfs'
@@ -9,7 +10,7 @@ import { clean, satisfies, valid, validRange } from '@preventive/upstream/semver
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
-import { typeOf } from '../project.js'
+import { productionOf, typeOf } from '../project.js'
 import { fetchingOf } from '../tarball.js'
 import { checkBinLinks } from './bins.js'
 import { incompatibility } from './compat.js'
@@ -67,7 +68,11 @@ function locationOf(names, workspaces) {
   return `node_modules/${names.join('/node_modules/')}`
 }
 
-function resolveProject(inputs, host) {
+// With --production yarn asks for the root's devDependencies all the same,
+// fetches and checks them, and hoists them, but marks each as ignored
+// (install.js's markIgnored): it is installed only where something else
+// needs it.
+function resolveProject(inputs, host, production) {
   const lockfile = parseYarn1Lockfile(inputs.lockfile, { manifests: Object.fromEntries(inputs.manifests), semver: { clean, satisfies, valid, validRange } })
   const manifests = new Map([...inputs.manifests].map(([dir, manifest]) => [dir, fixLists(manifest)]))
   const root = manifests.get('.')
@@ -79,7 +84,9 @@ function resolveProject(inputs, host) {
   if (reason !== undefined) throw new DeptreeError(reason, 'manifests["."]')
   const { project } = inputs
   const isDirectory = project === undefined ? () => undefined : (tag) => typeOf(project, `/${tag}/package.json`) !== undefined
-  return { workspaces, asked, resolved: resolve({ lockfile, workspaces, rules, top: requests, isDirectory }) }
+  const resolved = resolve({ lockfile, workspaces, rules, top: requests, isDirectory, production })
+  if (production) for (const { pattern, dev } of asked) if (dev) resolved.patterns.get(pattern).ignore = true
+  return { workspaces, asked, resolved }
 }
 
 // As in yarn, every package is fetched before any is checked, in the order
@@ -198,13 +205,14 @@ export async function buildYarn1Tree(options) {
   for (const option of ['sizeEstimateOnly', 'lazy']) {
     if (fetching[option]) throw new TypeError(`${option} is not taken for yarn 1, which hoists and leaves out packages by what their package.json says, which only their tarballs hold`)
   }
+  const production = productionOf(options ?? {})
   const inputs = inputsOf(options ?? {})
   const host = checkHost(given, inputs.manifests.get('.'))
   const folded = host.os === 'darwin'
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   checkRoot(inputs.manifests.get('.'))
-  const { workspaces, asked, resolved } = resolveProject(inputs, host)
+  const { workspaces, asked, resolved } = resolveProject(inputs, host, production)
   const { packages, fetched, manifestOf } = await fetchChecked(resolved, host, inputs.settings, inputs.project, fetching)
   const { placed, hoister } = layout({ resolved, manifestOf, asked, workspaces })
   const { vfs, links, locations, copies, files, bytes } = writeTree(placed, fetched)

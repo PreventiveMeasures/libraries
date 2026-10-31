@@ -3,7 +3,7 @@
 // and links alone, each package's sized by its version document, of which
 // nothing is fetched but those documents. With `lazy`, its directories and
 // links alone too, fetching nothing, and each package unpacked into it as
-// it is asked for (lazyUnpacker).
+// it is asked for (lazyUnpacker). With `production`, as --omit=dev leaves it.
 
 import { parseNpmLockfile } from '@preventive/lockfile/npm.js'
 import { Vfs } from '@preventive/vfs'
@@ -13,9 +13,10 @@ import { eachConcurrently, limited } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
 import { unpacker, writeInto } from '../lazy.js'
 import { checkNoModules, isInside, makeDirs, mount, writeFiles, writeLink } from '../mount.js'
+import { productionOf } from '../project.js'
 import { NO_ABOUT, fetchSize, fetchingOf } from '../tarball.js'
 import { claimedBins, fixBins, fixClaimed } from './bins.js'
-import { skippedOf } from './compat.js'
+import { omittedOf, skippedOf } from './compat.js'
 import { graphOf } from './graph.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { checkManifests, recalculates, rootEdgesOf } from './manifests.js'
@@ -78,9 +79,9 @@ async function fetchAll(tarballs, host, fetching) {
 }
 
 // npm 10 makes every package's directory before leaving out those the host
-// cannot run, and leaves the directories they were in.
-function residueOf(nodes, skipped) {
-  const removed = [...skipped].map((node) => node.location)
+// cannot run, or --omit=dev omits, and leaves the directories they were in.
+function residueOf(nodes, left) {
+  const removed = [...left].map((node) => node.location)
   const inRemoved = (dir) => removed.some((location) => dir === location || dir.startsWith(`${location}/`))
   const dirs = new Set()
   for (const location of removed) {
@@ -172,6 +173,7 @@ export async function buildNpmTree(options) {
   const fetching = fetchingOf(options ?? {})
   if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
   if (fetching.lazy && into !== undefined) throw new TypeError('vfs is not taken with lazy, whose tree is unpacked a package at a time')
+  const production = productionOf(options ?? {})
   const host = checkHost(given)
   const folded = host.os === 'darwin'
   const inputs = inputsOf(options ?? {}, folded)
@@ -186,15 +188,16 @@ export async function buildNpmTree(options) {
   checkLinks(lockfile)
   checkSpecs(lockfile, host)
   const nodes = graphOf(lockfile, manifests)
-  const skipped = skippedOf(nodes, host, settings)
-  const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node))
+  const omitted = production ? omittedOf(nodes) : new Set()
+  const skipped = skippedOf(nodes, host, settings, omitted)
+  const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node) && !omitted.has(node))
   const tarballs = tarballsOf(kept)
   const { fetched, tarballs: count } = fetching.lazy ? { fetched: new Map(), tarballs: 0 } : await fetchAll(tarballs, host, fetching)
   const changed = settings.binLinks && !fetching.sizeEstimateOnly && !fetching.lazy ? fixBins(kept, fetched) : new Map()
-  const residue = host.reuse ? residueOf(nodes, skipped) : new Set()
+  const residue = host.reuse ? residueOf(nodes, new Set([...skipped, ...omitted])) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly: fetching.sizeEstimateOnly, lazy: fetching.lazy })
   const packages = Object.keys(lockfile.packages).length
-  const stats = { packages, installed: kept.length, skipped: packages - kept.length, tarballs: count, ...written }
+  const stats = { packages, installed: kept.length, skipped: packages - kept.length - omitted.size, tarballs: count, ...written }
   const entryOf = (node, { integrity, about, size }) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
     return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer, ...fetching.sizeEstimateOnly ? { size } : {} }

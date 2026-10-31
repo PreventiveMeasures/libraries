@@ -302,6 +302,27 @@ export interface PnpmProject {
 // pnpm builds the package. A
 // `vfs` is not taken with it, nor `sizeEstimateOnly`.
 //
+// `production`, false unless given true, builds the tree `pnpm install
+// --prod` makes, from the lockfile pnpm leaves of it: each project's
+// devDependencies dropped, a `link:` among them, and of the snapshots
+// those the rest reach, through dependencies, optionalDependencies and the
+// projects they link to. The tree is laid out of those alone -- what the
+// host cannot run left out as pnpm walks them, hoisted, its bins linked --
+// as without it, save that pnpm 9 keeps from hoisting each name the root's
+// specifiers have, a devDependency's among them. Nothing else is fetched,
+// nor its files checked; all else is held to the whole lockfile, as
+// without it. From pnpm 11.28.0, and in pnpm 12, an edge to an optional
+// peer, which the snapshot is linked to only as each project that reaches it
+// lists the peer itself, or as the peer is among the root's devDependencies
+// and resolvePeersFromWorkspaceRoot is set, is not walked, and is linked
+// only where the rest reach the peer: a devDependency only there to satisfy
+// an optional peer of a production dependency is left out. From 11.28.7 and
+// 12.15.0, such an edge is one to a peer the snapshot's key binds, or to any
+// of a key with a hash in place of its peers; before, any dependency by the
+// name of one of the snapshot's optional peers, though the snapshot
+// resolved it as its own and its package.json asks for it, as the lockfile
+// pnpm 11.28.7 and 12.15.0 on write records.
+//
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with
 // `project` and none of them.
@@ -324,6 +345,7 @@ export interface PnpmTreeGiven {
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
   lazy?: boolean
+  production?: boolean
 }
 
 export interface PnpmTreeRead {
@@ -339,6 +361,7 @@ export interface PnpmTreeRead {
   cache?: CacheOptions['cache']
   sizeEstimateOnly?: boolean
   lazy?: boolean
+  production?: boolean
 }
 
 // What buildPnpmTree counts, all of it plain numbers: `projects` the
@@ -382,7 +405,8 @@ export interface PnpmTreeStats {
 // to no repository.
 // `dev` is whether devDependencies alone reach it: no project's
 // dependencies or optionalDependencies do, through what is installed, so
-// `pnpm install --prod` would leave it out. `optional` is whether optional
+// `pnpm install --prod` would leave it out, and so none is with
+// `production`. `optional` is whether optional
 // dependencies alone reach it, as the lockfile records it. `patch` is the
 // patch applied to it, by pnpm's hash of it and the path the settings name
 // it by: of two patches of one text, the first they name.
@@ -442,12 +466,12 @@ export interface PnpmLazyTree extends PnpmTree {
   unpack(paths: Iterable<string>): Promise<PnpmInstalled[]>
 }
 
-// The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`
-// makes with the isolated linker of host.pnpm, 9, 10, 11 or 12, or the
-// hoisted one of pnpm 10 or 11, and no other install: whatever the
-// settings say of frozen lockfiles, the install is frozen, which is also
-// the only one that hoists by the lockfile's graph alone. It is rooted at
-// the lockfile's directory: each package's
+// The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts`,
+// with `production` --prod too, makes with the isolated linker of
+// host.pnpm, 9, 10, 11 or 12, or the hoisted one of pnpm 10 or 11, and no
+// other install: whatever the settings say of frozen lockfiles, the install
+// is frozen, which is also the only one that hoists by the lockfile's graph
+// alone. It is rooted at the lockfile's directory: each package's
 // files at node_modules/.pnpm/<dir>/node_modules/<name>, its dependencies
 // linked beside it, the hoisted aliases, and each project's own
 // node_modules of links. Links are relative; a `link:` dependency leads

@@ -94,6 +94,7 @@
     "src/pnpm/package.js",
     "src/pnpm/packlist.js",
     "src/pnpm/patches.js",
+    "src/pnpm/production.js",
     "src/pnpm/projects.js",
     "src/pnpm/readers.js",
     "src/pnpm/settings.js",

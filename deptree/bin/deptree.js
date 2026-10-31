@@ -47,6 +47,8 @@ GITHUB_TOKEN or GH_TOKEN, else anonymously.
                      packageManager pins, or Soldeer 0.12.0; npm's and
                      cargo's are needed
   --node <version>   the Node it installed with; by default this one
+  --production       devDependencies were left out, as by pnpm install
+                     --prod, npm ci --omit=dev or yarn install --production
   --metadata         fetch each package's version document from npm's
                      registry too, and hold its tarball's dist to it
   --all              list what is left out too
@@ -63,6 +65,7 @@ const OPTIONS = {
   cargo: { type: 'string' },
   node: { type: 'string' },
   metadata: { type: 'boolean', default: false },
+  production: { type: 'boolean', default: false },
   all: { type: 'boolean' },
   diff: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
@@ -70,7 +73,8 @@ const OPTIONS = {
 
 // Each package manager by its version flag: its lockfile, the folder it
 // installs into in each project it finds, and the version where the flag is
-// left out and nothing pins one, or, `unpinned`, that the flag is needed.
+// left out and nothing pins one, or, `unpinned`, that the flag is needed;
+// `development`, that it installs every dependency, there being no other kind.
 const MANAGERS = {
   pnpm: { lockfile: 'pnpm-lock.yaml', folder: 'node_modules', projects: findPnpmProjects, build: buildPnpmTree },
   yarn: { lockfile: 'yarn.lock', folder: 'node_modules', projects: findYarn1Workspaces, build: buildYarn1Tree },
@@ -79,10 +83,11 @@ const MANAGERS = {
     lockfile: 'soldeer.lock',
     folder: 'dependencies',
     version: '0.12.0',
+    development: true,
     projects: () => ['.'],
     build: (options) => buildSoldeerTree({ ...options, github: createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null }) }),
   },
-  cargo: { lockfile: 'Cargo.lock', folder: 'vendor', unpinned: true, projects: () => ['.'], build: buildCargoTree },
+  cargo: { lockfile: 'Cargo.lock', folder: 'vendor', unpinned: true, development: true, projects: () => ['.'], build: buildCargoTree },
 }
 
 async function main(argv) {
@@ -96,6 +101,7 @@ async function main(argv) {
   const project = projectView(resolve(dir))
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
+  if (values.production && manager.development) fail(`deptree: ${manager.lockfile}: --production is not taken: ${name === 'cargo' ? 'cargo vendor vendors dev-dependencies too' : 'Soldeer has no devDependencies to leave out'}\n`)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
@@ -108,7 +114,7 @@ async function main(argv) {
   const disk = readSide(project, dirs)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
   note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
-  const tree = await manager.build({ project, host, metadata: values.metadata })
+  const tree = await manager.build({ project, host, metadata: values.metadata, ...values.production ? { production: true } : {} })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
   const built = readSide(tree.vfs, dirs)
   const changes = difference(disk, built)

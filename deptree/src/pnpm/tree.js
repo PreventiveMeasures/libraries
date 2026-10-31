@@ -5,7 +5,9 @@
 // `sizeEstimateOnly`, its directories and links alone, each package's sized
 // by its version document, of which nothing is fetched but those documents.
 // With `lazy`, its directories and links alone too, fetching nothing, and
-// each package unpacked into it as it is asked for (lazy.js).
+// each package unpacked into it as it is asked for (lazy.js). With
+// `production`, as --prod installs it (production.js): laid out from the
+// lockfile it leaves, and held to the whole one.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { compareVersions } from '@preventive/upstream/semver.js'
@@ -14,7 +16,7 @@ import { dirname, relative } from '@preventive/vfs/path.js'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkNoModules, fold, makeDirs, mount, writeLink } from '../mount.js'
-import { checkProject } from '../project.js'
+import { checkProject, productionOf } from '../project.js'
 import { NO_ABOUT, REGISTRY, fetchSize, fetchingOf, tarballUrl } from '../tarball.js'
 import { binReads, binTargets, hoistedBinReads, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
@@ -26,6 +28,7 @@ import { lazyUnpacker } from './lazy.js'
 import { checkFetched, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
 import { createHook } from './hook.js'
+import { productionLockfile } from './production.js'
 import { listOverrides } from './overrides.js'
 import { checkHost, inputsOf, manifestsOf, patchesOf, readLockfile } from './inputs.js'
 import { checkProjects, pinsPnpm, workspaceNames } from './projects.js'
@@ -93,10 +96,11 @@ async function fetchAll(nodes, project, host, fetching) {
 }
 
 // With `lazy`, a registry package's snapshots have no files yet, and are held
-// to them as each is unpacked; `checks` are what that takes.
-async function fetchNodes(nodes, lockfile, hook, project, host, fetching) {
+// to them as each is unpacked; `checks` are what that takes, of `checked`, the
+// whole lockfile.
+async function fetchNodes(nodes, checked, hook, project, host, fetching) {
   const fetched = await fetchAll(nodes, project, host, fetching)
-  const checks = { lockfile, hook, fresh: createFreshnessCheck(lockfile, host.major) }
+  const checks = { lockfile: checked, hook, fresh: createFreshnessCheck(checked, host.major) }
   const byDir = new Map()
   for (const node of nodes.values()) {
     const got = fetched.get(packageKeyOf(node.key))
@@ -183,8 +187,9 @@ const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 // every package's files are at hand; with `sizeEstimateOnly` they are not
 // followed, nor with `lazy` but where a package unpacked needs them. `builds`
 // tells, where any patch is configured, what the build pass builds; `reads`
-// the packages the fixes read the files of (hoistedBinReads).
-async function buildHoisted({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching }) {
+// the packages the fixes read the files of (hoistedBinReads). `lockfile` is
+// the one the tree is laid out from, and `checked` the whole one.
+async function buildHoisted({ lockfile, checked, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
   if (!COPYING.has(settings.packageImportMethod)) {
@@ -200,7 +205,7 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
   const keepsModules = since('11.25.0')
   const dropping = building && hardlinks && !keepsModules ? mayDrop(placed) : new Map()
   if (fetching.sizeEstimateOnly) checkNoneDropped(dropping, host.pnpm)
-  const { byDir, tarballs, checks } = await fetchNodes(placed, lockfile, hook, project, host, fetching)
+  const { byDir, tarballs, checks } = await fetchNodes(placed, checked, hook, project, host, fetching)
   const linked = readLinked(links, byDir, manifests, project)
   const prod = prodPackages(lockfile, skipped, directories)
   const dev = (node) => !prod.has(packageIdOf(node.key, node.pkg, directories))
@@ -221,11 +226,11 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
 // The isolated layout: each package in node_modules/.pnpm, linked from what
 // needs it and where it is hoisted; `fixes` as buildHoisted's, and `reads`
 // the packages they read the files of (binReads).
-async function buildIsolated({ lockfile, settings, host, project, hook, installed, manifests, names, skipped, fetching }) {
+async function buildIsolated({ lockfile, checked, settings, host, project, hook, installed, manifests, names, skipped, fetching }) {
   const { major } = host
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
-  const { byDir, tarballs, checks } = await fetchNodes(nodes, lockfile, hook, project, host, fetching)
+  const { byDir, tarballs, checks } = await fetchNodes(nodes, checked, hook, project, host, fetching)
   const links = linksOf(byDir, direct, settings, names, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const prod = reachedInProd(lockfile.importers, nodes, byDir)
@@ -253,6 +258,7 @@ export async function buildPnpmTree(options) {
   const fetching = fetchingOf(options ?? {})
   if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
   if (fetching.lazy && into !== undefined) throw new TypeError('vfs is not taken with lazy, whose tree is unpacked a package at a time')
+  const production = productionOf(options ?? {})
   if (project !== undefined) checkProject(project)
   const machine = checkHost(given)
   const folded = machine.os === 'darwin'
@@ -283,9 +289,10 @@ export async function buildPnpmTree(options) {
   checkProjects(lockfile, manifests, { hook, host, settings, env })
   checkOptional(lockfile)
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
-  const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
+  const { walked, installing } = production ? productionLockfile(lockfile, { ...host, resolvePeersFromWorkspaceRoot: settings.resolvePeersFromWorkspaceRoot }) : { walked: lockfile, installing: lockfile }
+  const { skipped, incompatible } = skippedSnapshots(walked, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const { byDir, links, fixes, reads, builds, early, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
+  const { byDir, links, fixes, reads, builds, early, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile: installing, checked: lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()
 
