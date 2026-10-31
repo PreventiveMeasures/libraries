@@ -45,18 +45,24 @@ const chunksOf = (stream) => (Symbol.asyncIterator in stream ? stream : readerCh
 // the stream makes and joined at the end, or, given `into`, copied into it
 // as each piece comes and the piece let go: joining holds the output twice
 // at the end, which a caller who knows how much is coming need not pay.
+// Given `expected` bytes instead, the first that many are copied into one
+// array of that size as they come, and any past it gathered in pieces.
 // Output past `limit` is refused where it is, not after it has all been
 // made: leaving the loop cancels the stream. A bound that is no number
 // (NaN) refuses everything, not nothing.
-async function through(bytes, Stream, format, limit, verb, into) {
+async function through(bytes, Stream, format, limit, verb, into, expected = 0) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the data is not a Uint8Array')
   const transform = new Stream(format)
   const chunks = []
   let length = 0
+  // Where the output is copied as it comes, and how much of it is filled.
+  let target = into ?? (expected > 0 ? new Uint8Array(expected) : undefined)
+  let filled = 0
   // What has come out so far, as one array: handed back at the end, and
   // with the error if the stream fails first.
   const made = () => {
     if (into !== undefined) return into.subarray(0, length)
+    if (target !== undefined) return filled === target.length ? target : target.subarray(0, filled)
     return chunks.length === 1 ? chunks[0] : concat(chunks)
   }
   // The stream's own failure is read from its output; the writes fail with it.
@@ -66,8 +72,17 @@ async function through(bytes, Stream, format, limit, verb, into) {
   try {
     for await (const chunk of chunksOf(transform.readable)) {
       if (!(length + chunk.length <= limit)) throw new RangeError(`output past ${limit} bytes`)
-      if (into === undefined) chunks.push(chunk)
-      else into.set(chunk, length)
+      if (target !== undefined && filled + chunk.length > target.length && into === undefined) {
+        // More than was expected: what is filled is the first piece.
+        chunks.push(target.subarray(0, filled))
+        target = undefined
+      }
+      if (target === undefined) {
+        chunks.push(chunk)
+      } else {
+        target.set(chunk, filled)
+        filled += chunk.length
+      }
       length += chunk.length
     }
   } catch (cause) {
@@ -79,7 +94,27 @@ async function through(bytes, Stream, format, limit, verb, into) {
 
 export const compress = (bytes, format, { limit = Infinity } = {}) => through(bytes, CompressionStream, format, limit, 'compress')
 
-const inflate = (bytes, format, limit) => through(bytes, DecompressionStream, format, limit, 'decompress')
+// What gzip says it decompresses to: its last member's trailer ends with the
+// length of that member's data, mod 2^32, which is all of it where the data
+// is one member and no more than 4 GiB. It is the data's own word, so it is
+// taken only where `limit` lets that much through and it is no more than
+// RATIO times the data: tarballs come to 2 to 13 times theirs, so one that
+// says more is gathered in pieces as before, and a trailer that lies costs
+// no more than that. Else, as when the data ends in padding, none is
+// expected. Where it says less than comes, the rest is gathered as any
+// output is; where it says more, the stream fails on it, as zlib holds the
+// trailer to what it made.
+const RATIO = 16
+function expectedOf(bytes, limit) {
+  if (bytes.length < 18) return 0
+  const said = new DataView(bytes.buffer, bytes.byteOffset + bytes.length - 4, 4).getUint32(0, true)
+  return said <= limit && said <= bytes.length * RATIO ? said : 0
+}
+
+// With `sized`, the output made into one array as big as the trailer says
+// (expectedOf), which only the data as given has: a place that padding is
+// tried ending at has the member's checksum or none where a trailer would be.
+const inflate = (bytes, format, limit, sized) => through(bytes, DecompressionStream, format, limit, 'decompress', undefined, sized && format === 'gzip' ? expectedOf(bytes, limit) : 0)
 
 // gzip(1) and zlib take zero bytes after the last member as padding, as old
 // tarballs run on in zeros to a whole 10240-byte record, the way npm 1.0
@@ -94,13 +129,13 @@ const inflate = (bytes, format, limit) => through(bytes, DecompressionStream, fo
 // only padded data pays for.
 export async function decompress(bytes, format, { limit = Infinity } = {}) {
   try {
-    return await inflate(bytes, format, limit)
+    return await inflate(bytes, format, limit, true)
   } catch (error) {
     if (format !== 'gzip' || !(error instanceof CompressionError) || error.limited || bytes.at(-1) !== 0) throw error
     const last = bytes.findLastIndex((byte) => byte !== 0)
     for (let end = last + 1; end <= Math.min(last + 10, bytes.length - 1); end++) {
       try {
-        return await inflate(bytes.subarray(0, end), format, limit)
+        return await inflate(bytes.subarray(0, end), format, limit, false)
       } catch (retry) {
         // Output past the bound before the end is past it wherever the end is.
         if (!(retry instanceof CompressionError) || retry.limited) throw retry
