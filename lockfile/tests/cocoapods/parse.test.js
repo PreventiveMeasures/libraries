@@ -187,6 +187,15 @@ describe('the layout', () => {
     refuses(`${BASE}\n`, 'line 47: expected the end of the file, as CocoaPods 1.17.0 writes it')
   })
 
+  // Lockfile.generate lists what a pod depends on sorted, and YAMLHelper
+  // sorts it again: a root and its own subspec both, as `RCT-Folly` and
+  // `RCT-Folly/Fabric`, come one after the other.
+  it('takes a root and its own subspec among what a pod depends on, and the list sorted alone', () => {
+    const deps = (...names) => edit(['    - Missing (< 2.0, >= 1.0)', names.map((name) => `    - ${name}`).join('\n')])
+    assert.deepEqual(parsePodfileLock(deps('Core', 'Core/Base', 'Missing (< 2.0, >= 1.0)')).pods.Git.dependencies.map((dependency) => dependency.name), ['Core', 'Core/Base', 'Missing'])
+    refuses(deps('Core/Base', 'Core', 'Missing (< 2.0, >= 1.0)'), 'line 8: expected "    - Core", as CocoaPods 1.17.0 writes it, found "    - Core/Base"')
+  })
+
   it('quotes yes, no, on and off from CocoaPods 1.10, and dates from 1.13', () => {
     const branch = (name, written, version) => edit(['branch `main`', `branch \`${name}\``], [':branch: main', `:branch: ${written}`], ['COCOAPODS: 1.17.0', `COCOAPODS: ${version}`])
     assert.equal(parsePodfileLock(branch('yes', "'yes'", '1.10.2')).roots.Git.external.branch, 'yes')
@@ -245,6 +254,20 @@ describe('pods', () => {
     refuses(edit(['(< 2.0, >= 1.0)', '(from `../Missing`)']), '"Missing (from `../Missing`)" names an external source, which only the Podfile\'s dependencies do', at)
   })
 
+  // Lockfile.generate lists what Dependency#to_s writes of each dependency
+  // of a pod uniq: a name twice only by two requirements, as one podspec
+  // asks for it by one on iOS and by another on macOS. React Native's
+  // rn-tester lists RCT-Folly twice under React-RCTSettings, in a list of
+  // two sorted runs, and no CocoaPods writes either.
+  it('refuses what a pod depends on twice, though a name may be in two', () => {
+    const deps = (...names) => edit(['    - Missing (< 2.0, >= 1.0)', names.map((name) => `    - ${name}`).join('\n')])
+    const two = parsePodfileLock(deps('Missing (< 2.0, >= 1.0)', 'Missing (~> 3.0)')).pods.Git.dependencies
+    assert.deepEqual(plain(two), [{ name: 'Missing', requirements: ['< 2.0', '>= 1.0'] }, { name: 'Missing', requirements: ['~> 3.0'] }])
+    const at = 'PODS[3]["Git (0.1.0)"]'
+    refuses(deps('Missing (< 2.0, >= 1.0)', 'Missing (< 2.0, >= 1.0)'), 'a second "Missing (< 2.0, >= 1.0)", where CocoaPods lists each dependency of a pod once', `${at}[1]`)
+    refuses(deps('Core', 'Core/Base', 'Missing (< 2.0, >= 1.0)', 'Core', 'Core/Base'), 'a second "Core", where CocoaPods lists each dependency of a pod once', `${at}[3]`)
+  })
+
   it('refuses a pod twice, and a root\'s pods at two versions', () => {
     refuses(edit(['  - Other (1.2.3)', '  - Other (1.2.3)\n  - Other (1.2.4)']), 'a second "Other"', 'PODS[6]')
     refuses(edit(['  - Core/Base (2.0.0):', '  - Core/Base (2.0.1):']), 'at "2.0.1", where its root\'s other pods are at "2.0.0"', 'PODS[2]')
@@ -292,7 +315,11 @@ describe('the Podfile\'s dependencies', () => {
     refuses(edit(['  - Core (~> 2.0)', '  - Core (~> 2.0)\n  - Core/Missing']), '"Core/Missing" is no pod in PODS', 'DEPENDENCIES[2]')
   })
 
-  it('takes a name twice, as two targets ask for it', () => {
+  // Podfile#dependencies is uniq, but Dependency#to_s leaves out the spec
+  // repo a dependency names, and Lockfile.generate does not uniq what it
+  // writes: two targets that ask for a pod alike, but of two spec repos,
+  // `:source`, list it twice.
+  it('takes a dependency twice, as two targets ask for it of two spec repos', () => {
     assert.equal(parsePodfileLock(edit(['  - Core (~> 2.0)', '  - Core (~> 2.0)\n  - Core (~> 2.0)'])).dependencies.length, 5)
   })
 
@@ -385,7 +412,13 @@ describe('external sources', () => {
     refuses(external({ git: GIT, http: GIT }, `\`${GIT}\``), 'both :git and :http, which CocoaPods reads as no source at all', at)
     refuses(external({ url: GIT }, `\`${GIT}\``), 'names no source CocoaPods knows: :podspec, :path, or one of :git, :hg, :http, :scp and :svn', at)
     refuses(external({ path: 'Git', git: GIT }, '`Git`'), 'beside :path, which CocoaPods reads alone', `${at}[":git"]`)
-    refuses(edit([':branch: main', 'branch: main']), 'a key that is not a symbol, where CocoaPods reads options by symbol', `${at}.branch`)
+    // cocoapods-downloader reads an option a string names as the symbol;
+    // ExternalSources and Dependency#to_s pass it over.
+    const downloader = 'a key that is not a symbol, which cocoapods-downloader reads as one and the rest of CocoaPods passes over'
+    refuses(edit([':branch: main', 'branch: main']), downloader, `${at}.branch`)
+    refuses(edit([`    :commit: ${COMMIT}`, `    commit: ${COMMIT}`]), downloader, '["CHECKOUT OPTIONS"].Git.commit')
+    refuses(edit([':git: https://example.com/git.git\n  Local', 'git: https://example.com/git.git\n  Local']), 'names no source CocoaPods knows: :podspec, :path, or one of :git, :hg, :http, :scp and :svn', at)
+    refuses(edit([':branch: main', 'false: main']), 'the boolean false as a key, where a symbol or a string names an option', `${at}.false`)
   })
 
   it('refuses a value of a kind or a form CocoaPods would not download by', () => {
@@ -403,6 +436,78 @@ describe('external sources', () => {
     refuses(external({ git: GIT, branch: 'a..b' }, `\`${GIT}\`, branch \`a..b\``, { git: GIT, commit: COMMIT }), '"a..b" is not a branch or tag name git takes', `${at}[":branch"]`)
     refuses(external({ git: GIT, submodules: "'true'" }, `\`${GIT}\``, { git: GIT, commit: COMMIT }), 'expected a boolean, found the string "true"', `${at}[":submodules"]`)
     refuses(external({ http: 'https://example.com/a.rar', type: 'rar' }, '`x`'), '"rar" is not a type of file CocoaPods extracts', `${at}[":type"]`)
+  })
+})
+
+// A Podfile that names options of `pod` by a string, as Expo's autolinking
+// names its flags, and the lockfile CocoaPods 1.16.2 writes for it. The
+// Podfile reads `:inhibit_warnings` alone, so `'inhibit_warnings'` is
+// carried, beside a `:path` or a `:podspec`, as is any option CocoaPods
+// does not read, and Psych reads it back a string and its value a boolean.
+const STRINGS_PODFILE = `platform :ios, '15.0'
+target 'App' do
+  pod 'BenchmarkingModule', { :path => '../modules/benchmarking/ios', 'inhibit_warnings' => false }
+  pod 'Hermes', { :podspec => 'specs/Hermes.podspec', :tag => 'hermes-1', 'inhibit_warnings' => true, 'note' => 'yes' }
+end
+`
+const STRINGS = `PODS:
+  - BenchmarkingModule (1.0.0)
+  - Hermes (1.0.0)
+
+DEPENDENCIES:
+  - BenchmarkingModule (from \`../modules/benchmarking/ios\`)
+  - Hermes (from \`specs/Hermes.podspec\`)
+
+EXTERNAL SOURCES:
+  BenchmarkingModule:
+    inhibit_warnings: false
+    :path: "../modules/benchmarking/ios"
+  Hermes:
+    inhibit_warnings: true
+    note: 'yes'
+    :podspec: specs/Hermes.podspec
+    :tag: hermes-1
+
+CHECKOUT OPTIONS:
+  Hermes:
+    :commit: ${COMMIT}
+    :git: https://example.com/hermes.git
+
+SPEC CHECKSUMS:
+  BenchmarkingModule: 8faf12147f0fcd387da5722b4554653c610e27ca
+  Hermes: a18ea6f0414c907ba0e87240b625f7a3a4014222
+
+PODFILE CHECKSUM: bce941bc71adaeead4a5e6b4fba3e981bc19567b
+
+COCOAPODS: 1.16.2
+`
+
+describe('options a string names beside :path or :podspec', () => {
+  const strings = (...edits) => edits.reduce((text, [from, to]) => {
+    assert.ok(text.includes(from), `STRINGS has no ${JSON.stringify(from)}`)
+    return text.replace(from, to)
+  }, STRINGS)
+  const at = '["EXTERNAL SOURCES"].Hermes'
+
+  it('are carried by name, a string or a boolean, among those a symbol names', () => {
+    const { roots } = parsePodfileLock(STRINGS, { podfile: STRINGS_PODFILE })
+    assert.deepEqual(plain(roots.BenchmarkingModule.external), { type: 'path', path: '../modules/benchmarking/ios', options: { inhibit_warnings: false } })
+    assert.deepEqual(plain(roots.Hermes.external), { type: 'podspec', podspec: 'specs/Hermes.podspec', options: { inhibit_warnings: true, note: 'yes', tag: 'hermes-1' } })
+    assert.equal(Object.getPrototypeOf(roots.Hermes.external.options), null)
+    // A string that names :path, :podspec or a download beside one is
+    // carried as well: CocoaPods reads none of them by a string.
+    const named = parsePodfileLock(strings(['    inhibit_warnings: true\n    note: \'yes\'\n', '    git: https://example.com/other.git\n    inhibit_warnings: true\n    note: \'yes\'\n    path: Other\n'])).roots.Hermes.external
+    assert.deepEqual(plain(named.options), { git: 'https://example.com/other.git', inhibit_warnings: true, note: 'yes', path: 'Other', tag: 'hermes-1' })
+  })
+
+  it('refuses a name a symbol and a string both give, which options has once', () => {
+    refuses(strings(['    note: \'yes\'\n', '    note: \'yes\'\n    :note: other\n']), 'both :note and "note", where options has each name once', `${at}[":note"]`)
+    refuses(strings(['    note: \'yes\'\n', '    :note: other\n    note: \'yes\'\n']), 'both :note and "note", where options has each name once', `${at}.note`)
+  })
+
+  it('refuses a value of another kind than a string or a boolean', () => {
+    refuses(strings(['    note: \'yes\'', '    note:\n      - a']), 'expected a string or a boolean, found a sequence', `${at}.note`)
+    refuses(strings(['    note: \'yes\'', '    note: :a']), 'expected a string or a boolean, found the symbol a', `${at}.note`)
   })
 })
 
