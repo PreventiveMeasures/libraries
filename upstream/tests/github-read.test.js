@@ -44,8 +44,8 @@ describe('createClient', () => {
 
   it('reads, and nothing else', () => {
     assert.deepEqual(Object.keys(client()).toSorted(), [
-      'findRepoLockfiles', 'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
-      'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoDir', 'listRepoTags', 'listUserRepos',
+      'compareCommits', 'findRepoLockfiles', 'getAdvisory', 'getCollaboratorPermission', 'getCurrentUser', 'getPullRequest', 'getRepo',
+      'getRepoFile', 'getRepoHead', 'getRepoTag', 'getRepoTarball', 'getRepoTreeId', 'getRepoTreeTarball', 'listRepoAdvisories', 'listRepoBranches', 'listRepoDir', 'listRepoTags', 'listUserRepos',
     ])
   })
 })
@@ -265,6 +265,70 @@ describe('getRepoTag', () => {
     assert.deepEqual(calls, [])
     stub({})
     await assert.rejects(client().getRepoTag({ repo: 'acme/app', tag: 'v1' }), { name: 'HttpError', status: 404, message: `GET ${API}/git/ref/tags/v1 404: {"message":"Not Found"}` })
+  })
+})
+
+describe('listRepoBranches', () => {
+  const page = (n, count) => Array.from({ length: count }, (_, i) => ({ name: `b${n}/${i}`, commit: { sha: SHA, url: 'https://api.github.com/repos/acme/app/commits/x' }, protected: false }))
+
+  it('reads every page, until a short one, each branch with the commit at its head alone', async () => {
+    const calls = stubGitHub(({ url }) => json(url.endsWith('page=1') ? page(1, 100) : page(2, 3)))
+    const branches = await client().listRepoBranches({ repo: 'acme/app' })
+    assert.equal(branches.length, 103)
+    assert.deepEqual([branches[0], branches.at(-1)], [{ branch: 'b1/0', oid: SHA }, { branch: 'b2/2', oid: SHA }])
+    assert.deepEqual(calls.map((c) => c.url), [
+      'https://api.github.com/repos/acme/app/branches?per_page=100&page=1',
+      'https://api.github.com/repos/acme/app/branches?per_page=100&page=2',
+    ])
+  })
+
+  it('stops at maxPages, and refuses a page that is no list, or a branch with no name git would take or no commit', async () => {
+    stubGitHub(() => json(page(1, 100)))
+    await assert.rejects(client().listRepoBranches({ repo: 'acme/app', maxPages: 2 }), /listRepoBranches: more than 2 pages/u)
+    stubGitHub(() => json({ message: 'odd' }))
+    await assert.rejects(client().listRepoBranches({ repo: 'acme/app' }), /listRepoBranches: expected an array for page 1/u)
+    for (const change of [{ name: undefined }, { name: 'a..b' }, { name: '-x' }, { commit: null }, { commit: { sha: 'main' } }]) {
+      stubGitHub(() => json([{ ...page(1, 1)[0], ...change }]))
+      await assert.rejects(client().listRepoBranches({ repo: 'acme/app' }), /listRepoBranches: GitHub listed .* in acme\/app, which is no branch name with a commit$/u, JSON.stringify(change))
+    }
+  })
+})
+
+describe('compareCommits', () => {
+  const compared = (status, aheadBy, behindBy, { base = SHA, mergeBase = status === 'ahead' || status === 'identical' ? base : SHA2 } = {}) =>
+    ({ status, ahead_by: aheadBy, behind_by: behindBy, total_commits: aheadBy, base_commit: { sha: base }, merge_base_commit: { sha: mergeBase }, commits: [], files: [] })
+
+  it('asks GitHub\'s compare of base...head, a commit or a ref each, and tells how head stands to base', async () => {
+    const calls = stubGitHub(() => json(compared('ahead', 3, 0)))
+    assert.deepEqual(await client().compareCommits({ repo: 'acme/app', base: SHA, head: 'release/1.x' }), { status: 'ahead', aheadBy: 3, behindBy: 0, mergeBase: SHA })
+    assert.equal(calls[0].url, `https://api.github.com/repos/acme/app/compare/${SHA}...release%2F1.x?per_page=1`)
+    for (const [status, ahead, behind] of [['identical', 0, 0], ['behind', 0, 2], ['diverged', 1, 2]]) {
+      stubGitHub(() => json(compared(status, ahead, behind)))
+      assert.deepEqual(await client().compareCommits({ repo: 'acme/app', base: SHA, head: SHA2 }), { status, aheadBy: ahead, behindBy: behind, mergeBase: status === 'identical' ? SHA : SHA2 })
+    }
+  })
+
+  it('takes a commit or a ref name alone, before any request', async () => {
+    const calls = forbidRequests()
+    for (const base of [undefined, '', 'a..b', 'main^', SHA.slice(0, 7).toUpperCase() + '~1']) {
+      await assert.rejects(client().compareCommits({ repo: 'acme/app', base, head: 'main' }), /compareCommits: base must be a full commit sha, or a branch or tag name/u, String(base))
+    }
+    await assert.rejects(client().compareCommits({ repo: 'acme/app', base: SHA }), /compareCommits: head must be/u)
+    assert.deepEqual(calls, [])
+  })
+
+  it('refuses a status its counts deny, a merge base not the base where head is ahead of it, or another base than the commit asked', async () => {
+    for (const body of [
+      compared('ahead', 0, 0), compared('identical', 1, 0), compared('behind', 1, 1), compared('diverged', 0, 2), compared('merged', 1, 0), compared('ahead', -1, 0),
+      { ...compared('ahead', 1, 0), ahead_by: '1' },
+    ]) {
+      stubGitHub(() => json(body))
+      await assert.rejects(client().compareCommits({ repo: 'acme/app', base: SHA, head: 'main' }), /compareCommits: GitHub compared acme\/app .* ahead and .* behind$/u, JSON.stringify(body))
+    }
+    for (const body of [compared('ahead', 1, 0, { mergeBase: SHA2 }), compared('identical', 0, 0, { mergeBase: SHA2 }), compared('ahead', 1, 0, { base: SHA2 }), { ...compared('behind', 0, 1), merge_base_commit: null }]) {
+      stubGitHub(() => json(body))
+      await assert.rejects(client().compareCommits({ repo: 'acme/app', base: SHA, head: 'main' }), /compareCommits: GitHub compared acme\/app .* from .*, merge base /u, JSON.stringify(body))
+    }
   })
 })
 
