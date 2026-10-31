@@ -132,8 +132,11 @@ export class Vfs {
     throw new VfsError(skip(path, 0) === path.length ? 'EBUSY' : 'EINVAL', path)
   }
 
+  // Whether `path` holds a `type`: a last name that is not there is none,
+  // as a lookup finds it, with no error made for it, which is most of what
+  // asking costs where it is not there, as before writing it is.
   #is(path, type, follow) {
-    try { return this.#node(path, follow).type === type } catch (error) {
+    try { return this.#locate(path, { follow }).node?.type === type } catch (error) {
       if (error instanceof VfsError) return false
       throw error
     }
