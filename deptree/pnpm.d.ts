@@ -275,9 +275,17 @@ export interface PnpmProject {
 // on; or any bin of a patched package. With the hoisted linker where any
 // patch is configured, so does what pnpm's build pass does to a package it
 // builds, patched or with an install script, which is read for every such
-// package. The first such unpack fetches every package not unpacked yet,
-// reading those that are back from the tree, as the full tree does, and
-// keeps them all. Where the files could change the layout, the lockfile is
+// package. The first such unpack fetches the packages whose bins those are
+// read from, but those unpacked already, which are read back from the
+// tree, and keeps them: with the isolated linker, those the lockfile says
+// have bins, those that bundle others, those whose bins pnpm reads whatever
+// the lockfile says (a project's dependencies with pnpm 9 and 10, their
+// peers with pnpm 11 and 12, and those beside a dependency outside the tree
+// with pnpm 9 to 11), and directories, which are read with the tree; with
+// the hoisted linker, every package. Any other is read as having no bins,
+// as the lockfile says: where a patch is configured and pnpm builds one,
+// the bins it links of its own are read once it is unpacked, which turn on
+// nothing else's. Where the files could change the layout, the lockfile is
 // refused as with sizeEstimateOnly. A `vfs` is not taken with it, nor
 // `sizeEstimateOnly`.
 //

@@ -16,7 +16,7 @@ import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkNoModules, fold, makeDirs, mount, writeLink } from '../mount.js'
 import { checkProject } from '../project.js'
 import { NO_ABOUT, REGISTRY, fetchSize, fetchingOf, tarballUrl } from '../tarball.js'
-import { binTargets, hoistedBinTargets, requiresBuild } from './bins.js'
+import { binReads, binTargets, hoistedBinTargets, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
 import { checkNoneDropped, hoistedBuilds, hoistedLayout, hoistedModules, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
@@ -214,7 +214,8 @@ async function buildHoisted({ lockfile, settings, host, project, hook, installed
 }
 
 // The isolated layout: each package in node_modules/.pnpm, linked from what
-// needs it and where it is hoisted; `fixes` as buildHoisted's.
+// needs it and where it is hoisted; `fixes` as buildHoisted's, and `reads`
+// the packages they read the files of (binReads).
 async function buildIsolated({ lockfile, settings, host, project, hook, installed, manifests, names, skipped, fetching }) {
   const { major } = host
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
@@ -224,20 +225,21 @@ async function buildIsolated({ lockfile, settings, host, project, hook, installe
   const linked = readLinked(links, byDir, manifests, project)
   const prod = reachedInProd(lockfile.importers, nodes, byDir)
   const dev = (node) => !prod.has(node.dir)
+  const linking = {
+    nodes: byDir,
+    projects: new Map([...manifests, ...linked]),
+    direct,
+    links,
+    publicHoist: settings.publicHoistPattern?.length > 0,
+    building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
+    peers: settings.autoInstallPeers,
+    major,
+  }
   const fixes = () => {
-    const targets = binTargets({
-      nodes: byDir,
-      projects: new Map([...manifests, ...linked]),
-      direct,
-      links,
-      publicHoist: settings.publicHoistPattern?.length > 0,
-      building: Object.keys(settings.patchedDependencies ?? {}).length > 0,
-      peers: settings.autoInstallPeers,
-      major,
-    })
+    const targets = binTargets(linking)
     return { targets, executable: executableElsewhere(byDir, targets, settings.packageImportMethod, major) }
   }
-  return { byDir, links, fixes, tarballs, dev, checks }
+  return { byDir, links, fixes, reads: () => binReads(linking), tarballs, dev, checks }
 }
 
 export async function buildPnpmTree(options) {
@@ -278,7 +280,7 @@ export async function buildPnpmTree(options) {
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { skipped, incompatible } = skippedSnapshots(lockfile, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const { byDir, links, fixes, builds, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
+  const { byDir, links, fixes, reads, builds, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()
 
@@ -311,5 +313,5 @@ export async function buildPnpmTree(options) {
   const tree = mount(vfs, into, folded)
   if (!fetching.lazy) return { vfs: tree, stats, installed: listed }
   const entryOf = (node) => installedOf(node, dev(node), patched, false)
-  return { vfs: tree, stats, installed: listed, unpack: lazyUnpacker({ vfs: tree, byDir, stats, fixes, builds, checks, patched, composing, entryOf, fetching, folded }) }
+  return { vfs: tree, stats, installed: listed, unpack: lazyUnpacker({ vfs: tree, byDir, stats, fixes, reads, builds, checks, patched, composing, entryOf, fetching, folded }) }
 }
