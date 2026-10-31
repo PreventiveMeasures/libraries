@@ -14,7 +14,7 @@ function kind(node) {
   return node.type === 'string' ? `the string ${quote(node.value)}` : `the ${node.type} ${String(node.value)}`
 }
 
-const { refuse } = primitives(kind)
+export const { refuse } = primitives(kind)
 
 export function scalarOf(node, type, where) {
   if (node?.kind !== 'scalar' || node.type !== type) throw refuse(`a ${type}`, node, where)

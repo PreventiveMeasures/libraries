@@ -114,11 +114,15 @@ export interface PodRoot {
 
 // By `:path`, from the Podfile's directory, as the Podfile gives it, `./`
 // and a `/` at the end kept; or by `:podspec`, such a path or an http(s)
-// URL. `options` are the others given beside it,
-// strings all, which CocoaPods carries and does not read.
+// URL. `options` are the others given beside it, which CocoaPods carries
+// and does not read, each a string or a boolean, by its name: `tag` of
+// `:tag`, and `inhibit_warnings` of the string a Podfile may name one by,
+// as Expo's autolinking does, which the Podfile does not take for
+// `:inhibit_warnings` either. A name given both ways, `:tag` and `"tag"`,
+// is refused, as `options` has it once.
 export type PodExternalSource =
-  | { type: 'path', path: string, options: Record<string, string> }
-  | { type: 'podspec', podspec: string, options: Record<string, string> }
+  | { type: 'path', path: string, options: Record<string, string | boolean> }
+  | { type: 'podspec', podspec: string, options: Record<string, string | boolean> }
   | PodDownload
 
 // By one of cocoapods-downloader's strategies, an option left out
@@ -127,6 +131,8 @@ export type PodExternalSource =
 // form, `main`, `v1~2`, `tip` or `HEAD`, which each checks out and
 // CocoaPods keeps as it is, is refused, as it locks no revision. A sha1
 // or a sha256 is the file's, in hex; `fileType` is RemoteFile's `:type`.
+// An option a string names, which cocoapods-downloader reads as the
+// symbol and the rest of CocoaPods passes over, is refused.
 export type PodDownload =
   | { type: 'git', url: string, commit: string | undefined, tag: string | undefined, branch: string | undefined, submodules: boolean | undefined }
   | { type: 'hg', url: string, revision: string | undefined, tag: string | undefined, branch: string | undefined }
