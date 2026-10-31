@@ -158,6 +158,44 @@ describe('gzip output sized by its trailer', () => {
     }
     assert.equal(view.getUint32(packed.length - 4, true), text.length)
   })
+  // What the output is made into, in the arrays decompress makes of a size.
+  const allocated = async (run) => {
+    const sizes = []
+    const native = globalThis.Uint8Array
+    globalThis.Uint8Array = new Proxy(native, {
+      construct(target, args, newTarget) {
+        if (typeof args[0] === 'number') sizes.push(args[0])
+        return Reflect.construct(target, args, newTarget)
+      },
+    })
+    try {
+      await run()
+    } finally {
+      globalThis.Uint8Array = native
+    }
+    return Math.max(0, ...sizes)
+  }
+  it('of no more than the trailer of the data as given, and none of the places padding is tried ending at', async () => {
+    // Incompressible: the places tried before the member's end have its checksum where a trailer would be.
+    const noise = new Uint8Array(1 << 20).map(() => Math.floor(Math.random() * 256))
+    const packed = new Uint8Array(gzipSync(noise))
+    const padded = join(packed, new Uint8Array(10240 - (packed.length % 10240)))
+    let out
+    const most = await allocated(async () => {
+      out = await decompress(padded, 'gzip')
+    })
+    assertBytes(out, noise)
+    assert.ok(most <= packed.length * 2, `${most} bytes allocated at once for ${padded.length} in`)
+  })
+  it('of no more than sixteen times the data, whatever the trailer says', async () => {
+    const forged = new Uint8Array(gzipSync(text))
+    // More than comes out, and than sixteen times the data, though deflate could make that much.
+    const said = text.length + 4096
+    assert.ok(said > forged.length * 16 && said < forged.length * 1032)
+    new DataView(forged.buffer).setUint32(forged.length - 4, said, true)
+    const most = await allocated(() => assert.rejects(decompress(forged, 'gzip'), /the data does not decompress/u))
+    assert.ok(most < said, `${most} bytes allocated at once, the trailer saying ${said}`)
+  })
   it('within the limit alone', async () => {
     const packed = new Uint8Array(gzipSync(text))
     await assert.rejects(decompress(packed, 'gzip', { limit: text.length - 1 }), (error) => error.limited && error.bytes.length <= text.length - 1)

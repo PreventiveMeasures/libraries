@@ -97,18 +97,24 @@ export const compress = (bytes, format, { limit = Infinity } = {}) => through(by
 // What gzip says it decompresses to: its last member's trailer ends with the
 // length of that member's data, mod 2^32, which is all of it where the data
 // is one member and no more than 4 GiB. It is the data's own word, so it is
-// taken only where `limit` lets that much through and deflate could make it,
-// at most 1032 bytes for each one in; else, as when the data ends in padding,
-// none is expected. Where it says less than comes, the rest is gathered as
-// any output is; where it says more, the stream fails on it, as zlib holds
-// the trailer to what it made.
+// taken only where `limit` lets that much through and it is no more than
+// RATIO times the data: tarballs come to 2 to 13 times theirs, so one that
+// says more is gathered in pieces as before, and a trailer that lies costs
+// no more than that. Else, as when the data ends in padding, none is
+// expected. Where it says less than comes, the rest is gathered as any
+// output is; where it says more, the stream fails on it, as zlib holds the
+// trailer to what it made.
+const RATIO = 16
 function expectedOf(bytes, limit) {
   if (bytes.length < 18) return 0
   const said = new DataView(bytes.buffer, bytes.byteOffset + bytes.length - 4, 4).getUint32(0, true)
-  return said <= limit && said <= bytes.length * 1032 ? said : 0
+  return said <= limit && said <= bytes.length * RATIO ? said : 0
 }
 
-const inflate = (bytes, format, limit) => through(bytes, DecompressionStream, format, limit, 'decompress', undefined, format === 'gzip' ? expectedOf(bytes, limit) : 0)
+// With `sized`, the output made into one array as big as the trailer says
+// (expectedOf), which only the data as given has: a place that padding is
+// tried ending at has the member's checksum or none where a trailer would be.
+const inflate = (bytes, format, limit, sized) => through(bytes, DecompressionStream, format, limit, 'decompress', undefined, sized && format === 'gzip' ? expectedOf(bytes, limit) : 0)
 
 // gzip(1) and zlib take zero bytes after the last member as padding, as old
 // tarballs run on in zeros to a whole 10240-byte record, the way npm 1.0
@@ -123,13 +129,13 @@ const inflate = (bytes, format, limit) => through(bytes, DecompressionStream, fo
 // only padded data pays for.
 export async function decompress(bytes, format, { limit = Infinity } = {}) {
   try {
-    return await inflate(bytes, format, limit)
+    return await inflate(bytes, format, limit, true)
   } catch (error) {
     if (format !== 'gzip' || !(error instanceof CompressionError) || error.limited || bytes.at(-1) !== 0) throw error
     const last = bytes.findLastIndex((byte) => byte !== 0)
     for (let end = last + 1; end <= Math.min(last + 10, bytes.length - 1); end++) {
       try {
-        return await inflate(bytes.subarray(0, end), format, limit)
+        return await inflate(bytes.subarray(0, end), format, limit, false)
       } catch (retry) {
         // Output past the bound before the end is past it wherever the end is.
         if (!(retry instanceof CompressionError) || retry.limited) throw retry
