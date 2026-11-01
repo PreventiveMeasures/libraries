@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { SourceMap, createRequire } from 'node:module'
 import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -124,6 +124,43 @@ describe('rn-bundle', () => {
     assert.equal(out.where, 'android')
     assert.deepEqual([out.assets[1].width, out.assets[1].hash], [9, md5('img/icon.android.png')])
     assert.deepEqual(listFiles(join(root, 'res')), ['drawable-mdpi/img_icon.png', 'drawable-mdpi/img_logo.png', 'drawable-xhdpi/img_logo.png', 'drawable-xxhdpi/img_logo.png', 'raw/fonts_inter.ttf', 'raw/keep.xml'])
+  })
+
+  it("puts iOS's png and jpg assets in an asset catalog with --asset-catalog-dest, each an image set, the rest in --assets-dest", () => {
+    // What a build before left, its image sets removed.
+    mkdirSync(join(root, 'stage/RNAssets.xcassets/stale.imageset'), { recursive: true })
+    writeFileSync(join(root, 'stage/RNAssets.xcassets/stale.imageset/Contents.json'), '{}')
+    writeFileSync(join(root, 'stage/RNAssets.xcassets/Contents.json'), '{}')
+    const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=catalog-assets', '--asset-catalog-dest=stage', '--output=catalog.js', 'index.js'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(output('catalog.js').assets[0].name, 'logo')
+    assert.deepEqual(listFiles(join(root, 'stage')), [
+      'RNAssets.xcassets/Contents.json',
+      'RNAssets.xcassets/img_icon.imageset/Contents.json',
+      'RNAssets.xcassets/img_icon.imageset/img_icon.png',
+      'RNAssets.xcassets/img_logo.imageset/Contents.json',
+      'RNAssets.xcassets/img_logo.imageset/img_logo.png',
+      'RNAssets.xcassets/img_logo.imageset/img_logo@2x.png',
+      'RNAssets.xcassets/img_logo.imageset/img_logo@3x.png',
+    ])
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'stage/RNAssets.xcassets/img_logo.imageset/Contents.json'), 'utf8')), {
+      images: [1, 2, 3].map((scale) => ({ filename: `img_logo${scale === 1 ? '' : `@${scale}x`}.png`, idiom: 'universal', scale: `${scale}x` })),
+      info: { author: 'xcode', version: 1 },
+    })
+    assert.deepEqual(readFileSync(join(root, 'stage/RNAssets.xcassets/img_logo.imageset/img_logo@3x.png')), APP['img/logo@3x.png'])
+    assert.deepEqual(listFiles(join(root, 'catalog-assets')), ['assets/fonts/Inter.ttf'])
+  })
+
+  it('takes --asset-catalog-dest for iOS alone, and the options of a source map with --sourcemap-output alone', () => {
+    for (const [args, message] of [
+      [['--platform=android', '--asset-catalog-dest=stage'], /--asset-catalog-dest is for iOS/u],
+      [['--platform=ios', '--sourcemap-sources-root=.'], /shape the map of --sourcemap-output: pass it/u],
+      [['--platform=ios', '--sourcemap-use-absolute-path'], /shape the map of --sourcemap-output: pass it/u],
+    ]) {
+      const r = run([...args, '--output=refused.js', 'index.js'])
+      assert.equal(r.status, 1)
+      assert.match(r.stderr, message)
+    }
   })
 
   it('takes a file for Flow by @flow in its leading comments alone', () => {
@@ -631,6 +668,7 @@ describe('rn-bundle with the assetExts metro.config.js adds', () => {
     'anim/spin.riv': 'RIVE',
     'anim/spin@2x.riv': 'RIVE@2x',
     'anim/wave.lottie': 'PK',
+    'config/.keep': '',
   }
   const { root, cleanup } = writeTree(RIVE)
   after(cleanup)
@@ -643,6 +681,19 @@ describe('rn-bundle with the assetExts metro.config.js adds', () => {
     assert.deepEqual(spin, { __packager_asset: true, httpServerLocation: '/assets/anim', scales: [1, 2], hash: hash('RIVE', 'RIVE@2x'), name: 'spin', type: 'riv' })
     assert.deepEqual([wave.name, wave.type, wave.hash], ['wave', 'lottie', hash('PK')])
     assert.deepEqual(listFiles(join(root, 'res')), ['raw/anim_spin.riv', 'raw/anim_wave.lottie', 'raw/keep.xml'])
+  })
+
+  it('reads them off --metro-config where given, refusing one not there', () => {
+    const bundleWith = (config, entry) => spawnSync(process.execPath, [BIN, '--platform=ios', `--metro-config=${config}`, '--output=config-out.js', entry], { cwd: root, encoding: 'utf8' })
+    const r = bundleWith('metro.json', 'anim.js')
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /no such Metro config: metro\.json/u)
+    writeFileSync(join(root, 'config/other.config.js'), "module.exports = { resolver: { assetExts: ['glow'] } }\n", { flag: 'w' })
+    writeFileSync(join(root, 'anim/halo.glow'), 'GLOW')
+    writeFileSync(join(root, 'glow.js'), "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify(getAssetByID(require('./anim/halo.glow')).type))\n")
+    const other = bundleWith('config/other.config.js', 'glow.js')
+    assert.equal(other.status, 0, other.stderr)
+    assert.equal(JSON.parse(spawnSync(process.execPath, [join(root, 'config-out.js')], { encoding: 'utf8' }).stdout), 'glow')
   })
 
   const withoutOxc = () => spawnSync(process.execPath, ['--import', notInstalled('oxc-parser'), BIN, '--platform=ios', '--output=anim.js', 'anim.js'], { cwd: root, encoding: 'utf8' })
@@ -734,6 +785,62 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
 
   it('makes the polyfills as it makes any file: through the Babel config, minified', () => {
     assert.deepEqual(build(babel.root, ['--babel', '--minify'], ['--import', notInstalled('flow-remove-types')]).out.order, ['console', 'error-guard', 'setup-env'])
+  })
+})
+
+describe('rn-bundle --sourcemap-output', () => {
+  const plain = writeTree(reactNativeApp(true))
+  const babel = writeTree({
+    ...reactNativeApp(true),
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-flow-strip-types'] }\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-flow-strip-types': linked('@babel/plugin-transform-flow-strip-types'),
+  })
+  after(() => {
+    plain.cleanup()
+    babel.cleanup()
+  })
+  const build = (root, args = []) => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--sourcemap-output=maps/main.jsbundle.map', ...args, '--output=build/main.jsbundle', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return { code: readFileSync(join(root, 'build/main.jsbundle'), 'utf8'), map: JSON.parse(readFileSync(join(root, 'maps/main.jsbundle.map'), 'utf8')) }
+  }
+  // Where the first `text` of the bundle is from: [source, line, column], line from 1.
+  const origin = ({ code, map }, text) => {
+    const lines = code.split('\n')
+    const line = lines.findIndex((each) => each.includes(text))
+    const { originalSource, originalLine, originalColumn } = new SourceMap(map).findEntry(line, lines[line].indexOf(text))
+    return [originalSource, originalLine + 1, originalColumn]
+  }
+
+  it("writes the bundle's map there, as Metro does: each source absolute, those in node_modules on the ignore list; the bundle's sourceMappingURL its name", () => {
+    const { root } = plain
+    const bundle = build(root)
+    assert.ok(bundle.code.endsWith('\n//# sourceMappingURL=main.jsbundle.map\n'))
+    assert.deepEqual(listFiles(join(root, 'build')), ['main.jsbundle'])
+    const { map } = bundle
+    assert.equal(map.version, 3)
+    assert.deepEqual(map.sources.filter((source) => !source.startsWith(`${root}${sep}`)), ['metro-main:index.js'])
+    for (const file of ['index.js', `${POLYFILLS}/console.js`, 'node_modules/react-native/src/setup-env.js', 'img/logo.png']) assert.ok(map.sources.includes(join(root, file)), file)
+    assert.deepEqual(map.x_google_ignoreList, map.sources.flatMap((source, i) => (source.includes(`${sep}node_modules${sep}`) ? [i] : [])))
+    assert.equal(map.sourcesContent[map.sources.indexOf(join(root, 'index.js'))], reactNativeApp(true)['index.js'])
+    assert.deepEqual(origin(bundle, 'order: globalThis.order'), [join(root, 'index.js'), 3, 29])
+    assert.deepEqual(spawnSync(process.execPath, [join(root, 'build/main.jsbundle')], { encoding: 'utf8' }).stdout, `${JSON.stringify({ order: ['console', 'error-guard', 'setup-env'], logo: 'logo', prefix: '', started: 'number' })}\n`)
+  })
+
+  it('makes each source from --sourcemap-sources-root, and with --sourcemap-use-absolute-path the URL the map\'s path', () => {
+    const { root } = plain
+    const { code, map } = build(root, ['--sourcemap-sources-root=.', '--sourcemap-use-absolute-path'])
+    assert.ok(code.endsWith(`\n//# sourceMappingURL=${join(root, 'maps/main.jsbundle.map')}\n`))
+    assert.ok(map.sources.includes('index.js') && map.sources.includes(join(POLYFILLS, 'console.js')), String(map.sources))
+    assert.ok(map.sources.includes('metro-main:index.js'))
+  })
+
+  it('maps through Babel, a polyfill too, and esbuild\'s minifying', () => {
+    const { root } = babel
+    const bundle = build(root, ['--babel', '--minify'])
+    assert.deepEqual(origin(bundle, '"error-guard"'), [join(root, POLYFILLS, 'error-guard.js'), 5, 21])
+    assert.deepEqual(origin(bundle, 'JSON.stringify'), [join(root, 'index.js'), 3, 12])
   })
 })
 
