@@ -539,17 +539,20 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
   // As @react-native/babel-preset lowers them for Hermes, whose own don't
   // bind each iteration of a loop apart; a plugin of that key, which here
   // lowers nothing.
-  const config = (plugins) => `module.exports = { plugins: [${plugins.join(', ')}] }\n`
+  const config = (plugins, rest = '') => `module.exports = { ${rest}plugins: [${plugins.join(', ')}] }\n`
   const { root, cleanup } = writeTree({
     // esbuild's __copyProps makes each of c.cjs's exports a getter, in a loop.
     'main.js': "import * as c from './c.cjs'\nconsole.log(JSON.stringify(Object.keys(c).map((key) => [key, c[key]])))\n",
     'c.cjs': 'exports.a = 1\nexports.b = 2\n',
     'left.js': 'let left = 1\nconsole.log(left)\n',
+    'late.js': "console.log('early')\n",
+    // A return outside a function, which the config's parser options take.
+    'returns.js': "if (globalThis.skip) return\nconsole.log('const')\n",
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
-  const build = (plugins, entry = 'main.js') => {
-    writeFileSync(join(root, 'babel.config.js'), config(plugins))
+  const build = (plugins, entry = 'main.js', rest = '') => {
+    writeFileSync(join(root, 'babel.config.js'), config(plugins, rest))
     return spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
   }
   const blockScoping = "() => ({ name: 'transform-block-scoping', visitor: {} })"
@@ -560,6 +563,23 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     assert.ok(!/\b(?:let|const)\b/u.test(code), code)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
+  })
+
+  it("lowers again by the config's plugin what Babel's others leave of let and const after it", () => {
+    // As Reanimated's worklets: a const put in once block scoping has run.
+    const late = "({ template }) => ({ post(file) { file.path.pushContainer('body', template.statements.ast('const late = 1; console.log(late)')) } })"
+    const lowers = "() => ({ name: 'transform-block-scoping', visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })"
+    const r = build([late, lowers], 'late.js')
+    assert.equal(r.status, 0, r.stderr)
+    const code = readFileSync(join(root, 'out.js'), 'utf8')
+    assert.ok(!/\b(?:let|const)\b/u.test(code), code)
+    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'early\n1\n')
+  })
+
+  it("parses Babel's output again as its config's parser options have it", () => {
+    const r = build([blockScoping], 'returns.js', 'parserOpts: { allowReturnOutsideFunction: true }, ')
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'const\n')
   })
 
   it('fails on a let or const Babel leaves', () => {
