@@ -30,7 +30,8 @@
 // export, which it warns of (Metro's is undefined). An import resolves for
 // ESM, as Metro resolves it: by exports' `import` condition. --profile
 // reports the time each of the config's plugins takes, summed over Babel's
-// workers: its files, its visitors' calls, and that outside the plugins. Flow
+// workers: the files its visitors ran in, their calls, and the time outside
+// the plugins. Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
 // isn't installed, Babel's config strips them, as it does a file with Flow
 // that is code (`component`, `hook`), which flow-remove-types leaves. The
