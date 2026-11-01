@@ -43,6 +43,8 @@ const APP = {
   'node_modules/dep/index.js': '',
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
+  // @flow in a string, not a leading comment: JS, not Flow.
+  'mentions.js': "console.log(JSON.stringify(['@flow', 1 /* @flow */]))\n",
   // Valid JS too, as `(box < string) > 'generic'.value`.
   'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1; static { Box.ready = true } }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
@@ -121,6 +123,12 @@ describe('rn-bundle', () => {
     assert.equal(out.where, 'android')
     assert.deepEqual([out.assets[1].width, out.assets[1].hash], [9, md5('img/icon.android.png')])
     assert.deepEqual(listFiles(join(root, 'res')), ['drawable-mdpi/img_icon.png', 'drawable-mdpi/img_logo.png', 'drawable-xhdpi/img_logo.png', 'drawable-xxhdpi/img_logo.png', 'raw/fonts_inter.ttf', 'raw/keep.xml'])
+  })
+
+  it('takes a file for Flow by @flow in its leading comments alone', () => {
+    const r = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--output=mentions.out.js', 'mentions.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(output('mentions.out.js'), ['@flow', 1])
   })
 
   it('fails on what it cannot resolve, parse or strip', () => {

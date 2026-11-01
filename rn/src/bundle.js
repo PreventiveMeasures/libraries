@@ -163,10 +163,13 @@ async function parseErrors(esbuild, code, loader, path) {
   }
 }
 
-// In a @flow file, `f<T>(x)` is a call, not `(f < T) > x` as JS reads it.
-// @react-native/babel-preset parses Flow by the same test.
+// The comments a file opens with, before any code, so before any string.
+const LEADING_COMMENTS = /^(?:#![^\n]*)?(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/u
+
+// In a file whose leading comments say @flow, `f<T>(x)` is a call, not
+// `(f < T) > x` as JS reads it, as @react-native/babel-preset has it.
 function isFlow(code) {
-  return code.includes('@flow')
+  return /@flow\b/u.test(LEADING_COMMENTS.exec(code)[0])
 }
 
 async function hasFlow(esbuild, code, loader) {
