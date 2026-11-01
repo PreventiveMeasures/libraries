@@ -13,7 +13,9 @@ import { npmRepos } from './repos.js'
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
 const GHSA_PAGE = 'https://github.com/advisories/'
-const NAMES_AT_ONCE = 8
+// Names checked at once for whether they are public: each a small document,
+// answered in about a tenth of a second.
+const NAMES_AT_ONCE = 32
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
   && ['url', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string') && isText(row.title)
@@ -87,10 +89,21 @@ function withOsv(registry, osv) {
   return [...rows, ...added]
 }
 
-// Whether npm's registry serves `name` to anyone: a HEAD with no token,
-// answered 2xx. Private packages and other registries' answer 404; any
-// other answer, or none, counts as private too, as in triage.
+// Whether npm's registry serves `name` to anyone: its latest version's
+// document, for that name, read with no token. Private packages and other
+// registries' answer 404; any other answer, or none, counts as private too,
+// as in triage. That document first, as npm answers a HEAD of the package's
+// in two seconds or more about one time in ten; but a 404 for it may only
+// mean no `latest` tag (a package published with `--tag` alone, or one
+// unpublished whole, its name kept), so then the package's document, a HEAD
+// with no token, decides.
 async function servesAnyone(name) {
+  try {
+    const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
+    return json?.name === name
+  } catch (err) {
+    if (!isNotFound(err)) return false
+  }
   try {
     return await answersHead(buildUrl(NPM_REGISTRY, name.split('/')))
   } catch {
