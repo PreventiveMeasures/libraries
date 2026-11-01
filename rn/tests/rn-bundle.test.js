@@ -189,14 +189,18 @@ const BABEL_APP = {
   'modern.js': [
     "import { Counter, syntax as counter } from './lib/counter'",
     "import { generic, syntax as flow } from './lib/generic'",
+    "import { syntax as ready } from './lib/ready'",
     "import { syntax as decorated } from './lib/decorated'",
     "import { Card, syntax as card } from './lib/card'",
     "import { syntax as note } from './lib/note'",
     'const c = Counter.make().bump().bump()',
     "const k = new Card({ title: 'hi' })",
-    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, decorated, card, note } }))',
+    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, ready, decorated, card, note } }))',
     '',
   ].join('\n'),
+  // @flow with no call with type arguments: lowered before Babel, which
+  // @react-native/babel-preset needs of a static block.
+  'lib/ready.js': '// @flow\nexport class Ready { static { Ready.ready = true } }\nexport const syntax = __SYNTAX__\n',
   'lib/counter.js': [
     'export class Counter {',
     '  static #made = 0',
@@ -250,7 +254,7 @@ const MODERN = {
   counter: [4, 1, true, true, false],
   generic: 'generic',
   card: ['base', 'card', { type: 'Text', renders: 1, children: ['hi'] }, 2],
-  syntax: { counter: [], flow: ['ClassProperty', 'StaticBlock'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
+  syntax: { counter: [], flow: ['ClassProperty', 'StaticBlock'], ready: [], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
 }
 // Whether esbuild finds nothing in a bundle left to lower.
 const lowered = (code) => esbuild.transformSync(code, { supported: { 'class-field': false, 'class-private-field': false, 'class-private-method': false, 'class-static-blocks': false, 'class-static-field': false, using: false } }).code === esbuild.transformSync(code).code

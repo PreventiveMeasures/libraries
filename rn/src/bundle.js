@@ -189,10 +189,11 @@ async function javascript({ esbuild, stripFlow }, contents, path) {
 }
 
 // null leaves the file to Babel as it is: esbuild can't parse it, would misread
-// its Flow, would drop the JSX pragmas Babel reads off its comments, or would
-// lower decorators, whose semantics (legacy or not) the Babel config picks.
+// a Flow call with type arguments in it, would drop the JSX pragmas Babel reads
+// off its comments, or would lower decorators, whose semantics (legacy or not)
+// the Babel config picks.
 async function downgrade(esbuild, contents, path) {
-  if (isFlow(contents) || contents.includes('@jsx')) return null
+  if ((isFlow(contents) && MAYBE_TYPE_ARGUMENTS.test(contents)) || contents.includes('@jsx')) return null
   let code
   try {
     code = await lower(esbuild, contents, 'jsx', path, { supported: BEFORE_BABEL })
