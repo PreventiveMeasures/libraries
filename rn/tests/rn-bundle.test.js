@@ -442,22 +442,39 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
-  const build = (options) => {
+  const build = (options, args = []) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const { ran, ...out } = JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
-    return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8') }
+    return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8'), stderr: r.stderr }
   }
   const once = Object.fromEntries(KEYS.map((key) => [key, 1]))
   const js = { 'transform-flow-strip-types': 5, 'transform-typescript': 5 }
 
   it('lowers by esbuild what such a plugin with no options lowers, and leaves it out of Babel, with those that have nothing to do after esbuild', () => {
-    const { code, ...out } = build({})
+    const { code, stderr, ...out } = build({})
+    assert.ok(!stderr.includes('Babel:'), 'no profile without --profile')
     // Flow's plugin, which drops fields with no value, and TS's stay for JS:
     // both are left out for TS alone. Arrows esbuild doesn't lower.
     assert.deepEqual(out, { out: [2, 4], one: 1000, typed: 1, spec: 'codegenNativeComponent', arrow: true, ran: { ...once, ...js, 'transform-arrow-functions': 6 } })
     assert.ok(code.includes('__asyncGenerator(') && code.includes('__forAwait('))
+  })
+
+  it('reports with --profile the files, visitor calls and time of each plugin', () => {
+    const { stderr } = build({}, ['--profile'])
+    assert.match(stderr, /^Babel: 6 files, \d+ ms, summed over its workers\n {6}ms {7}% {4}files {6}calls {2}plugin$/mu)
+    assert.match(stderr, /^ +\d+ +[\d.]+ +\d+ +\d+ {2}internal\.blockHoist$/mu)
+    assert.match(stderr, /^ +\d+ +[\d.]+ {22}outside plugins: config, parsing, traversal, printing$/mu)
+    // Each plugin's one visitor runs once in each file it is in.
+    const rows = Object.fromEntries([...stderr.matchAll(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}(\S+)$/gmu)].map(([, files, calls, key]) => [key, [Number(files), Number(calls)]]))
+    const counts = { ...once, ...js, 'transform-arrow-functions': 6 }
+    assert.deepEqual(Object.fromEntries(KEYS.map((key) => [key, rows[key]])), Object.fromEntries(KEYS.map((key) => [key, [counts[key], counts[key]]])))
+  })
+
+  it('takes --profile only with --babel', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: --profile times the plugins of --babel: pass it\n'])
   })
 
   it('leaves to Babel what a plugin with options lowers', () => {

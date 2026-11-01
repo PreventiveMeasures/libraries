@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { babelWorkers } from '../src/babel-worker.js'
+import { babelWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
@@ -27,6 +27,32 @@ describe('babelWorkers', () => {
     assert.equal(await transform('a()', join(root, 'a.js')), 'a();\n"marked";')
     assert.equal(await transform('a()', join(root, 'a.js'), ['mark']), 'a();')
     assert.equal(await transform('a()', join(root, 'a.js'), ['other']), 'a();\n"marked";')
+  })
+
+  it('adds to a profile the time of each transform, and of each plugin: its files and visitor calls', async () => {
+    const profile = newProfile()
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs')] }, profile)
+    assert.equal(await transform('a()', join(root, 'a.js')), 'a();\n"marked";')
+    assert.equal(await transform('b()', join(root, 'b.js'), ['mark']), 'b();')
+    assert.equal(profile.files, 2)
+    const { files, calls, ms } = profile.plugins.get('mark')
+    assert.deepEqual([files, calls], [1, 1])
+    assert.ok(ms > 0 && profile.ms > ms)
+  })
+
+  it('reports a profile, most time first, with that outside the plugins', () => {
+    const plugins = new Map([['/app/node_modules/preset/index.js$0', { files: 1, calls: 1, ms: 1 }], ['transform-x', { files: 2, calls: 30, ms: 6 }]])
+    assert.equal(
+      profileReport({ files: 2, ms: 10, plugins }, '/app'),
+      [
+        'Babel: 2 files, 10 ms, summed over its workers',
+        '      ms       %    files      calls  plugin',
+        '       6    60.0        2         30  transform-x',
+        '       1    10.0        1          1  node_modules/preset/index.js$0',
+        '       3    30.0                      outside plugins: config, parsing, traversal, printing',
+        '',
+      ].join('\n'),
+    )
   })
 
   it('fails each transform of a worker that dies, none left waiting', { timeout: 10_000 }, async () => {
