@@ -72,7 +72,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!Array.isArray(error?.errors)) throw error
       return { errors: error.errors }
     }
-    const alias = moduleResolver(plugins)
+    const alias = MODULE_RESOLVER_CALLS.test(contents) ? null : moduleResolver(plugins)
     try {
       const loaded = { contents: await babel(source.code, path, alias === null ? source.without : [...source.without, 'module-resolver']), loader: 'js' }
       return alias === null ? loaded : { ...loaded, alias }
@@ -188,6 +188,9 @@ function lowering(plugins, inert) {
 // option alone, which a file's imports are mapped by as the plugin maps them
 // (babel-aliases.js), from process.cwd() as the plugin does: else null.
 const resolvers = new WeakMap()
+// Calls the plugin maps the string argument of (its transformFunctions), that
+// esbuild resolves nothing for: a file with one keeps the plugin.
+const MODULE_RESOLVER_CALLS = /\b(?:System\.import|require\.(?:resolve|requireActual|requireMock)|jest\.(?:genMockFromModule|mock|unmock|doMock|dontMock|setMock|requireActual|requireMock))\s*\(/u
 function moduleResolver(plugins) {
   const options = plugins.get('module-resolver')
   if (options === undefined || Object.keys(options).some((key) => key !== 'alias')) return null

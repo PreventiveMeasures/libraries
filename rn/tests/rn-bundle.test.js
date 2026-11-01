@@ -543,6 +543,8 @@ describe('rn-bundle --babel, with babel-plugin-module-resolver in the config', (
     'index.js': "import { greet } from '#lib/greet'\nimport { deep } from '#lib/nested/deep'\nconsole.log(JSON.stringify([greet(), deep]))\n",
     'lib/greet.js': "export const greet = () => 'hi'\n",
     'lib/nested/deep.js': "import { greet } from '#lib/greet'\nexport const deep = greet()\n",
+    // A call the plugin maps the argument of, and esbuild resolves nothing for.
+    'resolves.js': "console.log(JSON.stringify(typeof require.resolve === 'function' ? null : String(() => require.resolve('#lib/greet'))))\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
@@ -562,6 +564,13 @@ describe('rn-bundle --babel, with babel-plugin-module-resolver in the config', (
   it('leaves the plugin in Babel with any other option, or aliases it does not map', () => {
     assert.deepEqual(build({ alias: { '#lib': './lib' }, extensions: ['.js'] }), { out: ['hi', 'hi'], plugin: true })
     assert.deepEqual(build({ alias: { '#lib': ['./lib'] } }), { out: ['hi', 'hi'], plugin: true })
+  })
+
+  it("leaves the plugin in Babel for a file with a call it maps the argument of, which esbuild doesn't resolve", () => {
+    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib' } }]] }\n")
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'resolves.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /require\.resolve\("\.\/lib\/greet"\)/u)
   })
 
   it('leaves the plugin in Babel where the config has more than one of it, each named', () => {
