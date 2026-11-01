@@ -58,11 +58,11 @@ export interface AdvisoryOptions {
   // its id among an OSV record's id and aliases, is left to that row,
   // which takes the record's ids among its aliases; the versions a record
   // of the row's own id covers beyond the registry's range join it too.
-  // Only packages whose name npm's registry serves without a token (a
-  // HEAD, unscoped names too) go to OSV; the rest, private ones above all,
-  // go to the registry alone. The name decides, not the version: npm takes
-  // down malicious versions but keeps their name. Public names are cached
-  // for a month.
+  // Only packages whose name npm's registry serves without a token (its
+  // latest version's document, unscoped names too, 32 names at a time) go
+  // to OSV; the rest, private ones above all, go to the registry alone.
+  // The name decides, not the version: npm takes down malicious versions
+  // but keeps their name. Public names are cached for a month.
   osv?: boolean
 }
 
@@ -149,7 +149,7 @@ export interface Advisory {
 // no GitHub repository, a repository gone or blocked, and one GitHub
 // redirects anywhere but to a repository by its id, add nothing, and a
 // GHSA OSV does not have adds no `details`. With `osv`, a name npm's
-// registry doesn't answer a HEAD for is taken as private (see `osv`). A repository renamed or
+// registry doesn't serve without a token is taken as private (see `osv`). A repository renamed or
 // transferred, which GitHub redirects to it by its id, is listed by the
 // name it has now, as getRepo's `followRedirect` (github.js) finds it, its
 // rows' `url` on it. Any other failure, a malformed answer, or one about

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { afterEach, describe, it } from 'node:test'
 
-import { CRATES_API, GITHUB_API, HttpError, NPM_REGISTRY, answersHead, buildUrl, encodeSegment, readBody, request, send } from '../src/http.js'
+import { CRATES_API, GITHUB_API, HttpError, NPM_REGISTRY, buildUrl, encodeSegment, readBody, request, send } from '../src/http.js'
 
 const realFetch = globalThis.fetch
 
@@ -79,16 +79,6 @@ describe('send and request', () => {
     await assert.rejects(send(`${GITHUB_API}/x`, { method: 'DELETE' }), /Unexpected method/u)
     await assert.rejects(send(`${GITHUB_API}/x`, { redirect: 'error' }), /Unexpected redirect mode/u)
     assert.deepEqual(calls, [])
-  })
-
-  it('sends a HEAD with no body, reading only its status (answersHead)', async () => {
-    const calls = stub((url) => new Response(null, { status: url.endsWith('/gone') ? 404 : 200 }))
-    assert.equal(await answersHead(`${GITHUB_API}/x`), true)
-    assert.equal(await answersHead(`${GITHUB_API}/gone`), false)
-    assert.deepEqual(calls.map(({ init: { method, redirect, body } }) => [method, redirect, body]), [['HEAD', 'manual', undefined], ['HEAD', 'manual', undefined]])
-    stub(() => new Response(null, { status: 302, headers: { location: 'https://evil.example/x' } }))
-    assert.equal(await answersHead(`${GITHUB_API}/x`), false, 'a redirect not followed, and no')
-    await assert.rejects(send(`${GITHUB_API}/x`, { method: 'HEAD', body: {}, as: 'json' }), /Unexpected body with HEAD/u)
   })
 
   it('refuses redirects unless asked, and sends a JSON body as JSON', async () => {

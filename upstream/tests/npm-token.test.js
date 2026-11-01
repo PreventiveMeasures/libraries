@@ -102,12 +102,12 @@ describe('NPM_TOKEN', () => {
     const calls = []
     globalThis.fetch = (url, init = {}) => {
       calls.push([init.method ?? 'GET', String(url), init.headers?.Authorization])
-      if (init.method === 'HEAD') return Promise.resolve(new Response(null, { status: 404 }))
+      if (String(url).endsWith('/latest')) return Promise.resolve(Response.json('Not Found', { status: 404 }))
       return Promise.resolve(Response.json({}))
     }
     assert.deepEqual(await advisories([{ ecosystem: 'npm', name: '@acme/private', versions: ['1.0.0'] }], { osv: true }), [])
     assert.deepEqual(calls.toSorted(), [
-      ['HEAD', 'https://registry.npmjs.org/@acme/private', undefined],
+      ['GET', 'https://registry.npmjs.org/@acme/private/latest', undefined],
       ['POST', 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', undefined],
     ], 'and OSV never asked')
   })

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
-import { NPM_REGISTRY, answersHead, buildUrl, isNotFound, recover, request } from '../http.js'
+import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { compareVersions } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, metrics } from './common.js'
@@ -13,7 +13,9 @@ import { npmRepos } from './repos.js'
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
 const GHSA_PAGE = 'https://github.com/advisories/'
-const NAMES_AT_ONCE = 8
+// Names checked at once for whether they are public: each a small document,
+// answered in about a tenth of a second.
+const NAMES_AT_ONCE = 32
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
   && ['url', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string') && isText(row.title)
@@ -87,12 +89,15 @@ function withOsv(registry, osv) {
   return [...rows, ...added]
 }
 
-// Whether npm's registry serves `name` to anyone: a HEAD with no token,
-// answered 2xx. Private packages and other registries' answer 404; any
-// other answer, or none, counts as private too, as in triage.
+// Whether npm's registry serves `name` to anyone: its latest version's
+// document, for that name, read with no token. Private packages and other
+// registries' answer 404; any other answer, or none, counts as private too,
+// as in triage. Not a HEAD of the package's document, which npm answers in
+// two seconds or more about one time in ten.
 async function servesAnyone(name) {
   try {
-    return await answersHead(buildUrl(NPM_REGISTRY, name.split('/')))
+    const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
+    return json?.name === name
   } catch {
     return false
   }

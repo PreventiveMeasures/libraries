@@ -290,21 +290,18 @@ describe('npm, with osv', () => {
   const BATCH = 'https://api.osv.dev/v1/querybatch'
   const VULN = 'https://api.osv.dev/v1/vulns/'
 
-  const REGISTRY = 'https://registry.npmjs.org/'
+  const LATEST = /^https:\/\/registry\.npmjs\.org\/(.+)\/latest$/u
 
-  // The registry answering `registry` (name → rows), and a HEAD with 200,
-  // or 404 for `hidden` names; OSV answering `hits` (`name@version` → ids)
-  // and `records` (id → record). `calls` lists every URL, a HEAD's as
-  // `HEAD <url>`.
+  // The registry answering `registry` (name → rows), and each name's latest
+  // version's document, or 404 for `hidden` names; OSV answering `hits`
+  // (`name@version` → ids) and `records` (id → record). `calls` lists every
+  // URL.
   function stubBoth(registry, hits, records, hidden = []) {
     const calls = []
     globalThis.fetch = (url, init = {}) => {
-      if (init.method === 'HEAD') {
-        calls.push(`HEAD ${url}`)
-        assert.ok(String(url).startsWith(REGISTRY) && init.body === undefined, String(url))
-        return Promise.resolve(new Response(null, { status: hidden.includes(String(url).slice(REGISTRY.length)) ? 404 : 200 }))
-      }
       calls.push(String(url))
+      const latest = LATEST.exec(String(url))?.[1]
+      if (latest !== undefined) return Promise.resolve(hidden.includes(latest) ? Response.json('Not Found', { status: 404 }) : Response.json({ name: latest, version: '1.0.0' }))
       const body = init.body && JSON.parse(init.body)
       if (String(url) === BULK) return Promise.resolve(Response.json(Object.fromEntries(Object.keys(body).filter((name) => registry[name]).map((name) => [name, registry[name]]))))
       if (String(url) === BATCH) {
@@ -418,10 +415,10 @@ describe('npm, with osv', () => {
     ], { osv: true })
     assert.deepEqual(queries, [{ package: { name: 'flatmap-stream', ecosystem: 'npm' }, version: '0.1.1' }])
     assert.deepEqual(found.map(({ name, id }) => [name, id]), [['flatmap-stream', 'MAL-2025-20690']])
-    assert.deepEqual(calls.filter((url) => url.startsWith('HEAD ')).toSorted(), [
-      'HEAD https://registry.npmjs.org/@acme/secret',
-      'HEAD https://registry.npmjs.org/flatmap-stream',
-      'HEAD https://registry.npmjs.org/internal-only',
+    assert.deepEqual(calls.filter((url) => LATEST.test(url)).toSorted(), [
+      'https://registry.npmjs.org/@acme/secret/latest',
+      'https://registry.npmjs.org/flatmap-stream/latest',
+      'https://registry.npmjs.org/internal-only/latest',
     ], 'an unscoped name asked too')
     assert.ok(calls.includes(BULK), 'the registry is asked for every one\'s advisories, as before')
     // No public name: OSV isn't asked.
@@ -439,30 +436,51 @@ describe('npm, with osv', () => {
     assert.equal(cache.get('npm/public', '@acme/secret'), undefined, 'one not found is not kept')
     calls.length = 0
     await ask()
-    assert.deepEqual(calls.filter((url) => url.startsWith('HEAD ')), ['HEAD https://registry.npmjs.org/@acme/secret'])
+    assert.deepEqual(calls.filter((url) => LATEST.test(url)), ['https://registry.npmjs.org/@acme/secret/latest'])
     cache.set('npm/public', 'nx', { ...cache.get('npm/public', 'nx'), at: Date.now() - 31 * 24 * 60 * 60 * 1000 })
     calls.length = 0
     await ask()
-    assert.deepEqual(calls.filter((url) => url.startsWith('HEAD ')).toSorted(), ['HEAD https://registry.npmjs.org/@acme/secret', 'HEAD https://registry.npmjs.org/nx'], 'a month on, asked again')
+    assert.deepEqual(calls.filter((url) => LATEST.test(url)).toSorted(), ['https://registry.npmjs.org/@acme/secret/latest', 'https://registry.npmjs.org/nx/latest'], 'a month on, asked again')
   })
 
-  it('takes a name the registry answers a HEAD of otherwise than 2xx, or not at all, for one served to no one, and goes on', async () => {
+  it('takes a name whose latest version the registry doesn\'t answer with, or not for that name, for one served to no one, and goes on', async () => {
     const cache = mapStore()
-    for (const [what, head] of [
-      ['401', () => Promise.resolve(new Response(null, { status: 401 }))],
-      ['403', () => Promise.resolve(new Response(null, { status: 403 }))],
-      ['503', () => Promise.resolve(new Response(null, { status: 503 }))],
+    for (const [what, latest] of [
+      ['401', () => Promise.resolve(Response.json({}, { status: 401 }))],
+      ['403', () => Promise.resolve(Response.json({}, { status: 403 }))],
+      ['503', () => Promise.resolve(Response.json({}, { status: 503 }))],
       ['a redirect', () => Promise.resolve(new Response(null, { status: 301, headers: { location: 'https://evil.example/nx' } }))],
       ['no answer', () => Promise.reject(new TypeError('fetch failed'))],
+      ['another name\'s document', () => Promise.resolve(Response.json({ name: 'other', version: '1.0.0' }))],
+      ['no JSON', () => Promise.resolve(new Response('<html>', { status: 200 }))],
     ]) {
       const calls = stubBoth({ nx: [row({ url: 'https://github.com/advisories/GHSA-cxm3-wv7p-598c', title: 'Malicious versions of Nx', vulnerable_versions: '=21.5.0' })] }, { 'nx@21.5.0': ['MAL-2025-41443'] }, {})
       const fetch = globalThis.fetch
-      globalThis.fetch = (url, init = {}) => (init.method === 'HEAD' ? head() : fetch(url, init))
+      globalThis.fetch = (url, init = {}) => (LATEST.test(String(url)) ? latest() : fetch(url, init))
       const found = await npm([{ name: 'nx', version: '21.5.0' }], { osv: true, cache })
       assert.deepEqual(found.map(({ source, id }) => [source, id]), [['registry', 'GHSA-cxm3-wv7p-598c']], `${what}: the registry's advisories all the same`)
       assert.ok(!calls.includes(BATCH), `${what}: OSV not asked`)
     }
     assert.equal(cache.get('npm/public', 'nx'), undefined, 'none kept')
+  })
+
+  it('checks 32 names at once', async () => {
+    const calls = stubBoth({}, {}, {})
+    const fetch = globalThis.fetch
+    let open = 0
+    let most = 0
+    globalThis.fetch = async (url, init) => {
+      if (!LATEST.test(String(url))) return await fetch(url, init)
+      most = Math.max(most, ++open)
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5)
+      })
+      open--
+      return await fetch(url, init)
+    }
+    await advisories(Array.from({ length: 70 }, (_, i) => ({ ecosystem: 'npm', name: `pkg-${i}`, versions: ['1.0.0'] })), { osv: true })
+    assert.equal(most, 32)
+    assert.equal(calls.filter((url) => LATEST.test(url)).length, 70)
   })
 
   it('asks OSV of nothing without it', async () => {
