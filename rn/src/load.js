@@ -58,6 +58,11 @@ const TS_OPTIONS = ['onlyRemoveTypeImports', 'allowDeclareFields', 'jsxPragma', 
 const COMMONJS = 'transform-modules-commonjs'
 const MODULE_SYNTAX = /\b(?:import|export)\b/u
 const COMMONJS_NAMES = /\b(?:module|exports)\b/u
+// babel-plugin-module-resolver, with aliases alone (no `root`, no
+// `resolvePath` of its own), rewrites a specifier that starts with one, and
+// leaves the rest: Babel is without it in a file that names none of them.
+// Not where an alias is a RegExp (`^...`, `...$`).
+const RESOLVER = 'module-resolver'
 // Appended to TSX with JSX so that esbuild keeps React's import, which JSX,
 // left to Babel, uses (the classic runtime), as Babel's TS plugin keeps it.
 const USE_REACT = 'typeof React;\n'
@@ -73,6 +78,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!contents.includes('codegenNativeComponent')) {
         const plugins = (await babelPlugins?.(path)) ?? new Map()
         source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
+        if (unaliased(plugins.get(RESOLVER), contents)) source = { ...source, without: [...source.without, RESOLVER] }
       }
     } catch (error) {
       if (!Array.isArray(error?.errors)) throw error
@@ -195,6 +201,17 @@ function lowering(plugins, inert) {
     without.push(key)
   }
   return { supported, without }
+}
+
+// Whether module-resolver, of these options, leaves the file as it is: a
+// specifier names an alias only as the file spells it, but for escapes,
+// which it is read without; a file with one of a code point (`\x23`), it
+// may not leave.
+function unaliased(options, contents) {
+  if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
+  const text = contents.replaceAll('\\', '')
+  const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
+  return !keys.some((key) => key.startsWith('^') || key.endsWith('$') || text.includes(key))
 }
 
 // esbuild brings in this helper only to lower decorators.
