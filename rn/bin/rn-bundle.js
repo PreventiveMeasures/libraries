@@ -6,10 +6,13 @@
 // --assets-dest as `react-native bundle` lays them out. A release build, as
 // `react-native bundle --dev=false` makes it, unless --dev. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
-// @babel/core, and Metro's caller and Babel env, as Metro's transformer does.
-// The extensions metro.config.js lists among `assetExts` are assets too, read
-// off it, never run: by oxc-parser where installed, else in the usual form by
-// a regex.
+// @babel/core, and Metro's caller and Babel env, as Metro's transformer does;
+// a JS file lowered by esbuild before that where it can be (class fields,
+// private members, static blocks, import attributes, `using`), as
+// @exodus/test prepares code for Hermes, Babel making the rest of it. The
+// extensions metro.config.js lists among `assetExts` are assets too, read off
+// it, never run: by oxc-parser where installed, else in the usual form by a
+// regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'

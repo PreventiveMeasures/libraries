@@ -11,6 +11,28 @@ import { createMetroResolver } from './resolve.js'
 
 const LOADERS = new Map([['.js', 'js'], ['.cjs', 'js'], ['.mjs', 'js'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
 const JS = new Set(['.js', '.cjs', '.mjs'])
+// What esbuild lowers in a JS file before Babel gets it, as @exodus/test
+// prepares code for Hermes: class fields, private members and static blocks,
+// import attributes, `using`. And decorators, only to tell a file that has
+// them: lowering a field, esbuild drops its decorators.
+const DOWNGRADED = {
+  'class-field': false,
+  'class-private-accessor': false,
+  'class-private-brand-check': false,
+  'class-private-field': false,
+  'class-private-method': false,
+  'class-private-static-accessor': false,
+  'class-private-static-field': false,
+  'class-private-static-method': false,
+  'class-static-blocks': false,
+  'class-static-field': false,
+  'import-attributes': false,
+  using: false,
+  decorators: false,
+}
+// Comments Babel reads, which esbuild drops: whether `f<T>(x)` is a Flow call,
+// how JSX is built.
+const PRAGMA = /@(?:flow|jsx(?:Frag|ImportSource|Runtime)?)\b/u
 const decoder = new TextDecoder()
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
@@ -26,7 +48,8 @@ export async function bundle({
   jsx = false,
   // (source, path) => source with Flow types stripped, for files esbuild can't parse.
   stripFlow = null,
-  // (source, path) => the code the project's Babel makes of each JS and TS file.
+  // (source, path) => the code the project's Babel makes of each JS and TS
+  // file, a JS file given with what esbuild lowers lowered.
   babel = null,
   define = {},
   // (file, specifier) => the specifier an alias rewrites it to, or null.
@@ -89,15 +112,17 @@ export async function bundle({
   return { outputFiles: result.outputFiles, warnings: result.warnings, assets: [...assets.keys()].toSorted().map((path) => assets.get(path)), graph }
 }
 
-// Every JS and TS file through Babel, as Metro's transformer runs it; or a JS
-// file that doesn't parse with its Flow types stripped, one that still
-// doesn't (Flow that is code: `enum`, `component`) failing.
+// Every JS and TS file through Babel, as Metro's transformer runs it, a JS
+// file lowered by esbuild first where it can be; or a JS file that doesn't
+// parse with its Flow types stripped, one that still doesn't (Flow that is
+// code: `enum`, `component`) failing.
 async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel }, path) {
   const loader = jsx && JS.has(extname(path)) ? 'jsx' : (LOADERS.get(extname(path)) ?? 'js')
   const contents = decoder.decode(host.readFile(path))
   if (babel !== null && loader !== 'json') {
+    const source = loader === 'js' || loader === 'jsx' ? ((await downgrade(esbuild, contents)) ?? contents) : contents
     try {
-      return { contents: await babel(contents, path), loader: 'js' }
+      return { contents: await babel(source, path), loader: 'js' }
     } catch (error) {
       return { errors: [{ text: `Babel: ${error.message}` }] }
     }
@@ -121,4 +146,25 @@ async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel }, p
   const left = await parseErrors(stripped)
   if (left !== null) return { errors: left.map((error) => ({ ...error, text: `Flow syntax flow-remove-types doesn't strip: ${error.text}` })) }
   return { contents: stripped, loader }
+}
+
+// A JS file with what esbuild lowers lowered, its JSX kept, for Babel to make
+// the rest of; or null, for Babel to take it as it is: where esbuild can't
+// parse it (Flow, syntax only a Babel plugin takes), where it has comments
+// Babel reads, and where it has decorators, which the project's Babel config
+// gives their meaning (legacy, or not). TS files aren't lowered: esbuild would
+// strip their types, and with them imports only JSX uses (React, which Babel's
+// classic runtime takes).
+async function downgrade(esbuild, contents) {
+  if (PRAGMA.test(contents)) return null
+  let result
+  try {
+    result = await esbuild.transform(contents, { loader: 'jsx', jsx: 'preserve', supported: DOWNGRADED, logLevel: 'silent' })
+  } catch (error) {
+    // What esbuild can't parse; not an option this esbuild doesn't take.
+    if (!Array.isArray(error?.errors) || !error.errors.every(({ location }) => location)) throw error
+    return null
+  }
+  // A helper esbuild brings in only to lower decorators.
+  return result.code.includes('__decoratorStart(') ? null : result.code
 }
