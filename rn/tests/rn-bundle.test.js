@@ -538,44 +538,54 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
   })
 })
 
-describe('rn-bundle --babel, with babel-plugin-module-resolver in the config', () => {
+describe('rn-bundle --babel, with plugins after babel-plugin-module-resolver', () => {
+  // As a project's plugin that inlines a *.plugin.json it reads at the path
+  // module-resolver rewrote the import to; one that fails on a file.
   const { root, cleanup } = writeTree({
-    'index.js': "import { greet } from '#lib/greet'\nimport { deep } from '#lib/nested/deep'\nconsole.log(JSON.stringify([greet(), deep]))\n",
-    'lib/greet.js': "export const greet = () => 'hi'\n",
-    'lib/nested/deep.js': "import { greet } from '#lib/greet'\nexport const deep = greet()\n",
-    // A call the plugin maps the argument of, and esbuild resolves nothing for.
-    'resolves.js': "console.log(JSON.stringify(typeof require.resolve === 'function' ? null : String(() => require.resolve('#lib/greet'))))\n",
+    'babel.config.js': "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib' } }], './inline-json.js', './fail.js'] }\n",
+    'inline-json.js': [
+      "const { readFileSync } = require('node:fs')",
+      "const { dirname, resolve } = require('node:path')",
+      'module.exports = ({ types: t }) => ({',
+      '  visitor: {',
+      '    ImportDeclaration(path, state) {',
+      '      const source = path.node.source.value',
+      "      if (!source.endsWith('.plugin.json')) return",
+      "      const json = JSON.parse(readFileSync(resolve(dirname(state.filename), source), 'utf8'))",
+      "      path.replaceWith(t.variableDeclaration('var', [t.variableDeclarator(path.node.specifiers[0].local, t.valueToNode(json))]))",
+      '    },',
+      '  },',
+      '})',
+      '',
+    ].join('\n'),
+    'fail.js': "module.exports = () => ({ visitor: { Program(path, state) { if (state.file.code.includes('FAIL')) throw new Error('fails here') } } })\n",
+    'index.js': "import config from '#lib/a.plugin.json'\nconsole.log(JSON.stringify(config))\n",
+    'lib/a.plugin.json': '{ "name": "a" }\n',
+    'failing.js': "import './lib/fails'\n",
+    'lib/fails.js': "export const x = 'FAIL'\n",
+    'broken.js': "import './lib/pragma'\n",
+    // Taken by Babel as it is (a JSX pragma), so its line is the file's.
+    'lib/pragma.js': '/** @jsx h */\nconst a = 1\nconst b = (c: ) => 1\n',
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
   after(cleanup)
-  const build = (options, more = []) => {
-    const plugins = [['module-resolver', options], ...more].map((plugin) => JSON.stringify(plugin)).join(', ')
-    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [${plugins}] }\n`)
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+  const run = (entry) => spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+
+  it('keeps module-resolver in Babel, before the plugins that read what it rewrote', () => {
+    const r = run('index.js')
     assert.equal(r.status, 0, r.stderr)
-    return { out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), plugin: /^ +\d+ +[\d.]+ +\d+ +\d+ {2}module-resolver$/mu.test(r.stderr) }
-  }
-
-  it('maps the imports by its aliases, as the plugin does, and leaves it out of Babel, where it has its alias option alone', () => {
-    assert.deepEqual(build({ alias: { '#lib': './lib' } }), { out: ['hi', 'hi'], plugin: false })
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), { name: 'a' })
   })
 
-  it('leaves the plugin in Babel with any other option, or aliases it does not map', () => {
-    assert.deepEqual(build({ alias: { '#lib': './lib' }, extensions: ['.js'] }), { out: ['hi', 'hi'], plugin: true })
-    assert.deepEqual(build({ alias: { '#lib': ['./lib'] } }), { out: ['hi', 'hi'], plugin: true })
-  })
-
-  it("leaves the plugin in Babel for a file with a call it maps the argument of, which esbuild doesn't resolve", () => {
-    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib' } }]] }\n")
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'resolves.js'], { cwd: root, encoding: 'utf8' })
-    assert.equal(r.status, 0, r.stderr)
-    assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /require\.resolve\("\.\/lib\/greet"\)/u)
-  })
-
-  it('leaves the plugin in Babel where the config has more than one of it, each named', () => {
-    // The first instance's aliases, which the second's would hide.
-    assert.deepEqual(build({ alias: { '#lib': './lib' } }, [['module-resolver', { alias: { '#other': './other' } }, 'other']]), { out: ['hi', 'hi'], plugin: true })
+  it("reports Babel's error in the file it failed on, at its line where Babel says one", () => {
+    const failing = run('failing.js')
+    assert.equal(failing.status, 1)
+    assert.match(failing.stderr, /Babel: fails here[\s\S]*\n {4}lib\/fails\.js:/u)
+    assert.ok(!failing.stderr.includes(join(root, 'lib/fails.js')), 'no absolute path in the message')
+    const broken = run('broken.js')
+    assert.equal(broken.status, 1)
+    assert.match(broken.stderr, /\n {4}lib\/pragma\.js:3:\d+:\n {6}3 │ const b = \(c: \) => 1/u)
   })
 })
 

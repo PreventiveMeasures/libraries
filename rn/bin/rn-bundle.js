@@ -12,12 +12,9 @@
 // after esbuild makes TS JS and lowers what Babel's preset throws on (static
 // blocks, `using`) and what the config's plugins lower as esbuild does
 // (async functions and generators, `export * as`), which Babel is then
-// without; esbuild lowers the rest in the bundle, after Babel. The aliases of
-// babel-plugin-module-resolver, where its config has its alias option alone,
-// rn-bundle maps the imports by, as the plugin does, and Babel is without it.
-// --profile reports the time each of the config's plugins takes, summed over
-// Babel's workers: its files, its visitors' calls, and that outside the
-// plugins. Flow
+// without; esbuild lowers the rest in the bundle, after Babel. --profile
+// reports the time each of the config's plugins takes, summed over Babel's
+// workers: its files, its visitors' calls, and that outside the plugins. Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
 // isn't installed, Babel's config strips them, as it does a file with Flow
 // that is code (`component`, `hook`), which flow-remove-types leaves. The
