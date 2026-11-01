@@ -136,10 +136,13 @@ export interface Advisory {
   // Where the advisory is of malware, not a vulnerability: one of OSV's
   // records of malicious packages (MAL-...), its `id` or one of its
   // `aliases` (a registry row has those of OSV's records of it with
-  // `osv`), or one filed under CWE-506, Embedded Malicious Code, as
-  // GitHub files its malware advisories. Its `severity` is its sources'
-  // as ever: a MAL- record rates none, and GitHub rates some malware high
-  // (ua-parser-js's "Embedded malware"). Absent otherwise.
+  // `osv`); one filed under CWE-506, Embedded Malicious Code, as GitHub
+  // files its malware advisories; or one whose `title` says malware
+  // (a whole word, in any case) where its CWE doesn't, as
+  // @solana/web3.js's GHSA-jcxm-7wvp-g6p5, CWE-200 alone. Its `severity`
+  // is its sources' as ever: a MAL- record rates none, and GitHub rates
+  // some malware high (ua-parser-js's "Embedded malware"). Absent
+  // otherwise.
   malware?: true
   versions: string[]
 }

@@ -260,15 +260,19 @@ describe('npm', () => {
     ])
   })
 
-  it('flags malware: an advisory filed under CWE-506, as GitHub files its malware advisories, whatever it is rated; hidden functionality alone is no malware', async () => {
+  it('flags malware: an advisory filed under CWE-506, as GitHub files its malware advisories, or titled malware, whatever it is rated; hidden functionality alone is no malware', async () => {
     stubRegistry(() => ({
       'ua-parser-js': [row({ id: 1, url: 'https://github.com/advisories/GHSA-pjwm-rvh2-c87w', title: 'Embedded malware in ua-parser-js', severity: 'high', vulnerable_versions: '=0.7.29', cwe: ['CWE-506', 'CWE-912'] })],
+      '@solana/web3.js': [row({ id: 3, url: 'https://github.com/advisories/GHSA-jcxm-7wvp-g6p5', title: 'Modified package published to npm, containing malware that exfiltrates private key material', severity: 'high', vulnerable_versions: '>=1.95.6 <1.95.8', cwe: ['CWE-200'] })],
       backdoored: [row({ id: 2, url: 'https://github.com/advisories/GHSA-2222-3333-4444', title: 'Hidden debug endpoint', severity: 'moderate', vulnerable_versions: '*', cwe: ['CWE-912'] })],
+      // A word that only starts with malware is not it.
+      scanner: [row({ id: 4, url: 'https://github.com/advisories/GHSA-5555-6666-7777', title: 'Malwareless mode skips signature checks', severity: 'low', vulnerable_versions: '*', cwe: ['CWE-693'] })],
       minimist: [row()],
     }))
-    const found = await npm([{ name: 'ua-parser-js', version: '0.7.29' }, { name: 'backdoored', version: '1.0.0' }, { name: 'minimist', version: '1.2.5' }])
-    assert.deepEqual(found.map(({ name, severity, malware }) => [name, severity, malware]), [['backdoored', 'moderate', undefined], ['minimist', 'critical', undefined], ['ua-parser-js', 'high', true]],
-      'its severity as rated')
+    const found = await npm([{ name: 'ua-parser-js', version: '0.7.29' }, { name: '@solana/web3.js', version: '1.95.6' }, { name: 'backdoored', version: '1.0.0' }, { name: 'scanner', version: '1.0.0' }, { name: 'minimist', version: '1.2.5' }])
+    assert.deepEqual(found.map(({ name, severity, malware }) => [name, severity, malware]), [
+      ['@solana/web3.js', 'high', true], ['backdoored', 'moderate', undefined], ['minimist', 'critical', undefined], ['scanner', 'low', undefined], ['ua-parser-js', 'high', true],
+    ], 'its severity as rated')
   })
 
   it('refuses a title that is not well-formed text', async () => {
