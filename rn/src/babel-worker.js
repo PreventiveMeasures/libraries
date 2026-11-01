@@ -50,15 +50,16 @@ export function babelWorkers(corePath, options) {
 if (workerData?.babel !== undefined) {
   const { corePath, options } = workerData.babel
   const core = createRequire(corePath)(corePath)
-  const transform = async (source, filename, without) => {
-    if (without.length === 0) return core.transformAsync(source, { ...options, filename })
-    // The config's plugins, loaded, which transformAsync takes as they are.
-    const config = await core.loadOptionsAsync({ ...options, filename })
-    return core.transformAsync(source, { ...config, plugins: config.plugins.filter(({ key }) => !without.includes(key)) })
+  // Sync: a worker transforms one file at a time.
+  const transform = (source, filename, without) => {
+    if (without.length === 0) return core.transformSync(source, { ...options, filename })
+    // The config's plugins, loaded, which transformSync takes as they are.
+    const config = core.loadOptionsSync({ ...options, filename })
+    return core.transformSync(source, { ...config, plugins: config.plugins.filter(({ key }) => !without.includes(key)) })
   }
-  parentPort.on('message', async ({ port, source, filename, without }) => {
+  parentPort.on('message', ({ port, source, filename, without }) => {
     try {
-      port.postMessage({ code: (await transform(source, filename, without)).code })
+      port.postMessage({ code: transform(source, filename, without).code })
     } catch (error) {
       port.postMessage({ error: error.message })
     }
