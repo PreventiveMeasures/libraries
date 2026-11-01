@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { request } from 'node:http'
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -287,6 +287,47 @@ describe('rn-serve, of a manifest edited', () => {
     await until(() => message.messages.length > 0, 'a reload')
     assert.equal(run(String((await fetchRaw(bundleUrl)).body)).result, 'b')
     message.ws.close()
+  })
+
+  it('builds the entry the URL names now, and reloads the apps, where a platform file is added or removed beside it', async () => {
+    const bundleUrl = `${server.url}/index.bundle?platform=ios`
+    await fetchRaw(bundleUrl)
+    const message = await socket(`${server.url}/message`)
+    writeFileSync(join(root, 'index.ios.js'), "globalThis.result = 'ios'\n")
+    await until(() => message.messages.length > 0, 'a reload for index.ios.js')
+    assert.equal(run(String((await fetchRaw(bundleUrl)).body)).result, 'ios')
+    rmSync(join(root, 'index.ios.js'))
+    await until(() => message.messages.length > 1, 'a reload for index.js again')
+    assert.equal(run(String((await fetchRaw(bundleUrl)).body)).result, 'b')
+    message.ws.close()
+  })
+})
+
+describe('rn-serve, of an app in a workspace', () => {
+  // node_modules hoisted to the workspace's root, and an asset of a package
+  // beside the app, out of its root: at /assets/../shared.
+  const { root, cleanup } = writeTree({
+    'node_modules/react-native/package.json': APP['node_modules/react-native/package.json'],
+    'node_modules/react-native/src/asset-registry.js': APP['node_modules/react-native/src/asset-registry.js'],
+    'node_modules/react-native/src/setup-env.js': '',
+    'shared/logo.png': png(20, 10),
+    'app/package.json': { name: 'app' },
+    'app/index.js': "const { getAssetByID } = require('react-native/asset-registry')\nglobalThis.result = getAssetByID(require('../shared/logo.png')).httpServerLocation\n",
+  })
+  let server
+  before(async () => {
+    server = await serve(join(root, 'app'))
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+
+  it('serves an asset out of the project root that a bundle has, at the path the bundle names', async () => {
+    assert.equal(run(String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)).result, '/assets/../shared')
+    const r = await fetchRaw(server.url, { path: '/assets/../shared/logo.png?platform=ios&hash=x' })
+    assert.deepEqual([r.status, r.body], [200, Buffer.from(png(20, 10))])
+    assert.equal((await fetchRaw(server.url, { path: '/assets/../shared/other.png?platform=ios' })).status, 404)
   })
 })
 

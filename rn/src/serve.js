@@ -108,8 +108,11 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
     if (url === null) return reply(request, response, 400, 'rn-serve: bad URL\n')
     if (Object.hasOwn(routes, url.pathname)) return routes[url.pathname](request, response)
     const read = request.method === 'GET' || request.method === 'HEAD'
-    if (read && url.pathname.startsWith('/assets/')) {
-      const { status, headers, body } = assetResponse(request.url.split('?')[0], { platform: url.searchParams.get('platform'), range: request.headers.range, find: devBundler.asset, host })
+    // By the path as sent: an asset outside the project root is at
+    // /assets/../, which the URL takes the `..` off.
+    const rawPath = request.url.split('?')[0]
+    if (read && rawPath.startsWith('/assets/')) {
+      const { status, headers, body } = assetResponse(rawPath, { platform: url.searchParams.get('platform'), range: request.headers.range, find: devBundler.asset, host })
       return reply(request, response, status, body, headers)
     }
     let bundle

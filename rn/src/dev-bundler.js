@@ -39,45 +39,59 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return promise
   }
 
+  const drop = async (build) => {
+    await build.chain
+    try {
+      await (await build.bundler).dispose()
+    } catch {
+      // Never opened.
+    }
+  }
   const evict = async (limit) => {
     while (builds.size > limit) {
       const [key, build] = builds.entries().next().value
       builds.delete(key)
-      await build.chain
-      try {
-        await (await build.bundler).dispose()
-      } catch {
-        // Never opened.
-      }
+      await drop(build)
     }
+  }
+
+  // -> an outcome: { ok: true, js, map, assets, files, index() }, { ok:
+  // false, errors, files }; null where the request names no entry here.
+  const get = async (request) => {
+    const entry = entryOf(config, request)
+    if (entry === null) return null
+    const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
+    const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry), last: null, pending: null, chain: Promise.resolve() }
+    builds.delete(key)
+    builds.set(key, build)
+    await evict(maxBuilds)
+    return outcomeOf(build)
   }
 
   const files = () => new Set([...builds.values()].flatMap((build) => [...(build.last?.files ?? [])]))
 
   return {
-    // -> an outcome: { ok: true, js, map, assets, files, index() }, { ok:
-    // false, errors, files }; null where the request names no entry here.
-    async get(request) {
-      const entry = entryOf(config, request)
-      if (entry === null) return null
-      const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
-      const build = builds.get(key) ?? { request, bundler: open(config, request, entry), last: null, pending: null, chain: Promise.resolve() }
-      builds.delete(key)
-      builds.set(key, build)
-      await evict(maxBuilds)
-      return outcomeOf(build)
-    },
+    get,
     // A file changed: each build is stale.
     changed() {
       version++
     },
-    // -> [{ request, before, after }] of each bundle served, built anew.
+    // -> [{ request, before, after }] of each bundle served, built anew; of
+    // the entry its request names now, where a file added or removed (an
+    // `index.ios.js`) makes that another.
     async refresh() {
       const out = []
-      for (const build of [...builds.values()]) {
+      for (const [key, build] of [...builds]) {
         if (build.last === null) continue
         const before = build.last
-        out.push({ request: build.request, before, after: await outcomeOf(build) })
+        const entry = entryOf(config, build.request)
+        if (entry === null || entry.path === build.entryPath) {
+          out.push({ request: build.request, before, after: await outcomeOf(build) })
+          continue
+        }
+        builds.delete(key)
+        await drop(build)
+        out.push({ request: build.request, before, after: await get(build.request) })
       }
       return out
     },
