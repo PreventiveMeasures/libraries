@@ -167,3 +167,21 @@ describe('bundle, of an import written before its module', () => {
     }
   })
 })
+
+describe('bundle, of an entry not there', () => {
+  const { root, cleanup } = writeTree({ 'src/other.txt': '' })
+  after(cleanup)
+
+  it('says it looked for it, so that a watcher sees it made', async () => {
+    const bundler = await createBundler({ entry: 'src/index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root })
+    try {
+      const error = await bundler.rebuild().then(() => null, (failure) => failure)
+      assert.ok(Array.isArray(error?.errors), String(error))
+      assert.ok(error.files.includes(join(root, 'src/index.js')), String(error.files))
+      writeFileSync(join(root, 'src/index.js'), 'globalThis.result = 1\n')
+      assert.equal(run(js(await bundler.rebuild())), 1)
+    } finally {
+      await bundler.dispose()
+    }
+  })
+})

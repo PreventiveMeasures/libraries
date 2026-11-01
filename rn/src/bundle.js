@@ -144,7 +144,12 @@ function metroGraph({
         reuse = false
       })
       build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind, namespace }) => {
-        if (kind === 'entry-point') return specifier === MAIN ? { path: host.realpath(resolve(projectRoot, entry)), namespace: MAIN } : file(host.realpath(resolve(projectRoot, specifier)))
+        if (kind === 'entry-point') {
+          // Looked for before it is found: an entry not there (deleted) is a file a watcher sees made.
+          const path = resolve(projectRoot, specifier === MAIN ? entry : specifier)
+          state.read.add(path)
+          return specifier === MAIN ? { path: host.realpath(path), namespace: MAIN } : file(host.realpath(path))
+        }
         if (namespace === MAIN && specifier.startsWith(POLYFILL)) return { path: specifier.slice(POLYFILL.length), namespace: 'metro-polyfill' }
         if (namespace === MAIN && specifier === ENTRY) return file(importer)
         const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
