@@ -19,6 +19,10 @@
     "./metro-config.js": {
       "types": "./metro-config.d.ts",
       "default": "./metro-config.js"
+    },
+    "./babel-aliases.js": {
+      "types": "./babel-aliases.d.ts",
+      "default": "./babel-aliases.js"
     }
   },
   "files": [
@@ -26,6 +30,8 @@
     "LICENSE-MIT",
     "assets-dest.d.ts",
     "assets-dest.js",
+    "babel-aliases.d.ts",
+    "babel-aliases.js",
     "metro-assets.d.ts",
     "metro-assets.js",
     "metro-config.d.ts",
@@ -34,6 +40,7 @@
     "metro-resolver.js",
     "src/assets-dest.js",
     "src/assets.js",
+    "src/babel-aliases.js",
     "src/defaults.js",
     "src/exports.js",
     "src/image-size.js",
@@ -66,6 +73,7 @@
   },
   "devDependencies": {
     "@preventive/vfs": "workspace:*",
+    "babel-plugin-module-resolver": "^5.0.2",
     "metro-resolver": "0.87.2",
     "oxc-parser": "^0.152.0"
   }
