@@ -39,8 +39,9 @@ export function babelWorkers(corePath, options, profile = null) {
     info.pending.add(reject)
     try {
       info.worker.postMessage({ port: port1, source, filename, without }, [port1])
-      const [{ code, error, spent }] = await Promise.race([once(port2, 'message'), failed])
-      if (error !== undefined) throw new Error(error)
+      const [{ code, error, loc, spent }] = await Promise.race([once(port2, 'message'), failed])
+      // Babel's error, with where in the file Babel says, if it does.
+      if (error !== undefined) throw Object.assign(new Error(error), loc === undefined ? {} : { loc })
       if (spent !== undefined) addSpent(profile, spent)
       return code
     } finally {
@@ -173,7 +174,7 @@ if (workerData?.babel !== undefined) {
       const entries = (map) => [...map].map(([key, [calls, ms]]) => [key, calls, ms])
       port.postMessage(profile ? { code, spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } } : { code })
     } catch (error) {
-      port.postMessage({ error: error.message })
+      port.postMessage({ error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) })
     }
     port.close()
   })

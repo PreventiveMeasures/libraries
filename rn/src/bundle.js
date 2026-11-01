@@ -139,7 +139,7 @@ function metroGraph({
   const before = () => runBeforeMain ?? state.reactNative.runBeforeMain
   const load = (path) => {
     state.read.add(path)
-    return loadCached(options, host, cache, path, state.aliased)
+    return loadCached(options, host, cache, path)
   }
   // The files Metro resolved, which alone esbuild may load.
   const file = (path) => {
@@ -164,7 +164,7 @@ function metroGraph({
         }
         if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
         if (namespace === MAIN && specifier === ENTRY) return file(importer)
-        const resolution = state.resolveModule(importer, (state.aliased.get(importer) ?? aliases)?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
+        const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
         if (!state.graph.has(importer)) state.graph.set(importer, new Map())
         state.graph.get(importer).set(specifier, resolution)
         // Left to esbuild, which can't resolve it either: in a try block, an
@@ -223,8 +223,7 @@ function serializer(build, { polyfills, before, projectRoot, load }) {
 function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
   const read = new Set()
   const resolveModule = createMetroResolver({ host: reading(host, read), assetExts })
-  // aliased: by file, what its imports are mapped by, for Babel without module-resolver.
-  const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read, aliased: new Map() }
+  const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
   publish(made)
   publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
 }
@@ -253,14 +252,11 @@ const reading = (host, read) => ({
   },
 })
 
-// A file as loadFile loads it, cached with its imports' aliases, which are
-// put in `aliased`: esbuild takes no key for them.
-async function loadCached(options, host, cache, path, aliased) {
+async function loadCached(options, host, cache, path) {
   const contents = decoder.decode(host.readFile(path))
   const hit = cache?.get(path)
-  const result = hit !== undefined && hit.contents === contents ? hit.result : await loadFile(options, path, contents)
-  if (cache !== null && hit?.result !== result && result.errors === undefined) cache.set(path, { contents, result })
-  const { alias, ...loaded } = result
-  if (alias !== undefined) aliased.set(path, alias)
-  return loaded
+  if (hit !== undefined && hit.contents === contents) return hit.result
+  const result = await loadFile(options, path, contents)
+  if (cache !== null && result.errors === undefined) cache.set(path, { contents, result })
+  return result
 }
