@@ -9,8 +9,9 @@ import { assetData, assetModule } from './assets.js'
 import { defaults, diskHost } from './defaults.js'
 import { createMetroResolver } from './resolve.js'
 
-const LOADERS = new Map([['.js', 'js'], ['.cjs', 'js'], ['.mjs', 'js'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
-const JS = new Set(['.js', '.cjs', '.mjs'])
+// JS read as JSX, as @react-native/babel-preset reads it: react-native's own
+// .js files have JSX, and JSX reads plain JS as JS does.
+const LOADERS = new Map([['.js', 'jsx'], ['.cjs', 'jsx'], ['.mjs', 'jsx'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
 // Lowered by esbuild in the bundle, after Babel, which leaves them.
 const LOWERED = {
   'class-field': false,
@@ -51,7 +52,6 @@ export async function bundle({
   esbuild,
   host = diskHost,
   projectRoot = process.cwd(),
-  jsx = false,
   // (source, path) => source with Flow types stripped.
   stripFlow = null,
   // (source, path) => the project's Babel output.
@@ -69,7 +69,7 @@ export async function bundle({
   const resolveModule = createMetroResolver({ host, assetExts })
   const graph = new Map()
   const assets = new Map()
-  const options = { esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript }
+  const options = { esbuild, host, projectRoot, stripFlow, babel, babelTypescript }
   // The files Metro resolved, which alone esbuild may load.
   const resolved = new Set()
   const file = (path) => {
@@ -122,8 +122,8 @@ export async function bundle({
   return { outputFiles: result.outputFiles, warnings: result.warnings, assets: [...assets.keys()].toSorted().map((path) => assets.get(path)), graph }
 }
 
-async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript }, path) {
-  const loader = jsx && JS.has(extname(path)) ? 'jsx' : (LOADERS.get(extname(path)) ?? 'js')
+async function loadFile({ esbuild, host, projectRoot, stripFlow, babel, babelTypescript }, path) {
+  const loader = LOADERS.get(extname(path)) ?? 'jsx'
   const contents = decoder.decode(host.readFile(path))
   if (babel !== null && loader !== 'json') {
     let source = contents
@@ -141,7 +141,7 @@ async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, bab
       return { errors: [{ text: `Babel: ${error.message}` }] }
     }
   }
-  if (stripFlow === null || (loader !== 'js' && loader !== 'jsx') || !(await hasFlow(esbuild, contents, loader))) return { contents, loader }
+  if (stripFlow === null || loader !== 'jsx' || !(await hasFlow(esbuild, contents, loader))) return { contents, loader }
   let stripped
   try {
     stripped = stripFlow(contents, path)

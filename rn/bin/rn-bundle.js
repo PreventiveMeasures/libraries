@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // rn-bundle --platform=ios --output=main.js [--dev] [--minify]
-//   [--assets-dest=DIR] [--jsx] [--babel] [--define=K=V ...]
+//   [--assets-dest=DIR] [--babel] [--define=K=V ...]
 //   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
@@ -36,7 +36,6 @@ const { values, positionals } = parseArgs({
     dev: { type: 'boolean', default: false },
     minify: { type: 'boolean', default: false },
     'assets-dest': { type: 'string' },
-    jsx: { type: 'boolean', default: false },
     babel: { type: 'boolean', default: false },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
@@ -141,7 +140,6 @@ try {
     outfile: values.output,
     esbuild,
     projectRoot: cwd,
-    jsx: values.jsx,
     stripFlow: stripFlow(),
     babel: babel?.transform ?? null,
     babelTypescript: babel?.typescript ?? null,

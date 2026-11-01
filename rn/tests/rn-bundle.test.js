@@ -72,7 +72,7 @@ const notInstalled = (name) => `data:text/javascript,${encodeURIComponent([
   'const resolve = Module._resolveFilename',
   `Module._resolveFilename = function (request, ...rest) { if (request === ${JSON.stringify(name)}) throw Object.assign(new Error(request), { code: 'MODULE_NOT_FOUND' }); return resolve.call(this, request, ...rest) }`,
 ].join('\n'))}`
-const OPTIONS = ['--jsx', '--babel-aliases=aliases.json', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"']
+const OPTIONS = ['--babel-aliases=aliases.json', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"']
 const md5 = (...files) => {
   const hash = createHash('md5')
   for (const file of files) hash.update(APP[file])
@@ -124,13 +124,13 @@ describe('rn-bundle', () => {
   })
 
   it('fails on what it cannot resolve, parse or strip', () => {
-    const noAliases = run(['--platform=ios', '--jsx', '--output=out.js', 'index.js'])
+    const noAliases = run(['--platform=ios', '--output=out.js', 'index.js'])
     assert.equal(noAliases.status, 1)
     assert.match(noAliases.stderr, /Could not resolve "#lib\/greet"[\s\S]*index\.js/u)
     const divergent = run(['--platform=ios', '--output=out.js', 'divergent/index.js'])
     assert.equal(divergent.status, 1)
     assert.match(divergent.stderr, /esbuild resolved node_modules\/dep\/index\.js where Metro resolves nothing/u)
-    const noFlow = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--jsx', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const noFlow = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(noFlow.status, 1)
     assert.match(noFlow.stderr, /Can't strip Flow types from lib\/typed\.js: it needs flow-remove-types/u)
     const enumFlow = run(['--platform=ios', '--output=out.js', 'enum.js'])
@@ -150,7 +150,7 @@ describe('rn-bundle', () => {
 
   it('builds for release unless --dev, as Metro does, a --define overriding either', () => {
     const build = (...args) => {
-      const r = run(['--platform=ios', '--jsx', '--babel-aliases=aliases.json', ...args, '--output=env.js', 'index.js'])
+      const r = run(['--platform=ios', '--babel-aliases=aliases.json', ...args, '--output=env.js', 'index.js'])
       assert.equal(r.status, 0, r.stderr)
       const { dev, env } = output('env.js')
       return [dev, env]
