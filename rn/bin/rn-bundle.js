@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// rn-bundle --platform=ios --output=main.js [--assets-dest=DIR] [--jsx]
-//   [--flow|--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
+// rn-bundle --platform=ios --output=main.js [--dev] [--assets-dest=DIR]
+//   [--jsx] [--flow|--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
-// --assets-dest as `react-native bundle` lays them out. --babel runs the
+// --assets-dest as `react-native bundle` lays them out. A release build, as
+// `react-native bundle --dev=false` makes it, unless --dev. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
-// @babel/core and Metro's caller, as Metro's transformer does. The extensions
-// metro.config.js lists among `assetExts` are assets too, read off it, never
-// run: by oxc-parser where installed, else in the usual form by a regex.
+// @babel/core, and Metro's caller and Babel env, as Metro's transformer does.
+// The extensions metro.config.js lists among `assetExts` are assets too, read
+// off it, never run: by oxc-parser where installed, else in the usual form by
+// a regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -25,6 +27,7 @@ const { values, positionals } = parseArgs({
   options: {
     platform: { type: 'string' },
     output: { type: 'string' },
+    dev: { type: 'boolean', default: false },
     'assets-dest': { type: 'string' },
     jsx: { type: 'boolean', default: false },
     flow: { type: 'boolean', default: false },
@@ -45,7 +48,9 @@ if (values.output === undefined) fail('--output is required')
 if (values.babel && values.flow) fail("--babel compiles Flow with the project's Babel config; --flow strips it without: pass one")
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 
-const define = {}
+// __DEV__ and process.env.NODE_ENV as Metro's prelude sets them for --dev or
+// not, unless --define sets them.
+const define = { __DEV__: String(values.dev), 'process.env.NODE_ENV': JSON.stringify(values.dev ? 'development' : 'production') }
 for (const pair of values.define) {
   const at = pair.indexOf('=')
   if (at < 1) fail(`--define takes K=V, not ${pair}`)
@@ -107,7 +112,10 @@ function projectBabel() {
     fail('--babel needs @babel/core installed in the project')
   }
   const caller = { name: 'metro', bundler: 'metro', platform: values.platform }
-  return async (source, filename) => (await core.transformAsync(source, { cwd, root: cwd, configFile, filename, caller, compact: false })).code
+  // The env Metro's transformer names, which plugins read for a release
+  // build: react-native-worklets omits each worklet's location and source map.
+  const envName = values.dev ? 'development' : process.env.BABEL_ENV || 'production'
+  return async (source, filename) => (await core.transformAsync(source, { cwd, root: cwd, configFile, filename, caller, envName, compact: false })).code
 }
 
 let result
