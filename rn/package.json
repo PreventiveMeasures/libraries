@@ -15,6 +15,10 @@
     "./assets-dest.js": {
       "types": "./assets-dest.d.ts",
       "default": "./assets-dest.js"
+    },
+    "./metro-config.js": {
+      "types": "./metro-config.d.ts",
+      "default": "./metro-config.js"
     }
   },
   "files": [
@@ -24,6 +28,8 @@
     "assets-dest.js",
     "metro-assets.d.ts",
     "metro-assets.js",
+    "metro-config.d.ts",
+    "metro-config.js",
     "metro-resolver.d.ts",
     "metro-resolver.js",
     "src/assets-dest.js",
@@ -31,6 +37,7 @@
     "src/defaults.js",
     "src/exports.js",
     "src/image-size.js",
+    "src/metro-config.js",
     "src/resolve.js"
   ],
   "engines": {
@@ -59,6 +66,7 @@
   },
   "devDependencies": {
     "@preventive/vfs": "workspace:*",
-    "metro-resolver": "0.87.2"
+    "metro-resolver": "0.87.2",
+    "oxc-parser": "^0.152.0"
   }
 }
