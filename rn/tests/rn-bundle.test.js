@@ -29,7 +29,8 @@ const APP = {
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
     "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    "const nodeEnv = typeof __NODE_ENV__ === 'undefined' ? null : __NODE_ENV__",
+    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, nodeEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -177,6 +178,8 @@ const babelConfig = (plugins) => [
   'module.exports = (api) => {',
   '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
   "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
+  '  // NODE_ENV as a plugin reads it, as it transforms.',
+  "  const nodeEnvOf = ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === '__NODE_ENV__') path.replaceWith(t.stringLiteral(String(process.env.NODE_ENV))) } } })",
   '  const syntaxOf = ({ types: t }) => ({',
   '    pre() { this.seen = new Set() },',
   '    visitor: {',
@@ -184,7 +187,7 @@ const babelConfig = (plugins) => [
   "      Identifier(path) { if (path.node.name === '__SYNTAX__') path.replaceWith(t.valueToNode([...this.seen].toSorted())) },",
   '    },',
   '  })',
-  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), syntaxOf] }`,
+  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), nodeEnvOf, syntaxOf] }`,
   '}',
   '',
 ].join('\n')
@@ -290,6 +293,17 @@ describe('rn-bundle --babel', () => {
     assert.equal(babelEnv([], { BABEL_ENV: 'staging' }), 'staging')
     assert.equal(babelEnv(['--dev']), 'development')
     assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
+  })
+
+  it('sets NODE_ENV for Babel\'s plugins as `react-native bundle` does: production, unless --dev', () => {
+    const nodeEnv = (args, env) => {
+      const r = run(['--platform=ios', ...args, '--babel', '--output=env.js', 'index.js'], env)
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).nodeEnv
+    }
+    assert.equal(nodeEnv([]), 'production')
+    assert.equal(nodeEnv([], { NODE_ENV: 'development' }), 'production')
+    assert.equal(nodeEnv(['--dev'], { NODE_ENV: 'production' }), 'development')
   })
 
   it('makes each TS file JS by esbuild before Babel, lowering the rest after it', () => {
@@ -442,28 +456,85 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
-  const build = (options) => {
+  const build = (options, args = []) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const { ran, ...out } = JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
-    return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8') }
+    return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8'), stderr: r.stderr }
   }
   const once = Object.fromEntries(KEYS.map((key) => [key, 1]))
   const js = { 'transform-flow-strip-types': 5, 'transform-typescript': 5 }
 
   it('lowers by esbuild what such a plugin with no options lowers, and leaves it out of Babel, with those that have nothing to do after esbuild', () => {
-    const { code, ...out } = build({})
+    const { code, stderr, ...out } = build({})
+    assert.ok(!stderr.includes('Babel:'), 'no profile without --profile')
     // Flow's plugin, which drops fields with no value, and TS's stay for JS:
     // both are left out for TS alone. Arrows esbuild doesn't lower.
     assert.deepEqual(out, { out: [2, 4], one: 1000, typed: 1, spec: 'codegenNativeComponent', arrow: true, ran: { ...once, ...js, 'transform-arrow-functions': 6 } })
     assert.ok(code.includes('__asyncGenerator(') && code.includes('__forAwait('))
   })
 
+  it('reports with --profile the files, visitor calls and time of each plugin', () => {
+    const { stderr } = build({}, ['--profile'])
+    assert.match(stderr, /^Babel: 6 files, \d+ ms, summed over its workers\n {6}ms {7}% {4}files {6}calls {2}plugin$/mu)
+    assert.match(stderr, /^ +\d+ +[\d.]+ +\d+ +\d+ {2}internal\.blockHoist$/mu)
+    assert.match(stderr, /^ {6}ms {7}% {4}files {6}calls {2}Babel, outside plugins\n(?: +\d+ +[\d.]+ +6 +\d+ {2}(?:config|parsing|scopes|printing)\n){4} +\d+ +[\d.]+ {22}traversal, and the rest$/mu)
+    // Each plugin's one visitor runs once in each file it is in.
+    const rows = Object.fromEntries([...stderr.matchAll(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}(\S+)$/gmu)].map(([, files, calls, key]) => [key, [Number(files), Number(calls)]]))
+    const counts = { ...once, ...js, 'transform-arrow-functions': 6 }
+    assert.deepEqual(Object.fromEntries(KEYS.map((key) => [key, rows[key]])), Object.fromEntries(KEYS.map((key) => [key, [counts[key], counts[key]]])))
+  })
+
+  it('takes --profile only with --babel', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: --profile times the plugins of --babel: pass it\n'])
+  })
+
   it('leaves to Babel what a plugin with options lowers', () => {
     const { code, ran } = build({ 'transform-async-to-generator': { module: 'bluebird', method: 'coroutine' } })
     assert.deepEqual(ran, { ...once, ...js, 'transform-arrow-functions': 6, 'transform-async-to-generator': 6 })
     assert.ok(/async function load\(/u.test(code) && code.includes('__asyncGenerator('))
+  })
+})
+
+describe('rn-bundle --babel, with a Babel config that lowers let and const', () => {
+  // As @react-native/babel-preset lowers them for Hermes, whose own don't
+  // bind each iteration of a loop apart; a plugin of that key, which here
+  // lowers nothing.
+  const config = (plugins) => `module.exports = { plugins: [${plugins.join(', ')}] }\n`
+  const { root, cleanup } = writeTree({
+    // esbuild's __copyProps makes each of c.cjs's exports a getter, in a loop.
+    'main.js': "import * as c from './c.cjs'\nconsole.log(JSON.stringify(Object.keys(c).map((key) => [key, c[key]])))\n",
+    'c.cjs': 'exports.a = 1\nexports.b = 2\n',
+    'left.js': 'let left = 1\nconsole.log(left)\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const build = (plugins, entry = 'main.js') => {
+    writeFileSync(join(root, 'babel.config.js'), config(plugins))
+    return spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+  }
+  const blockScoping = "() => ({ name: 'transform-block-scoping', visitor: {} })"
+
+  it("adds no let or const after Babel: esbuild's helpers bind each key apart", () => {
+    const r = build([blockScoping])
+    assert.equal(r.status, 0, r.stderr)
+    const code = readFileSync(join(root, 'out.js'), 'utf8')
+    assert.ok(!/\b(?:let|const)\b/u.test(code), code)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
+  })
+
+  it('fails on a let or const Babel leaves', () => {
+    const r = build([blockScoping], 'left.js')
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /Transforming let to the configured target environment/u)
+  })
+
+  it('leaves them to esbuild where the config keeps them', () => {
+    const r = build([])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /for \(let key of/u)
   })
 })
 
@@ -608,6 +679,12 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
     assert.deepEqual(out, { order: ['console', 'error-guard', 'setup-env'], logo: 'logo', prefix: '', started: 'number' })
     assert.ok(build(modern.root, ['--dev']).code.startsWith(`${PRELUDE(true)}\n`))
     assert.ok(build(modern.root, ['--define=__DEV__=false', '--dev']).code.startsWith('var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=false,'))
+  })
+
+  it("names the main module, the polyfills and the assets by their paths in the project, as esbuild names files: the bundle doesn't depend on where the project is", () => {
+    const { code } = build(modern.root)
+    assert.ok(!code.includes(modern.root), 'no absolute path')
+    for (const namespace of ['metro-main', 'metro-polyfill', 'metro-asset']) assert.match(code, new RegExp(`// ${namespace}:[\\w@]`, 'u'))
   })
 
   it('before react-native 0.87: InitializeCore, and Libraries/Image/AssetRegistry', () => {

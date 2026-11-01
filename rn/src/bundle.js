@@ -44,7 +44,8 @@ const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !
 export async function bundle(options) {
   // Its one build takes the state made to know what runs before the entry.
   const graph = metroGraph(options, { reuseFirst: true })
-  return graph.result(await options.esbuild.build(buildOptions(options, graph, graph.before().length > 0 || (options.polyfills?.length ?? 0) > 0)))
+  const main = graph.before().length > 0 || (options.polyfills?.length ?? 0) > 0
+  return graph.result(await options.esbuild.build(buildOptions(options, graph, { main, lowersLet: await lowersLetOf(options) })))
 }
 
 // bundle(), to build again and again on one esbuild context: each build
@@ -52,7 +53,7 @@ export async function bundle(options) {
 export async function createBundler(options) {
   const graph = metroGraph(options, { reuseFirst: false })
   // Through the main module always, as what runs before the entry may change.
-  const context = await options.esbuild.context(buildOptions(options, graph, true))
+  const context = await options.esbuild.context(buildOptions(options, graph, { main: true, lowersLet: await lowersLetOf(options).catch(() => false) }))
   return {
     // Throws as esbuild does, the error's `files` those the build read and looked for.
     rebuild: async () => {
@@ -67,7 +68,16 @@ export async function createBundler(options) {
   }
 }
 
-function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}, minify = false, babel = null, prelude = null, sourcemap = false }, { plugin }, main) {
+// Where Babel's config lowers let and const, as @react-native/babel-preset
+// does for Hermes, whose own don't bind each iteration of a loop apart,
+// esbuild adds none after Babel: its helpers have `for (let key of ...)`,
+// with a closure (__copyProps), which it then writes with var and bind;
+// and fails on any left.
+async function lowersLetOf({ babel = null, babelPlugins = null, host = diskHost, projectRoot = process.cwd(), entry }) {
+  return babel !== null && (await babelPlugins?.(host.realpath(resolve(projectRoot, entry))))?.has('transform-block-scoping') === true
+}
+
+function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}, minify = false, babel = null, prelude = null, sourcemap = false }, { plugin }, { main, lowersLet }) {
   return {
     entryPoints: [main ? MAIN : entry],
     absWorkingDir: projectRoot,
@@ -78,7 +88,7 @@ function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}
     platform: 'neutral',
     define,
     minify,
-    supported: babel === null ? {} : LOWERED,
+    supported: babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) },
     logLevel: 'silent',
     plugins: [plugin],
     ...(prelude !== null && { banner: { js: prelude } }),
@@ -143,14 +153,15 @@ function metroGraph({
         if (!reuse) fresh()
         reuse = false
       })
-      build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind, namespace }) => {
+      build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace }) => {
+        const importer = namespace === 'file' ? from : resolve(projectRoot, from)
         if (kind === 'entry-point') {
           // Looked for before it is found: an entry not there (deleted) is a file a watcher sees made.
           const path = resolve(projectRoot, specifier === MAIN ? entry : specifier)
           state.read.add(path)
-          return specifier === MAIN ? { path: host.realpath(path), namespace: MAIN } : file(host.realpath(path))
+          return specifier === MAIN ? named(projectRoot, host.realpath(path), MAIN) : file(host.realpath(path))
         }
-        if (namespace === MAIN && specifier.startsWith(POLYFILL)) return { path: specifier.slice(POLYFILL.length), namespace: 'metro-polyfill' }
+        if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
         if (namespace === MAIN && specifier === ENTRY) return file(importer)
         const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
         if (!state.graph.has(importer)) state.graph.set(importer, new Map())
@@ -161,7 +172,7 @@ function metroGraph({
         if (resolution === null) return undefined
         if (resolution.type === 'empty') return { path: 'empty', namespace: 'metro-empty' }
         // Metro builds an asset into the module of its lowest path.
-        if (resolution.type === 'assetFiles') return { path: resolution.filePaths.toSorted()[0], namespace: 'metro-asset' }
+        if (resolution.type === 'assetFiles') return named(projectRoot, resolution.filePaths.toSorted()[0], 'metro-asset')
         return file(resolution.filePath)
       })
       build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => {
@@ -169,10 +180,11 @@ function metroGraph({
         return load(path)
       })
       build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
+        const asset = resolve(projectRoot, path)
         // Each file it reads counted, though building it fails (an empty image).
-        const data = assetData(path, { urlPath: relative(projectRoot, path).replaceAll('\\', '/'), platform, host: reading(host, state.read) })
-        state.assets.set(path, data)
-        return { contents: assetModule(data, assetRegistryPath ?? state.reactNative.assetRegistryPath), loader: 'js', resolveDir: dirname(path) }
+        const data = assetData(asset, { urlPath: path, platform, host: reading(host, state.read) })
+        state.assets.set(asset, data)
+        return { contents: assetModule(data, assetRegistryPath ?? state.reactNative.assetRegistryPath), loader: 'js', resolveDir: dirname(asset) }
       })
       build.onLoad({ filter: ANY, namespace: 'metro-empty' }, () => ({ contents: '', loader: 'js' }))
       serializer(build, { polyfills, before, projectRoot, load })
@@ -196,9 +208,10 @@ function serializer(build, { polyfills, before, projectRoot, load }) {
     return { contents: specifiers.map((specifier) => `import ${JSON.stringify(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
   })
   build.onLoad({ filter: ANY, namespace: 'metro-polyfill' }, async ({ path }) => {
-    const loaded = await load(path)
+    const file = resolve(projectRoot, path)
+    const loaded = await load(file)
     // On its first line, so that its lines stay where they are.
-    return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(path) } : loaded
+    return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(file) } : loaded
   })
 }
 
@@ -213,6 +226,12 @@ function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
   publish(made)
   publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
 }
+
+// A path in a namespace of this plugin's, which esbuild prints as it is (in
+// comments, and as a module's name), made relative to the project, as
+// esbuild prints a file's, so that the bundle doesn't depend on where the
+// project is; absolute, it is the path itself.
+const named = (projectRoot, path, namespace) => ({ path: relative(projectRoot, path).replaceAll('\\', '/'), namespace })
 
 // The host, each file read or looked for through it added to `read`: a
 // file not there yet (an import written before its module) is a file a

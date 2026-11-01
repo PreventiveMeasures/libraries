@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // rn-bundle --platform=ios --output=main.js [--dev] [--minify]
-//   [--assets-dest=DIR] [--babel] [--define=K=V ...]
+//   [--assets-dest=DIR] [--babel] [--profile] [--define=K=V ...]
 //   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
@@ -12,7 +12,9 @@
 // after esbuild makes TS JS and lowers what Babel's preset throws on (static
 // blocks, `using`) and what the config's plugins lower as esbuild does
 // (async functions and generators, `export * as`), which Babel is then
-// without; esbuild lowers the rest in the bundle, after Babel. Flow
+// without; esbuild lowers the rest in the bundle, after Babel. --profile
+// reports the time each of the config's plugins takes, summed over Babel's
+// workers: its files, its visitors' calls, and that outside the plugins. Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
 // isn't installed, Babel's config strips them, as it does a file with Flow
 // that is code (`component`, `hook`), which flow-remove-types leaves. The
@@ -31,7 +33,7 @@ import { parseArgs } from 'node:util'
 
 import { assetsDestFiles } from '../src/assets-dest.js'
 import { createAliases } from '../src/babel-aliases.js'
-import { babelWorkers } from '../src/babel-worker.js'
+import { babelWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
 import { defaults, diskHost } from '../src/defaults.js'
 import { metroAssetExts, scanMetroAssetExts } from '../src/metro-config.js'
@@ -46,6 +48,7 @@ const { values, positionals } = parseArgs({
     minify: { type: 'boolean', default: false },
     'assets-dest': { type: 'string' },
     babel: { type: 'boolean', default: false },
+    profile: { type: 'boolean', default: false },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
   },
@@ -59,6 +62,7 @@ const fail = (message) => {
 if (positionals.length !== 1) fail('one entry file is required')
 if (values.platform === undefined) fail('--platform is required, e.g. --platform=ios')
 if (values.output === undefined) fail('--output is required')
+if (values.profile && !values.babel) fail('--profile times the plugins of --babel: pass it')
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 
 // __DEV__ and process.env.NODE_ENV as Metro's prelude sets them for --dev or
@@ -69,6 +73,10 @@ for (const pair of values.define) {
   if (at < 1) fail(`--define takes K=V, not ${pair}`)
   define[pair.slice(0, at)] = pair.slice(at + 1)
 }
+// As `react-native bundle` sets it, before Metro's workers start, for Babel's
+// plugins to read: Reanimated's (3), for production, leaves out each
+// worklet's location and source map.
+process.env.NODE_ENV = values.dev ? 'development' : 'production'
 
 const cwd = process.cwd()
 const fromProject = createRequire(resolve(cwd, 'package.json'))
@@ -146,8 +154,10 @@ function projectBabel() {
   // build: react-native-worklets omits each worklet's location and source map.
   const envName = values.dev ? 'development' : process.env.BABEL_ENV || 'production'
   const options = { cwd, root: cwd, configFile, caller, envName }
+  const profile = values.profile ? newProfile() : null
   return {
-    transform: babelWorkers(corePath, { ...options, compact: false }),
+    profile,
+    transform: babelWorkers(corePath, { ...options, compact: false }, profile),
     plugins: async (filename) => new Map((await core.loadOptionsAsync({ ...options, filename }))?.plugins.map((plugin) => [plugin.key, plugin.options])),
   }
 }
@@ -187,3 +197,4 @@ if (values['assets-dest'] !== undefined) {
   for (const { src, dest, contents } of assetsDestFiles(result.assets, values.platform)) write(resolve(cwd, values['assets-dest'], dest), contents ?? diskHost.readFile(src))
 }
 process.stderr.write(`rn-bundle: ${positionals[0]} for ${values.platform} to ${values.output} (esbuild ${esbuild.version}), ${result.graph.size} modules, ${result.assets.length} assets\n`)
+if (babel?.profile) process.stderr.write(profileReport(babel.profile, cwd))
