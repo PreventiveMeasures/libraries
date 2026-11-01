@@ -82,14 +82,15 @@ const devServer = createDevServer({ projectRoot, esbuild, devBundler, gate, log,
 const refreshOnce = async () => {
   let reload = false
   const errors = new Map()
-  for (const { before, after } of await devBundler.refresh()) {
+  for (const { request, before, after } of await devBundler.refresh()) {
     if (after.ok && (!before.ok || before.js !== after.js)) reload = true
     if (after.ok || before === after) continue
     const error = await bundlingError(esbuild, after.errors, projectRoot)
-    errors.set(error.message, error)
+    if (!errors.has(error.message)) errors.set(error.message, { error, requests: [] })
+    errors.get(error.message).requests.push(request)
   }
-  // Each error once, however many bundles it fails.
-  for (const error of errors.values()) devServer.hotError(error)
+  // Each error once, however many bundles it fails, to the apps of those.
+  for (const { error, requests } of errors.values()) devServer.hotError(error, requests)
   if (reload) log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
 }
 let refreshing = Promise.resolve()

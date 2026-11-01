@@ -223,6 +223,10 @@ describe('rn-serve', () => {
     const hot = await socket(`${server.url}/hot?bundleEntry=index.bundle&platform=ios`)
     hot.ws.send(JSON.stringify({ type: 'register-entrypoints', entryPoints: [bundleUrl()] }))
     await until(() => hot.messages.length === 3, 'bundle-registered')
+    // An Android app, which an error of iOS's alone is none of.
+    const android = await socket(`${server.url}/hot?bundleEntry=index.bundle&platform=android`)
+    android.ws.send(JSON.stringify({ type: 'register-entrypoints', entryPoints: [bundleUrl('platform=android')] }))
+    await until(() => android.messages.length === 3, "Android's bundle-registered")
     assert.deepEqual(hot.messages, [{ type: 'update-start', body: { isInitialUpdate: true } }, { type: 'update-done', body: {} }, { type: 'bundle-registered' }])
     const where = join(app, 'lib/where.ios.js')
     writeFileSync(where, "export const where = 'ios, changed'\n")
@@ -232,8 +236,9 @@ describe('rn-serve', () => {
     writeFileSync(where, "export const where = 'ios\n")
     await until(() => hot.messages.length > 3, 'a build error')
     await sleep(200)
-    // One, though two bundles (dev, and minified) fail.
+    // One, though two bundles (dev, and minified) fail; none to Android.
     assert.equal(hot.messages.length, 4)
+    assert.equal(android.messages.length, 3)
     const { type, body } = hot.messages[3]
     assert.deepEqual([type, body.type, body.filename, body.lineNumber], ['error', 'TransformError', where, 1])
     assert.match(body.message, /lib\/where\.ios\.js: Unexpected token/u)
@@ -243,6 +248,7 @@ describe('rn-serve', () => {
     await until(() => message.messages.length > 1, 'a reload once fixed')
     message.ws.close()
     hot.ws.close()
+    android.ws.close()
   })
 
   it('reloads each app on /reload, as the CLI does', async () => {

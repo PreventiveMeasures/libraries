@@ -47,6 +47,17 @@ export async function bundlingError(esbuild, errors, projectRoot) {
   }
 }
 
+// Which bundle a request is for, as its URL names it.
+const bundleKey = ({ entryFile, platform, dev, minify }) => [entryFile, platform, dev, minify].join('\0')
+const keyOfUrl = (url) => {
+  try {
+    const bundle = URL.canParse(url) ? bundleRequest(new URL(toNormalUrl(url))) : null
+    return bundle === null ? null : bundleKey(bundle)
+  } catch {
+    return null
+  }
+}
+
 const reply = (request, response, status, body, headers = {}) => {
   const data = typeof body === 'string' ? Buffer.from(body) : body
   response.writeHead(status, { 'Content-Type': TEXT, ...headers, 'Content-Length': String(data.length) })
@@ -72,21 +83,26 @@ function readBody(request) {
   })
 }
 
-// -> { server, broadcast(method), hotError(error), mount({ middleware,
-// websocketEndpoints }), clients() }
+// -> { server, broadcast(method), hotError(error, requests), mount({
+// middleware, websocketEndpoints }), clients() }
 export function createDevServer({ projectRoot, esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()
-  const hotClients = new Set()
+  // Each HMRClient, and the bundles it is for: as its URL names one, and those it registers.
+  const hotClients = new Map()
   const broadcast = (method) => {
     const text = JSON.stringify({ version: 2, method })
     for (const client of messageClients) client.send(text)
     return messageClients.size
   }
-  const hotError = (body) => {
+  // To each app of a bundle of `requests` that failed so; to one that named none, too.
+  const hotError = (body, requests) => {
     const text = JSON.stringify({ type: 'error', body })
-    for (const client of hotClients) client.send(text)
+    const failed = new Set(requests.map(bundleKey))
+    for (const [client, bundles] of hotClients) {
+      if (bundles.size === 0 || [...bundles].some((key) => failed.has(key))) client.send(text)
+    }
   }
 
   const routes = {
@@ -142,10 +158,7 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
       messageClients.add(client)
       return { onClose: () => messageClients.delete(client) }
     },
-    '/hot': (client) => {
-      hotClients.add(client)
-      return { onMessage: (text) => onHotMessage(client, text, { log, clientLogs }), onClose: () => hotClients.delete(client) }
-    },
+    '/hot': (client) => hotSocket(client, hotClients, { log, clientLogs }),
   }
   server.on('upgrade', (request, socket, head) => upgrade(request, socket, head, { gate, sockets, endpoints: websocketEndpoints }))
 
@@ -183,9 +196,23 @@ function upgrade(request, socket, head, { gate, sockets, endpoints }) {
   }
 }
 
+// An HMRClient, for the bundle its URL names (`?bundleEntry=index.bundle&platform=ios`)
+// and each it registers.
+function hotSocket(client, hotClients, { log, clientLogs }) {
+  const bundles = new Set()
+  const register = (url) => {
+    const key = typeof url === 'string' ? keyOfUrl(url) : null
+    if (key !== null) bundles.add(key)
+  }
+  const query = new URL(client.request.url, 'http://localhost').searchParams
+  register(`http://localhost/${query.get('bundleEntry') ?? ''}?platform=${encodeURIComponent(query.get('platform') ?? '')}`)
+  hotClients.set(client, bundles)
+  return { onMessage: (text) => onHotMessage(client, text, { log, clientLogs, register }), onClose: () => hotClients.delete(client) }
+}
+
 // HMRClient's messages, as Metro's HmrServer answers them but for updates:
 // an initial update of nothing, which tells it it's connected.
-function onHotMessage(client, text, { log, clientLogs }) {
+function onHotMessage(client, text, { log, clientLogs, register }) {
   let data
   try {
     data = JSON.parse(text)
@@ -193,6 +220,7 @@ function onHotMessage(client, text, { log, clientLogs }) {
     return
   }
   if (data?.type === 'register-entrypoints') {
+    if (Array.isArray(data.entryPoints)) data.entryPoints.forEach(register)
     for (const message of [{ type: 'update-start', body: { isInitialUpdate: true } }, { type: 'update-done', body: {} }, { type: 'bundle-registered' }]) client.send(JSON.stringify(message))
   } else if (data?.type === 'heartbeat') {
     client.send(text)
