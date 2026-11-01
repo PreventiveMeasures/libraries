@@ -323,6 +323,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'babel.config.js': config({}),
     'main.ts': [
       "import { type Effect } from './effect'",
+      "import { hook } from './hook'",
       "import { view } from './view'",
       "import { pragma } from './pragma'",
       "import { inline } from './inline'",
@@ -331,12 +332,15 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       "import Button from './ButtonNativeComponent'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
       'const button = { name: (Button as any).name, color: (Button as any).config.validAttributes.color }',
-      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields, button }))',
+      'console.log(JSON.stringify({ effects, hook, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields, button }))',
       '',
     ].join('\n'),
     // Has a side effect; imported only for its type.
     'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
     'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
+    // The JSX pragma's import, with no JSX: unused.
+    'hook.tsx': "import { h } from './factory'\nexport const hook = 'hook'\n",
+    'factory.ts': ";((globalThis as any).effects ??= []).push('factory')\nexport const h = () => null\n",
     'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
     'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
     'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
@@ -371,11 +375,11 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   }
 
   it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
-    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], hook: 'hook', view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
   })
 
   it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {
-    assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect'])
+    assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect', 'factory'])
   })
 
   it('keeps a field with no value, with allowDeclareFields, its class left to Babel', () => {
