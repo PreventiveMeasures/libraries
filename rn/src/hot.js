@@ -53,8 +53,9 @@ const same = (a, b) => a.factory === b.factory && a.name === b.name && a.deps.le
 
 // What changed from `before` to `after`, builds of one bundle. -> the body of
 // Metro's `update` message, for the client of `clientUrl`, or null where
-// nothing did.
-export function hotUpdate(before, after, clientUrl) {
+// nothing did, unless `always`: then one of nothing, which tells the client
+// a build failed no more.
+export function hotUpdate(before, after, clientUrl, { always = false } = {}) {
   const added = []
   const modified = []
   for (const [id, record] of after.modules) {
@@ -63,7 +64,7 @@ export function hotUpdate(before, after, clientUrl) {
     else if (!same(was, record)) modified.push(record)
   }
   const deleted = [...before.modules.keys()].filter((id) => !after.modules.has(id))
-  if (added.length + modified.length + deleted.length === 0) return null
+  if (added.length + modified.length + deleted.length === 0 && !always) return null
   const dependents = new Map()
   for (const record of after.modules.values()) {
     for (const dep of record.deps) {

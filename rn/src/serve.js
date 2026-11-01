@@ -87,7 +87,7 @@ function readBody(request) {
 }
 
 // -> { server, broadcast(method), hotError(error, requests),
-// hotUpdate(request, before, after), mount({ middleware,
+// hotUpdate(request, before, after, { recovered }), mount({ middleware,
 // websocketEndpoints }), clients() }
 export function createDevServer({ projectRoot, esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
   let middleware = null
@@ -170,7 +170,7 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
   const mount = (mounted) => {
     ;({ middleware, websocketEndpoints } = mounted)
   }
-  return { server, broadcast, hotError, hotUpdate: (request, before, after) => sendUpdate(hotClients, request, before, after), mount, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
+  return { server, broadcast, hotError, hotUpdate: (request, before, after, options) => sendUpdate(hotClients, request, before, after, options), mount, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
 }
 
 async function serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot }) {
@@ -182,13 +182,14 @@ async function serveBundle(request, response, bundle, { devBundler, esbuild, pro
   return reply(request, response, 200, `${outcome.js}//# sourceMappingURL=${bundle.sourceMapUrl}\n//# sourceURL=${bundle.sourceUrl}\n`, { 'Content-Type': JS })
 }
 
-// What changed in a bundle, from the build its apps have, to each. -> how
-// many it went to.
-function sendUpdate(hotClients, request, before, after) {
+// What changed in a bundle, from the build its apps have, to each; with
+// `recovered`, though nothing did, as an app shows a build error until an
+// update. -> how many it went to.
+function sendUpdate(hotClients, request, before, after, { recovered = false } = {}) {
   const key = bundleKey(request)
   let sent = 0
   for (const [client, bundles] of hotClients) {
-    const body = bundles.has(key) ? hotUpdate(before, after, bundles.get(key)) : null
+    const body = bundles.has(key) ? hotUpdate(before, after, bundles.get(key), { always: recovered }) : null
     if (body === null) continue
     for (const message of [{ type: 'update-start', body: { isInitialUpdate: false } }, { type: 'update', body }, { type: 'update-done', body: {} }]) client.send(JSON.stringify(message))
     sent++

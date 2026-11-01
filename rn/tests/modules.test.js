@@ -181,6 +181,8 @@ describe('the module format', () => {
       const inverse = JSON.parse(/,(\{[^}]*\})\);\n\/\/# sourceMappingURL/u.exec(code)[1])
       assert.deepEqual(inverse, { [id]: [idOf('Greeting.js')], [idOf('Greeting.js')]: [idOf('index.js')], [idOf('index.js')]: [] })
       assert.equal(hotUpdate(second, second, CLIENT), null)
+      // Unless the client is to know a build failed no more.
+      assert.deepEqual(hotUpdate(second, { ...second, version: 3 }, CLIENT, { always: true }), { revisionId: '3', isInitialUpdate: false, added: [], modified: [], deleted: [] })
     } finally {
       restore()
     }

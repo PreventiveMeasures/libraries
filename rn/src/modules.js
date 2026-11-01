@@ -32,7 +32,7 @@ const lineCount = (text) => {
 const nameOf = (projectRoot, key) => (key === EMPTY ? EMPTY : relative(projectRoot, key).replaceAll('\\', '/'))
 
 // -> { rebuild(), dispose() }, as createBundler's; rebuild() -> { js, map,
-// modules, entryId, assets, files }, or throws as esbuild does, the error's
+// modules, entryId, scripts, assets, files }, or throws as esbuild does, the error's
 // `errors` esbuild's and `files` those read. `modules`: Map<id, { id, key,
 // name, deps, factory }>, `deps` the ids of its dependency map. `ids`:
 // Map<key, id> of each module's id, a file's by its path, kept from build to
@@ -105,7 +105,8 @@ async function graphOf(run, state, { scripts, prelude }) {
   const modules = new Map()
   for (const record of await Promise.all(pending.values())) modules.set(record.id, record)
   const runs = [...before.map(({ key }) => key), entryKey].map(run.idOf)
-  return { ...serialize({ prelude, scripts: built, modules, runs }), modules, entryId: run.idOf(entryKey), assets: [...state.assets.keys()].toSorted().map((path) => state.assets.get(path)), files: [...state.read] }
+  // The scripts, which no update can define anew, as they are.
+  return { ...serialize({ prelude, scripts: built, modules, runs }), modules, entryId: run.idOf(entryKey), scripts: built.map(({ text }) => text).join(''), assets: [...state.assets.keys()].toSorted().map((path) => state.assets.get(path)), files: [...state.read] }
 }
 
 // The module a resolution is: { key, kind }, a file's key its path, an

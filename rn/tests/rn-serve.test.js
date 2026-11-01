@@ -494,10 +494,37 @@ describe('rn-serve, with Fast Refresh', () => {
       writeFileSync(where, "export const where = 'ios, fixed'\n")
       await until(() => hot.messages.filter(({ type: kind }) => kind === 'update').length === 2, 'an update once fixed')
       assert.match(hot.messages.findLast(({ type: kind }) => kind === 'update').body.modified[0].module[1], /"ios, fixed"/u)
+      // Fixed as it was: an update of nothing, which takes the error off the app.
+      writeFileSync(where, "export const where = 'ios\n")
+      await until(() => hot.messages.filter(({ type: kind }) => kind === 'error').length === 2, 'a second build error')
+      writeFileSync(where, "export const where = 'ios, fixed'\n")
+      await until(() => hot.messages.filter(({ type: kind }) => kind === 'update').length === 3, 'an update of nothing once fixed as it was')
+      const { added, modified, deleted } = hot.messages.findLast(({ type: kind }) => kind === 'update').body
+      assert.deepEqual([added, modified, deleted, hot.messages.at(-1)], [[], [], [], { type: 'update-done', body: {} }])
     } finally {
       writeFileSync(where, APP['lib/where.ios.js'])
       message.ws.close()
       hot.ws.close()
+    }
+  })
+
+  it('reloads the apps where a polyfill changes, which no update defines anew', async () => {
+    const alone = await serve(root)
+    const polyfill = join(root, 'node_modules/@react-native/metro-config/node_modules/@react-native/js-polyfills/polyfill.js')
+    try {
+      await fetchRaw(`${alone.url}/index.bundle?platform=ios`)
+      const message = await socket(`${alone.url}/message`)
+      const hot = await socket(`${alone.url}/hot?bundleEntry=index.bundle&platform=ios`)
+      hot.ws.send(JSON.stringify({ type: 'register-entrypoints', entryPoints: [`${alone.url}/index.bundle?platform=ios`] }))
+      await until(() => hot.messages.length === 3, 'bundle-registered')
+      writeFileSync(polyfill, `${APP['node_modules/@react-native/metro-config/node_modules/@react-native/js-polyfills/polyfill.js']};(global.order ??= []).push('again')\n`)
+      await until(() => message.messages.length > 0, 'a reload')
+      assert.deepEqual([message.messages, hot.messages.length], [[{ version: 2, method: 'reload' }], 3])
+      message.ws.close()
+      hot.ws.close()
+    } finally {
+      writeFileSync(polyfill, APP['node_modules/@react-native/metro-config/node_modules/@react-native/js-polyfills/polyfill.js'])
+      await alone.stop()
     }
   })
 

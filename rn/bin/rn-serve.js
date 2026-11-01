@@ -90,14 +90,16 @@ const devBundler = createDevBundler({
 const devServer = createDevServer({ projectRoot, esbuild, devBundler, gate, log, clientLogs: values['client-logs'] })
 
 // A change: each bundle built anew; the apps of one in the module format get
-// what changed from the build they have, those of another reload where it is
-// new, and each sees the error where one fails.
+// what changed from the build they have (once a build no longer fails, though
+// nothing did), those of another, or of one whose scripts changed (a
+// polyfill), which no update defines anew, reload where it is new; and each
+// sees the error where one fails.
 const refreshOnce = async () => {
   let reload = false
   let updated = 0
   const errors = new Map()
   for (const { request, before, after, good } of await devBundler.refresh()) {
-    if (after.ok && after.modules !== undefined && good?.modules !== undefined) updated += devServer.hotUpdate(request, good, after)
+    if (after.ok && after.modules !== undefined && good?.modules !== undefined && after.scripts === good.scripts) updated += devServer.hotUpdate(request, good, after, { recovered: !before.ok })
     else if (after.ok && (!before.ok || before.js !== after.js)) reload = true
     if (after.ok || before === after) continue
     const error = await bundlingError(esbuild, after.errors, projectRoot)

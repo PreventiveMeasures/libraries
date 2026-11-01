@@ -164,7 +164,7 @@ async function run({ projectRoot, onBuild }, build, at) {
     const result = await bundler.rebuild()
     const { outputFiles, assets, files } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text
-    const built = result.modules === undefined ? { js: text('.js'), map: text('.map') } : { js: result.js, map: result.map, modules: result.modules, entryId: result.entryId }
+    const built = result.modules === undefined ? { js: text('.js'), map: text('.map') } : { js: result.js, map: result.map, modules: result.modules, entryId: result.entryId, scripts: result.scripts }
     build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files) }, projectRoot)
     build.good = build.last
   } catch (error) {
