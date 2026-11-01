@@ -19,6 +19,7 @@ import { parseArgs } from 'node:util'
 
 import { assetsDestFiles } from '../src/assets-dest.js'
 import { createAliases } from '../src/babel-aliases.js'
+import { babelWorkers } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
 import { defaults, diskHost } from '../src/defaults.js'
 import { metroAssetExts, scanMetroAssetExts } from '../src/metro-config.js'
@@ -104,21 +105,17 @@ function assetExts() {
 function projectBabel() {
   const configFile = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
   if (configFile === undefined) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
-  let core
-  try {
-    core = fromProject('@babel/core')
-  } catch (cause) {
-    if (cause?.code !== 'MODULE_NOT_FOUND') throw cause
-    fail('--babel needs @babel/core installed in the project')
-  }
+  const corePath = locate(fromProject, '@babel/core')
+  if (corePath === null) fail('--babel needs @babel/core installed in the project')
+  const core = fromHere(corePath)
   const caller = { name: 'metro', bundler: 'metro', platform: values.platform }
   // The env Metro's transformer names, which plugins read for a release
   // build: react-native-worklets omits each worklet's location and source map.
   const envName = values.dev ? 'development' : process.env.BABEL_ENV || 'production'
-  const options = (filename) => ({ cwd, root: cwd, configFile, filename, caller, envName })
+  const options = { cwd, root: cwd, configFile, caller, envName }
   return {
-    transform: async (source, filename) => (await core.transformAsync(source, { ...options(filename), compact: false })).code,
-    typescript: async (filename) => (await core.loadOptionsAsync(options(filename)))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
+    transform: babelWorkers(corePath, { ...options, compact: false }),
+    typescript: async (filename) => (await core.loadOptionsAsync({ ...options, filename }))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
     comments: async (source, filename) => {
       const plugins = ['typescript', 'decorators', ...(filename.endsWith('.tsx') ? ['jsx'] : [])]
       return (await core.parseAsync(source, { babelrc: false, configFile: false, filename, parserOpts: { plugins } })).comments.map(({ value }) => value)

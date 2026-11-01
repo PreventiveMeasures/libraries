@@ -45,6 +45,7 @@
     "src/assets-dest.js",
     "src/assets.js",
     "src/babel-aliases.js",
+    "src/babel-worker.js",
     "src/bundle.js",
     "src/defaults.js",
     "src/exports.js",
