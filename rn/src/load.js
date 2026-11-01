@@ -80,9 +80,12 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
     }
     const esModule = esm !== false && !esm.has(path) && !(MODULE_SYNTAX.test(source.code) && COMMONJS_NAMES.test(source.code))
     try {
+      const transformed = await babel(source.code, path, esModule ? [...source.without, COMMONJS] : source.without)
+      const { code, imports = [] } = typeof transformed === 'string' ? { code: transformed } : transformed
       // TS, as Babel makes it JS, loaded as TS by esbuild, which then takes an
       // export of what it finds no export of for a type's, as it takes TS.
-      return { contents: await babel(source.code, path, esModule ? [...source.without, COMMONJS] : source.without), loader: loader === 'ts' || loader === 'tsx' ? 'ts' : 'js' }
+      // The specifiers of its imports, for the require calls made of them.
+      return { contents: code, loader: loader === 'ts' || loader === 'tsx' ? 'ts' : 'js', ...(imports.length > 0 && { pluginData: { imports } }) }
     } catch (error) {
       // In the file Babel failed on, not at the import esbuild loaded it by;
       // at Babel's line where it had the file as it is, not esbuild's output.

@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
 
+import { babelWorkers } from '../src/babel-worker.js'
 import { bundleRequest } from '../src/bundle-url.js'
 import { hotUpdate, moduleName, moduleUrls } from '../src/hot.js'
 import { createModuleBundler } from '../src/modules.js'
@@ -235,6 +236,25 @@ describe('the module format, with metro-runtime 0.81 (react-native 0.78)', () =>
 
   it("reloads where esbuild makes one CommonJS, its exports getters, which this runtime takes for no boundary", async () => {
     assert.deepEqual(await edited('Card.js', "'card'", "'Card'"), [0, 1])
+  })
+})
+
+describe("the module format, of the project's Babel output, its imports require calls", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'index.js': "import cond from 'cond'\nglobalThis.app = { cond, required: require('./required') }\n",
+    'required.js': "module.exports = require('cond')\n",
+    // As the package's exports have it, for an import and for a require call.
+    'node_modules/cond/package.json': { name: 'cond', exports: { import: './esm.js', require: './cjs.js' } },
+    'node_modules/cond/esm.js': "export default 'import'\n",
+    'node_modules/cond/cjs.js': "module.exports = 'require'\n",
+  })
+  after(cleanup)
+
+  it('resolves an import Babel makes a require call as an ESM import, as Metro does', async () => {
+    const babel = babelWorkers(fileURLToPath(import.meta.resolve('@babel/core')), { babelrc: false, configFile: false, compact: false, plugins: [fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))] })
+    const { js } = await createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, babel }).rebuild()
+    assert.deepEqual(value(run(js).context, 'app'), { cond: 'import', required: 'require' })
   })
 })
 
