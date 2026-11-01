@@ -307,11 +307,11 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
 })
 
 describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
-  // As @react-native/babel-preset has the TS plugin, for .ts and .tsx;
-  // __FIELDS__ is the number of class fields Babel gets.
+  // As @react-native/babel-preset has the TS plugin, for .ts and .tsx, and
+  // its codegen; __FIELDS__ is the number of class fields Babel gets.
   const config = (options) => [
     'module.exports = {',
-    "  plugins: [['@babel/plugin-transform-react-jsx', { pragma: 'h' }], ({ types: t }) => ({ pre() { this.fields = 0 }, visitor: { ClassProperty() { this.fields++ }, Identifier(path) { if (path.node.name === '__FIELDS__') path.replaceWith(t.numericLiteral(this.fields)) } } })],",
+    "  plugins: ['@react-native/babel-plugin-codegen', ['@babel/plugin-transform-react-jsx', { pragma: 'h' }], ({ types: t }) => ({ pre() { this.fields = 0 }, visitor: { ClassProperty() { this.fields++ }, Identifier(path) { if (path.node.name === '__FIELDS__') path.replaceWith(t.numericLiteral(this.fields)) } } })],",
     '  overrides: [',
     `    { test: /\\.ts$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify(options)}]] },`,
     `    { test: /\\.tsx$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify({ ...options, isTSX: true })}]] },`,
@@ -328,8 +328,10 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       "import { inline } from './inline'",
       "import { strings } from './strings'",
       "import { Child, fields } from './fields'",
+      "import Button from './ButtonNativeComponent'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
-      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields }))',
+      'const button = { name: (Button as any).name, color: (Button as any).config.validAttributes.color }',
+      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields, button }))',
       '',
     ].join('\n'),
     // Has a side effect; imported only for its type.
@@ -341,9 +343,24 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     // A pragma in a string isn't one; a real one may follow a URL's `//`.
     'strings.tsx': "import { h as r } from './h'\nexport const text = '/* @jsx nope */', url = 'https://example.com' /** @jsx r */\nexport const strings = () => <s>{text}</s>\n",
     'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\nexport const fields = __FIELDS__\n",
+    // The codegen makes a view config of the props it reads off the spec's types.
+    'ButtonNativeComponent.ts': [
+      "import type { ViewProps } from 'react-native'",
+      "import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent'",
+      'interface NativeProps extends ViewProps {',
+      '  color?: string',
+      '}',
+      "export default codegenNativeComponent<NativeProps>('Button')",
+      '',
+    ].join('\n'),
+    'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' },
+    'node_modules/react-native/Libraries/Utilities/codegenNativeComponent.js': 'module.exports = (name) => name\n',
+    'node_modules/react-native/Libraries/NativeComponent/NativeComponentRegistry.js': 'exports.get = (name, config) => ({ name, config: config() })\n',
+    'node_modules/react-native/Libraries/NativeComponent/ViewConfigIgnore.js': 'exports.ConditionallyIgnoredEventHandlers = (handlers) => handlers\n',
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/plugin-transform-typescript': linked('@babel/plugin-transform-typescript'),
+    'node_modules/@react-native/babel-plugin-codegen': linked('@react-native/babel-plugin-codegen'),
   })
   after(cleanup)
   const build = (options) => {
@@ -354,7 +371,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   }
 
   it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
-    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0 })
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
   })
 
   it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {

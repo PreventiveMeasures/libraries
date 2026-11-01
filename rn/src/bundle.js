@@ -122,9 +122,11 @@ async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, bab
   const loader = jsx && JS.has(extname(path)) ? 'jsx' : (LOADERS.get(extname(path)) ?? 'js')
   const contents = decoder.decode(host.readFile(path))
   if (babel !== null && loader !== 'json') {
-    let source
+    let source = contents
     try {
-      source = loader === 'ts' || loader === 'tsx' ? await typescript({ esbuild, babelTypescript, babelComments }, contents, loader, path) : await javascript({ esbuild, stripFlow }, contents, path)
+      // @react-native/babel-preset's codegen reads a native component's props
+      // off its types, in each file that names codegenNativeComponent.
+      if (!contents.includes('codegenNativeComponent')) source = loader === 'ts' || loader === 'tsx' ? await typescript({ esbuild, babelTypescript, babelComments }, contents, loader, path) : await javascript({ esbuild, stripFlow }, contents, path)
     } catch (error) {
       if (error?.code === 'BABEL_PARSE_ERROR') return { errors: [{ text: `Babel: ${error.message}` }] }
       if (!Array.isArray(error?.errors)) throw error
