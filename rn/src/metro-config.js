@@ -1,31 +1,76 @@
-// A metro.config.js, read off its ESTree AST, never run (its getDefaultConfig
-// needs Metro).
+// A metro.config.js's assetExts, read off it: running it needs Metro.
 
-import { literalString, readLists } from './config-lists.js'
+const LIST_METHODS = new Set(['concat', 'filter', 'slice'])
 
-const ASSET_LISTS = new Map([['assetExts', 'asset']])
+function walk(node, fn) {
+  if (Array.isArray(node)) {
+    for (const child of node) walk(child, fn)
+  } else if (typeof node?.type === 'string') {
+    fn(node)
+    for (const child of Object.values(node)) walk(child, fn)
+  }
+}
 
-// The extensions the config lists among `resolver.assetExts`, besides
-// Metro's defaults it spreads in: `assetExts: [...defaults, 'riv']`,
-// `config.resolver.assetExts.push('riv')`. One it filters out is still listed.
+const string = (node) => (node.type === 'Literal' && typeof node.value === 'string' ? node.value
+  : node.type === 'TemplateLiteral' && node.expressions.length === 0 ? node.quasis[0].value.cooked
+  : null)
+const method = (node) => (node.type === 'CallExpression' && node.callee.type === 'MemberExpression' && !node.callee.computed ? node.callee.property.name : undefined)
+const named = (node) => (node.type === 'Identifier' ? node.name : node.type === 'MemberExpression' && !node.computed ? node.property.name : undefined)
+
+// Strings only: what it spreads in is Metro's defaults.
 export function metroAssetExts(program) {
+  const declarators = []
+  walk(program, (node) => {
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init) declarators.push(node)
+  })
+  const inits = Map.groupBy(declarators, ({ id }) => id.name)
   const exts = new Set()
-  readLists(program, ASSET_LISTS, (_, node) => {
-    const ext = literalString(node)
-    if (ext !== null) exts.add(ext)
+  const seen = new Set()
+  // `list`: whether `node` is a list of extensions or one of them.
+  const read = (node, list) => {
+    if (!node || seen.has(node)) return
+    seen.add(node)
+    if (node.type === 'ParenthesizedExpression') {
+      read(node.expression, list)
+    } else if (node.type === 'Identifier') {
+      for (const { init } of inits.get(node.name) ?? []) read(init, list)
+    } else if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') {
+      for (const side of node.type === 'LogicalExpression' ? [node.left, node.right] : [node.consequent, node.alternate]) read(side, list)
+    } else if (list && node.type === 'ArrayExpression') {
+      readEach(node.elements)
+    } else if (list && LIST_METHODS.has(method(node))) {
+      read(node.callee.object, true)
+      if (method(node) === 'concat') for (const arg of node.arguments) read(arg, true)
+    } else if (string(node) !== null) {
+      exts.add(string(node))
+    }
+  }
+  const readEach = (nodes) => {
+    for (const node of nodes) {
+      if (node?.type === 'SpreadElement') read(node.argument, true)
+      else read(node, false)
+    }
+  }
+  walk(program, (node) => {
+    const [name, value] = node.type === 'Property' && !node.computed ? [node.key.name ?? node.key.value, node.value]
+      : node.type === 'VariableDeclarator' ? [named(node.id), node.init]
+      : node.type === 'AssignmentExpression' ? [named(node.left), node.right]
+      : []
+    if (name === 'assetExts') read(value, true)
+    else if (['push', 'unshift'].includes(method(node)) && named(node.callee.object) === 'assetExts') readEach(node.arguments)
   })
   return [...exts]
 }
 
-// The form read with no parser: `assetExts: [...defaults.assetExts, 'riv']`.
-const SPREAD_AND_STRINGS = /assetExts\s*:\s*\[\s*\.\.\.[\w$.?]+\.assetExts((?:\s*,\s*(?:'[^'\\\n]*'|"[^"\\\n]*"))*)\s*,?\s*\]/gu
+// Not after `//`: a line commented out isn't config.
+const SPREAD_AND_STRINGS = /(?<!\/\/[^\n]*)assetExts\s*:\s*\[\s*\.\.\.[\w$.?]+\.assetExts((?:\s*,\s*(?:'[\w.-]+'|"[\w.-]+"))*)\s*,?\s*\]/gu
 
-// With no parser: the extensions listed where the config names `assetExts`
-// in that form alone (each match names it twice); none where it names it
-// nowhere. Null where it names it otherwise, which needs metroAssetExts.
+// Any other mention of assetExts could change the list in ways only a parser sees.
 export function scanMetroAssetExts(source) {
-  const mentions = source.split('assetExts').length - 1
-  const matches = [...source.matchAll(SPREAD_AND_STRINGS)]
-  if (mentions !== matches.length * 2) return null
-  return [...new Set(matches.flatMap(([, strings]) => [...strings.matchAll(/'([^']*)'|"([^"]*)"/gu)].map(([, single, double]) => single ?? double)))]
+  const exts = []
+  const rest = source.replaceAll(SPREAD_AND_STRINGS, (_, strings) => {
+    exts.push(...(strings.match(/[\w.-]+/gu) ?? []))
+    return ''
+  })
+  return rest.includes('assetExts') ? null : [...new Set(exts)]
 }

@@ -23,6 +23,8 @@ const CONFIGS = [
   ['no assetExts', ["module.exports = { resolver: { sourceExts: ['ts'] } }"], [], []],
   ['several strings, a trailing comma', ["module.exports = { resolver: { assetExts: [ ...defaults.assetExts, 'riv', \"lottie\", ] } }"], ['riv', 'lottie'], ['riv', 'lottie']],
   ['pushed', ["config.resolver.assetExts.push('lottie')"], ['lottie'], null],
+  ['a quoted key', ["module.exports = { resolver: { 'assetExts': [...defaults.assetExts, 'riv'] } }"], ['riv'], null],
+  ['commented out', ["// assetExts: [...defaults.assetExts, 'svg'],", "module.exports = { assetExts: [...defaults.assetExts, 'riv'] }"], ['riv'], null],
   ['also in a comment', ['// assetExts: also lottie, below', "module.exports = { assetExts: [...defaults.assetExts, 'riv'] }"], ['riv'], null],
   ['through a variable and a branch', ["const extra = ['riv']", 'module.exports = { resolver: { assetExts: [...base, ...(web ? [] : extra)] } }'], ['riv'], null],
   ['filtered, then concatenated', ["const c = { resolver: { assetExts: base.filter((ext) => ext !== 'svg').concat(['riv']) } }"], ['riv'], null],

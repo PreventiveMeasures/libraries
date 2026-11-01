@@ -1,10 +1,8 @@
-import type { Node } from './config-lists.js'
+// The extensions a metro.config.js adds to Metro's assetExts, off its ESTree
+// program (oxc-parser's), never run. One it filters out is still listed.
+export function metroAssetExts(program: object): string[]
 
-// The extensions a metro.config.js's AST lists among `resolver.assetExts`,
-// besides Metro's defaults it spreads in; never run.
-export function metroAssetExts(program: Node): string[]
-
-// The same with no parser, where the config names `assetExts` only as
-// `assetExts: [...defaults.assetExts, 'riv']` (or not at all); null where it
-// names it otherwise, which needs metroAssetExts.
+// The same off its source, where it names assetExts only as
+// `assetExts: [...defaultConfig.resolver.assetExts, 'riv']`; else null, for
+// metroAssetExts to read.
 export function scanMetroAssetExts(source: string): string[] | null
