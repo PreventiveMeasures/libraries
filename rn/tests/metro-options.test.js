@@ -70,6 +70,12 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal((await load('{ server: { port: 8088 } }', { serving: true })).port, 8088)
   })
 
+  it("keeps, where it doesn't minify, the error a minifier's options are for a minified bundle", async () => {
+    const options = await load('{ transformer: { minifierConfig: { mangle: false } } }', { serving: true })
+    assert.match(options.minifyRefusal, /\.config\.js: transformer\.minifierConfig is \{"mangle":false\}: rn-bundle does it as Metro's default alone$/u)
+    assert.equal((await load('{}', { serving: true })).minifyRefusal, null)
+  })
+
   it('leaves an option Metro has none of, as Metro does (it warns), and those of no bearing on what is built', async () => {
     assert.equal(typeof (await load("{ transformer: { svgAssetPlugin: true }, watchFolders: ['..'], maxWorkers: 1, resolver: { useWatchman: false }, watcher: { additionalExts: ['cts'] } }")), 'object')
   })

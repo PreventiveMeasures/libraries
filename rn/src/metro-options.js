@@ -122,22 +122,30 @@ function fallback(project, fail) {
     assetRegistryPath: null,
     babelRCLookup: true,
     port: null,
+    minifyRefusal: null,
   }
 }
 
 // Metro's defaults, and @react-native/metro-config's over them where the
-// project has it.
+// project has it, and it loads.
 async function baselinesOf(metro, project, cwd) {
   const metroDefaults = await metro.getDefaultConfig(cwd)
   const reactNative = locateThrough(project, '@react-native/metro-config')
-  return reactNative === null ? [metroDefaults] : [metroDefaults, metro.mergeConfig(metroDefaults, project.load(reactNative).getDefaultConfig(cwd))]
+  if (reactNative === null) return [metroDefaults]
+  try {
+    return [metroDefaults, metro.mergeConfig(metroDefaults, project.load(reactNative).getDefaultConfig(cwd))]
+  } catch {
+    return [metroDefaults]
+  }
 }
 
 // The project's Metro config (`file`, else the one Metro finds), as
 // bundle() and createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
-// assetRegistryPath or null, babelRCLookup, port or null }. `name` is the
-// command's, `serving` whether it serves, `minify` whether it minifies.
+// assetRegistryPath or null, babelRCLookup, port or null, minifyRefusal }.
+// `name` is the command's, `serving` whether it serves, `minify` whether it
+// minifies; where it doesn't, minifyRefusal is the error of the options it
+// would not do if it did (a minifier's), or null.
 export async function metroOptions(cwd, project, fail, { file = null, name, serving = false, minify = false }) {
   if (file !== null && !existsSync(resolve(cwd, file))) fail(`no such Metro config: ${file}`)
   const metroConfig = locateThrough(project, 'metro-config', ['@react-native/metro-config']) ?? locateThrough(project, 'metro-config', ['react-native', '@react-native/community-cli-plugin'])
@@ -156,9 +164,12 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   } catch (error) {
     return fail(`${shown}: ${error.message}`)
   }
-  const unsupported = unsupportedOptions(config, await baselinesOf(metro, project, cwd), { serving, minify })
+  const baselines = await baselinesOf(metro, project, cwd)
+  const unsupported = unsupportedOptions(config, baselines, { serving, minify })
   const why = (path) => (Object.hasOwn(WHY, path) ? `, ${WHY[path]}` : '')
-  if (unsupported.length > 0) fail(unsupported.map((path) => `${shown}: ${path} is ${show(at(config, path), cwd)}${why(path)}: ${name} does it as Metro's default alone`).join(`\n${name}: `))
+  const errorOf = (paths) => paths.map((path) => `${shown}: ${path} is ${show(at(config, path), cwd)}${why(path)}: ${name} does it as Metro's default alone`).join(`\n${name}: `)
+  if (unsupported.length > 0) fail(errorOf(unsupported))
+  const minifying = minify ? [] : unsupportedOptions(config, baselines, { serving, minify: true }).filter((path) => !unsupported.includes(path))
   const { resolver, serializer, transformer, server } = config
   const absolute = (path) => (isAbsolute(path) ? path : resolve(config.projectRoot ?? cwd, path))
   return {
@@ -181,5 +192,6 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     assetRegistryPath: transformer.assetRegistryPath === 'missing-asset-registry-path' ? null : transformer.assetRegistryPath,
     babelRCLookup: transformer.enableBabelRCLookup !== false,
     port: server?.port ?? null,
+    minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
   }
 }

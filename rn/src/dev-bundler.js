@@ -28,9 +28,10 @@ export const inside = (root, path) => {
 // request, outcome, ms })` after each build.
 // Of Metro's config: `resolver` and `blockList` as bundle() takes them,
 // `polyfills` a list or a function of the platform to one, `runBeforeMain`
-// null or a function of the entry's path to the modules run before it, and
-// `assetRegistryPath`.
-export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, assetExts = defaults.assetExts, resolver = {}, blockList = null, polyfills = [], runBeforeMain = null, assetRegistryPath = null, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
+// null or a function of the entry's path to the modules run before it,
+// `assetRegistryPath`, and `minifyRefusal`, where its minifier's options are
+// not done, the error each minified bundle fails with.
+export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, assetExts = defaults.assetExts, resolver = {}, blockList = null, polyfills = [], runBeforeMain = null, assetRegistryPath = null, minifyRefusal = null, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
   const config = { projectRoot, esbuild, targetOptions, host, assetExts, resolver, blockList, polyfills, runBeforeMain, assetRegistryPath, runtime, onBuild, caches: new Map(), ids: new Map() }
   const builds = new Map()
   let version = 0
@@ -73,6 +74,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   // bundle that has it, alone.
   const get = (request) => {
     if (request.shallow) return moduleOutcome(builds, request, projectRoot)
+    if (request.minify && minifyRefusal !== null) return { ok: false, version, errors: [{ text: minifyRefusal, location: null }], files: new Set() }
     const entry = entryOf(config, request)
     if (entry === null) return null
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')

@@ -81,6 +81,7 @@ const devBundler = createDevBundler({
   polyfills: metro.polyfills,
   runBeforeMain: metro.runBeforeMain,
   assetRegistryPath: metro.assetRegistryPath,
+  minifyRefusal: metro.minifyRefusal,
   runtime,
   targetOptions: ({ platform, dev }) => ({
     stripFlow,

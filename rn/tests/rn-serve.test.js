@@ -558,6 +558,23 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
   })
 })
 
+describe('rn-serve, with a Metro config of a minifier of its own', () => {
+  const { root, cleanup } = writeTree({ ...APP, 'metro.config.js': 'module.exports = { transformer: { minifierConfig: { mangle: false } } }\n', 'node_modules/metro-config': linked('metro-config') })
+  after(cleanup)
+
+  it("serves a bundle, but no minified one, which esbuild would minify as the config doesn't have it", async () => {
+    const server = await serve(root)
+    try {
+      assert.equal((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).status, 200)
+      const minified = await fetchRaw(`${server.url}/index.bundle?platform=ios&minify=true`)
+      assert.equal(minified.status, 500)
+      assert.match(JSON.parse(String(minified.body)).message, /transformer\.minifierConfig is \{"mangle":false\}: rn-serve does it as Metro's default alone/u)
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
 describe('rn-serve flags', () => {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'aliases.json': {}, 'babel.config.js': 'module.exports = {}\n', 'node_modules/@babel/core': linked('@babel/core') })
   after(cleanup)
