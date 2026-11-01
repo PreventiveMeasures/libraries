@@ -127,6 +127,8 @@ if (workerData?.babel !== undefined) {
     const [counted, time, worked] = map.get(key) ?? [0, 0, false]
     map.set(key, [counted + calls, time + ms, worked || works])
   }
+  // Whether the call under way was a gated visitor's that didn't run (gate()).
+  let skipped = false
   const timed = (key, fn, works = true) =>
     function (...args) {
       const start = performance.now()
@@ -137,7 +139,8 @@ if (workerData?.babel !== undefined) {
       } finally {
         depth--
         const elapsed = performance.now() - start
-        add(spent, key, elapsed - (inner - before), works)
+        add(spent, key, elapsed - (inner - before), works && !skipped, skipped ? 0 : 1)
+        skipped = false
         inner = before + elapsed
       }
     }
@@ -175,45 +178,35 @@ if (workerData?.babel !== undefined) {
   // babel-plugin-module-resolver traverses each file on Program's enter and
   // exit, but rewrites nothing where no string in it names an alias, as its
   // options, normalized by its pre hook for the file, have each, with no
-  // `root` and no `resolvePath` of its own: those traversals run only where
-  // one does, checked by a walk of the file's nodes as each would start,
-  // with what other plugins added by then. Its walks are its time, not its
-  // calls.
+  // `root` and no `resolvePath` of its own: each instance's traversals run
+  // only where one does, checked by a walk of the file's nodes as each would
+  // start, with what other plugins added by then. A walk alone is its time,
+  // not a call of it (timed()).
   const RESOLVER = 'module-resolver'
-  let resolving = null
-  const passed = new WeakSet()
-  const passResolver = (plugin) => {
-    if (plugin.key !== RESOLVER || passed.has(plugin) || typeof plugin.pre !== 'function') return
-    passed.add(plugin)
-    const { pre } = plugin
-    plugin.pre = function (...args) {
-      const result = pre.apply(this, args)
-      resolving = this.normalizedOpts
-      return result
-    }
-  }
-  const aliases = (node, alias) => {
+  const gated = new WeakSet()
+  const names = (node, options) => {
+    if (options?.root?.length !== 0 || options.customResolvePath !== undefined || !Array.isArray(options.alias) || !options.alias.every(([regExp]) => regExp instanceof RegExp)) return true
     let named = false
     core.types.traverseFast(node, (child) => {
-      named ||= child.type === 'StringLiteral' && alias.some(([regExp]) => regExp.test(child.value))
+      named ||= child.type === 'StringLiteral' && options.alias.some(([regExp]) => regExp.test(child.value))
     })
     return named
   }
-  const names = (node) => {
-    const options = resolving
-    if (options?.root?.length !== 0 || options.customResolvePath !== undefined || !Array.isArray(options.alias) || !options.alias.every(([regExp]) => regExp instanceof RegExp)) return true
-    if (!profile) return aliases(node, options.alias)
-    const start = performance.now()
-    const named = aliases(node, options.alias)
-    add(spent, RESOLVER, performance.now() - start, false, 0)
-    return named
+  const gate = (fn) =>
+    function (path, ...rest) {
+      // `this`, the instance's pass, with its options for the file.
+      if (names(path.node, this?.normalizedOpts)) return fn.call(this, path, ...rest)
+      skipped = true
+      return undefined
+    }
+  const gateResolver = (plugin) => {
+    const program = plugin.visitor?.Program
+    if (plugin.key !== RESOLVER || gated.has(plugin) || program === undefined) return
+    gated.add(plugin)
+    // Its own, not the Program visitor its instances share.
+    const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map(gate) : fns])
+    plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
-  const aliasing = (key, fn) =>
-    key === RESOLVER
-      ? function (path, ...rest) {
-          return names(path.node) ? fn.call(this, path, ...rest) : undefined
-        }
-      : fn
   // Sync: a worker transforms one file at a time.
   const transform = (source, filename, without) => {
     // The config's plugins, loaded, which transformSync takes as they are.
@@ -221,14 +214,13 @@ if (workerData?.babel !== undefined) {
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
     const plugins = config.plugins.filter(({ key }) => !without.includes(key))
-    plugins.forEach(passResolver)
-    // As the config's own visitor wrapper, if any, makes each; then timed.
-    const wrap = config.wrapPluginVisitorMethod
-    const wrapped = (key, phase, fn) => (wrap === undefined ? fn : wrap(key, phase, fn))
-    if (!profile) return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => aliasing(key, wrapped(key, phase, fn)) })
+    plugins.forEach(gateResolver)
+    if (!profile) return core.transformSync(source, { ...config, plugins })
     plugins.forEach(timeHooks)
     for (const { key } of plugins) spent.set(key, [0, 0, false])
-    return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => aliasing(key, timed(key, wrapped(key, phase, fn))) })
+    // Timed as the config's own visitor wrapper, if any, makes it.
+    const wrap = config.wrapPluginVisitorMethod
+    return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
   }
   // What the config's other plugins leave of let and const after its block
   // scoping plugin, as code they insert once it has run (Reanimated's

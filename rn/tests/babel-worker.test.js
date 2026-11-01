@@ -79,6 +79,14 @@ describe('babelWorkers', () => {
     assert.deepEqual([files, calls], [3, 3 + 4 * 2])
   })
 
+  it("checks each module-resolver's aliases, where the config has more than one", async () => {
+    const resolver = fileURLToPath(import.meta.resolve('babel-plugin-module-resolver'))
+    const plugins = [[resolver, { cwd: root, alias: { '#first': './first' } }, 'first'], [resolver, { cwd: root, alias: { '#second': './second' } }, 'second']]
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, cwd: root, compact: false, plugins })
+    assert.equal((await transform("require('#first/a')", join(root, 'a.js'))).code, 'require("./first/a");')
+    assert.equal((await transform("require('#second/b')", join(root, 'b.js'))).code, 'require("./second/b");')
+  })
+
   it('reports a profile, most time first, with that outside the plugins', () => {
     const plugins = new Map([['/app/node_modules/preset/index.js$0', { files: 1, calls: 1, ms: 1 }], ['transform-x', { files: 2, calls: 30, ms: 6 }]])
     const own = new Map([['parsing', { files: 2, calls: 2, ms: 2 }], ['config', { files: 2, calls: 2, ms: 0.5 }]])
