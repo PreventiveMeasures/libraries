@@ -78,16 +78,20 @@ export function babelAliases(cwd, file, fail) {
   }
 }
 
-// Metro's asset extensions, and those metro.config.js adds: read by its AST
-// where oxc-parser is installed, else in the one form a regex reads.
-export function assetExts(cwd, { locate, load }, fail) {
-  const config = resolve(cwd, 'metro.config.js')
-  if (!existsSync(config)) return defaults.assetExts
+// Metro's asset extensions, and those metro.config.js adds (`file`'s, where
+// given): read by its AST where oxc-parser is installed, else in the one form
+// a regex reads.
+export function assetExts(cwd, { locate, load }, fail, file = null) {
+  const config = resolve(cwd, file ?? 'metro.config.js')
+  if (!existsSync(config)) return file === null ? defaults.assetExts : fail(`no such Metro config: ${file}`)
   const source = readFileSync(config, 'utf8')
   const oxc = locate('oxc-parser')
   const listed = oxc === null ? scanMetroAssetExts(source) : metroAssetExts(load(oxc).parseSync(config, source, { sourceType: 'unambiguous' }).program)
-  return listed === null ? fail('reading the assetExts of metro.config.js needs oxc-parser: npm i -D oxc-parser') : [...defaults.assetExts, ...listed]
+  return listed === null ? fail(`reading the assetExts of ${file ?? 'metro.config.js'} needs oxc-parser: npm i -D oxc-parser`) : [...defaults.assetExts, ...listed]
 }
+
+// The project's babel.config.*: its path, or null.
+export const babelConfigOf = (cwd) => BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file)) ?? null
 
 // The project's babel.config.*, by the project's own @babel/core. -> a
 // function of { platform, dev } to the options bundle() takes of Babel,
@@ -95,8 +99,8 @@ export function assetExts(cwd, { locate, load }, fail) {
 // `sourceMaps` makes each file's output carry its map, inline; `profile`,
 // each target's workers time the config's plugins, as its `profile`.
 export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false } = {}) {
-  const configFile = BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file))
-  if (configFile === undefined) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
+  const configFile = babelConfigOf(cwd)
+  if (configFile === null) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
   const corePath = tryResolve(fromProject, '@babel/core')
   if (corePath === null) fail('--babel needs @babel/core installed in the project')
   const core = load(corePath)

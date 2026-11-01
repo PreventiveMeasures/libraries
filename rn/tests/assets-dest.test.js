@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { assetDestPath, assetsDestFiles, filterPlatformAssetScales } from '../assets-dest.js'
+import { assetCatalogFiles, assetDestPath, assetsDestFiles, filterPlatformAssetScales } from '../assets-dest.js'
 
 const asset = (overrides = {}) => ({ httpServerLocation: '/assets/img', name: 'Logo-1', type: 'png', scales: [1, 2, 3], files: ['/p/img/Logo-1.png', '/p/img/Logo-1@2x.png', '/p/img/Logo-1@3x.png'], ...overrides })
 
@@ -57,5 +57,29 @@ describe('assetsDestFiles', () => {
   it('copies a file reached twice where it last goes', () => {
     const files = assetsDestFiles([asset({ scales: [1], files: ['/a.png'] }), asset({ httpServerLocation: '/assets/x', scales: [1], files: ['/a.png'] })], 'ios')
     assert.deepEqual(files, [{ src: '/a.png', dest: 'assets/x/Logo-1.png' }])
+  })
+})
+
+describe('assetCatalogFiles', () => {
+  const contents = (...images) => JSON.stringify({ images: images.map(([filename, scale]) => ({ filename, idiom: 'universal', scale })), info: { author: 'xcode', version: 1 } })
+
+  it('makes each png and jpg an image set, named as on Android, at 1x to 3x; the rest it leaves', () => {
+    const song = asset({ name: 'song', type: 'mp3', scales: [1], files: ['/s.mp3'] })
+    const { files, rest } = assetCatalogFiles([asset({ scales: [0.5, 1, 2, 3], files: ['/a@0.5x.png', '/a.png', '/a@2x.png', '/a@3x.png'] }), song, asset({ name: 'photo', type: 'jpeg', scales: [2], files: ['/p@2x.jpeg'] })])
+    assert.deepEqual(files, [
+      { src: '/a.png', dest: 'img_logo1.imageset/img_logo1.png' },
+      { src: '/a@2x.png', dest: 'img_logo1.imageset/img_logo1@2x.png' },
+      { src: '/a@3x.png', dest: 'img_logo1.imageset/img_logo1@3x.png' },
+      { dest: 'img_logo1.imageset/Contents.json', contents: contents(['img_logo1.png', '1x'], ['img_logo1@2x.png', '2x'], ['img_logo1@3x.png', '3x']) },
+      { src: '/p@2x.jpeg', dest: 'img_photo.imageset/img_photo@2x.jpeg' },
+      { dest: 'img_photo.imageset/Contents.json', contents: contents(['img_photo@2x.jpeg', '2x']) },
+    ])
+    assert.deepEqual(rest, [song])
+  })
+
+  it('takes, of one with no 1x to 3x, the first above as 3x, else the largest at its scale rounded up', () => {
+    assert.deepEqual(assetCatalogFiles([asset({ scales: [0.5, 4, 5], files: ['/a@0.5x.png', '/a@4x.png', '/a@5x.png'] })]).files[0], { src: '/a@4x.png', dest: 'img_logo1.imageset/img_logo1@3x.png' })
+    assert.deepEqual(assetCatalogFiles([asset({ scales: [0.5, 0.75], files: ['/a@0.5x.png', '/a@0.75x.png'] })]).files[0], { src: '/a@0.75x.png', dest: 'img_logo1.imageset/img_logo1.png' })
+    assert.deepEqual(assetCatalogFiles([asset({ scales: [1.5], files: ['/a@1.5x.png'] })]).files[0], { src: '/a@1.5x.png', dest: 'img_logo1.imageset/img_logo1@2x.png' })
   })
 })

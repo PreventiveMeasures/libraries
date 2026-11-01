@@ -1,6 +1,7 @@
-// `react-native bundle --assets-dest` as data: @react-native/community-cli-plugin
-// 0.88's saveAssets with @react-native/asset-utils' Android names (MIT,
-// Copyright (c) Meta Platforms, Inc. and affiliates). No iOS asset catalog.
+// `react-native bundle --assets-dest` and `--asset-catalog-dest` as data:
+// @react-native/community-cli-plugin 0.88's saveAssets and assetCatalogIOS,
+// with @react-native/asset-utils' Android names (MIT, Copyright (c) Meta
+// Platforms, Inc. and affiliates).
 
 import { join } from 'node:path'
 
@@ -55,4 +56,37 @@ export function assetsDestFiles(assets, platform) {
     files.push({ dest: join('raw', 'keep.xml'), contents: `<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="${keep}" />\n` })
   }
   return files
+}
+
+const CATALOG_TYPES = new Set(['png', 'jpg', 'jpeg'])
+
+// An image set's renditions: 1x to 3x, else the first above, else the
+// largest, as the nearest of them.
+function catalogImages(asset) {
+  const images = asset.scales.flatMap((scale, index) => (IOS_SCALES.includes(scale) ? [{ scale, src: asset.files[index] }] : []))
+  if (images.length > 0 || asset.scales.length === 0) return images
+  const above = asset.scales.findIndex((scale) => scale > IOS_SCALES.at(-1))
+  const index = above === -1 ? asset.scales.length - 1 : above
+  return [{ scale: Math.min(IOS_SCALES.at(-1), Math.max(1, Math.ceil(asset.scales[index]))), src: asset.files[index] }]
+}
+
+// iOS's png and jpg assets as image sets of an asset catalog, each named as
+// on Android. -> { files, rest }: each file copied, { src, dest }, and each
+// set's Contents.json, { dest, contents }, `dest` from the catalog
+// (RNAssets.xcassets); `rest`, the assets for --assets-dest.
+export function assetCatalogFiles(assets) {
+  const files = []
+  const rest = []
+  for (const asset of assets) {
+    if (!CATALOG_TYPES.has(asset.type)) {
+      rest.push(asset)
+      continue
+    }
+    const name = resourceName(asset)
+    const images = catalogImages(asset).map(({ scale, src }) => ({ scale, src, filename: `${name}${scale === 1 ? '' : `@${scale}x`}.${asset.type}` }))
+    for (const { src, filename } of images) files.push({ src, dest: join(`${name}.imageset`, filename) })
+    const contents = { images: images.map(({ filename, scale }) => ({ filename, idiom: 'universal', scale: `${scale}x` })), info: { author: 'xcode', version: 1 } }
+    files.push({ dest: join(`${name}.imageset`, 'Contents.json'), contents: JSON.stringify(contents) })
+  }
+  return { files, rest }
 }
