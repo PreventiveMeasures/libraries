@@ -12,6 +12,8 @@ describe('babelWorkers', () => {
   const { root, cleanup } = writeTree({
     'broken.cjs': "throw new Error('broken core')\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
+    // A config with its own visitor wrapper, which marks after mark's visitor.
+    'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
   })
   after(cleanup)
 
@@ -38,6 +40,11 @@ describe('babelWorkers', () => {
     const { files, calls, ms } = profile.plugins.get('mark')
     assert.deepEqual([files, calls], [1, 1])
     assert.ok(ms > 0 && profile.ms > ms)
+  })
+
+  it("profiles through the config's own visitor wrapper", async () => {
+    const options = { babelrc: false, configFile: join(root, 'wrap.config.cjs'), compact: false }
+    for (const profile of [null, newProfile()]) assert.equal(await babelWorkers(CORE, options, profile)('a()', join(root, 'a.js')), 'a();\n"marked";\n"wrapped";')
   })
 
   it('reports a profile, most time first, with that outside the plugins', () => {

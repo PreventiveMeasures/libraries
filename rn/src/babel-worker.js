@@ -116,7 +116,9 @@ if (workerData?.babel !== undefined) {
     if (!profile) return core.transformSync(source, { ...config, plugins })
     plugins.forEach(timeHooks)
     for (const { key } of plugins) spent.set(key, [0, 0])
-    return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, type, fn) => timed(key, fn) })
+    // Timed as the config's own visitor wrapper, if any, makes it.
+    const wrap = config.wrapPluginVisitorMethod
+    return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
   }
   parentPort.on('message', ({ port, source, filename, without }) => {
     const start = performance.now()
