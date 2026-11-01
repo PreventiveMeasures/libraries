@@ -161,7 +161,7 @@ async function downgrade(esbuild, plugins, contents, path, sourcemap) {
 // comments, which esbuild drops.
 async function typescript(esbuild, plugins, contents, loader, path, sourcemap) {
   const plugin = plugins.get('transform-typescript')
-  if (contents.includes('@jsx') || TS_OPTIONS.some((option) => plugin?.[option] !== undefined)) return null
+  if (contents.includes('@jsx') || [...TS_OPTIONS, 'instances'].some((option) => plugin?.[option] !== undefined)) return null
   const tsconfigRaw = (useDefineForClassFields) => ({ compilerOptions: { useDefineForClassFields } })
   const { supported, without } = lowering(plugins, [...INERT, ...INERT_TS])
   const code = await lower(esbuild, contents, loader, path, { supported, tsconfigRaw: tsconfigRaw(false) }, sourcemap)

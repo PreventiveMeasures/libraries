@@ -547,8 +547,9 @@ describe('rn-bundle --babel, with babel-plugin-module-resolver in the config', (
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
   after(cleanup)
-  const build = (options) => {
-    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
+  const build = (options, more = []) => {
+    const plugins = [['module-resolver', options], ...more].map((plugin) => JSON.stringify(plugin)).join(', ')
+    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [${plugins}] }\n`)
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return { out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), plugin: /^ +\d+ +[\d.]+ +\d+ +\d+ {2}module-resolver$/mu.test(r.stderr) }
@@ -561,6 +562,11 @@ describe('rn-bundle --babel, with babel-plugin-module-resolver in the config', (
   it('leaves the plugin in Babel with any other option, or aliases it does not map', () => {
     assert.deepEqual(build({ alias: { '#lib': './lib' }, extensions: ['.js'] }), { out: ['hi', 'hi'], plugin: true })
     assert.deepEqual(build({ alias: { '#lib': ['./lib'] } }), { out: ['hi', 'hi'], plugin: true })
+  })
+
+  it('leaves the plugin in Babel where the config has more than one of it, each named', () => {
+    // The first instance's aliases, which the second's would hide.
+    assert.deepEqual(build({ alias: { '#lib': './lib' } }, [['module-resolver', { alias: { '#other': './other' } }, 'other']]), { out: ['hi', 'hi'], plugin: true })
   })
 })
 

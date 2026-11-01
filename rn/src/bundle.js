@@ -108,7 +108,8 @@ function metroGraph({
   // of the keys in without.
   babel = null,
   // async (path) => the plugins of the project's Babel config for a file: a
-  // Map of their keys to their options.
+  // Map of their keys to their options, or, for a key of more than one
+  // plugin, to { instances }, the options of each.
   babelPlugins = null,
   // (file, specifier) => the specifier an alias rewrites it to, or null.
   aliases = null,
