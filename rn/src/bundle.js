@@ -222,9 +222,12 @@ async function typescript({ esbuild, babelTypescript, babelComments }, contents,
   const keep = verbatimModuleSyntax || loader !== 'tsx' ? [] : pragmaImports(pragmas, jsxPragma, jsxPragmaFrag)
   const tsconfigRaw = (useDefineForClassFields) => ({ compilerOptions: { useDefineForClassFields, verbatimModuleSyntax } })
   const lowered = (options) => lower(esbuild, contents, loader, path, options, keep)
-  const code = await lowered({ supported: DOWNGRADED, tsconfigRaw: tsconfigRaw(allowDeclareFields === true) })
-  // Decorated: types stripped alone, classes left to the project's Babel config.
-  const js = decorated(code) ? await lowered({ tsconfigRaw: tsconfigRaw(true) }) : code
+  const code = allowDeclareFields === true ? null : await lowered({ supported: DOWNGRADED, tsconfigRaw: tsconfigRaw(false) })
+  // Types stripped alone, classes left to the project's Babel config, where
+  // esbuild's lowering would differ: decorators, and fields with no value kept
+  // (allowDeclareFields), as esbuild would define each field where Babel may
+  // assign it.
+  const js = code === null || decorated(code) ? await lowered({ tsconfigRaw: tsconfigRaw(true) }) : code
   return pragmas.map(([kind = '', value]) => `/* @jsx${kind} ${value} */\n`).join('') + js
 }
 

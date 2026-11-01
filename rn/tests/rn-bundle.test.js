@@ -307,10 +307,11 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
 })
 
 describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
-  // As @react-native/babel-preset has the TS plugin, for .ts and .tsx.
+  // As @react-native/babel-preset has the TS plugin, for .ts and .tsx;
+  // __FIELDS__ is the number of class fields Babel gets.
   const config = (options) => [
     'module.exports = {',
-    "  plugins: [['@babel/plugin-transform-react-jsx', { pragma: 'h' }]],",
+    "  plugins: [['@babel/plugin-transform-react-jsx', { pragma: 'h' }], ({ types: t }) => ({ pre() { this.fields = 0 }, visitor: { ClassProperty() { this.fields++ }, Identifier(path) { if (path.node.name === '__FIELDS__') path.replaceWith(t.numericLiteral(this.fields)) } } })],",
     '  overrides: [',
     `    { test: /\\.ts$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify(options)}]] },`,
     `    { test: /\\.tsx$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify({ ...options, isTSX: true })}]] },`,
@@ -326,9 +327,9 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       "import { pragma } from './pragma'",
       "import { inline } from './inline'",
       "import { strings } from './strings'",
-      "import { Child } from './fields'",
+      "import { Child, fields } from './fields'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
-      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null }))',
+      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields }))',
       '',
     ].join('\n'),
     // Has a side effect; imported only for its type.
@@ -339,7 +340,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
     // A pragma in a string isn't one; a real one may follow a URL's `//`.
     'strings.tsx': "import { h as r } from './h'\nexport const text = '/* @jsx nope */', url = 'https://example.com' /** @jsx r */\nexport const strings = () => <s>{text}</s>\n",
-    'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\n",
+    'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\nexport const fields = __FIELDS__\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/plugin-transform-typescript': linked('@babel/plugin-transform-typescript'),
@@ -353,15 +354,16 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   }
 
   it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
-    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base' })
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0 })
   })
 
   it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {
     assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect'])
   })
 
-  it('keeps a field with no value, with allowDeclareFields', () => {
-    assert.equal(build({ jsxPragma: 'h', allowDeclareFields: true }).field, null)
+  it('keeps a field with no value, with allowDeclareFields, its class left to Babel', () => {
+    const { field, fields } = build({ jsxPragma: 'h', allowDeclareFields: true })
+    assert.deepEqual([field, fields], [null, 2])
   })
 })
 
