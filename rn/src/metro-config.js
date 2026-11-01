@@ -62,13 +62,19 @@ export function metroAssetExts(program) {
   return [...exts]
 }
 
-// Not after `//`: a line commented out isn't config.
-const SPREAD_AND_STRINGS = /(?<!\/\/[^\n]*)assetExts\s*:\s*\[\s*\.\.\.[\w$.?]+\.assetExts((?:\s*,\s*(?:'[\w.-]+'|"[\w.-]+"))*)\s*,?\s*\]/gu
+const SPREAD_AND_STRINGS = /assetExts\s*:\s*\[\s*\.\.\.[\w$.?]+\.assetExts((?:\s*,\s*(?:'[\w.-]+'|"[\w.-]+"))*)\s*,?\s*\]/gu
+
+// A mention possibly in a string, a comment or a template, which only a
+// parser can tell.
+const unclear = (before) => /['"`/]/u.test(before.slice(before.lastIndexOf('\n') + 1))
+  || before.lastIndexOf('/*') > before.lastIndexOf('*/')
+  || before.split('`').length % 2 === 0
 
 // Any other mention of assetExts could change the list in ways only a parser sees.
 export function scanMetroAssetExts(source) {
   const exts = []
-  const rest = source.replaceAll(SPREAD_AND_STRINGS, (_, strings) => {
+  const rest = source.replaceAll(SPREAD_AND_STRINGS, (match, strings, index) => {
+    if (unclear(source.slice(0, index))) return match
     exts.push(...(strings.match(/[\w.-]+/gu) ?? []))
     return ''
   })
