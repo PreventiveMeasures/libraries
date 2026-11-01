@@ -156,12 +156,8 @@ function metroGraph({
         // else an error.
         if (resolution === null) return undefined
         if (resolution.type === 'empty') return { path: 'empty', namespace: 'metro-empty' }
-        // Metro builds an asset into the module of its lowest path. Its files
-        // are read before they are built, which may fail (an empty image).
-        if (resolution.type === 'assetFiles') {
-          for (const asset of resolution.filePaths) state.read.add(asset)
-          return { path: resolution.filePaths.toSorted()[0], namespace: 'metro-asset' }
-        }
+        // Metro builds an asset into the module of its lowest path.
+        if (resolution.type === 'assetFiles') return { path: resolution.filePaths.toSorted()[0], namespace: 'metro-asset' }
         return file(resolution.filePath)
       })
       build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => {
@@ -169,9 +165,9 @@ function metroGraph({
         return load(path)
       })
       build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
-        const data = assetData(path, { urlPath: relative(projectRoot, path).replaceAll('\\', '/'), platform, host })
+        // Each file it reads counted, though building it fails (an empty image).
+        const data = assetData(path, { urlPath: relative(projectRoot, path).replaceAll('\\', '/'), platform, host: reading(host, state.read) })
         state.assets.set(path, data)
-        for (const asset of data.files) state.read.add(asset)
         return { contents: assetModule(data, assetRegistryPath ?? state.reactNative.assetRegistryPath), loader: 'js', resolveDir: dirname(path) }
       })
       build.onLoad({ filter: ANY, namespace: 'metro-empty' }, () => ({ contents: '', loader: 'js' }))

@@ -108,8 +108,11 @@ describe('bundle', () => {
 
 describe('bundle, of an asset it cannot build', () => {
   const { root, cleanup } = writeTree({
-    'index.js': "globalThis.result = require('react-native/Libraries/Image/AssetRegistry').getAssetByID(require('./img/logo.png')).width\n",
+    'index.js': "const { getAssetByID } = require('react-native/Libraries/Image/AssetRegistry')\nglobalThis.result = [require('./img/logo.png'), require('./img/icon.png')].map((id) => getAssetByID(id).width)\n",
     'img/logo.png': '',
+    // iOS's own file of the asset, which only building it reads.
+    'img/icon.png': png(8, 8),
+    'img/icon.ios.png': '',
     'node_modules/react-native/Libraries/Image/AssetRegistry.js': 'const assets = []\nexports.registerAsset = (asset) => assets.push(asset)\nexports.getAssetByID = (id) => assets[id - 1]\n',
   })
   after(cleanup)
@@ -119,9 +122,10 @@ describe('bundle, of an asset it cannot build', () => {
     try {
       const error = await bundler.rebuild().then(() => null, (failure) => failure)
       assert.match(error?.errors?.[0]?.text ?? '', /cannot be an empty file/u)
-      assert.ok(error.files.includes(join(root, 'img/logo.png')), String(error.files))
+      for (const file of ['img/logo.png', 'img/icon.ios.png']) assert.ok(error.files.includes(join(root, file)), `${file} in ${error.files}`)
       writeFileSync(join(root, 'img/logo.png'), png(20, 10))
-      assert.equal(run(js(await bundler.rebuild())), 20)
+      writeFileSync(join(root, 'img/icon.ios.png'), png(9, 9))
+      assert.deepEqual(run(js(await bundler.rebuild())), [20, 9])
     } finally {
       await bundler.dispose()
     }
