@@ -113,11 +113,18 @@ export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = fa
     const target = {
       profile: timed,
       babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }) }, timed),
-      babelPlugins: async (filename) => new Map((await core.loadOptionsAsync({ ...options, filename }))?.plugins.map((plugin) => [plugin.key, plugin.options])),
+      babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)
     return target
   }
+}
+
+// Each plugin's options by its key; a key of more than one plugin (instances
+// of one, each named) has { instances }: theirs, in order.
+function pluginsByKey(plugins) {
+  const byKey = Map.groupBy(plugins, (plugin) => plugin.key)
+  return new Map([...byKey].map(([key, [plugin, ...more]]) => [key, more.length === 0 ? plugin.options : { instances: [plugin, ...more].map((each) => each.options) }]))
 }
 
 // A package of the project's, else of a dependency's: `through` names the

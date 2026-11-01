@@ -6,6 +6,8 @@
 import { Buffer } from 'node:buffer'
 import { extname, relative } from 'node:path'
 
+import { createAliases } from './babel-aliases.js'
+
 // JS read as JSX, as @react-native/babel-preset reads it: react-native's own
 // .js files have JSX, and JSX reads plain JS as JS does.
 const LOADERS = new Map([['.js', 'jsx'], ['.cjs', 'jsx'], ['.mjs', 'jsx'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
@@ -53,24 +55,27 @@ const TS_OPTIONS = ['onlyRemoveTypeImports', 'allowDeclareFields', 'jsxPragma', 
 // left to Babel, uses (the classic runtime), as Babel's TS plugin keeps it.
 const USE_REACT = 'typeof React;\n'
 
-// The file's contents as esbuild loads them: { contents, loader } or { errors }.
+// The file's contents as esbuild loads them: { contents, loader } or { errors };
+// with `alias`, where Babel was without babel-plugin-module-resolver, the
+// (file, specifier) => specifier its imports are to be mapped by instead.
 export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap = false }, path, contents) {
   const loader = LOADERS.get(extname(path)) ?? 'jsx'
   if (babel !== null && loader !== 'json') {
     let source = { code: contents, without: [] }
+    let plugins
     try {
+      plugins = (await babelPlugins?.(path)) ?? new Map()
       // @react-native/babel-preset's codegen reads a native component's props
       // off its types, in each file that names codegenNativeComponent.
-      if (!contents.includes('codegenNativeComponent')) {
-        const plugins = (await babelPlugins?.(path)) ?? new Map()
-        source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
-      }
+      if (!contents.includes('codegenNativeComponent')) source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
     } catch (error) {
       if (!Array.isArray(error?.errors)) throw error
       return { errors: error.errors }
     }
+    const alias = MODULE_RESOLVER_CALLS.test(contents) ? null : moduleResolver(plugins)
     try {
-      return { contents: await babel(source.code, path, source.without), loader: 'js' }
+      const loaded = { contents: await babel(source.code, path, alias === null ? source.without : [...source.without, 'module-resolver']), loader: 'js' }
+      return alias === null ? loaded : { ...loaded, alias }
     } catch (error) {
       return { errors: [{ text: `Babel: ${error.message}` }] }
     }
@@ -156,7 +161,7 @@ async function downgrade(esbuild, plugins, contents, path, sourcemap) {
 // comments, which esbuild drops.
 async function typescript(esbuild, plugins, contents, loader, path, sourcemap) {
   const plugin = plugins.get('transform-typescript')
-  if (contents.includes('@jsx') || TS_OPTIONS.some((option) => plugin?.[option] !== undefined)) return null
+  if (contents.includes('@jsx') || [...TS_OPTIONS, 'instances'].some((option) => plugin?.[option] !== undefined)) return null
   const tsconfigRaw = (useDefineForClassFields) => ({ compilerOptions: { useDefineForClassFields } })
   const { supported, without } = lowering(plugins, [...INERT, ...INERT_TS])
   const code = await lower(esbuild, contents, loader, path, { supported, tsconfigRaw: tsconfigRaw(false) }, sourcemap)
@@ -177,6 +182,28 @@ function lowering(plugins, inert) {
     without.push(key)
   }
   return { supported, without }
+}
+
+// babel-plugin-module-resolver's aliases, where its config has its alias
+// option alone, which a file's imports are mapped by as the plugin maps them
+// (babel-aliases.js), from process.cwd() as the plugin does: else null.
+const resolvers = new WeakMap()
+// Calls the plugin maps the string argument of (its transformFunctions), that
+// esbuild resolves nothing for: a file with one keeps the plugin.
+const MODULE_RESOLVER_CALLS = /\b(?:System\.import|require\.(?:resolve|requireActual|requireMock)|jest\.(?:genMockFromModule|mock|unmock|doMock|dontMock|setMock|requireActual|requireMock))\s*\(/u
+function moduleResolver(plugins) {
+  const options = plugins.get('module-resolver')
+  if (options === undefined || Object.keys(options).some((key) => key !== 'alias')) return null
+  if (!resolvers.has(options)) {
+    let alias = null
+    try {
+      alias = createAliases(options.alias, process.cwd())
+    } catch {
+      // Left to the plugin: aliases createAliases doesn't map, as to arrays.
+    }
+    resolvers.set(options, alias)
+  }
+  return resolvers.get(options)
 }
 
 // esbuild brings in this helper only to lower decorators.
