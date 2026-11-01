@@ -16,6 +16,7 @@ const APP = {
     "import { where } from './lib/where'",
     "import { greet } from '#lib/greet'",
     "import { typed } from './lib/typed'",
+    "import { generic } from './lib/generic'",
     "import dual from 'dual'",
     "import { optional } from './lib/optional'",
     "import font from './fonts/Inter.ttf'",
@@ -26,7 +27,7 @@ const APP = {
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
     "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -40,6 +41,8 @@ const APP = {
   'node_modules/dep/index.js': '',
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
+  // Flow that parses as JS, as another thing: `(box < string) > 'generic'.value`.
+  'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
   'broken.js': "import './lib/broken'\n",
@@ -82,7 +85,7 @@ describe('rn-bundle', () => {
     const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
-    assert.deepEqual([out.where, out.greet, out.typed, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'rn', 'none', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', false, 'production'])
     assert.deepEqual(out.ids.toSorted(), [1, 2, 3])
     const [logo, icon, font] = out.assets
     assert.deepEqual(logo, { __packager_asset: true, httpServerLocation: '/assets/img', width: 20, height: 10, scales: [1, 2, 3], hash: md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'), name: 'logo', type: 'png' })
@@ -141,30 +144,37 @@ describe('rn-bundle', () => {
 
 // The project's own Babel, as an app installs it: the workspace's copies linked in.
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
+// A babel.config.js with these plugins, and three of its own, putting for
+// __PLATFORM__ the platform of Metro's caller, for __BABEL_ENV__ Babel's env,
+// and for __SYNTAX__ the class syntax and decorators a file has as Babel gets
+// it, taking the decorators off.
+const babelConfig = (plugins) => [
+  'module.exports = (api) => {',
+  '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
+  "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
+  '  const syntaxOf = ({ types: t }) => ({',
+  '    pre() { this.seen = new Set() },',
+  '    visitor: {',
+  "      'ClassProperty|ClassPrivateProperty|ClassPrivateMethod|StaticBlock|Decorator'(path) { this.seen.add(path.type); if (path.isDecorator()) path.remove() },",
+  "      Identifier(path) { if (path.node.name === '__SYNTAX__') path.replaceWith(t.valueToNode([...this.seen].toSorted())) },",
+  '    },',
+  '  })',
+  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), syntaxOf] }`,
+  '}',
+  '',
+].join('\n')
 const BABEL_APP = {
   ...APP,
-  'babel.config.js': [
-    'module.exports = (api) => {',
-    '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
-    "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
-    '  // The class syntax and decorators a file has as Babel gets it, for __SYNTAX__; the decorators, taken off.',
-    '  const syntaxOf = ({ types: t }) => ({',
-    '    pre() { this.seen = new Set() },',
-    '    visitor: {',
-    "      'ClassProperty|ClassPrivateProperty|ClassPrivateMethod|StaticBlock|Decorator'(path) { this.seen.add(path.type); if (path.isDecorator()) path.remove() },",
-    "      Identifier(path) { if (path.node.name === '__SYNTAX__') path.replaceWith(t.valueToNode([...this.seen].toSorted())) },",
-    '    },',
-    '  })',
-    "  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx', platformOf, inline('__BABEL_ENV__', api.env()), syntaxOf] }",
-    '}',
-    '',
-  ].join('\n'),
+  'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx']),
   'modern.js': [
     "import { Counter, syntax as counter } from './lib/counter'",
     "import { generic, syntax as flow } from './lib/generic'",
     "import { syntax as decorated } from './lib/decorated'",
+    "import { Card, syntax as card } from './lib/card'",
+    "import { syntax as note } from './lib/note'",
     'const c = Counter.make().bump().bump()',
-    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, syntax: { counter, flow, decorated } }))',
+    "const k = new Card({ title: 'hi' })",
+    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, decorated, card, note } }))',
     '',
   ].join('\n'),
   'lib/counter.js': [
@@ -183,14 +193,46 @@ const BABEL_APP = {
     'export const syntax = __SYNTAX__',
     '',
   ].join('\n'),
-  // Flow that parses as JS, as another thing: `(box < string) > 'generic'.value`.
-  'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = __SYNTAX__\n",
+  // TSX for Babel's classic runtime, which takes React where only JSX uses it; a
+  // field that is a type alone, which Metro drops, so the base class's stays.
+  'lib/card.tsx': [
+    "import React, { Component } from 'react'",
+    "import { Shape } from './shape'",
+    'export class Card extends Component<{ title: string }> {',
+    '  declare shape: Shape',
+    '  context!: string',
+    "  static kind = 'card'",
+    '  #renders = 0',
+    '  render() {',
+    '    this.#renders++',
+    '    return <Text renders={this.#renders}>{this.props.title as string}</Text>',
+    '  }',
+    '}',
+    "const Text = 'Text'",
+    'export const syntax = __SYNTAX__',
+    '',
+  ].join('\n'),
+  'lib/shape.ts': 'export type Shape = { width: number }\n',
+  'bad-ts.js': "import './lib/bad'\n",
+  'lib/bad.ts': 'const a: = 1\n',
+  'lib/note.ts': "const field = (name: string) => () => {}\nexport class Note {\n  static table = 'notes'\n  @field('body') body!: string\n}\nexport const syntax = __SYNTAX__\n",
+  'node_modules/react/package.json': { name: 'react', version: '19.0.0' },
+  'node_modules/react/index.js': "class Component { constructor(props) { this.props = props; this.context = 'base' } }\nmodule.exports = { Component, createElement: (type, props, ...children) => ({ type, ...props, children }) }\n",
   // As WatermelonDB's models are: a decorator on a field, which esbuild drops where it lowers the field.
   'lib/decorated.js': "const field = () => () => {}\nexport class Post {\n  static table = 'posts'\n  @field('title') title\n}\nexport const syntax = __SYNTAX__\n",
   'node_modules/@babel/core': linked('@babel/core'),
   'node_modules/@babel/plugin-transform-flow-strip-types': linked('@babel/plugin-transform-flow-strip-types'),
   'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
   'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
+}
+
+// What modern.js prints, built with --babel: each JS and TS file lowered by
+// esbuild before Babel, but a @flow file's and decorated file's classes.
+const MODERN = {
+  counter: [4, 1, true, true, false],
+  generic: 'generic',
+  card: ['base', 'card', { type: 'Text', renders: 1, children: ['hi'] }, 2],
+  syntax: { counter: [], flow: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
 }
 
 describe('rn-bundle --babel', () => {
@@ -204,7 +246,7 @@ describe('rn-bundle --babel', () => {
     const r = run(['--platform=ios', '--babel', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
-    assert.deepEqual([out.where, out.greet, out.typed, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'rn', 'none', 'ios', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
 
@@ -221,21 +263,46 @@ describe('rn-bundle --babel', () => {
     assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
   })
 
-  it('lowers each JS file by esbuild before Babel, but for Flow and decorators', () => {
+  it('makes each TS file JS and lowers each file by esbuild before Babel, but for Flow and decorators', () => {
     const r = run(['--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
-    const out = JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout)
-    assert.deepEqual(out.counter, [4, 1, true, true, false])
-    assert.equal(out.generic, 'generic')
-    assert.deepEqual(out.syntax, { counter: [], flow: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'] })
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
   })
 
-  it('takes neither --flow nor --babel-aliases with it', () => {
-    for (const other of ['--flow', '--babel-aliases=aliases.json']) {
-      const r = run(['--platform=ios', '--babel', other, '--output=out.js', 'index.js'])
-      assert.equal(r.status, 1)
-      assert.match(r.stderr, /pass one/u)
-    }
+  it('fails on a TS file esbuild cannot parse', () => {
+    const r = run(['--platform=ios', '--babel', '--output=out.js', 'bad-ts.js'])
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /Unexpected "="[\s\S]*lib\/bad\.ts:1:9/u)
+  })
+
+  it('takes no --babel-aliases with it', () => {
+    const r = run(['--platform=ios', '--babel', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /pass one/u)
+  })
+})
+
+describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () => {
+  const { root, cleanup } = writeTree({ ...BABEL_APP, 'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-react-jsx']) })
+  after(cleanup)
+  const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
+  const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
+
+  it('strips the Flow types of each file that has them before Babel', () => {
+    const noFlow = run(['--platform=ios', '--babel', '--output=ios.js', 'index.js'])
+    assert.equal(noFlow.status, 1)
+    assert.match(noFlow.stderr, /Babel: [\s\S]*typed\.js/u)
+    const r = run(['--platform=ios', '--babel', '--flow', '--output=ios.js', 'index.js'])
+    assert.equal(r.status, 0, r.stderr)
+    const out = output('ios.js')
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.platform], ['ios', 'hi', 'flow', 'generic', 'ios'])
+  })
+
+  it('lowers each JS file by esbuild after, Flow files too', () => {
+    const r = run(['--platform=ios', '--babel', '--flow', '--output=modern.out.js', 'modern.js'])
+    assert.equal(r.status, 0, r.stderr)
+    const out = output('modern.out.js')
+    assert.deepEqual(out, { ...MODERN, syntax: { ...MODERN.syntax, flow: [] } })
   })
 })
 
@@ -267,8 +334,7 @@ describe('rn-bundle with the project\'s own esbuild', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /\(esbuild 0\.25\.\d+\)/u)
-    const out = JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout)
-    assert.deepEqual([out.counter, out.generic, out.syntax], [[4, 1, true, true, false], 'generic', { counter: [], flow: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'] }])
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
   })
 })
 

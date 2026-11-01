@@ -11,10 +11,10 @@ import { createMetroResolver } from './resolve.js'
 
 const LOADERS = new Map([['.js', 'js'], ['.cjs', 'js'], ['.mjs', 'js'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
 const JS = new Set(['.js', '.cjs', '.mjs'])
-// What esbuild lowers in a JS file before Babel gets it, as @exodus/test
-// prepares code for Hermes: class fields, private members and static blocks,
-// import attributes, `using`. And decorators, only to tell a file that has
-// them: lowering a field, esbuild drops its decorators.
+// What esbuild lowers in a file before Babel gets it, a TS file made JS, as
+// @exodus/test prepares code for Hermes: class fields, private members and
+// static blocks, import attributes, `using`. And decorators, only to tell a
+// file that has them: lowering a field, esbuild drops its decorators.
 const DOWNGRADED = {
   'class-field': false,
   'class-private-accessor': false,
@@ -30,9 +30,19 @@ const DOWNGRADED = {
   using: false,
   decorators: false,
 }
-// Comments Babel reads, which esbuild drops: whether `f<T>(x)` is a Flow call,
-// how JSX is built.
-const PRAGMA = /@(?:flow|jsx(?:Frag|ImportSource|Runtime)?)\b/u
+// TS's class fields as Metro's Babel preset makes them: assigned in the
+// constructor, those that are types alone dropped.
+const TS_FIELDS = { compilerOptions: { useDefineForClassFields: false } }
+// Where flow-remove-types finds a file's @flow pragma: anywhere in it. Babel
+// reads it too, and esbuild, dropping comments, can't: under it, `f<T>(x)` is
+// a call, not `(f < T) > x`.
+const FLOW_PRAGMA = /@flow\b/u
+// Babel's JSX pragmas, each a line of a comment, which esbuild drops.
+const JSX_PRAGMA = /^[\s*/]*(@jsx(?:Frag|ImportSource|Runtime)?\s+[^\s*]+)[\s*/]*$/gmu
+// A use of React, which keeps its import where only JSX uses it: in TS,
+// esbuild drops an import nothing uses, its JSX kept, but Babel's classic
+// runtime takes it.
+const USE_REACT = '\n;typeof React\n'
 const decoder = new TextDecoder()
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
@@ -46,10 +56,10 @@ export async function bundle({
   host = diskHost,
   projectRoot = process.cwd(),
   jsx = false,
-  // (source, path) => source with Flow types stripped, for files esbuild can't parse.
+  // (source, path) => source with Flow types stripped, for files that have them.
   stripFlow = null,
   // (source, path) => the code the project's Babel makes of each JS and TS
-  // file, a JS file given with what esbuild lowers lowered.
+  // file, given it as esbuild makes it, where that keeps its meaning.
   babel = null,
   define = {},
   // (file, specifier) => the specifier an alias rewrites it to, or null.
@@ -112,59 +122,107 @@ export async function bundle({
   return { outputFiles: result.outputFiles, warnings: result.warnings, assets: [...assets.keys()].toSorted().map((path) => assets.get(path)), graph }
 }
 
-// Every JS and TS file through Babel, as Metro's transformer runs it, a JS
-// file lowered by esbuild first where it can be; or a JS file that doesn't
-// parse with its Flow types stripped, one that still doesn't (Flow that is
-// code: `enum`, `component`) failing.
+// Every JS and TS file through Babel, as Metro's transformer runs it, made
+// ready for it by esbuild first; or a JS file with Flow types stripped, one
+// that doesn't parse after (Flow that is code: `enum`, `component`) failing.
 async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel }, path) {
   const loader = jsx && JS.has(extname(path)) ? 'jsx' : (LOADERS.get(extname(path)) ?? 'js')
   const contents = decoder.decode(host.readFile(path))
   if (babel !== null && loader !== 'json') {
-    const source = loader === 'js' || loader === 'jsx' ? ((await downgrade(esbuild, contents)) ?? contents) : contents
+    let source
+    try {
+      source = loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, contents, loader, path) : await javascript({ esbuild, stripFlow }, contents, path)
+    } catch (error) {
+      if (!Array.isArray(error?.errors)) throw error
+      return { errors: error.errors }
+    }
     try {
       return { contents: await babel(source, path), loader: 'js' }
     } catch (error) {
       return { errors: [{ text: `Babel: ${error.message}` }] }
     }
   }
-  if (stripFlow === null || (loader !== 'js' && loader !== 'jsx')) return { contents, loader }
-  const parseErrors = async (code) => {
-    try {
-      await esbuild.transform(code, { loader, sourcefile: path, logLevel: 'silent' })
-      return null
-    } catch (error) {
-      return error.errors
-    }
-  }
-  if ((await parseErrors(contents)) === null) return { contents, loader }
+  if (stripFlow === null || (loader !== 'js' && loader !== 'jsx') || !(await hasFlow(esbuild, contents, loader))) return { contents, loader }
   let stripped
   try {
     stripped = stripFlow(contents, path)
   } catch (error) {
     return { errors: [{ text: `Can't strip Flow types from ${relative(projectRoot, path)}: ${error.message}` }] }
   }
-  const left = await parseErrors(stripped)
+  const left = await parseErrors(esbuild, stripped, loader, path)
   if (left !== null) return { errors: left.map((error) => ({ ...error, text: `Flow syntax flow-remove-types doesn't strip: ${error.text}` })) }
   return { contents: stripped, loader }
 }
 
-// A JS file with what esbuild lowers lowered, its JSX kept, for Babel to make
-// the rest of; or null, for Babel to take it as it is: where esbuild can't
-// parse it (Flow, syntax only a Babel plugin takes), where it has comments
-// Babel reads, and where it has decorators, which the project's Babel config
-// gives their meaning (legacy, or not). TS files aren't lowered: esbuild would
-// strip their types, and with them imports only JSX uses (React, which Babel's
-// classic runtime takes).
-async function downgrade(esbuild, contents) {
-  if (PRAGMA.test(contents)) return null
-  let result
+// esbuild's errors parsing a file, or null where it parses.
+async function parseErrors(esbuild, code, loader, path) {
   try {
-    result = await esbuild.transform(contents, { loader: 'jsx', jsx: 'preserve', supported: DOWNGRADED, logLevel: 'silent' })
+    await esbuild.transform(code, { loader, sourcefile: path, logLevel: 'silent' })
+    return null
+  } catch (error) {
+    return error.errors
+  }
+}
+
+// Whether a JS file has Flow types to strip: where it is @flow, under which
+// `f<T>(x)` is a call, not `(f < T) > x`, or where esbuild can't parse it.
+async function hasFlow(esbuild, code, loader) {
+  return FLOW_PRAGMA.test(code) || (await parseErrors(esbuild, code, loader)) !== null
+}
+
+// A JS file for Babel: with --flow, its Flow types stripped where it has them,
+// what flow-remove-types can't parse left to Babel as it is; then with what
+// esbuild lowers lowered, where that keeps its meaning.
+async function javascript({ esbuild, stripFlow }, contents, path) {
+  let source = contents
+  if (stripFlow !== null && (await hasFlow(esbuild, contents, 'jsx'))) {
+    try {
+      source = stripFlow(contents, path)
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error
+    }
+  }
+  return (await downgrade(esbuild, source, path)) ?? source
+}
+
+// A JS file with what esbuild lowers lowered, for Babel to make the rest of;
+// or null, for Babel to take it as it is: where esbuild can't parse it (Flow,
+// syntax only a Babel plugin takes), where it is @flow, and where it has
+// decorators, which the project's Babel config gives their meaning (legacy,
+// or not).
+async function downgrade(esbuild, contents, path) {
+  if (FLOW_PRAGMA.test(contents)) return null
+  let code
+  try {
+    code = await lower(esbuild, contents, 'jsx', path, { supported: DOWNGRADED })
   } catch (error) {
     // What esbuild can't parse; not an option this esbuild doesn't take.
     if (!Array.isArray(error?.errors) || !error.errors.every(({ location }) => location)) throw error
     return null
   }
-  // A helper esbuild brings in only to lower decorators.
-  return result.code.includes('__decoratorStart(') ? null : result.code
+  return decorated(code) ? null : code
+}
+
+// A TS file as JS, by esbuild, with what it lowers lowered; one with
+// decorators with its types stripped alone, its classes left to the project's
+// Babel config, which gives the decorators their meaning. Throws what esbuild
+// can't parse.
+async function typescript(esbuild, contents, loader, path) {
+  const code = await lower(esbuild, contents, loader, path, { supported: DOWNGRADED, tsconfigRaw: TS_FIELDS })
+  return decorated(code) ? lower(esbuild, contents, loader, path, { tsconfigRaw: { compilerOptions: { useDefineForClassFields: true } } }) : code
+}
+
+// Whether esbuild lowered decorators: it brings in this helper for that alone.
+function decorated(code) {
+  return code.includes('__decoratorStart(')
+}
+
+// A file as esbuild makes it JS, its JSX kept, with the JSX pragmas Babel
+// reads carried over, and in TSX the React import JSX alone uses.
+async function lower(esbuild, contents, loader, path, options) {
+  const useReact = loader === 'tsx' ? USE_REACT : ''
+  const { code } = await esbuild.transform(contents + useReact, { loader, jsx: 'preserve', sourcefile: path, logLevel: 'silent', ...options })
+  const pragmas = [...contents.matchAll(JSX_PRAGMA)].map(([, pragma]) => `/* ${pragma} */\n`).join('')
+  const used = 'typeof React;\n'
+  return pragmas + (useReact && code.endsWith(used) ? code.slice(0, -used.length) : code)
 }

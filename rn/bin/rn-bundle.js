@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 // rn-bundle --platform=ios --output=main.js [--dev] [--assets-dest=DIR]
-//   [--jsx] [--flow|--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
+//   [--jsx] [--flow] [--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
 // --assets-dest as `react-native bundle` lays them out. A release build, as
 // `react-native bundle --dev=false` makes it, unless --dev. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
 // @babel/core, and Metro's caller and Babel env, as Metro's transformer does;
-// a JS file lowered by esbuild before that where it can be (class fields,
-// private members, static blocks, import attributes, `using`), as
-// @exodus/test prepares code for Hermes, Babel making the rest of it. The
-// extensions metro.config.js lists among `assetExts` are assets too, read off
-// it, never run: by oxc-parser where installed, else in the usual form by a
-// regex.
+// each made JS and lowered by esbuild before that where it can be (TS, class
+// fields, private members, static blocks, import attributes, `using`), as
+// @exodus/test prepares code for Hermes, Babel making the rest of it. --flow
+// strips Flow types from each JS file that has them (flow-remove-types),
+// before both. The extensions metro.config.js lists among `assetExts` are
+// assets too, read off it, never run: by oxc-parser where installed, else in
+// the usual form by a regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -48,7 +49,6 @@ const fail = (message) => {
 if (positionals.length !== 1) fail('one entry file is required')
 if (values.platform === undefined) fail('--platform is required, e.g. --platform=ios')
 if (values.output === undefined) fail('--output is required')
-if (values.babel && values.flow) fail("--babel compiles Flow with the project's Babel config; --flow strips it without: pass one")
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 
 // __DEV__ and process.env.NODE_ENV as Metro's prelude sets them for --dev or
