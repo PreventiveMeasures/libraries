@@ -538,6 +538,32 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
   })
 })
 
+describe('rn-bundle --babel, with babel-plugin-module-resolver in the config', () => {
+  const { root, cleanup } = writeTree({
+    'index.js': "import { greet } from '#lib/greet'\nimport { deep } from '#lib/nested/deep'\nconsole.log(JSON.stringify([greet(), deep]))\n",
+    'lib/greet.js': "export const greet = () => 'hi'\n",
+    'lib/nested/deep.js': "import { greet } from '#lib/greet'\nexport const deep = greet()\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
+  })
+  after(cleanup)
+  const build = (options) => {
+    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return { out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), plugin: /^ +\d+ +[\d.]+ +\d+ +\d+ {2}module-resolver$/mu.test(r.stderr) }
+  }
+
+  it('maps the imports by its aliases, as the plugin does, and leaves it out of Babel, where it has its alias option alone', () => {
+    assert.deepEqual(build({ alias: { '#lib': './lib' } }), { out: ['hi', 'hi'], plugin: false })
+  })
+
+  it('leaves the plugin in Babel with any other option, or aliases it does not map', () => {
+    assert.deepEqual(build({ alias: { '#lib': './lib' }, extensions: ['.js'] }), { out: ['hi', 'hi'], plugin: true })
+    assert.deepEqual(build({ alias: { '#lib': ['./lib'] } }), { out: ['hi', 'hi'], plugin: true })
+  })
+})
+
 describe('rn-bundle --babel, with no Babel config', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)
