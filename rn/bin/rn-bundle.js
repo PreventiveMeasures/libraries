@@ -9,10 +9,11 @@
 // esbuild with --minify, as `stasis build --minify` makes it. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
 // @babel/core, and Metro's caller and Babel env, as Metro's transformer does,
-// after esbuild makes TS JS and lowers what it can. --flow strips Flow types
-// first (flow-remove-types). The extensions metro.config.js lists among
-// `assetExts` are assets too, read off it, never run: by oxc-parser where
-// installed, else in the usual form by a regex.
+// after esbuild makes TS JS and lowers what Babel's preset throws on (static
+// blocks, `using`); esbuild lowers the rest in the bundle, after Babel. --flow
+// strips Flow types first (flow-remove-types). The extensions metro.config.js
+// lists among `assetExts` are assets too, read off it, never run: by
+// oxc-parser where installed, else in the usual form by a regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -119,10 +120,6 @@ function projectBabel() {
   return {
     transform: babelWorkers(corePath, { ...options, compact: false }),
     typescript: async (filename) => (await core.loadOptionsAsync({ ...options, filename }))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
-    comments: async (source, filename) => {
-      const plugins = ['typescript', 'decorators', ...(filename.endsWith('.tsx') ? ['jsx'] : [])]
-      return (await core.parseAsync(source, { babelrc: false, configFile: false, filename, parserOpts: { plugins } })).comments.map(({ value }) => value)
-    },
   }
 }
 
@@ -139,7 +136,6 @@ try {
     stripFlow: flowRemoveTypes && ((source) => flowRemoveTypes(source, { all: true, removeEmptyImports: true }).toString()),
     babel: babel?.transform ?? null,
     babelTypescript: babel?.typescript ?? null,
-    babelComments: babel?.comments ?? null,
     assetExts: assetExts(),
     define,
     minify: values.minify,

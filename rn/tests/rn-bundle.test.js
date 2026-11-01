@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { png, writeTree } from './fixtures.js'
 
+const esbuild = createRequire(import.meta.url)('esbuild')
 const BIN = fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url))
 
 const APP = {
@@ -17,7 +19,6 @@ const APP = {
     "import { greet } from '#lib/greet'",
     "import { typed } from './lib/typed'",
     "import { generic } from './lib/generic'",
-    "import { untagged } from './lib/untagged'",
     "import dual from 'dual'",
     "import { optional } from './lib/optional'",
     "import font from './fonts/Inter.ttf'",
@@ -28,7 +29,7 @@ const APP = {
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
     "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, untagged, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -43,9 +44,7 @@ const APP = {
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
   // Valid JS too, as `(box < string) > 'generic'.value`.
-  'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
-  // The same with no @flow, which Babel's `all: true` reads as Flow.
-  'lib/untagged.js': "const box = (value) => ({ value })\nexport class Tag { value = 1 }\nexport const untagged = box<string> /* a comment */ ('untagged').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
+  'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1; static { Box.ready = true } }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
   'broken.js': "import './lib/broken'\n",
@@ -99,7 +98,7 @@ describe('rn-bundle', () => {
     const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
-    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'untagged', 'rn', 'none', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', false, 'production'])
     assert.deepEqual(out.ids.toSorted(), [1, 2, 3])
     const [logo, icon, font] = out.assets
     assert.deepEqual(logo, { __packager_asset: true, httpServerLocation: '/assets/img', width: 20, height: 10, scales: [1, 2, 3], hash: md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'), name: 'logo', type: 'png' })
@@ -177,17 +176,16 @@ const babelConfig = (plugins) => [
 ].join('\n')
 const BABEL_APP = {
   ...APP,
-  'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], ['@babel/plugin-transform-flow-strip-types', { all: true }], '@babel/plugin-transform-react-jsx']),
+  'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx']),
   'modern.js': [
     "import { Counter, syntax as counter } from './lib/counter'",
     "import { generic, syntax as flow } from './lib/generic'",
-    "import { syntax as untagged } from './lib/untagged'",
     "import { syntax as decorated } from './lib/decorated'",
     "import { Card, syntax as card } from './lib/card'",
     "import { syntax as note } from './lib/note'",
     'const c = Counter.make().bump().bump()',
     "const k = new Card({ title: 'hi' })",
-    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, untagged, decorated, card, note } }))',
+    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, decorated, card, note } }))',
     '',
   ].join('\n'),
   'lib/counter.js': [
@@ -243,8 +241,10 @@ const MODERN = {
   counter: [4, 1, true, true, false],
   generic: 'generic',
   card: ['base', 'card', { type: 'Text', renders: 1, children: ['hi'] }, 2],
-  syntax: { counter: [], flow: ['ClassProperty'], untagged: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
+  syntax: { counter: [], flow: ['ClassProperty', 'StaticBlock'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
 }
+// Whether esbuild finds nothing in a bundle left to lower.
+const lowered = (code) => esbuild.transformSync(code, { supported: { 'class-field': false, 'class-private-field': false, 'class-private-method': false, 'class-static-blocks': false, 'class-static-field': false, using: false } }).code === esbuild.transformSync(code).code
 
 describe('rn-bundle --babel', () => {
   const { root, cleanup } = writeTree(BABEL_APP)
@@ -257,7 +257,7 @@ describe('rn-bundle --babel', () => {
     const r = run(['--platform=ios', '--babel', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
-    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'untagged', 'rn', 'none', 'ios', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
 
@@ -274,10 +274,11 @@ describe('rn-bundle --babel', () => {
     assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
   })
 
-  it('makes each TS file JS and lowers each file by esbuild before Babel, but for Flow and decorators', () => {
+  it('makes each TS file JS by esbuild before Babel, lowering the rest after it', () => {
     const r = run(['--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
+    assert.ok(lowered(readFileSync(join(root, 'modern.out.js'), 'utf8')))
   })
 
   it('fails on a TS file esbuild cannot parse', () => {
@@ -306,14 +307,13 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
     const r = run(['--platform=ios', '--babel', '--flow', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
-    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.platform], ['ios', 'hi', 'flow', 'generic', 'untagged', 'ios'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.platform], ['ios', 'hi', 'flow', 'generic', 'ios'])
   })
 
-  it('lowers each JS file by esbuild after, Flow files too', () => {
+  it('lowers a static block before Babel once Flow types are stripped', () => {
     const r = run(['--platform=ios', '--babel', '--flow', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
-    const out = output('modern.out.js')
-    assert.deepEqual(out, { ...MODERN, syntax: { ...MODERN.syntax, flow: [], untagged: [] } })
+    assert.deepEqual(output('modern.out.js'), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty'] } })
   })
 })
 
@@ -322,7 +322,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   // its codegen; __FIELDS__ is the number of class fields Babel gets.
   const config = (options) => [
     'module.exports = {',
-    "  plugins: ['@react-native/babel-plugin-codegen', ['@babel/plugin-transform-react-jsx', { pragma: 'h' }], ({ types: t }) => ({ pre() { this.fields = 0 }, visitor: { ClassProperty() { this.fields++ }, Identifier(path) { if (path.node.name === '__FIELDS__') path.replaceWith(t.numericLiteral(this.fields)) } } })],",
+    "  plugins: ['@react-native/babel-plugin-codegen', '@babel/plugin-transform-react-jsx', ({ types: t }) => ({ pre() { this.fields = 0 }, visitor: { ClassProperty() { this.fields++ }, Identifier(path) { if (path.node.name === '__FIELDS__') path.replaceWith(t.numericLiteral(this.fields)) } } })],",
     '  overrides: [',
     `    { test: /\\.ts$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify(options)}]] },`,
     `    { test: /\\.tsx$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify({ ...options, isTSX: true })}]] },`,
@@ -334,29 +334,22 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'babel.config.js': config({}),
     'main.ts': [
       "import { type Effect } from './effect'",
-      "import { hook } from './hook'",
       "import { view } from './view'",
       "import { pragma } from './pragma'",
-      "import { inline } from './inline'",
-      "import { strings } from './strings'",
       "import { Child, fields } from './fields'",
       "import Button from './ButtonNativeComponent'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
       'const button = { name: (Button as any).name, color: (Button as any).config.validAttributes.color }',
-      'console.log(JSON.stringify({ effects, hook, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields, button }))',
+      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), field: new Child().value ?? null, fields, button }))',
       '',
     ].join('\n'),
     // Has a side effect; imported only for its type.
     'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
-    'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
-    // The JSX pragma's import, with no JSX: unused.
-    'hook.tsx': "import { h } from './factory'\nexport const hook = 'hook'\n",
-    'factory.ts': ";((globalThis as any).effects ??= []).push('factory')\nexport const h = () => null\n",
-    'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
+    // React, which only JSX uses, for the classic runtime.
+    'view.tsx': "import React from 'react'\nexport const view = () => <b>view</b>\n",
+    // A JSX pragma, which esbuild would drop with the comment.
     'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
-    'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
-    // A pragma in a string isn't one; a real one may follow a URL's `//`.
-    'strings.tsx': "import { h as r } from './h'\nexport const text = '/* @jsx nope */', url = 'https://example.com' /** @jsx r */\nexport const strings = () => <s>{text}</s>\n",
+    'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
     'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\nexport const fields = __FIELDS__\n",
     // The codegen makes a view config of the props it reads off the spec's types.
     'ButtonNativeComponent.ts': [
@@ -368,6 +361,8 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       "export default codegenNativeComponent<NativeProps>('Button')",
       '',
     ].join('\n'),
+    'node_modules/react/package.json': { name: 'react', version: '19.0.0' },
+    'node_modules/react/index.js': 'exports.createElement = (type, props, ...children) => ({ type, children })\n',
     'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' },
     'node_modules/react-native/Libraries/Utilities/codegenNativeComponent.js': 'module.exports = (name) => name\n',
     'node_modules/react-native/Libraries/NativeComponent/NativeComponentRegistry.js': 'exports.get = (name, config) => ({ name, config: config() })\n',
@@ -385,16 +380,13 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
   }
 
-  it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
-    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], hook: 'hook', view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
+  it('makes TS JS by esbuild as the plugin would by default; a file with a JSX pragma or a native component spec, Babel takes as it is', () => {
+    assert.deepEqual(build({}), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
   })
 
-  it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {
-    assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect', 'factory'])
-  })
-
-  it('keeps a field with no value, with allowDeclareFields, its class left to Babel', () => {
-    const { field, fields } = build({ jsxPragma: 'h', allowDeclareFields: true })
+  it('leaves TS to Babel, where the plugin keeps imports or fields otherwise', () => {
+    assert.deepEqual(build({ onlyRemoveTypeImports: true }).effects, ['effect'])
+    const { field, fields } = build({ allowDeclareFields: true })
     assert.deepEqual([field, fields], [null, 2])
   })
 })
