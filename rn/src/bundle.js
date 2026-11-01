@@ -226,6 +226,11 @@ async function javascript({ esbuild, stripFlow }, contents, path) {
       if (!(error instanceof SyntaxError)) throw error
     }
   }
+  // Flow that is code (`component`, `hook`, `enum`) flow-remove-types leaves,
+  // and it takes off the @flow pragma, without which the Babel config's Flow
+  // parser, as @react-native/babel-preset's, doesn't read the file: such a
+  // file is left to Babel as it is, as Metro leaves it.
+  if (source !== contents && (await parseErrors(esbuild, source, 'jsx', path)) !== null) return contents
   return (await downgrade(esbuild, source, path)) ?? source
 }
 

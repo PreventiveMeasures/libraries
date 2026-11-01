@@ -563,3 +563,33 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
     assert.deepEqual(build(babel.root, ['--babel', '--minify'], ['--import', notInstalled('flow-remove-types')]).out.order, ['console', 'error-guard', 'setup-env'])
   })
 })
+
+describe('rn-bundle --babel, with Flow that is code', () => {
+  // As @react-native/babel-preset's Flow parser (flow-parser/babel-plugin,
+  // parseLangTypes: 'flow') reads a file that says @flow alone: one that
+  // reads `component`, as a function.
+  const { root, cleanup } = writeTree({
+    'babel.config.js': "module.exports = { plugins: ['./flow-components.js', '@babel/plugin-transform-flow-strip-types'] }\n",
+    'flow-components.js': [
+      'module.exports = () => ({',
+      '  parserOverride(code, options, parse) {',
+      '    if (!/@flow/.test(code)) return undefined',
+      "    return parse(code.replace(/\\bcomponent (\\w+)\\(/g, 'function $1('), options)",
+      '  },',
+      '})',
+      '',
+    ].join('\n'),
+    'index.js': "import Greeting from './greeting'\nimport { typed } from './typed'\nconsole.log(JSON.stringify([Greeting('world'), typed]))\n",
+    'greeting.js': '/**\n * @flow strict-local\n */\ntype Name = string\nexport default component Greeting(name: Name) {\n  return `hello ${name}`\n}\n',
+    'typed.js': "// @flow\nexport const typed: string = 'typed'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-flow-strip-types': linked('@babel/plugin-transform-flow-strip-types'),
+  })
+  after(cleanup)
+
+  it("leaves a file with Flow flow-remove-types doesn't strip to Babel as it is, its @flow pragma kept", () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['hello world', 'typed'])
+  })
+})

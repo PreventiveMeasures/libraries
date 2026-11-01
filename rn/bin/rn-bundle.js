@@ -12,14 +12,15 @@
 // after esbuild makes TS JS and lowers what Babel's preset throws on (static
 // blocks, `using`); esbuild lowers the rest in the bundle, after Babel. Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
-// isn't installed, Babel's config strips them. The extensions metro.config.js
-// lists among `assetExts` are assets too, read off it, never run: by
-// oxc-parser where installed, else in the usual form by a regex. As Metro
-// serializes a bundle as @react-native/metro-config configures it: Metro's
-// prelude, then @react-native/js-polyfills's polyfills (the project's
-// @react-native/metro-config's), then react-native/setup-env (InitializeCore
-// before 0.87), then the entry; each asset registered with the project's
-// react-native's registry (react-native/asset-registry from 0.87).
+// isn't installed, Babel's config strips them, as it does a file with Flow
+// that is code (`component`, `hook`), which flow-remove-types leaves. The
+// extensions metro.config.js lists among `assetExts` are assets too, read off
+// it, never run: by oxc-parser where installed, else in the usual form by a
+// regex. As Metro serializes a bundle as @react-native/metro-config configures
+// it: Metro's prelude, then @react-native/js-polyfills's polyfills (the
+// project's @react-native/metro-config's), then react-native/setup-env
+// (InitializeCore before 0.87), then the entry; each asset registered with the
+// project's react-native's registry (react-native/asset-registry from 0.87).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
