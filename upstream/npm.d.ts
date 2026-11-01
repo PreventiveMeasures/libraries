@@ -51,8 +51,10 @@ export function setCacheDir(dir?: string | false): void
 // what is kept and a `key` which one: `npm/versions` and `npm/tarballs`
 // with `<name>@<version>` for a version's document and tarball; and for
 // advisories.js, `github/advisories` with the repository's `owner/name` in
-// lowercase for its listing, and `cargo/repos`, `composer/repos` and
-// `soldeer/repos` with a package's name for the repository it names.
+// lowercase for its listing, `cargo/repos`, `composer/repos` and
+// `soldeer/repos` with a package's name for the repository it names, and
+// `npm/public` with an npm package's name where the registry serves it to
+// anyone, for `osv`.
 // Values are plain JSON data, which `read` may answer as written or as a
 // copy, but a tarball's are its bytes, a Uint8Array. Whatever it answers
 // is checked as a cached file is: one malformed, stale or kept differently

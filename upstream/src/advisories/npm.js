@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
-import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
+import { readRecord, writeRecord } from '../cache.js'
+import { HttpError, NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { compareVersions } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, metrics } from './common.js'
@@ -12,6 +13,7 @@ import { npmRepos } from './repos.js'
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
 const GHSA_PAGE = 'https://github.com/advisories/'
+const NAMES_AT_ONCE = 8
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
   && ['url', 'severity', 'vulnerable_versions'].every((key) => typeof row[key] === 'string') && isText(row.title)
@@ -85,14 +87,54 @@ function withOsv(registry, osv) {
   return [...rows, ...added]
 }
 
+// Whether the registry serves `name` to anyone: its latest version's
+// document, for that name, to a request with no token, which withNpmToken
+// would send with a scoped name's. A private package of an org, which the
+// registry hides from anyone without its token (private packages are
+// always scoped), and one only another registry has, answer 404; 401 and
+// 403 are no too. Any other failure throws.
+async function servesAnyone(name) {
+  const url = buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest'])
+  const unread = (err) => err instanceof HttpError && [401, 403, 404].includes(err.status)
+  const json = await request(url, { as: 'json' }).catch(recover(unread, null))
+  if (json === null) return false
+  assert.ok(json?.name === name, `advisories: the registry answered for ${show(json?.name)}, not ${name}`)
+  return true
+}
+
+// The names and versions of `asked` OSV may be told of: the packages whose
+// name the registry serves to anyone (servesAnyone). A name, not a
+// version: the versions npm takes down for malware, which OSV's malicious
+// packages' records are of, are gone from the registry, while their name
+// stays, npm's security holding package. One found public is kept for a
+// month (readRecord), as an org may make a scoped package private; one
+// not, asked again each time, as it may be published since.
+async function publicOnly(asked, cache) {
+  const names = [...asked.keys()]
+  const kept = await pool(names, NAMES_AT_ONCE, (name) => readRecord('npm/public', name, cache))
+  const missing = names.filter((name, i) => kept[i]?.public !== true)
+  const found = await pool(missing, NAMES_AT_ONCE, servesAnyone)
+  const added = missing.filter((name, i) => found[i])
+  await pool(added, NAMES_AT_ONCE, (name) => writeRecord('npm/public', name, { public: true }, cache))
+  const serving = new Set([...names.filter((name, i) => kept[i]?.public === true), ...added])
+  return new Map([...asked].filter(([name]) => serving.has(name)))
+}
+
+// With `osv`, OSV's records of the public packages (publicOnly), never a
+// private package's: no request to OSV names one.
+async function osvOfPublic(asked, options) {
+  const told = await publicOnly(asked, options.cache)
+  return told.size > 0 ? await osvRows({ osv: 'npm' }, told, options) : []
+}
+
 // What `npm audit` asks the registry, one row per vulnerable range, and
-// with `osv`, what OSV has besides.
+// with `osv`, what OSV has besides of the public packages.
 export const NPM = {
   assertName: assertPackageName,
   assertVersion: assertPackageVersion,
   compare: compareVersions,
   advisories: async (asked, options) => {
-    const [registry, osv] = await Promise.all([registryAdvisories(asked), options.osv ? osvRows({ osv: 'npm' }, asked, options) : []])
+    const [registry, osv] = await Promise.all([registryAdvisories(asked), options.osv ? osvOfPublic(asked, options) : []])
     const rows = withOsv(registry, osv)
     return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { ecosystem: 'npm', lookUp: npmRepos })
   },
