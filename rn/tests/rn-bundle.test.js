@@ -25,7 +25,8 @@ const APP = {
     "const logo = <Image source={require('./img/logo.png')} />",
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, dual, optional, platform, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
+    'console.log(JSON.stringify({ where, greet: greet(), typed, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -124,6 +125,18 @@ describe('rn-bundle', () => {
     assert.equal(noPlatform.status, 1)
     assert.match(noPlatform.stderr, /--platform is required/u)
   })
+
+  it('builds for release unless --dev, as Metro does, a --define overriding either', () => {
+    const build = (...args) => {
+      const r = run(['--platform=ios', '--jsx', '--flow', '--babel-aliases=aliases.json', ...args, '--output=env.js', 'index.js'])
+      assert.equal(r.status, 0, r.stderr)
+      const { dev, env } = output('env.js')
+      return [dev, env]
+    }
+    assert.deepEqual(build(), [false, 'production'])
+    assert.deepEqual(build('--dev'), [true, 'development'])
+    assert.deepEqual(build('--dev', '--define=__DEV__=false'), [false, 'development'])
+  })
 })
 
 // The project's own Babel, as an app installs it: the workspace's copies linked in.
@@ -132,9 +145,9 @@ const BABEL_APP = {
   ...APP,
   'babel.config.js': [
     'module.exports = (api) => {',
-    '  const platform = api.caller((caller) => caller && caller.platform)',
-    '  const platformOf = ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === \'__PLATFORM__\') path.replaceWith(t.stringLiteral(platform)) } } })',
-    "  return { plugins: [['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx', platformOf] }",
+    '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
+    "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
+    "  return { plugins: [['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx', platformOf, inline('__BABEL_ENV__', api.env())] }",
     '}',
     '',
   ].join('\n'),
@@ -147,7 +160,9 @@ const BABEL_APP = {
 describe('rn-bundle --babel', () => {
   const { root, cleanup } = writeTree(BABEL_APP)
   after(cleanup)
-  const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
+  // Without the shell's BABEL_ENV and NODE_ENV, which Babel would read: only those a test sets.
+  const ENV = Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'BABEL_ENV' && name !== 'NODE_ENV'))
+  const run = (args, env = {}) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env: { ...ENV, ...env } })
 
   it('builds each file as the project\'s Babel config makes it, for the platform', () => {
     const r = run(['--platform=ios', '--babel', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
@@ -155,6 +170,19 @@ describe('rn-bundle --babel', () => {
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
     assert.deepEqual([out.where, out.greet, out.typed, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
+  })
+
+  it('runs Babel in the env Metro\'s transformer names: production, else BABEL_ENV, unless --dev', () => {
+    const babelEnv = (args, env) => {
+      const r = run(['--platform=ios', ...args, '--babel', '--output=env.js', 'index.js'], env)
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).babelEnv
+    }
+    assert.equal(babelEnv([]), 'production')
+    assert.equal(babelEnv([], { NODE_ENV: 'development' }), 'production')
+    assert.equal(babelEnv([], { BABEL_ENV: 'staging' }), 'staging')
+    assert.equal(babelEnv(['--dev']), 'development')
+    assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
   })
 
   it('takes neither --flow nor --babel-aliases with it', () => {
