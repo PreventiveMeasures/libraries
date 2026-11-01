@@ -4,6 +4,7 @@ import type { Node } from './config-lists.js'
 // besides Metro's defaults it spreads in; never run.
 export function metroAssetExts(program: Node): string[]
 
-// The same from the source, with no parser, for the usual forms: an array
-// assigned to `assetExts`, and the arguments of its push, unshift or concat.
-export function scanMetroAssetExts(source: string): string[]
+// The same with no parser, where the config names `assetExts` only as
+// `assetExts: [...defaults.assetExts, 'riv']` (or not at all); null where it
+// names it otherwise, which needs metroAssetExts.
+export function scanMetroAssetExts(source: string): string[] | null
