@@ -627,6 +627,12 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
     assert.ok(build(modern.root, ['--define=__DEV__=false', '--dev']).code.startsWith('var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=false,'))
   })
 
+  it("names the main module, the polyfills and the assets by their paths in the project, as esbuild names files: the bundle doesn't depend on where the project is", () => {
+    const { code } = build(modern.root)
+    assert.ok(!code.includes(modern.root), 'no absolute path')
+    for (const namespace of ['metro-main', 'metro-polyfill', 'metro-asset']) assert.match(code, new RegExp(`// ${namespace}:[\\w@]`, 'u'))
+  })
+
   it('before react-native 0.87: InitializeCore, and Libraries/Image/AssetRegistry', () => {
     assert.deepEqual(build(older.root).out, { order: ['console', 'error-guard', 'InitializeCore'], logo: 'logo', prefix: '', started: 'number' })
   })
