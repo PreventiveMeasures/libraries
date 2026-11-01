@@ -498,6 +498,46 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
   })
 })
 
+describe('rn-bundle --babel, with a Babel config that lowers let and const', () => {
+  // As @react-native/babel-preset lowers them for Hermes, whose own don't
+  // bind each iteration of a loop apart; a plugin of that key, which here
+  // lowers nothing.
+  const config = (plugins) => `module.exports = { plugins: [${plugins.join(', ')}] }\n`
+  const { root, cleanup } = writeTree({
+    // esbuild's __copyProps makes each of c.cjs's exports a getter, in a loop.
+    'main.js': "import * as c from './c.cjs'\nconsole.log(JSON.stringify(Object.keys(c).map((key) => [key, c[key]])))\n",
+    'c.cjs': 'exports.a = 1\nexports.b = 2\n',
+    'left.js': 'let left = 1\nconsole.log(left)\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const build = (plugins, entry = 'main.js') => {
+    writeFileSync(join(root, 'babel.config.js'), config(plugins))
+    return spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+  }
+  const blockScoping = "() => ({ name: 'transform-block-scoping', visitor: {} })"
+
+  it("adds no let or const after Babel: esbuild's helpers bind each key apart", () => {
+    const r = build([blockScoping])
+    assert.equal(r.status, 0, r.stderr)
+    const code = readFileSync(join(root, 'out.js'), 'utf8')
+    assert.ok(!/\b(?:let|const)\b/u.test(code), code)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
+  })
+
+  it('fails on a let or const Babel leaves', () => {
+    const r = build([blockScoping], 'left.js')
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /Transforming let to the configured target environment/u)
+  })
+
+  it('leaves them to esbuild where the config keeps them', () => {
+    const r = build([])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /for \(let key of/u)
+  })
+})
+
 describe('rn-bundle --babel, with no Babel config', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)

@@ -169,6 +169,12 @@ export async function bundle({
       serializer(build, main)
     },
   }
+  // Where Babel's config lowers let and const, as @react-native/babel-preset
+  // does for Hermes, whose own don't bind each iteration of a loop apart,
+  // esbuild adds none after Babel: its helpers have `for (let key of ...)`,
+  // with a closure (__copyProps), which it then writes with var and bind;
+  // and fails on any left.
+  const lowersLet = babel !== null && (await babelPlugins?.(host.realpath(resolve(projectRoot, entry))))?.has('transform-block-scoping') === true
   const result = await esbuild.build({
     entryPoints: [polyfills.length > 0 || before.length > 0 ? MAIN : entry],
     absWorkingDir: projectRoot,
@@ -179,7 +185,7 @@ export async function bundle({
     platform: 'neutral',
     define,
     minify,
-    supported: babel === null ? {} : LOWERED,
+    supported: babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) },
     logLevel: 'silent',
     plugins: [plugin],
     ...(prelude !== null && { banner: { js: prelude } }),
