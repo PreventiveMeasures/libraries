@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // rn-bundle --platform=ios --output=main.js [--dev] [--minify]
-//   [--assets-dest=DIR] [--jsx] [--flow] [--babel] [--define=K=V ...]
+//   [--assets-dest=DIR] [--babel] [--define=K=V ...]
 //   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
@@ -9,10 +9,12 @@
 // esbuild with --minify, as `stasis build --minify` makes it. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
 // @babel/core, and Metro's caller and Babel env, as Metro's transformer does,
-// after esbuild makes TS JS and lowers what it can. --flow strips Flow types
-// first (flow-remove-types). The extensions metro.config.js lists among
-// `assetExts` are assets too, read off it, never run: by oxc-parser where
-// installed, else in the usual form by a regex.
+// after esbuild makes TS JS and lowers what Babel's preset throws on (static
+// blocks, `using`); esbuild lowers the rest in the bundle, after Babel. Flow
+// types are stripped first, by flow-remove-types; with --babel, where that
+// isn't installed, Babel's config strips them. The extensions metro.config.js
+// lists among `assetExts` are assets too, read off it, never run: by
+// oxc-parser where installed, else in the usual form by a regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -34,8 +36,6 @@ const { values, positionals } = parseArgs({
     dev: { type: 'boolean', default: false },
     minify: { type: 'boolean', default: false },
     'assets-dest': { type: 'string' },
-    jsx: { type: 'boolean', default: false },
-    flow: { type: 'boolean', default: false },
     babel: { type: 'boolean', default: false },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
@@ -77,7 +77,16 @@ const peer = (name, why) => {
   return path === null ? fail(`${why} needs ${name}: npm i -D ${name}`) : fromHere(path)
 }
 const esbuild = peer('esbuild', 'bundling')
-const flowRemoveTypes = values.flow ? peer('flow-remove-types', '--flow') : null
+const flowRemoveTypes = locate(fromProject, 'flow-remove-types') ?? locate(fromHere, 'flow-remove-types')
+// Flow types stripped by flow-remove-types; with --babel, where it isn't
+// installed, left to Babel's config, as Metro leaves them.
+function stripFlow() {
+  if (flowRemoveTypes !== null) return (source) => fromHere(flowRemoveTypes)(source, { all: true, removeEmptyImports: true }).toString()
+  if (values.babel) return null
+  return () => {
+    throw new Error('it needs flow-remove-types: npm i -D flow-remove-types')
+  }
+}
 
 function babelAliases(file) {
   let alias
@@ -119,10 +128,6 @@ function projectBabel() {
   return {
     transform: babelWorkers(corePath, { ...options, compact: false }),
     typescript: async (filename) => (await core.loadOptionsAsync({ ...options, filename }))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
-    comments: async (source, filename) => {
-      const plugins = ['typescript', 'decorators', ...(filename.endsWith('.tsx') ? ['jsx'] : [])]
-      return (await core.parseAsync(source, { babelrc: false, configFile: false, filename, parserOpts: { plugins } })).comments.map(({ value }) => value)
-    },
   }
 }
 
@@ -135,11 +140,9 @@ try {
     outfile: values.output,
     esbuild,
     projectRoot: cwd,
-    jsx: values.jsx,
-    stripFlow: flowRemoveTypes && ((source) => flowRemoveTypes(source, { all: true, removeEmptyImports: true }).toString()),
+    stripFlow: stripFlow(),
     babel: babel?.transform ?? null,
     babelTypescript: babel?.typescript ?? null,
-    babelComments: babel?.comments ?? null,
     assetExts: assetExts(),
     define,
     minify: values.minify,
