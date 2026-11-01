@@ -50,6 +50,7 @@
     "src/defaults.js",
     "src/exports.js",
     "src/image-size.js",
+    "src/load.js",
     "src/metro-config.js",
     "src/resolve.js",
     "src/serializer.js"

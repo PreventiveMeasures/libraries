@@ -147,7 +147,7 @@ describe('rn-bundle', () => {
     assert.match(enumFlow.stderr, /Flow syntax flow-remove-types doesn't strip: Unexpected "enum"[\s\S]*lib\/mode\.js:2:7/u)
     const broken = run(['--platform=ios', '--output=out.js', 'broken.js'])
     assert.equal(broken.status, 1)
-    assert.match(broken.stderr, /Can't strip Flow types from lib\/broken\.js: Unexpected token/u)
+    assert.match(broken.stderr, /Can't strip Flow types from lib\/broken\.js: Unexpected token[\s\S]*lib\/broken\.js:1:14:/u)
     for (const [file, message] of [['none.json', "can't read none.json as JSON"], ['bad-aliases.json', 'bad-aliases.json: "^(" is not a valid regular expression']]) {
       const r = run(['--platform=ios', `--babel-aliases=${file}`, '--output=out.js', 'index.js'])
       assert.deepEqual([r.status, r.stderr], [1, `rn-bundle: --babel-aliases: ${message}\n`])
