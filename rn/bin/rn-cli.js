@@ -14,8 +14,9 @@
 // which keeps no cache and runs no command: --reset-cache,
 // --read-global-cache, --max-workers, --verbose, and react-native's
 // scripts/bundle.js's --config-cmd and --load-config; --bundle-encoding,
-// utf8 alone; --unstable-transform-profile, default alone. Refused, as
-// rn-bundle can't do as Metro would: --transformer, --resolver-option.
+// utf8 alone. --unstable-transform-profile, rn-bundle's, with --babel, of
+// no use without. Refused, as rn-bundle can't do as Metro would:
+// --transformer, --resolver-option.
 // --babel [boolean], rn-bundle's: as Metro's transformer runs the project's
 // Babel config, with --babel where it has a babel.config.*, unless --babel
 // false.
@@ -90,7 +91,6 @@ function translate(values, cwd) {
   if (has('transformer')) fail('--transformer: rn-bundle transforms by esbuild and the project\'s Babel config alone')
   if (has('resolver-option')) fail('--resolver-option: rn-bundle resolves as Metro does by default alone')
   if (has('bundle-encoding') && !['utf8', 'utf-8'].includes(String(get('bundle-encoding')).toLowerCase())) fail('--bundle-encoding: rn-bundle writes utf8 alone')
-  if (has('unstable-transform-profile') && get('unstable-transform-profile') !== 'default') fail('--unstable-transform-profile: rn-bundle builds for the default profile alone')
   for (const name of ['entry-file', 'bundle-output']) {
     if (!has(name)) fail(`--${name} is required`)
   }
@@ -109,7 +109,7 @@ function translate(values, cwd) {
     if (has('sourcemap-use-absolute-path')) args.push('--sourcemap-use-absolute-path')
   }
   if (has('config')) args.push(`--metro-config=${resolve(cwd, get('config'))}`)
-  if (babel(values, cwd)) args.push('--babel')
+  if (babel(values, cwd)) args.push('--babel', ...(has('unstable-transform-profile') ? [`--unstable-transform-profile=${get('unstable-transform-profile')}`] : []))
   return [...args, '--', get('entry-file')]
 }
 

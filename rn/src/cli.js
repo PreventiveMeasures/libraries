@@ -93,14 +93,18 @@ export function assetExts(cwd, { locate, load }, fail, file = null) {
 // The project's babel.config.*: its path, or null.
 export const babelConfigOf = (cwd) => BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file)) ?? null
 
+// Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
+export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
+
 // The project's babel.config.*, by the project's own @babel/core. -> a
 // function of { platform, dev } to the options bundle() takes of Babel,
 // with Metro's caller and Babel env, each target's workers its own.
 // `sourceMaps` makes each file's output carry its map, inline; `profile`,
 // each target's workers time the config's plugins, as its `profile`;
 // `refresh`, react-refresh's Babel plugin, a dev target's workers run it
-// over each file outside node_modules, for Fast Refresh.
-export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false, refresh = null } = {}) {
+// over each file outside node_modules, for Fast Refresh; `transformProfile`,
+// one of TRANSFORM_PROFILES, the caller's, for the config's plugins.
+export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default' } = {}) {
   const configFile = babelConfigOf(cwd)
   if (configFile === null) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
   const corePath = tryResolve(fromProject, '@babel/core')
@@ -110,7 +114,11 @@ export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = fa
   return ({ platform, dev }) => {
     const key = `${platform}\0${dev}`
     if (targets.has(key)) return targets.get(key)
-    const caller = { name: 'metro', bundler: 'metro', platform }
+    // As Metro's transformer names it: Platform inlined, as Metro's bundles
+    // have it, for the transform profile, `react-native bundle`'s default
+    // where not given (@react-native/babel-preset 0.87 on takes none for
+    // Hermes V1's, which leaves classes).
+    const caller = { name: 'metro', bundler: 'metro', platform, inlinePlatform: true, unstable_transformProfile: transformProfile }
     // The env Metro's transformer names, which plugins read for a release
     // build: react-native-worklets omits each worklet's location and source map.
     const envName = dev ? 'development' : process.env.BABEL_ENV || 'production'

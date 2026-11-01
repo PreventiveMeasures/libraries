@@ -2,7 +2,8 @@
 // rn-bundle --platform=ios --output=main.js [--dev] [--minify]
 //   [--assets-dest=DIR] [--asset-catalog-dest=DIR] [--sourcemap-output=FILE]
 //   [--sourcemap-sources-root=DIR] [--sourcemap-use-absolute-path]
-//   [--metro-config=FILE] [--babel] [--esm] [--profile] [--define=K=V ...]
+//   [--metro-config=FILE] [--babel] [--esm] [--profile]
+//   [--unstable-transform-profile=PROFILE] [--define=K=V ...]
 //   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
@@ -28,7 +29,10 @@
 // that makes them CommonJS, but in a file that names `module` or `exports`
 // with them, or in which esbuild finds an import of what an ES module doesn't
 // export, which it warns of (Metro's is undefined). An import resolves for
-// ESM, as Metro resolves it: by exports' `import` condition. --profile
+// ESM, as Metro resolves it: by exports' `import` condition.
+// --unstable-transform-profile, `react-native bundle`'s: the profile Babel's
+// caller names (default, hermes-stable, hermes-canary), which
+// @react-native/babel-preset builds for; default where not given. --profile
 // reports the time each of the config's plugins takes, summed over Babel's
 // workers: the files its visitors ran in, their calls, and the time outside
 // the plugins. Flow
@@ -51,7 +55,7 @@ import { parseArgs } from 'node:util'
 import { assetCatalogFiles, assetsDestFiles } from '../src/assets-dest.js'
 import { profileReport } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
-import { assetExts, babelAliases, defines, failer, flowStripper, peers, polyfills, projectBabel } from '../src/cli.js'
+import { TRANSFORM_PROFILES, assetExts, babelAliases, defines, failer, flowStripper, peers, polyfills, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
 import { prelude } from '../src/serializer.js'
 import { metroSourceMap } from '../src/source-map.js'
@@ -72,6 +76,7 @@ const { values, positionals } = parseArgs({
     babel: { type: 'boolean', default: false },
     esm: { type: 'boolean', default: false },
     profile: { type: 'boolean', default: false },
+    'unstable-transform-profile': { type: 'string' },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
   },
@@ -84,6 +89,9 @@ if (values.platform === undefined) fail('--platform is required, e.g. --platform
 if (values.output === undefined) fail('--output is required')
 if (values.profile && !values.babel) fail('--profile times the plugins of --babel: pass it')
 if (values.esm && !values.babel) fail('--esm keeps ES modules through --babel: pass it')
+const transformProfile = values['unstable-transform-profile'] ?? 'default'
+if (values['unstable-transform-profile'] !== undefined && !values.babel) fail("--unstable-transform-profile is the profile --babel's plugins build for: pass it")
+if (!TRANSFORM_PROFILES.includes(transformProfile)) fail(`--unstable-transform-profile is one of ${TRANSFORM_PROFILES.join(', ')}`)
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 const sourcemap = values['sourcemap-output']
 if (sourcemap === undefined && (values['sourcemap-sources-root'] !== undefined || values['sourcemap-use-absolute-path'])) fail('--sourcemap-sources-root and --sourcemap-use-absolute-path shape the map of --sourcemap-output: pass it')
@@ -97,7 +105,7 @@ process.env.NODE_ENV = values.dev ? 'development' : 'production'
 const cwd = process.cwd()
 const project = peers(cwd, fail)
 const esbuild = project.peer('esbuild', 'bundling')
-const babel = values.babel ? projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined })({ platform: values.platform, dev: values.dev }) : null
+const babel = values.babel ? projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile })({ platform: values.platform, dev: values.dev }) : null
 let result
 try {
   result = await bundle({

@@ -215,6 +215,7 @@ const babelConfig = (plugins) => [
   'module.exports = (api) => {',
   '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
   "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
+  "  const callerOf = inline('__CALLER__', api.caller((caller) => caller && JSON.stringify([caller.inlinePlatform, caller.unstable_transformProfile])))",
   '  // NODE_ENV as a plugin reads it, as it transforms.',
   "  const nodeEnvOf = ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === '__NODE_ENV__') path.replaceWith(t.stringLiteral(String(process.env.NODE_ENV))) } } })",
   '  const syntaxOf = ({ types: t }) => ({',
@@ -224,7 +225,7 @@ const babelConfig = (plugins) => [
   "      Identifier(path) { if (path.node.name === '__SYNTAX__') path.replaceWith(t.valueToNode([...this.seen].toSorted())) },",
   '    },',
   '  })',
-  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), nodeEnvOf, syntaxOf] }`,
+  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, callerOf, inline('__BABEL_ENV__', api.env()), nodeEnvOf, syntaxOf] }`,
   '}',
   '',
 ].join('\n')
@@ -284,6 +285,7 @@ const BABEL_APP = {
   'lib/shape.ts': 'export type Shape = { width: number }\n',
   'bad-ts.js': "import './lib/bad'\n",
   'lib/bad.ts': 'const a: = 1\n',
+  'caller.js': 'console.log(__CALLER__)\n',
   // Sloppy, as a script may be.
   'sloppy.js': "console.log(JSON.stringify(require('./lib/sloppy')))\n",
   'lib/sloppy.js': "var scope = { value: 'with' }\nwith (scope) {\n  module.exports = value\n}\n",
@@ -320,6 +322,20 @@ describe('rn-bundle --babel', () => {
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
+  })
+
+  it("gives Babel's plugins what of the build Metro's transformer gives them: Platform inlined, the transform profile, default where not given", () => {
+    const caller = (...args) => {
+      const r = run(['--platform=ios', '--babel', ...args, '--output=caller.out.js', 'caller.js'])
+      assert.equal(r.status, 0, r.stderr)
+      return spawnSync(process.execPath, [join(root, 'caller.out.js')], { encoding: 'utf8' }).stdout
+    }
+    assert.equal(caller(), '[true,"default"]\n')
+    assert.equal(caller('--unstable-transform-profile=hermes-stable'), '[true,"hermes-stable"]\n')
+    const unknown = run(['--platform=ios', '--babel', '--unstable-transform-profile=hermes', '--output=caller.out.js', 'caller.js'])
+    assert.deepEqual([unknown.status, unknown.stderr], [1, 'rn-bundle: --unstable-transform-profile is one of default, hermes-stable, hermes-canary\n'])
+    const alone = run(['--platform=ios', '--unstable-transform-profile=hermes-stable', '--output=caller.out.js', 'caller.js'])
+    assert.equal(alone.status, 1)
   })
 
   it('runs Babel in the env Metro\'s transformer names: production, else BABEL_ENV, unless --dev', () => {
