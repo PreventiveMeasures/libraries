@@ -26,17 +26,15 @@
 // (InitializeCore before 0.87), then the entry; each asset registered with the
 // project's react-native's registry (react-native/asset-registry from 0.87).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import { assetsDestFiles } from '../src/assets-dest.js'
-import { createAliases } from '../src/babel-aliases.js'
-import { babelWorkers, newProfile, profileReport } from '../src/babel-worker.js'
+import { profileReport } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
-import { defaults, diskHost } from '../src/defaults.js'
-import { metroAssetExts, scanMetroAssetExts } from '../src/metro-config.js'
+import { assetExts, babelAliases, defines, failer, flowStripper, peers, polyfills, projectBabel } from '../src/cli.js'
+import { diskHost } from '../src/defaults.js'
 import { prelude } from '../src/serializer.js'
 
 const { values, positionals } = parseArgs({
@@ -54,10 +52,7 @@ const { values, positionals } = parseArgs({
   },
 })
 
-const fail = (message) => {
-  process.stderr.write(`rn-bundle: ${message}\n`)
-  process.exit(1)
-}
+const fail = failer('rn-bundle')
 
 if (positionals.length !== 1) fail('one entry file is required')
 if (values.platform === undefined) fail('--platform is required, e.g. --platform=ios')
@@ -65,104 +60,15 @@ if (values.output === undefined) fail('--output is required')
 if (values.profile && !values.babel) fail('--profile times the plugins of --babel: pass it')
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 
-// __DEV__ and process.env.NODE_ENV as Metro's prelude sets them for --dev or
-// not, unless --define sets them.
-const define = { __DEV__: String(values.dev), 'process.env.NODE_ENV': JSON.stringify(values.dev ? 'development' : 'production') }
-for (const pair of values.define) {
-  const at = pair.indexOf('=')
-  if (at < 1) fail(`--define takes K=V, not ${pair}`)
-  define[pair.slice(0, at)] = pair.slice(at + 1)
-}
+const define = defines(values.dev, values.define, fail)
 // As `react-native bundle` sets it, before Metro's workers start, for Babel's
 // plugins to read: Reanimated's (3), for production, leaves out each
 // worklet's location and source map.
 process.env.NODE_ENV = values.dev ? 'development' : 'production'
-
 const cwd = process.cwd()
-const fromProject = createRequire(resolve(cwd, 'package.json'))
-const fromHere = createRequire(import.meta.url)
-// A peer as the project installs it, else as installed beside rn-bundle.
-const locate = (from, name) => {
-  try {
-    return from.resolve(name)
-  } catch {
-    return null
-  }
-}
-const peer = (name, why) => {
-  const path = locate(fromProject, name) ?? locate(fromHere, name)
-  return path === null ? fail(`${why} needs ${name}: npm i -D ${name}`) : fromHere(path)
-}
-const esbuild = peer('esbuild', 'bundling')
-const flowRemoveTypes = locate(fromProject, 'flow-remove-types') ?? locate(fromHere, 'flow-remove-types')
-// Flow types stripped by flow-remove-types; with --babel, where it isn't
-// installed, left to Babel's config, as Metro leaves them.
-function stripFlow() {
-  if (flowRemoveTypes !== null) return (source) => fromHere(flowRemoveTypes)(source, { all: true, removeEmptyImports: true }).toString()
-  if (values.babel) return null
-  return () => {
-    throw new Error('it needs flow-remove-types: npm i -D flow-remove-types')
-  }
-}
-
-// @react-native/metro-config's serializer.getPolyfills: the list
-// @react-native/js-polyfills gives, of the project's copy, which its
-// @react-native/metro-config depends on; none where it has none.
-function polyfills() {
-  const metroConfig = locate(fromProject, '@react-native/metro-config')
-  const list = locate(fromProject, '@react-native/js-polyfills') ?? (metroConfig === null ? null : locate(createRequire(metroConfig), '@react-native/js-polyfills'))
-  if (list === null) return []
-  const getPolyfills = fromHere(list)
-  const paths = typeof getPolyfills === 'function' ? getPolyfills() : null
-  return Array.isArray(paths) && paths.every((path) => typeof path === 'string') ? paths : fail(`${list} lists no polyfills`)
-}
-
-function babelAliases(file) {
-  let alias
-  try {
-    alias = JSON.parse(readFileSync(resolve(cwd, file), 'utf8'))
-  } catch {
-    return fail(`--babel-aliases: can't read ${file} as JSON`)
-  }
-  try {
-    return createAliases(alias, cwd)
-  } catch (error) {
-    return fail(`--babel-aliases: ${file}: ${error.message}`)
-  }
-}
-
-// Metro's asset extensions, and those metro.config.js adds: read by its AST
-// where oxc-parser is installed, else in the one form a regex reads.
-function assetExts() {
-  const config = resolve(cwd, 'metro.config.js')
-  if (!existsSync(config)) return defaults.assetExts
-  const source = readFileSync(config, 'utf8')
-  const oxc = locate(fromProject, 'oxc-parser') ?? locate(fromHere, 'oxc-parser')
-  const listed = oxc === null ? scanMetroAssetExts(source) : metroAssetExts(fromHere(oxc).parseSync(config, source, { sourceType: 'unambiguous' }).program)
-  return listed === null ? fail('reading the assetExts of metro.config.js needs oxc-parser: npm i -D oxc-parser') : [...defaults.assetExts, ...listed]
-}
-
-// The project's babel.config.*, by the project's own @babel/core.
-function projectBabel() {
-  const configFile = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
-  if (configFile === undefined) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
-  const corePath = locate(fromProject, '@babel/core')
-  if (corePath === null) fail('--babel needs @babel/core installed in the project')
-  const core = fromHere(corePath)
-  const caller = { name: 'metro', bundler: 'metro', platform: values.platform }
-  // The env Metro's transformer names, which plugins read for a release
-  // build: react-native-worklets omits each worklet's location and source map.
-  const envName = values.dev ? 'development' : process.env.BABEL_ENV || 'production'
-  const options = { cwd, root: cwd, configFile, caller, envName }
-  const profile = values.profile ? newProfile() : null
-  return {
-    profile,
-    transform: babelWorkers(corePath, { ...options, compact: false }, profile),
-    plugins: async (filename) => new Map((await core.loadOptionsAsync({ ...options, filename }))?.plugins.map((plugin) => [plugin.key, plugin.options])),
-  }
-}
-
-const babel = values.babel ? projectBabel() : null
+const project = peers(cwd, fail)
+const esbuild = project.peer('esbuild', 'bundling')
+const babel = values.babel ? projectBabel(cwd, project, fail, { profile: values.profile })({ platform: values.platform, dev: values.dev }) : null
 let result
 try {
   result = await bundle({
@@ -171,15 +77,15 @@ try {
     outfile: values.output,
     esbuild,
     projectRoot: cwd,
-    stripFlow: stripFlow(),
-    babel: babel?.transform ?? null,
-    babelPlugins: babel?.plugins ?? null,
-    assetExts: assetExts(),
+    stripFlow: flowStripper(project, values.babel),
+    babel: babel?.babel ?? null,
+    babelPlugins: babel?.babelPlugins ?? null,
+    assetExts: assetExts(cwd, project, fail),
     define,
     minify: values.minify,
     prelude: prelude(define.__DEV__, values.dev ? 'development' : 'production'),
-    polyfills: polyfills(),
-    aliases: values['babel-aliases'] === undefined ? null : babelAliases(values['babel-aliases']),
+    polyfills: polyfills(project, fail),
+    aliases: values['babel-aliases'] === undefined ? null : babelAliases(cwd, values['babel-aliases'], fail),
   })
 } catch (error) {
   if (!Array.isArray(error?.errors)) throw error
