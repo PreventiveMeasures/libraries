@@ -44,6 +44,9 @@ const APP = {
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
   // Valid JS too, as `(box < string) > 'generic'.value`.
+  // A call with type arguments with no @flow, which --flow strips as Flow.
+  'untagged.js': "import { untagged } from './lib/untagged'\nconsole.log(JSON.stringify({ untagged }))\n",
+  'lib/untagged.js': "const box = (value) => ({ value })\nexport const untagged = box<string> /* a comment */ ('untagged').value\n",
   'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1; static { Box.ready = true } }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
@@ -115,6 +118,12 @@ describe('rn-bundle', () => {
     assert.equal(out.where, 'android')
     assert.deepEqual([out.assets[1].width, out.assets[1].hash], [9, md5('img/icon.android.png')])
     assert.deepEqual(listFiles(join(root, 'res')), ['drawable-mdpi/img_icon.png', 'drawable-mdpi/img_logo.png', 'drawable-xhdpi/img_logo.png', 'drawable-xxhdpi/img_logo.png', 'raw/fonts_inter.ttf', 'raw/keep.xml'])
+  })
+
+  it('strips with --flow a call with type arguments in a file with no @flow', () => {
+    const r = run(['--platform=ios', '--flow', '--output=untagged.out.js', 'untagged.js'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(output('untagged.out.js'), { untagged: 'untagged' })
   })
 
   it('fails on what it cannot resolve, parse or strip', () => {
@@ -299,6 +308,12 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
   after(cleanup)
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
   const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
+
+  it('strips a call with type arguments in a file with no @flow before Babel', () => {
+    const r = run(['--platform=ios', '--babel', '--flow', '--output=untagged.out.js', 'untagged.js'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(output('untagged.out.js'), { untagged: 'untagged' })
+  })
 
   it('strips the Flow types of each file that has them before Babel', () => {
     const noFlow = run(['--platform=ios', '--babel', '--output=ios.js', 'index.js'])

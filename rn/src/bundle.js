@@ -31,6 +31,9 @@ const LOWERED = {
 // decorators. Decorators, only to detect them: esbuild drops a field's
 // decorators where it lowers the field.
 const BEFORE_BABEL = { 'class-static-blocks': false, using: false, decorators: false }
+// A call with type arguments needs a `>`, then only space or comments, then
+// `(` or a backtick.
+const MAYBE_TYPE_ARGUMENTS = /(?<!=)>(?:\s|\/\/.*|\/\*[\s\S]*?\*\/)*[(`]/u
 // Options of Babel's TS plugin that change which fields and imports it keeps.
 const TS_OPTIONS = ['onlyRemoveTypeImports', 'allowDeclareFields', 'jsxPragma', 'jsxPragmaFrag']
 // Appended to TSX so that esbuild keeps React's import, which JSX, left to
@@ -166,8 +169,10 @@ function isFlow(code) {
   return code.includes('@flow')
 }
 
+// --flow strips as if each file were Flow (flow-remove-types' `all: true`),
+// where `f<T>(x)` is a call in any file.
 async function hasFlow(esbuild, code, loader) {
-  return isFlow(code) || (await parseErrors(esbuild, code, loader)) !== null
+  return isFlow(code) || MAYBE_TYPE_ARGUMENTS.test(code) || (await parseErrors(esbuild, code, loader)) !== null
 }
 
 async function javascript({ esbuild, stripFlow }, contents, path) {
