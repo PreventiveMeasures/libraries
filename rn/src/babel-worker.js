@@ -123,10 +123,12 @@ if (workerData?.babel !== undefined) {
   let depth = 0
   // Each call counted, its file one the plugin worked in where it does:
   // a visitor's, a parser's or printer's, not a pre or post hook's.
-  const add = (map, key, ms, works = true) => {
-    const [calls, time, worked] = map.get(key) ?? [0, 0, false]
-    map.set(key, [calls + 1, time + ms, worked || works])
+  const add = (map, key, ms, works = true, calls = 1) => {
+    const [counted, time, worked] = map.get(key) ?? [0, 0, false]
+    map.set(key, [counted + calls, time + ms, worked || works])
   }
+  // Whether the call under way was a gated visitor's that didn't run (gate()).
+  let skipped = false
   const timed = (key, fn, works = true) =>
     function (...args) {
       const start = performance.now()
@@ -137,7 +139,8 @@ if (workerData?.babel !== undefined) {
       } finally {
         depth--
         const elapsed = performance.now() - start
-        add(spent, key, elapsed - (inner - before), works)
+        add(spent, key, elapsed - (inner - before), works && !skipped, skipped ? 0 : 1)
+        skipped = false
         inner = before + elapsed
       }
     }
@@ -172,14 +175,46 @@ if (workerData?.babel !== undefined) {
     hooked.add(plugin)
     for (const hook of ['pre', 'post', 'parserOverride', 'generatorOverride']) if (typeof plugin[hook] === 'function') plugin[hook] = timed(plugin.key, plugin[hook], hook.endsWith('Override'))
   }
+  // babel-plugin-module-resolver traverses each file on Program's enter and
+  // exit, but rewrites nothing where no string in it names an alias, as its
+  // options, normalized by its pre hook for the file, have each, with no
+  // `root` and no `resolvePath` of its own: each instance's traversals run
+  // only where one does, checked by a walk of the file's nodes as each would
+  // start, with what other plugins added by then. A walk alone is its time,
+  // not a call of it (timed()).
+  const RESOLVER = 'module-resolver'
+  const gated = new WeakSet()
+  const names = (node, options) => {
+    if (options?.root?.length !== 0 || options.customResolvePath !== undefined || !Array.isArray(options.alias) || !options.alias.every(([regExp]) => regExp instanceof RegExp)) return true
+    let named = false
+    core.types.traverseFast(node, (child) => {
+      named ||= child.type === 'StringLiteral' && options.alias.some(([regExp]) => regExp.test(child.value))
+    })
+    return named
+  }
+  const gate = (fn) =>
+    function (path, ...rest) {
+      // `this`, the instance's pass, with its options for the file.
+      if (names(path.node, this?.normalizedOpts)) return fn.call(this, path, ...rest)
+      skipped = true
+      return undefined
+    }
+  const gateResolver = (plugin) => {
+    const program = plugin.visitor?.Program
+    if (plugin.key !== RESOLVER || gated.has(plugin) || program === undefined) return
+    gated.add(plugin)
+    // Its own, not the Program visitor its instances share.
+    const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map(gate) : fns])
+    plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
+  }
   // Sync: a worker transforms one file at a time.
   const transform = (source, filename, without) => {
-    if (without.length === 0 && !profile) return core.transformSync(source, optionsOf(filename))
     // The config's plugins, loaded, which transformSync takes as they are.
     const start = performance.now()
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
     const plugins = config.plugins.filter(({ key }) => !without.includes(key))
+    plugins.forEach(gateResolver)
     if (!profile) return core.transformSync(source, { ...config, plugins })
     plugins.forEach(timeHooks)
     for (const { key } of plugins) spent.set(key, [0, 0, false])

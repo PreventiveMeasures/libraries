@@ -752,8 +752,13 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     assert.equal(ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 3)
   })
 
-  it('keeps it where it may rewrite what names none: an alias that is a RegExp, a root', () => {
-    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 5)
+  it("runs it where a string names an alias, as its RegExp has it, though the file's text names one where none does", () => {
+    // `export`, in each file's text, of no string.
+    assert.equal(ran({ alias: { '#lib': './lib', export: './nowhere' } }), 3)
+    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 3)
+  })
+
+  it('keeps it where it may rewrite what names none: with a root', () => {
     assert.equal(ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 5)
   })
 })

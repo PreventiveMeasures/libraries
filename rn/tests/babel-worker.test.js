@@ -14,6 +14,8 @@ describe('babelWorkers', () => {
     'broken.cjs': "throw new Error('broken core')\n",
     // A pre hook, run in each file, and a visitor of classes, in a file with one.
     'classy.cjs': "module.exports = () => ({ name: 'classy', pre() {}, visitor: { ClassDeclaration() {} } })\n",
+    // A require of an alias, put in as Babel traverses the file.
+    'inject.cjs': "module.exports = ({ types: t }) => ({ name: 'inject', visitor: { Identifier(path) { if (path.node.name === '__DEP__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('#lib/b')])) } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
     // A config with its own visitor wrapper, which marks after mark's visitor.
     'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
@@ -60,6 +62,29 @@ describe('babelWorkers', () => {
     const { code, imports } = await transform(source, join(root, 'imports.js'))
     assert.deepEqual([...code.matchAll(/require\(["'](\w)["']\)/gu)].map(([, specifier]) => specifier).toSorted(), ['a', 'b', 'c', 'd'])
     assert.deepEqual(imports, ['a', 'b', 'c'])
+  })
+
+  it("runs module-resolver's traversals where a string names one of its aliases, as Babel has the file when each starts", async () => {
+    const profile = newProfile()
+    const plugins = [[fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')), { cwd: root, alias: { '#lib': './lib', '^~(.+)$': './lib/\\1' } }], join(root, 'inject.cjs')]
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, cwd: root, compact: false, plugins }, profile)
+    const code = async (source) => (await transform(source, join(root, 'a.js'))).code
+    assert.equal(await code("const a = require('#lib/a')"), 'const a = require("./lib/a");')
+    assert.equal(await code("const a = require('~a')"), 'const a = require("./lib/a");')
+    assert.equal(await code('const b = __DEP__'), 'const b = require("./lib/b");')
+    assert.equal(await code("// #lib\nconst c = require('c')"), "// #lib\nconst c = require('c');")
+    // Its enter, of the first two, which leaves no alias to its exit; its
+    // exit, of the third. Its pre and post hooks, of each.
+    const { files, calls } = profile.plugins.get('module-resolver')
+    assert.deepEqual([files, calls], [3, 3 + 4 * 2])
+  })
+
+  it("checks each module-resolver's aliases, where the config has more than one", async () => {
+    const resolver = fileURLToPath(import.meta.resolve('babel-plugin-module-resolver'))
+    const plugins = [[resolver, { cwd: root, alias: { '#first': './first' } }, 'first'], [resolver, { cwd: root, alias: { '#second': './second' } }, 'second']]
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, cwd: root, compact: false, plugins })
+    assert.equal((await transform("require('#first/a')", join(root, 'a.js'))).code, 'require("./first/a");')
+    assert.equal((await transform("require('#second/b')", join(root, 'b.js'))).code, 'require("./second/b");')
   })
 
   it('reports a profile, most time first, with that outside the plugins', () => {
