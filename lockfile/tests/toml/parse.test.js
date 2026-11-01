@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { TomlDateTime, TomlError, TomlFloat, isInlineTable, parseToml } from '../../toml.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // Tables come back with a null prototype, which strict deepEqual holds
 // against a literal; structuredClone gives them Object.prototype back and
@@ -341,9 +346,10 @@ describe('what it costs', () => {
   // many of them would cost its length again for each.
   it('a line of two hundred thousand values in two seconds', () => {
     const text = `a = [${Array.from({ length: 200_000 }, (_, i) => i).join(', ')}]\n`
-    const start = performance.now()
+    const start = cpuUsage()
     assert.equal(parseToml(text).a.length, 200_000)
-    assert.ok(performance.now() - start < 2000, `${Math.round(performance.now() - start)} ms`)
+    const took = cpuMs(start)
+    assert.ok(took < 2000, `${Math.round(took)} ms`)
   })
 })
 

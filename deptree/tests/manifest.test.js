@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { DeptreeError } from '../src/error.js'
 import { own, readManifest, readManifests } from '../src/manifest.js'
@@ -6,6 +7,10 @@ import { createMatcher } from '../src/matcher.js'
 import { matchesGlob } from '../src/glob.js'
 import { checkWorkspace } from '../src/pnpm/workspace.js'
 import { Hoister } from '../src/yarn1/hoist.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // What a project's own files may make of a builder, held to bounds: no
 // path out of the project, no nesting or chain that runs a recursion out of
@@ -41,11 +46,11 @@ describe('a glob or a name pattern', () => {
   // As a regexp, each of these takes hours.
   it('matched in time linear in the name', () => {
     const glob = '*a*a*a*a*a*a*a*a*b'
-    const start = performance.now()
+    const start = cpuUsage()
     assert.equal(createMatcher([glob])('a'.repeat(214)), false)
     assert.equal(matchesGlob(glob, 'a'.repeat(255)), false)
     assert.throws(() => checkWorkspace(['a'.repeat(255)], [glob]), /do not take this directory/u)
-    assert.ok(performance.now() - start < 1000)
+    assert.ok(cpuMs(start) < 1000)
   })
 
   it('matched as before', () => {

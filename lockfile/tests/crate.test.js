@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { isDeepStrictEqual } from 'node:util'
 import * as rustSemver from '../rust-semver.js'
 import { fileName } from '../src/crate/path.js'
 import { sanitizeWithOptions } from '../src/crate/sanitize-filename.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 const { matches, parseVersion, parseVersionReq } = rustSemver
 
@@ -60,10 +65,10 @@ describe('rust-semver.js, as the semver crate reads and matches', () => {
   it('in time linear in its length, whatever it is', () => {
     const long = 100000
     for (const text of ['1.2.3-' + '1a.'.repeat(long) + '!', '>=1.2.3-' + '0'.repeat(long) + '!', ' '.repeat(long) + '1' + ' '.repeat(long) + 'x', Array.from({ length: long }, () => '1').join(',')]) {
-      const start = performance.now()
+      const start = cpuUsage()
       assert.equal(parseVersion(text), undefined)
       assert.equal(parseVersionReq(text), undefined)
-      assert.ok(performance.now() - start < 1000, `${text.slice(0, 20)}…`)
+      assert.ok(cpuMs(start) < 1000, `${text.slice(0, 20)}…`)
     }
   })
 
@@ -148,9 +153,9 @@ describe('the sanitize-filename crate, as Soldeer names a folder', () => {
   })
 
   it('in time linear in its length, a run of dots and spaces anywhere', () => {
-    const start = performance.now()
+    const start = cpuUsage()
     assert.equal(sanitizeWithOptions(`a${' '.repeat(100000)}b`, { windows: true, truncate: false, replacement: '-' }).length, 100002)
-    assert.ok(performance.now() - start < 1000)
+    assert.ok(cpuMs(start) < 1000)
   })
 
   it('its other options: a replacement taken as it is, and no cut', () => {
