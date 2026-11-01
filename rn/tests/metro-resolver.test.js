@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { relative } from 'node:path'
 import { after, describe, it } from 'node:test'
 
@@ -6,18 +7,22 @@ import { createMetroResolver, defaults } from '../metro-resolver.js'
 import { TREE, requestsIn } from './metro-tree.js'
 import { png, shown, vfsOf, writeTree } from './fixtures.js'
 
+const metroResolver = createRequire(import.meta.url)('metro-resolver')
+
 describe('createMetroResolver over a Vfs', () => {
   const { root, cleanup } = writeTree(TREE)
   after(cleanup)
 
-  it('resolves every case as it does on disk', () => {
+  // Every case as the built-in resolver answers it on disk.
+  const differences = (memory) => {
     const disk = createMetroResolver()
-    const memory = createMetroResolver({ host: vfsOf(TREE) })
-    const differ = requestsIn(root)
+    return requestsIn(root)
       .map(([origin, specifier, options]) => [specifier, options, shown(root, disk(origin, specifier, options)), shown('/', memory(`/${relative(root, origin)}`, specifier, options))])
       .filter(([, , a, b]) => a !== b)
-    assert.deepEqual(differ, [])
-  })
+  }
+
+  it('resolves every case as it does on disk', () => assert.deepEqual(differences(createMetroResolver({ host: vfsOf(TREE) })), []))
+  it('resolves every case through metro-resolver too', () => assert.deepEqual(differences(createMetroResolver({ host: vfsOf(TREE), metroResolver })), []))
 
   it('answers by real paths, through a link', () => {
     const resolve = createMetroResolver({ host: vfsOf(TREE) })
@@ -61,11 +66,20 @@ describe('createMetroResolver', () => {
     assert.deepEqual(reads, ['/package.json'])
   })
 
-  it('throws on a package.json that is no JSON object, as Metro does', () => {
-    const resolving = (manifest) => () => createMetroResolver({ host: vfsOf({ 'package.json': manifest, 'a.js': '' }) })('/x.js', './a')
-    assert.throws(resolving('{'), /Invalid package\.json: \/package\.json/u)
-    assert.throws(resolving('[]'), /not an object/u)
-    assert.throws(resolving('﻿{}'), /Invalid package\.json/u)
+  for (const via of [{}, { metroResolver }]) {
+    it(`throws on a package.json that is no JSON object, as Metro does${via.metroResolver ? ', through metro-resolver' : ''}`, () => {
+      const resolving = (manifest) => () => createMetroResolver({ host: vfsOf({ 'package.json': manifest, 'a.js': '' }), ...via })('/x.js', './a')
+      assert.throws(resolving('{'), /Invalid package\.json: \/package\.json/u)
+      assert.throws(resolving('[]'), /not an object/u)
+      assert.throws(resolving('\uFEFF{}'), /Invalid package\.json/u)
+    })
+  }
+
+  it('answers null where metro-resolver fails, and throws the host\'s errors', () => {
+    const vfs = vfsOf({ 'a.js': '' })
+    assert.equal(createMetroResolver({ host: vfs, metroResolver })('/x.js', './b'), null)
+    const broken = { isFile: () => true, isDirectory: () => false, realpath: () => { throw new Error('gone') }, readFile: (p) => vfs.readFile(p), readdir: () => [] }
+    assert.throws(() => createMetroResolver({ host: broken, metroResolver })('/x.js', './a'), /gone/u)
   })
 
   it('refuses what it cannot resolve from', () => {
@@ -74,6 +88,7 @@ describe('createMetroResolver', () => {
     assert.throws(() => resolve('/x.js', 5), TypeError)
     assert.throws(() => createMetroResolver({ nodeModulesPaths: ['node_modules'] }), TypeError)
     assert.throws(() => createMetroResolver({ extraNodeModules: { a: 'shims/a' } }), TypeError)
+    assert.throws(() => createMetroResolver({ metroResolver: {} }), TypeError)
   })
 
   it('takes its options as they were when made', () => {

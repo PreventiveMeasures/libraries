@@ -47,22 +47,17 @@ export function assetFiles(host, filePath, assetResolutions) {
   return files.length > 0 ? files.map((file) => host.realpath(file)) : null
 }
 
-function parsed(assetPath, platform) {
-  const asset = parseAssetPath(assetPath, platform)
-  if (asset === null) throw new Error(`invalid asset file path: ${assetPath}`)
-  return asset
-}
-
 // getAbsoluteAssetRecord: the asset's files in its directory, the
 // platform's where it has any, by scale, ties in libuv's readdir order.
 export function assetRecord(assetPath, { platform = null, host = diskHost } = {}) {
-  const own = parsed(basename(assetPath), platform)
+  const own = parseAssetPath(assetPath, platform)
+  if (own === null) throw new Error(`invalid asset file path: ${assetPath}`)
   const dir = dirname(assetPath)
   const entries = host.readdir(dir)
     .filter((name) => name.startsWith(own.name))
     .toSorted((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
     .flatMap((name) => {
-      const asset = parseAssetPath(name, platform)
+      const asset = parseAssetPath(join(dir, name), platform)
       return asset === null ? [] : [{ key: asset.platform === null ? asset.assetName : `${asset.assetName} : ${asset.platform}`, file: join(dir, name), scale: asset.resolution }]
     })
   const records = Map.groupBy(entries, ({ key }) => key)
@@ -76,8 +71,8 @@ export function assetRecord(assetPath, { platform = null, host = diskHost } = {}
 // below `publicPath`, posix.
 export function assetData(assetPath, { urlPath, platform = null, publicPath = '/assets', host = diskHost } = {}) {
   if (typeof urlPath !== 'string') throw new TypeError('assetData: urlPath is required')
-  const { name, type } = parsed(assetPath, platform)
   const { files, scales } = assetRecord(assetPath, { platform, host })
+  const { name, type } = parseAssetPath(assetPath, platform)
   const contents = files.map((file) => asBuffer(host.readFile(file)))
   const hash = createHash('md5')
   for (const content of contents) hash.update(content)

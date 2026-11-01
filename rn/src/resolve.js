@@ -3,7 +3,9 @@
 // Platforms, Inc. and affiliates), over a host. No Haste, resolveRequest or
 // scheme resolvers. Null where Metro throws; a package.json that is no JSON
 // object throws, as in Metro. Inside, null is a miss to fall back from and
-// FAILED fails the resolution.
+// FAILED fails the resolution. With `metroResolver` (0.81 on; the project's
+// own, for its Metro's exact rules), that module resolves instead, given the
+// same context over the host.
 
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve as resolvePath, sep, win32 } from 'node:path'
 
@@ -32,10 +34,11 @@ export function createMetroResolver({
   nodeModulesPaths = [],
   extraNodeModules = null,
   disableHierarchicalLookup = false,
+  metroResolver = null,
 } = {}) {
   const extra = new Map(Object.entries(extraNodeModules ?? {}))
   if (![...nodeModulesPaths, ...extra.values()].every((path) => typeof path === 'string' && isAbsolute(path))) throw new TypeError('createMetroResolver: nodeModulesPaths and extraNodeModules take absolute paths')
-  const byPlatform = new Map(Object.entries(conditionsByPlatform).map(([platform, names]) => [platform, [...names]]))
+  if (metroResolver !== null && typeof metroResolver.resolve !== 'function') throw new TypeError('createMetroResolver: metroResolver is a metro-resolver module, with its resolve')
   const config = {
     host,
     sourceExts: [...sourceExts],
@@ -43,6 +46,8 @@ export function createMetroResolver({
     assetResolutions: [...assetResolutions],
     mainFields: [...mainFields],
     conditionNames: [...conditionNames],
+    byPlatform: new Map(Object.entries(conditionsByPlatform).map(([platform, names]) => [platform, [...names]])),
+    preferNativePlatform,
     nodeModulesPaths: [...nodeModulesPaths],
     disableHierarchicalLookup,
     extra,
@@ -56,9 +61,12 @@ export function createMetroResolver({
     const context = {
       ...config,
       origin: originModulePath,
-      conditions: new Set(['default', isESMImport === true ? 'import' : 'require', ...config.conditionNames, ...(byPlatform.get(platform) ?? [])]),
+      platform,
+      isESMImport: isESMImport === true,
+      conditions: new Set(['default', isESMImport === true ? 'import' : 'require', ...config.conditionNames, ...(config.byPlatform.get(platform) ?? [])]),
       suffixes: [...(platform === null ? [] : [`.${platform}`]), ...(preferNativePlatform ? ['.native'] : []), ''],
     }
+    if (metroResolver !== null) return viaMetroResolver(metroResolver, context, specifier)
     const resolution = resolveRequest(context, specifier)
     return resolution === FAILED ? null : resolution
   }
@@ -240,4 +248,58 @@ function entryPoint(context, pkg) {
   const spellings = [main, main.startsWith('./') ? main.slice(2) : `./${main}`].flatMap((spelling) => [...variants(spelling), spelling.replace(/\.js$|\.json$/u, '')])
   const to = match(context, spellings, pkg)
   return typeof to === 'string' ? to : main
+}
+
+// metro-resolver's resolve, given what of Metro's context 0.81 to 0.87 read.
+// Its failures are null; the host's errors, and a bad package.json's, throw.
+function viaMetroResolver(metroResolver, context, specifier) {
+  const { host } = context
+  let thrown
+  const ours = (callback) => (...args) => {
+    try {
+      return callback(...args)
+    } catch (error) {
+      thrown = error
+      throw error
+    }
+  }
+  const metroContext = {
+    assetExts: context.assetExts,
+    disableHierarchicalLookup: context.disableHierarchicalLookup,
+    doesFileExist: ours((path) => host.isFile(path)),
+    extraNodeModules: Object.fromEntries(context.extra),
+    fileSystemLookup: ours((path) => {
+      const type = host.isFile(path) ? 'f' : host.isDirectory(path) ? 'd' : null
+      return type === null ? { exists: false } : { exists: true, type, realPath: host.realpath(path) }
+    }),
+    // Metro reads a bad package.json as none here.
+    getPackage: (path) => {
+      try {
+        return read(context, path)
+      } catch {
+        return null
+      }
+    },
+    getPackageForModule: ours((path) => {
+      const pkg = packageOf(context, path)
+      return pkg && { ...pkg, packageRelativePath: pkg.packageRelativePath.replaceAll('/', sep) }
+    }),
+    isESMImport: context.isESMImport,
+    mainFields: context.mainFields,
+    nodeModulesPaths: context.nodeModulesPaths,
+    originModulePath: context.origin,
+    preferNativePlatform: context.preferNativePlatform,
+    resolveAsset: ours((dirPath, assetName, extension) => assetFiles(host, join(dirPath, `${assetName}${extension}`), context.assetResolutions)),
+    sourceExts: context.sourceExts,
+    unstable_conditionNames: context.conditionNames,
+    unstable_conditionsByPlatform: Object.fromEntries(context.byPlatform),
+    unstable_enablePackageExports: true,
+    unstable_logWarning: () => {},
+  }
+  try {
+    return metroResolver.resolve(metroContext, specifier, context.platform)
+  } catch (error) {
+    if (error === thrown) throw error
+    return null
+  }
 }

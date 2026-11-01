@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn",
   "version": "0.0.0",
-  "description": "React Native tooling as data: Metro's module resolution and asset building, and the --assets-dest layout",
+  "description": "React Native tooling: Metro resolution and assets",
   "type": "module",
   "exports": {
     "./metro-resolver.js": {

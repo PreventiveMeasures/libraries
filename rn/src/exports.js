@@ -7,18 +7,11 @@ export const FAILED = Symbol('failed')
 const NO_MATCH = Symbol('no match')
 const REFUSED = Symbol('refused')
 
-const exportsMaps = new WeakMap()
-
 // normalizeExportsField. Metro caches it in a WeakMap, which throws on a
 // number or a boolean.
 function exportsMap(exportsField) {
   if (typeof exportsField === 'string') return new Map([['.', exportsField]])
   if (typeof exportsField !== 'object') return FAILED
-  if (!exportsMaps.has(exportsField)) exportsMaps.set(exportsField, normalize(exportsField))
-  return exportsMaps.get(exportsField)
-}
-
-function normalize(exportsField) {
   let root = exportsField
   if (Array.isArray(root)) root = root.every((value) => typeof value === 'string') ? root.find((value) => value.startsWith('./')) : root[0]
   if (root == null || Array.isArray(root)) return null

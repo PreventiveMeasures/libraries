@@ -1,98 +1,15 @@
 import assert from 'node:assert/strict'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { basename, dirname, join, relative } from 'node:path'
+import { join, relative } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { createMetroResolver, defaults } from '../metro-resolver.js'
 import { TREE, requestsIn } from './metro-tree.js'
 import { shown, writeTree } from './fixtures.js'
 
-// createMetroResolver against metro-resolver itself, given the context
-// Metro's DependencyGraph builds, written here apart from the code under test.
-const require = createRequire(import.meta.url)
-const { resolve: metroResolve } = require('metro-resolver')
-const { default: createDefaultContext } = require('metro-resolver/private/createDefaultContext')
-
-const kind = (path) => {
-  try {
-    return statSync(path, { throwIfNoEntry: false }) ?? null
-  } catch {
-    return null
-  }
-}
-
-// Metro's file map's hierarchicalLookup of package.json, breaking on node_modules.
-function packageForModule(path) {
-  const found = (dir, rel) => ({ rootPath: realpathSync(dir), packageJson: JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')), packageRelativePath: rel })
-  if (kind(path)?.isDirectory() && kind(join(path, 'package.json'))?.isFile()) return found(path, '')
-  let start = path
-  if (kind(path) === null) {
-    while (dirname(start) !== start && kind(dirname(start)) === null) start = dirname(start)
-    if (basename(start) === 'node_modules') return null
-  }
-  for (let dir = dirname(start); basename(dir) !== 'node_modules'; dir = dirname(dir)) {
-    if (kind(join(dir, 'package.json'))?.isFile()) return found(dir, relative(dir, path))
-    if (dirname(dir) === dir) return null
-  }
-  return null
-}
-
-// metro-resolver's resolve as ModuleResolution calls it; a failure is null.
-function metro(options) {
-  const assetExts = new Set(options.assetExts ?? defaults.assetExts)
-  const lookup = (path) => {
-    const stat = kind(path)
-    return stat === null ? { exists: false } : { exists: true, type: stat.isDirectory() ? 'd' : 'f', realPath: realpathSync(path) }
-  }
-  return (originModulePath, specifier, { platform = null, isESMImport = false } = {}) => {
-    const context = createDefaultContext({
-      allowHaste: false,
-      assetExts,
-      customResolverOptions: {},
-      dev: false,
-      disableHierarchicalLookup: options.disableHierarchicalLookup ?? false,
-      doesFileExist: (path) => kind(path)?.isFile() ?? false,
-      extraNodeModules: options.extraNodeModules ?? null,
-      fileSystemLookup: lookup,
-      getPackage: (path) => {
-        try {
-          return JSON.parse(readFileSync(path, 'utf8'))
-        } catch {
-          return null
-        }
-      },
-      getPackageForModule: packageForModule,
-      isESMImport,
-      mainFields: options.mainFields ?? defaults.mainFields,
-      nodeModulesPaths: options.nodeModulesPaths ?? [],
-      originModulePath,
-      preferNativePlatform: options.preferNativePlatform ?? true,
-      resolveAsset: (dirPath, assetName, ext) => {
-        const files = [`${dirPath}/${assetName}${ext}`, ...defaults.assetResolutions.map((scale) => `${dirPath}/${assetName}@${scale}x${ext}`)]
-          .map((file) => lookup(file))
-          .filter((result) => result.exists && result.type === 'f')
-          .map((result) => result.realPath)
-        return files.length > 0 ? files : null
-      },
-      resolveHasteModule: () => null,
-      resolveHastePackage: () => null,
-      resolveRequest: null,
-      schemeResolvers: {},
-      sourceExts: options.sourceExts ?? defaults.sourceExts,
-      unstable_conditionNames: options.conditionNames ?? defaults.conditionNames,
-      unstable_conditionsByPlatform: options.conditionsByPlatform ?? defaults.conditionsByPlatform,
-      unstable_enablePackageExports: true,
-      unstable_incrementalResolution: false,
-      unstable_logWarning: () => {},
-    }, { name: specifier, data: { key: specifier, asyncType: null, isESMImport, locs: [] } })
-    try {
-      return metroResolve(context, specifier, platform)
-    } catch {
-      return null
-    }
-  }
-}
+// The built-in resolver against metro-resolver itself, run through the
+// metroResolver option.
+const metroResolver = createRequire(import.meta.url)('metro-resolver')
 
 describe('createMetroResolver resolves as metro-resolver does', () => {
   const { root, cleanup } = writeTree(TREE)
@@ -103,7 +20,7 @@ describe('createMetroResolver resolves as metro-resolver does', () => {
   // The requests the two resolve apart under `options`.
   const differences = (options) => {
     const ours = createMetroResolver(options)
-    const theirs = metro(options)
+    const theirs = createMetroResolver({ ...options, metroResolver })
     return requests
       .map((request) => [request, shown(root, ours(...request)), shown(root, theirs(...request))])
       .filter(([, a, b]) => a !== b)
@@ -206,7 +123,7 @@ describe('createMetroResolver resolves as metro-resolver does', () => {
 
   it('as pinned', () => {
     const ours = createMetroResolver()
-    const theirs = metro({})
+    const theirs = createMetroResolver({ metroResolver })
     for (const [label, from, specifier, expected, options = { platform: 'ios' }] of PINNED) {
       assert.equal(shown(root, ours(join(root, from), specifier, options)), expected, `ours: ${label}`)
       assert.equal(shown(root, theirs(join(root, from), specifier, options)), expected, `metro-resolver: ${label}`)
