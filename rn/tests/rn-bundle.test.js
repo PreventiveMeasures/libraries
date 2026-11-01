@@ -728,30 +728,33 @@ describe('rn-bundle --babel, with plugins after babel-plugin-module-resolver', (
 
 describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () => {
   const { root, cleanup } = writeTree({
-    'index.js': "import { a } from '#lib/a'\nimport { b } from './b'\nconsole.log(JSON.stringify([a, b]))\n",
+    'index.js': "import { a } from '#lib/a'\nimport { b } from './b'\nimport { e } from './escaped'\nimport { i } from './identity'\nconsole.log(JSON.stringify([a, b, e, i]))\n",
     'lib/a.js': "export const a = 'a'\n",
     'b.js': "export const b = 'b'\n",
+    // An alias spelled with escapes: of a code point, and of a character that is itself.
+    'escaped.js': "export { a as e } from '\\u0023lib/a'\n",
+    'identity.js': "export { a as i } from '\\#lib/a'\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
   after(cleanup)
-  // -> the files module-resolver runs in, of the bundle's three.
+  // -> the files module-resolver runs in, of the bundle's five.
   const ran = (options) => {
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b'])
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)
   }
 
-  it('leaves it out of Babel in a file that names none of its aliases', () => {
-    assert.equal(ran({ alias: { '#lib': './lib' } }), 1)
-    assert.equal(ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 1)
+  it('leaves it out of Babel in a file that names none of its aliases, though with escapes', () => {
+    assert.equal(ran({ alias: { '#lib': './lib' } }), 3)
+    assert.equal(ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 3)
   })
 
   it('keeps it where it may rewrite what names none: an alias that is a RegExp, a root', () => {
-    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 3)
-    assert.equal(ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 3)
+    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 5)
+    assert.equal(ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 5)
   })
 })
 

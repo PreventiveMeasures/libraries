@@ -203,11 +203,15 @@ function lowering(plugins, inert) {
   return { supported, without }
 }
 
-// Whether module-resolver, of these options, leaves the file as it is.
+// Whether module-resolver, of these options, leaves the file as it is: a
+// specifier names an alias only as the file spells it, but for escapes,
+// which it is read without; a file with one of a code point (`\x23`), it
+// may not leave.
 function unaliased(options, contents) {
-  if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0) return false
+  if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
+  const text = contents.replaceAll('\\', '')
   const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
-  return !keys.some((key) => key.startsWith('^') || key.endsWith('$') || contents.includes(key))
+  return !keys.some((key) => key.startsWith('^') || key.endsWith('$') || text.includes(key))
 }
 
 // esbuild brings in this helper only to lower decorators.
