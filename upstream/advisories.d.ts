@@ -59,17 +59,18 @@ export interface AdvisoryOptions {
   // which takes the record's ids among its aliases; the versions a record
   // of the row's own id covers beyond the registry's range join it too.
   // Only the packages whose name the registry serves to anyone are asked
-  // about: its latest version's document, for that name, read with no
-  // token, eight names at a time. A private package of an org, which the
-  // registry hides from anyone without its token, and a package only
-  // another registry has, answer 404 (401 and 403 are no too) and are
-  // asked of the registry alone, their names never sent to OSV. A name,
-  // not a version: npm takes down a malicious version, which OSV's
-  // MAL- records are of, and keeps its name (npm's security holding
-  // package), so a version the registry doesn't have, of a name it
-  // serves, is asked about too. A name found public is kept for a month,
-  // as an org may make a scoped package private; one not found is asked
-  // again each call.
+  // about: a HEAD of its document, which reads none of it, answered 2xx to
+  // a request with no token, eight names at a time, an unscoped name's
+  // too. A private package of an org, which the registry hides from anyone
+  // without its token, and a package only another registry has, answer
+  // 404; those, and any name the registry answers otherwise for, or not
+  // at all, are asked of the registry alone, their names never sent to
+  // OSV, and the call goes on. A name, not a version: npm takes down a
+  // malicious version, which OSV's MAL- records are of, and keeps its name
+  // (npm's security holding package), so a version the registry doesn't
+  // have, of a name it serves, is asked about too. A name found public is
+  // kept for a month, as an org may make a scoped package private; one
+  // not is asked again each call.
   osv?: boolean
 }
 
@@ -151,8 +152,8 @@ export interface Advisory {
 // no GitHub repository, a repository gone or blocked, and one GitHub
 // redirects anywhere but to a repository by its id, add nothing, and a
 // GHSA OSV does not have adds no `details`. With `osv`, npm's registry is
-// asked about each npm name OSV is to be told of (see `osv`), eight at a
-// time, and failing otherwise than 401, 403 or 404 throws. A repository renamed or
+// asked whether it serves each npm name to anyone (see `osv`), eight at a
+// time, and a name it doesn't answer for is taken as private. A repository renamed or
 // transferred, which GitHub redirects to it by its id, is listed by the
 // name it has now, as getRepo's `followRedirect` (github.js) finds it, its
 // rows' `url` on it. Any other failure, a malformed answer, or one about

@@ -78,7 +78,8 @@ export function buildUrl(origin, segments, query = {}) {
 export async function send(url, { method = 'GET', headers = {}, body, redirect = 'manual', as } = {}) {
   const parsed = typeof url === 'string' ? URL.parse(url) : null
   assert.ok(parsed?.href === url && ORIGINS.has(parsed.origin) && !parsed.username && !parsed.password && !parsed.hash, `Unexpected URL: ${printable(url)}`)
-  assert.ok(['GET', 'POST'].includes(method), `Unexpected method: ${method}`)
+  assert.ok(['GET', 'HEAD', 'POST'].includes(method), `Unexpected method: ${method}`)
+  assert.ok(method !== 'HEAD' || body === undefined, 'Unexpected body with HEAD')
   assert.ok(['manual', 'follow'].includes(redirect), `Unexpected redirect mode: ${redirect}`)
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
   assert.ok(Object.entries(headers).every(isHeader), 'Unexpected header')
@@ -128,3 +129,12 @@ export async function requestWithHeaders(url, options) {
 }
 
 export const request = async (url, options) => (await requestWithHeaders(url, options)).body
+
+// Whether `url` answers a HEAD request with a 2xx, within the JSON timeout:
+// only its status is read, never a body. A redirect is not followed, and is
+// no.
+export async function answersHead(url) {
+  const res = await send(url, { method: 'HEAD', as: 'json' })
+  await res.body?.cancel()
+  return res.ok
+}

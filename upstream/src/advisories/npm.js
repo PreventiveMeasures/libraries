@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
-import { HttpError, NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
+import { NPM_REGISTRY, answersHead, buildUrl, isNotFound, recover, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { compareVersions } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, metrics } from './common.js'
@@ -87,19 +87,21 @@ function withOsv(registry, osv) {
   return [...rows, ...added]
 }
 
-// Whether the registry serves `name` to anyone: its latest version's
-// document, for that name, to a request with no token, which withNpmToken
-// would send with a scoped name's. A private package of an org, which the
-// registry hides from anyone without its token (private packages are
-// always scoped), and one only another registry has, answer 404; 401 and
-// 403 are no too. Any other failure throws.
+// Whether the registry serves `name` to anyone: a HEAD of its document,
+// which reads none of it, answered 2xx to a request with no token, which
+// withNpmToken would send with a scoped name's. A private package of an
+// org, which the registry hides from anyone without its token (private
+// packages are always scoped), and one only another registry has, answer
+// 404. An unscoped name is asked too, as a package only another registry
+// has may be unscoped. Any other answer, or none, is no as well, as
+// triage's isPublicNpmPackage takes it: the package is asked of the
+// registry alone, and the call goes on.
 async function servesAnyone(name) {
-  const url = buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest'])
-  const unread = (err) => err instanceof HttpError && [401, 403, 404].includes(err.status)
-  const json = await request(url, { as: 'json' }).catch(recover(unread, null))
-  if (json === null) return false
-  assert.ok(json?.name === name, `advisories: the registry answered for ${show(json?.name)}, not ${name}`)
-  return true
+  try {
+    return await answersHead(buildUrl(NPM_REGISTRY, name.split('/')))
+  } catch {
+    return false
+  }
 }
 
 // The names and versions of `asked` OSV may be told of: the packages whose
@@ -108,7 +110,8 @@ async function servesAnyone(name) {
 // packages' records are of, are gone from the registry, while their name
 // stays, npm's security holding package. One found public is kept for a
 // month (readRecord), as an org may make a scoped package private; one
-// not, asked again each time, as it may be published since.
+// not, or not answered for, asked again each time, as it may be published
+// since.
 async function publicOnly(asked, cache) {
   const names = [...asked.keys()]
   const kept = await pool(names, NAMES_AT_ONCE, (name) => readRecord('npm/public', name, cache))
