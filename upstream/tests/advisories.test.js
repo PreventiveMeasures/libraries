@@ -293,14 +293,20 @@ describe('npm, with osv', () => {
   const LATEST = /^https:\/\/registry\.npmjs\.org\/(.+)\/latest$/u
 
   // The registry answering `registry` (name → rows), and each name's latest
-  // version's document, or 404 for `hidden` names; OSV answering `hits`
-  // (`name@version` → ids) and `records` (id → record). `calls` lists every
-  // URL.
-  function stubBoth(registry, hits, records, hidden = []) {
+  // version's document, or 404 for `hidden` names and those `untagged` (no
+  // `latest`), a HEAD of the package's 200 but for `hidden` names; OSV
+  // answering `hits` (`name@version` → ids) and `records` (id → record).
+  // `calls` lists every URL, a HEAD's as `HEAD <url>`.
+  function stubBoth(registry, hits, records, hidden = [], untagged = []) {
     const calls = []
     globalThis.fetch = (url, init = {}) => {
+      if (init.method === 'HEAD') {
+        calls.push(`HEAD ${url}`)
+        return Promise.resolve(new Response(null, { status: hidden.includes(String(url).slice('https://registry.npmjs.org/'.length)) ? 404 : 200 }))
+      }
       calls.push(String(url))
       const latest = LATEST.exec(String(url))?.[1]
+      if (untagged.includes(latest)) return Promise.resolve(Response.json('Not Found', { status: 404 }))
       if (latest !== undefined) return Promise.resolve(hidden.includes(latest) ? Response.json('Not Found', { status: 404 }) : Response.json({ name: latest, version: '1.0.0' }))
       const body = init.body && JSON.parse(init.body)
       if (String(url) === BULK) return Promise.resolve(Response.json(Object.fromEntries(Object.keys(body).filter((name) => registry[name]).map((name) => [name, registry[name]]))))
@@ -462,6 +468,18 @@ describe('npm, with osv', () => {
       assert.ok(!calls.includes(BATCH), `${what}: OSV not asked`)
     }
     assert.equal(cache.get('npm/public', 'nx'), undefined, 'none kept')
+  })
+
+  it('takes a name with no `latest` tag for public where the package\'s document answers a HEAD, and only then asks it', async () => {
+    const calls = stubBoth({}, { 'tagless@1.0.0': ['MAL-2025-1'] }, { 'MAL-2025-1': record('MAL-2025-1', 'tagless', 'Malicious code in tagless (npm)') }, ['@acme/secret'], ['tagless'])
+    const found = await advisories([
+      { ecosystem: 'npm', name: 'tagless', versions: ['1.0.0'] },
+      { ecosystem: 'npm', name: '@acme/secret', versions: ['1.0.0'] },
+      { ecosystem: 'npm', name: 'nx', versions: ['21.4.0'] },
+    ], { osv: true })
+    assert.deepEqual(found.map(({ name, id }) => [name, id]), [['tagless', 'MAL-2025-1']], 'one published with --tag alone, or unpublished whole, asked of OSV')
+    assert.deepEqual(calls.filter((url) => url.startsWith('HEAD ')).toSorted(), ['HEAD https://registry.npmjs.org/@acme/secret', 'HEAD https://registry.npmjs.org/tagless'],
+      'a HEAD only where its latest version is 404: not for nx')
   })
 
   it('checks 32 names at once', async () => {

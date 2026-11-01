@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertPackageName, assertPackageVersion, isGhsa, isStrings, show } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
-import { NPM_REGISTRY, buildUrl, isNotFound, recover, request } from '../http.js'
+import { NPM_REGISTRY, answersHead, buildUrl, isNotFound, recover, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { compareVersions } from '../semver.js'
 import { advisoryUrl, covered, detailsOf, isText, metrics } from './common.js'
@@ -92,12 +92,20 @@ function withOsv(registry, osv) {
 // Whether npm's registry serves `name` to anyone: its latest version's
 // document, for that name, read with no token. Private packages and other
 // registries' answer 404; any other answer, or none, counts as private too,
-// as in triage. Not a HEAD of the package's document, which npm answers in
-// two seconds or more about one time in ten.
+// as in triage. That document first, as npm answers a HEAD of the package's
+// in two seconds or more about one time in ten; but a 404 for it may only
+// mean no `latest` tag (a package published with `--tag` alone, or one
+// unpublished whole, its name kept), so then the package's document, a HEAD
+// with no token, decides.
 async function servesAnyone(name) {
   try {
     const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
     return json?.name === name
+  } catch (err) {
+    if (!isNotFound(err)) return false
+  }
+  try {
+    return await answersHead(buildUrl(NPM_REGISTRY, name.split('/')))
   } catch {
     return false
   }

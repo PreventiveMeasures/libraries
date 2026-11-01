@@ -59,8 +59,9 @@ export interface AdvisoryOptions {
   // which takes the record's ids among its aliases; the versions a record
   // of the row's own id covers beyond the registry's range join it too.
   // Only packages whose name npm's registry serves without a token (its
-  // latest version's document, unscoped names too, 32 names at a time) go
-  // to OSV; the rest, private ones above all, go to the registry alone.
+  // latest version's document, else, where it has no `latest` tag, a HEAD
+  // of the package's; unscoped names too, 32 names at a time) go to OSV;
+  // the rest, private ones above all, go to the registry alone.
   // The name decides, not the version: npm takes down malicious versions
   // but keeps their name. Public names are cached for a month.
   osv?: boolean
