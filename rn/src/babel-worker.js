@@ -172,9 +172,12 @@ if (workerData?.babel !== undefined) {
   const LET = /\b(?:let|const)\b/u
   const lowerLeft = (result, filename) => {
     if (result === null || !LET.test(result.code)) return result
-    const blockScoping = core.loadOptionsSync({ ...options, filename })?.plugins.find(({ key }) => key === 'transform-block-scoping')
+    const config = core.loadOptionsSync({ ...options, filename })
+    const blockScoping = config?.plugins.find(({ key }) => key === 'transform-block-scoping')
     if (blockScoping === undefined) return result
-    return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: options.cwd, filename, compact: false, sourceType: 'unambiguous', plugins: [blockScoping], ...(options.sourceMaps && { sourceMaps: options.sourceMaps, inputSourceMap: true }) })
+    // Parsed as the config parses (a return outside a function, if it takes one).
+    const parsing = { sourceType: config.sourceType ?? 'unambiguous', ...(config.parserOpts && { parserOpts: config.parserOpts }) }
+    return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: options.cwd, filename, compact: false, ...parsing, plugins: [blockScoping], ...(options.sourceMaps && { sourceMaps: options.sourceMaps, inputSourceMap: true }) })
   }
   parentPort.on('message', ({ port, source, filename, without }) => {
     const start = performance.now()
