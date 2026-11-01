@@ -45,7 +45,7 @@ const APP = {
   // Flow that parses as JS, as another thing: `(box < string) > 'generic'.value`.
   'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   // As much, with no @flow: Flow where Babel's config parses Flow in each file, and --flow does.
-  'lib/untagged.js': "const box = (value) => ({ value })\nexport class Tag { value = 1 }\nexport const untagged = box<string>('untagged').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
+  'lib/untagged.js': "const box = (value) => ({ value })\nexport class Tag { value = 1 }\nexport const untagged = box<string> /* a comment */ ('untagged').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
   'broken.js': "import './lib/broken'\n",

@@ -33,8 +33,10 @@ const DOWNGRADED = {
 // TS's class fields as Metro's Babel preset makes them: assigned in the
 // constructor, those that are types alone dropped.
 const TS_FIELDS = { compilerOptions: { useDefineForClassFields: false } }
-// What a call with type arguments, `f<T>(x)` or f<T>`x`, can't be without.
-const MAYBE_TYPE_ARGUMENTS = /(?<!=)>\s*[(`]/u
+// What a call with type arguments, `f<T>(x)` or f<T>`x`, can't be without: a
+// `>`, then what alone may come between it and the arguments, space and
+// comments, then `(` or a backtick.
+const MAYBE_TYPE_ARGUMENTS = /(?<!=)>(?:\s|\/\/.*|\/\*[\s\S]*?\*\/)*[(`]/u
 // TS reading a JS file as JS does but for type arguments: every import kept,
 // class fields defined.
 const AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
