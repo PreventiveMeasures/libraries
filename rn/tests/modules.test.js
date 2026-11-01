@@ -7,7 +7,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
 
-import { hotUpdate, moduleUrls } from '../src/hot.js'
+import { bundleRequest } from '../src/bundle-url.js'
+import { hotUpdate, moduleName, moduleUrls } from '../src/hot.js'
 import { createModuleBundler } from '../src/modules.js'
 import { prelude } from '../src/serializer.js'
 import { png, writeTree } from './fixtures.js'
@@ -78,6 +79,11 @@ describe('the module format', () => {
     // The optional dependency fails as Node's would, in its try block; the module stays strict.
     assert.deepEqual(value(context, '{ flash: app.logo.flash, strict: app.logo.strict }'), { flash: 'MODULE_NOT_FOUND', strict: true })
     assert.equal(value(context, 'typeof app.logo.id'), 'number')
+  })
+
+  it('keeps each module strict that was, minified too', async () => {
+    const { js } = await createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, minify: true }).rebuild()
+    assert.equal(value(run(js).context, 'app.logo.strict'), true)
   })
 
   it('maps each line of a module to its source', async () => {
@@ -231,6 +237,12 @@ describe('the module format, with metro-runtime 0.81 (react-native 0.78)', () =>
 })
 
 describe('moduleUrls', () => {
+  it('names a module out of the project root by `[..]`, which a URL keeps, and moduleName() reads back', () => {
+    const { sourceMappingURL } = moduleUrls('http://h:1/index.bundle?platform=ios', '../../ui/Component.tsx')
+    assert.equal(new URL(sourceMappingURL).pathname, '/[..]/[..]/ui/Component.map')
+    assert.equal(moduleName(bundleRequest(new URL(sourceMappingURL)).entryFile), '../../ui/Component')
+  })
+
   it('puts the module in the path, encoded, its extension that of a bundle or a map', () => {
     assert.deepEqual(moduleUrls('https://h:1/x.bundle?bundleEntry=x.bundle&platform=android', 'src/a b/App.tsx'), {
       sourceURL: 'http://h:1/src/a%20b/App.bundle//&platform=android&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true',

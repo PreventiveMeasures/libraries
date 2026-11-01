@@ -7,6 +7,14 @@
 import { toJscSafeUrl } from './bundle-url.js'
 import { defineCall } from './modules.js'
 
+// A module's path in a URL, each segment encoded; a parent, which a URL
+// takes off, as `[..]`, which moduleName() reads back.
+const urlPath = (name) => name.split('/').map((segment) => (segment === '..' ? PARENT : encodeURIComponent(segment))).join('/')
+const PARENT = '[..]'
+
+// The module a path of moduleUrls() names, `entryFile` as bundleRequest() reads it.
+export const moduleName = (entryFile) => entryFile.replace(/^\.\//u, '').split('/').map((segment) => (segment === PARENT ? '..' : segment)).join('/')
+
 // The URLs of a module's code and map, as Metro has them: the client's
 // bundle URL, its path the module's, for the module alone.
 export function moduleUrls(clientUrl, name) {
@@ -20,7 +28,7 @@ export function moduleUrls(clientUrl, name) {
   query.set('modulesOnly', 'true')
   query.set('runModule', query.get('runModule') || 'false')
   query.set('shallow', 'true')
-  const path = (ext) => `/${name.replace(/\.[^/.]+$/u, '').split('/').map(encodeURIComponent).join('/')}.${ext}`
+  const path = (ext) => `/${urlPath(name.replace(/\.[^/.]+$/u, ''))}.${ext}`
   url.pathname = path('map')
   const sourceMappingURL = url.toString()
   url.pathname = path('bundle')

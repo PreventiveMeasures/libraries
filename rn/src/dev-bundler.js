@@ -11,6 +11,7 @@ import { performance } from 'node:perf_hooks'
 
 import { createBundler } from './bundle.js'
 import { defaults, diskHost } from './defaults.js'
+import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall } from './modules.js'
 import { createMetroResolver } from './resolve.js'
@@ -175,9 +176,10 @@ async function run({ projectRoot, onBuild }, build, at) {
 }
 
 // A module of the last build of a bundle for the request's platform and dev
-// that has it, by its path, as an outcome: its definition and map.
+// that has it, by its path, as an update names it, as an outcome: its
+// definition and map.
 function moduleOutcome(builds, { entryFile, platform, dev }, projectRoot) {
-  const name = relative(projectRoot, resolve(projectRoot, entryFile)).replaceAll('\\', '/')
+  const name = moduleName(entryFile)
   for (const build of [...builds.values()].toReversed()) {
     if (build.request.platform !== platform || build.request.dev !== dev || build.last?.modules === undefined) continue
     for (const record of build.last.modules.values()) {

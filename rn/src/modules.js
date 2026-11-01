@@ -193,13 +193,15 @@ const checking = (key, source, resolvable, projectRoot) => ({
 // The factory, on lines of its own: its first, whose `require` takes each
 // specifier to its module's id in the dependency map, the module's `use
 // strict` before it; then the module's.
+const STRICT = '"use strict";'
 function factoryOf({ code }, indices) {
-  const strict = code.startsWith('"use strict";\n')
-  // Each line kept, emptied: the directive, which goes first, and a
-  // hashbang, which esbuild keeps, and is no JS inside a function.
-  const body = strict || code.startsWith('#!') ? code.slice(code.indexOf('\n')) : code
+  const strict = code.startsWith(STRICT)
+  // Each line and column kept: the directive, which goes first, made
+  // spaces, minified or not, and a hashbang, which esbuild keeps and is no
+  // JS inside a function, emptied.
+  const body = strict ? ' '.repeat(STRICT.length) + code.slice(STRICT.length) : code.startsWith('#!') ? code.slice(code.indexOf('\n')) : code
   const require = `var _$$_AT = ${JSON.stringify(indices)}; var require = function (name) { if (!Object.prototype.hasOwnProperty.call(_$$_AT, name)) { var error = new Error("Cannot find module '" + name + "'"); error.code = "MODULE_NOT_FOUND"; throw error } return _$$_REQUIRE(_dependencyMap[_$$_AT[name]], name) };`
-  return `${FACTORY} {${strict ? '"use strict";' : ''}${require}\n${body}}`
+  return `${FACTORY} {${strict ? STRICT : ''}${require}\n${body}}`
 }
 
 // `__d(...)`, as Metro defines a module; with `inverse`, as an update does.
