@@ -60,6 +60,19 @@ describe('bundle', () => {
     }
   })
 
+  it('reads the manifests anew for its first build too, whenever that is', async () => {
+    const bundler = await createBundler(options)
+    try {
+      // The root manifest, which finding what runs before the entry reads, now redirects dep.
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app', 'react-native': { dep: './lib/shim.js' } }))
+      writeFileSync(join(root, 'lib/shim.js'), "module.exports = 'shim'\n")
+      assert.deepEqual(run(js(await bundler.rebuild())), [1, 2, 'shim'])
+    } finally {
+      writeFileSync(join(root, 'package.json'), JSON.stringify(APP['package.json']))
+      await bundler.dispose()
+    }
+  })
+
   it("keeps each file's transform in the cache while its contents are the same", async () => {
     const transformed = []
     const babel = (code, path) => {

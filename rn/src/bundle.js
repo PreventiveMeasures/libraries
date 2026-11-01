@@ -41,14 +41,15 @@ const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !
 
 // -> { outputFiles, warnings, assets: AssetData[], graph: Map<importer, Map<specifier, Resolution>>, files: string[] }
 export async function bundle(options) {
-  const graph = metroGraph(options)
+  // Its one build takes the state made to know what runs before the entry.
+  const graph = metroGraph(options, { reuseFirst: true })
   return graph.result(await options.esbuild.build(buildOptions(options, graph, graph.before().length > 0 || (options.polyfills?.length ?? 0) > 0)))
 }
 
 // bundle(), to build again and again on one esbuild context: each build
 // resolves and reads every file anew, but for `cache`'s.
 export async function createBundler(options) {
-  const graph = metroGraph(options)
+  const graph = metroGraph(options, { reuseFirst: false })
   // Through the main module always, as what runs before the entry may change.
   const context = await options.esbuild.context(buildOptions(options, graph, true))
   return {
@@ -115,7 +116,7 @@ function metroGraph({
   // Map<path, { contents, result }>: each file as it was last loaded, kept
   // while its contents are the same; for one set of the options above.
   cache = null,
-}) {
+}, { reuseFirst }) {
   const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap }
   // A new resolver each build, which reads each package.json anew, and
   // counts it among the files the build read.
@@ -138,10 +139,10 @@ function metroGraph({
   const plugin = {
     name: 'metro-graph',
     setup(build) {
-      let first = true
+      let reuse = reuseFirst
       build.onStart(() => {
-        if (!first) state = fresh()
-        first = false
+        if (!reuse) state = fresh()
+        reuse = false
       })
       build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind, namespace }) => {
         if (kind === 'entry-point') return specifier === MAIN ? { path: host.realpath(resolve(projectRoot, entry)), namespace: MAIN } : file(host.realpath(resolve(projectRoot, specifier)))
