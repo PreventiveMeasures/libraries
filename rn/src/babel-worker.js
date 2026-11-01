@@ -165,12 +165,23 @@ if (workerData?.babel !== undefined) {
     const wrap = config.wrapPluginVisitorMethod
     return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
   }
+  // What the config's other plugins leave of let and const after its block
+  // scoping plugin, as code they insert once it has run (Reanimated's
+  // worklets), that plugin lowers again: Metro's output has none there, and
+  // esbuild, told so, adds none after Babel (bundle.js).
+  const LET = /\b(?:let|const)\b/u
+  const lowerLeft = (result, filename) => {
+    if (result === null || !LET.test(result.code)) return result
+    const blockScoping = core.loadOptionsSync({ ...options, filename })?.plugins.find(({ key }) => key === 'transform-block-scoping')
+    if (blockScoping === undefined) return result
+    return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: options.cwd, filename, compact: false, sourceType: 'unambiguous', plugins: [blockScoping], ...(options.sourceMaps && { sourceMaps: options.sourceMaps, inputSourceMap: true }) })
+  }
   parentPort.on('message', ({ port, source, filename, without }) => {
     const start = performance.now()
     spent = new Map()
     own = new Map()
     try {
-      const { code } = transform(source, filename, without)
+      const { code } = lowerLeft(transform(source, filename, without), filename)
       const entries = (map) => [...map].map(([key, [calls, ms]]) => [key, calls, ms])
       port.postMessage(profile ? { code, spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } } : { code })
     } catch (error) {

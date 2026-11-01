@@ -545,6 +545,7 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
     'main.js': "import * as c from './c.cjs'\nconsole.log(JSON.stringify(Object.keys(c).map((key) => [key, c[key]])))\n",
     'c.cjs': 'exports.a = 1\nexports.b = 2\n',
     'left.js': 'let left = 1\nconsole.log(left)\n',
+    'late.js': "console.log('early')\n",
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
@@ -560,6 +561,17 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     assert.ok(!/\b(?:let|const)\b/u.test(code), code)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
+  })
+
+  it("lowers again by the config's plugin what Babel's others leave of let and const after it", () => {
+    // As Reanimated's worklets: a const put in once block scoping has run.
+    const late = "({ template }) => ({ post(file) { file.path.pushContainer('body', template.statements.ast('const late = 1; console.log(late)')) } })"
+    const lowers = "() => ({ name: 'transform-block-scoping', visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })"
+    const r = build([late, lowers], 'late.js')
+    assert.equal(r.status, 0, r.stderr)
+    const code = readFileSync(join(root, 'out.js'), 'utf8')
+    assert.ok(!/\b(?:let|const)\b/u.test(code), code)
+    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'early\n1\n')
   })
 
   it('fails on a let or const Babel leaves', () => {
