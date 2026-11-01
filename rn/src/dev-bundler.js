@@ -175,13 +175,13 @@ async function run({ projectRoot, onBuild }, build, at) {
   return build.last
 }
 
-// A module of the last build of a bundle for the request's platform and dev
-// that has it, by its path, as an update names it, as an outcome: its
+// A module of the last build of a bundle for the request's platform, dev and
+// minify that has it, by its path, as an update names it, as an outcome: its
 // definition and map.
-function moduleOutcome(builds, { entryFile, platform, dev }, projectRoot) {
+function moduleOutcome(builds, { entryFile, platform, dev, minify }, projectRoot) {
   const name = moduleName(entryFile)
   for (const build of [...builds.values()].toReversed()) {
-    if (build.request.platform !== platform || build.request.dev !== dev || build.last?.modules === undefined) continue
+    if (build.request.platform !== platform || build.request.dev !== dev || build.request.minify !== minify || build.last?.modules === undefined) continue
     for (const record of build.last.modules.values()) {
       if (record.name.replace(/\.[^/.]+$/u, '') !== name) continue
       const map = JSON.stringify(concatMaps([{ lines: 1, piece: null }, { lines: record.lines, piece: record.piece }, { lines: 1, piece: null }]))

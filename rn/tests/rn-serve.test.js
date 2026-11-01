@@ -444,6 +444,8 @@ describe('rn-serve, with Fast Refresh', () => {
   const bundleUrl = (query = 'platform=ios') => `${server.url}/index.bundle?${query}`
 
   it("serves a dev bundle in Metro's module format, which runs as the other did", async () => {
+    // No debugger is there to mount, and none is tried.
+    assert.doesNotMatch(server.output(), /dev-middleware fails/u)
     const code = String((await fetchRaw(bundleUrl())).body)
     assert.match(code, /^__d\(function \(global, _\$\$_REQUIRE/mu)
     const { context } = runApp(code)
@@ -533,6 +535,26 @@ describe('rn-serve, with Fast Refresh', () => {
     const greeting = code.split('\n__d(').find((text) => text.includes('"Greeting.js"'))
     assert.match(greeting, /\$RefreshReg\$\(_c, "Greeting"\)/u)
     assert.equal(runApp(code).context.result, 'hi')
+  })
+})
+
+describe('rn-serve, with @react-native/dev-middleware', () => {
+  // As react-native has it: its middleware answers what rn-serve's routes don't.
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
+    'node_modules/@react-native/dev-middleware/index.js': "exports.createDevMiddleware = () => ({ middleware: (request, response, next) => (request.url === '/json/list' ? response.end('[]') : next()), websocketEndpoints: {} })\n",
+  })
+  after(cleanup)
+
+  it('mounts the debugger, though no metro-runtime is there for Fast Refresh', async () => {
+    const server = await serve(root)
+    try {
+      assert.equal(String((await fetchRaw(`${server.url}/json/list`)).body), '[]')
+      assert.match(server.output(), /no metro-runtime/u)
+    } finally {
+      await server.stop()
+    }
   })
 })
 

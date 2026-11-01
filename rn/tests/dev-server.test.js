@@ -213,4 +213,16 @@ describe('the dev bundler, in the module format', () => {
       await devBundler.dispose()
     }
   })
+
+  it("serves a module of the bundle its URL's minify names, whichever was asked for last", async () => {
+    const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
+    try {
+      for (const minify of [false, true]) await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify })
+      const shallow = (minify) => devBundler.get(bundleRequest(new URL(toNormalUrl(moduleUrls(`http://localhost:8081/index.bundle?platform=ios&minify=${minify}`, '../shared/Shared.js').sourceURL))))
+      assert.match((await shallow(false)).js, /var shared = "shared";/u)
+      assert.doesNotMatch((await shallow(true)).js, /var shared = /u)
+    } finally {
+      await devBundler.dispose()
+    }
+  })
 })

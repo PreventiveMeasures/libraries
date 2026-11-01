@@ -146,9 +146,9 @@ server.listen(port, host, () => {
   if (wildcard) log('rn-serve: on every network interface: anyone on the network can fetch the app and its source')
   if (polyfillPaths.length === 0) log("rn-serve: no @react-native/js-polyfills, as @react-native/metro-config has it: bundles have Metro's prelude but no polyfills")
   if (devMiddleware === null) log('rn-serve: no @react-native/dev-middleware, as react-native has it: no debugger')
+  else mountDebugger(serverUrl)
   if (runtime === null) log("rn-serve: no metro-runtime, as react-native has it: no Fast Refresh, a change reloads the app")
   else if (values.babel && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
-  else mountDebugger(serverUrl)
   if (process.stdin.isTTY) keys(serverUrl)
 })
 
