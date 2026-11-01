@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn",
   "version": "1.0.0-alpha.0",
-  "description": "React Native tooling: Metro resolution, assets and bundling",
+  "description": "React Native tooling: Metro resolution, assets, bundling and a dev server",
   "type": "module",
   "exports": {
     "./metro-resolver.js": {
@@ -26,7 +26,8 @@
     }
   },
   "bin": {
-    "rn-bundle": "bin/rn-bundle.js"
+    "rn-bundle": "bin/rn-bundle.js",
+    "rn-serve": "bin/rn-serve.js"
   },
   "files": [
     "LICENSE-APACHE",
@@ -36,6 +37,7 @@
     "babel-aliases.d.ts",
     "babel-aliases.js",
     "bin/rn-bundle.js",
+    "bin/rn-serve.js",
     "metro-assets.d.ts",
     "metro-assets.js",
     "metro-config.d.ts",
@@ -46,14 +48,24 @@
     "src/assets.js",
     "src/babel-aliases.js",
     "src/babel-worker.js",
+    "src/bundle-url.js",
     "src/bundle.js",
+    "src/cli.js",
     "src/defaults.js",
+    "src/dev-bundler.js",
     "src/exports.js",
+    "src/gate.js",
     "src/image-size.js",
     "src/load.js",
+    "src/mappings.js",
     "src/metro-config.js",
     "src/resolve.js",
-    "src/serializer.js"
+    "src/serializer.js",
+    "src/serve-assets.js",
+    "src/serve.js",
+    "src/symbolicate.js",
+    "src/watch.js",
+    "src/websocket.js"
   ],
   "engines": {
     "node": ">=24.14.0"
