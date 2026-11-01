@@ -44,9 +44,6 @@ const APP = {
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
   // Valid JS too, as `(box < string) > 'generic'.value`.
-  // A call with type arguments with no @flow, which --flow strips as Flow.
-  'untagged.js': "import { untagged } from './lib/untagged'\nconsole.log(JSON.stringify({ untagged }))\n",
-  'lib/untagged.js': "const box = (value) => ({ value })\nexport const untagged = box<string> /* a comment */ ('untagged').value\n",
   'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1; static { Box.ready = true } }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
@@ -69,7 +66,13 @@ const APP = {
   'node_modules/@react-native/assets-registry/registry.js': 'const assets = []\nmodule.exports = { registerAsset: (asset) => assets.push(asset), getAssetByID: (id) => assets[id - 1] }\n',
 }
 
-const OPTIONS = ['--jsx', '--flow', '--babel-aliases=aliases.json', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"']
+// A module for --import, as if a package were installed nowhere.
+const notInstalled = (name) => `data:text/javascript,${encodeURIComponent([
+  "import Module from 'node:module'",
+  'const resolve = Module._resolveFilename',
+  `Module._resolveFilename = function (request, ...rest) { if (request === ${JSON.stringify(name)}) throw Object.assign(new Error(request), { code: 'MODULE_NOT_FOUND' }); return resolve.call(this, request, ...rest) }`,
+].join('\n'))}`
+const OPTIONS = ['--jsx', '--babel-aliases=aliases.json', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"']
 const md5 = (...files) => {
   const hash = createHash('md5')
   for (const file of files) hash.update(APP[file])
@@ -120,26 +123,20 @@ describe('rn-bundle', () => {
     assert.deepEqual(listFiles(join(root, 'res')), ['drawable-mdpi/img_icon.png', 'drawable-mdpi/img_logo.png', 'drawable-xhdpi/img_logo.png', 'drawable-xxhdpi/img_logo.png', 'raw/fonts_inter.ttf', 'raw/keep.xml'])
   })
 
-  it('strips with --flow a call with type arguments in a file with no @flow', () => {
-    const r = run(['--platform=ios', '--flow', '--output=untagged.out.js', 'untagged.js'])
-    assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(output('untagged.out.js'), { untagged: 'untagged' })
-  })
-
   it('fails on what it cannot resolve, parse or strip', () => {
-    const noAliases = run(['--platform=ios', '--jsx', '--flow', '--output=out.js', 'index.js'])
+    const noAliases = run(['--platform=ios', '--jsx', '--output=out.js', 'index.js'])
     assert.equal(noAliases.status, 1)
     assert.match(noAliases.stderr, /Could not resolve "#lib\/greet"[\s\S]*index\.js/u)
     const divergent = run(['--platform=ios', '--output=out.js', 'divergent/index.js'])
     assert.equal(divergent.status, 1)
     assert.match(divergent.stderr, /esbuild resolved node_modules\/dep\/index\.js where Metro resolves nothing/u)
-    const noFlow = run(['--platform=ios', '--jsx', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
+    const noFlow = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--jsx', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(noFlow.status, 1)
-    assert.match(noFlow.stderr, /typed\.js/u)
-    const enumFlow = run(['--platform=ios', '--flow', '--output=out.js', 'enum.js'])
+    assert.match(noFlow.stderr, /Can't strip Flow types from lib\/typed\.js: it needs flow-remove-types/u)
+    const enumFlow = run(['--platform=ios', '--output=out.js', 'enum.js'])
     assert.equal(enumFlow.status, 1)
     assert.match(enumFlow.stderr, /Flow syntax flow-remove-types doesn't strip: Unexpected "enum"[\s\S]*lib\/mode\.js:2:7/u)
-    const broken = run(['--platform=ios', '--flow', '--output=out.js', 'broken.js'])
+    const broken = run(['--platform=ios', '--output=out.js', 'broken.js'])
     assert.equal(broken.status, 1)
     assert.match(broken.stderr, /Can't strip Flow types from lib\/broken\.js: Unexpected token/u)
     for (const [file, message] of [['none.json', "can't read none.json as JSON"], ['bad-aliases.json', 'bad-aliases.json: "^(" is not a valid regular expression']]) {
@@ -153,7 +150,7 @@ describe('rn-bundle', () => {
 
   it('builds for release unless --dev, as Metro does, a --define overriding either', () => {
     const build = (...args) => {
-      const r = run(['--platform=ios', '--jsx', '--flow', '--babel-aliases=aliases.json', ...args, '--output=env.js', 'index.js'])
+      const r = run(['--platform=ios', '--jsx', '--babel-aliases=aliases.json', ...args, '--output=env.js', 'index.js'])
       assert.equal(r.status, 0, r.stderr)
       const { dev, env } = output('env.js')
       return [dev, env]
@@ -254,7 +251,7 @@ const MODERN = {
   counter: [4, 1, true, true, false],
   generic: 'generic',
   card: ['base', 'card', { type: 'Text', renders: 1, children: ['hi'] }, 2],
-  syntax: { counter: [], flow: ['ClassProperty', 'StaticBlock'], ready: [], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
+  syntax: { counter: [], flow: ['ClassProperty'], ready: [], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
 }
 // Whether esbuild finds nothing in a bundle left to lower.
 const lowered = (code) => esbuild.transformSync(code, { supported: { 'class-field': false, 'class-private-field': false, 'class-private-method': false, 'class-static-blocks': false, 'class-static-field': false, using: false } }).code === esbuild.transformSync(code).code
@@ -294,6 +291,12 @@ describe('rn-bundle --babel', () => {
     assert.ok(lowered(readFileSync(join(root, 'modern.out.js'), 'utf8')))
   })
 
+  it('leaves Flow to Babel without flow-remove-types: a @flow file that may have type arguments as it is', () => {
+    const r = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8', env: ENV })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty', 'StaticBlock'] } })
+  })
+
   it('fails on a TS file esbuild cannot parse', () => {
     const r = run(['--platform=ios', '--babel', '--output=out.js', 'bad-ts.js'])
     assert.equal(r.status, 1)
@@ -307,32 +310,23 @@ describe('rn-bundle --babel', () => {
   })
 })
 
-describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () => {
+describe('rn-bundle --babel, with a Babel config that takes no Flow', () => {
   const { root, cleanup } = writeTree({ ...BABEL_APP, 'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-react-jsx']) })
   after(cleanup)
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
   const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
 
-  it('strips a call with type arguments in a file with no @flow before Babel', () => {
-    const r = run(['--platform=ios', '--babel', '--flow', '--output=untagged.out.js', 'untagged.js'])
-    assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(output('untagged.out.js'), { untagged: 'untagged' })
-  })
-
   it('strips the Flow types of each file that has them before Babel', () => {
-    const noFlow = run(['--platform=ios', '--babel', '--output=ios.js', 'index.js'])
-    assert.equal(noFlow.status, 1)
-    assert.match(noFlow.stderr, /Babel: [\s\S]*typed\.js/u)
-    const r = run(['--platform=ios', '--babel', '--flow', '--output=ios.js', 'index.js'])
+    const r = run(['--platform=ios', '--babel', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.platform], ['ios', 'hi', 'flow', 'generic', 'ios'])
   })
 
   it('lowers a static block before Babel once Flow types are stripped', () => {
-    const r = run(['--platform=ios', '--babel', '--flow', '--output=modern.out.js', 'modern.js'])
+    const r = run(['--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(output('modern.out.js'), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty'] } })
+    assert.deepEqual(output('modern.out.js'), MODERN)
   })
 })
 
@@ -476,13 +470,7 @@ describe('rn-bundle with the assetExts metro.config.js adds', () => {
     assert.deepEqual(listFiles(join(root, 'res')), ['raw/anim_spin.riv', 'raw/anim_wave.lottie', 'raw/keep.xml'])
   })
 
-  // As if oxc-parser were installed nowhere.
-  const NO_OXC = `data:text/javascript,${encodeURIComponent([
-    "import Module from 'node:module'",
-    'const resolve = Module._resolveFilename',
-    "Module._resolveFilename = function (request, ...rest) { if (request === 'oxc-parser') throw Object.assign(new Error(request), { code: 'MODULE_NOT_FOUND' }); return resolve.call(this, request, ...rest) }",
-  ].join('\n'))}`
-  const withoutOxc = () => spawnSync(process.execPath, ['--import', NO_OXC, BIN, '--platform=ios', '--output=anim.js', 'anim.js'], { cwd: root, encoding: 'utf8' })
+  const withoutOxc = () => spawnSync(process.execPath, ['--import', notInstalled('oxc-parser'), BIN, '--platform=ios', '--output=anim.js', 'anim.js'], { cwd: root, encoding: 'utf8' })
 
   it('without oxc-parser, refuses a config only a parser reads', () => {
     const r = withoutOxc()

@@ -169,10 +169,8 @@ function isFlow(code) {
   return code.includes('@flow')
 }
 
-// --flow strips as if each file were Flow (flow-remove-types' `all: true`),
-// where `f<T>(x)` is a call in any file.
 async function hasFlow(esbuild, code, loader) {
-  return isFlow(code) || MAYBE_TYPE_ARGUMENTS.test(code) || (await parseErrors(esbuild, code, loader)) !== null
+  return isFlow(code) || (await parseErrors(esbuild, code, loader)) !== null
 }
 
 async function javascript({ esbuild, stripFlow }, contents, path) {
