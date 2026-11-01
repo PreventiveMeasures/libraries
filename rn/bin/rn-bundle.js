@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// rn-bundle --platform=ios --output=main.js [--dev] [--assets-dest=DIR]
-//   [--jsx] [--flow] [--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
+// rn-bundle --platform=ios --output=main.js [--dev] [--minify]
+//   [--assets-dest=DIR] [--jsx] [--flow] [--babel] [--define=K=V ...]
+//   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
 // --assets-dest as `react-native bundle` lays them out. A release build, as
-// `react-native bundle --dev=false` makes it, unless --dev. --babel runs the
+// `react-native bundle --dev=false` makes it, unless --dev; minified by
+// esbuild with --minify, as `stasis build --minify` makes it. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
 // @babel/core, and Metro's caller and Babel env, as Metro's transformer does,
 // after esbuild makes TS JS and lowers what it can. --flow strips Flow types
@@ -30,6 +32,7 @@ const { values, positionals } = parseArgs({
     platform: { type: 'string' },
     output: { type: 'string' },
     dev: { type: 'boolean', default: false },
+    minify: { type: 'boolean', default: false },
     'assets-dest': { type: 'string' },
     jsx: { type: 'boolean', default: false },
     flow: { type: 'boolean', default: false },
@@ -139,6 +142,7 @@ try {
     babelComments: babel?.comments ?? null,
     assetExts: assetExts(),
     define,
+    minify: values.minify,
     aliases: values['babel-aliases'] === undefined ? null : babelAliases(values['babel-aliases']),
   })
 } catch (error) {
