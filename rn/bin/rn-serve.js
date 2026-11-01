@@ -7,8 +7,15 @@
 // and a source map; its assets; LogBox's symbolication; reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
 // (j). A file a bundle was built from changed, each bundle is built anew,
-// each file's transform kept in memory while its source is the same, and the
-// app reloads; no Fast Refresh. A build error is shown in the app.
+// each file's transform kept in memory while its source is the same. A dev
+// bundle is in Metro's module format, with metro-runtime's require (that
+// react-native has): each app of one gets what changed, as Metro's Fast
+// Refresh sends it, with --babel each component of the project's built
+// with react-refresh's Babel plugin (react-native's) for it to refresh; an
+// app of another bundle reloads. Without --babel, a metro-runtime before
+// 0.83.3 (react-native before 0.81) reloads the app on an edit of an ES
+// module: esbuild makes its exports getters, which that runtime takes for no
+// refresh boundary. A build error is shown in the app.
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 
@@ -46,7 +53,11 @@ const projectRoot = realpathSync(process.cwd())
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
 const stripFlow = flowStripper(project, values.babel)
-const babelFor = values.babel ? projectBabel(projectRoot, project, fail, { sourceMaps: true }) : null
+// For Fast Refresh: the module system dev bundles are written for, and the
+// plugin that has Babel register each component.
+const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
+const refreshPlugin = values.babel ? locateThrough(project, 'react-refresh/babel', ['react-native']) : null
+const babelFor = values.babel ? projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin }) : null
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
 const polyfillPaths = polyfills(project, fail)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
@@ -62,6 +73,7 @@ const devBundler = createDevBundler({
   esbuild,
   assetExts: assetExts(projectRoot, project, fail),
   polyfills: polyfillPaths,
+  runtime,
   targetOptions: ({ platform, dev }) => ({
     stripFlow,
     ...babelFor?.({ platform, dev }),
@@ -77,13 +89,16 @@ const devBundler = createDevBundler({
 })
 const devServer = createDevServer({ projectRoot, esbuild, devBundler, gate, log, clientLogs: values['client-logs'] })
 
-// A change: each bundle built anew; the apps reload where one is new, and see
-// the error where one fails.
+// A change: each bundle built anew; the apps of one in the module format get
+// what changed from the build they have, those of another reload where it is
+// new, and each sees the error where one fails.
 const refreshOnce = async () => {
   let reload = false
+  let updated = 0
   const errors = new Map()
-  for (const { request, before, after } of await devBundler.refresh()) {
-    if (after.ok && (!before.ok || before.js !== after.js)) reload = true
+  for (const { request, before, after, good } of await devBundler.refresh()) {
+    if (after.ok && after.modules !== undefined && good?.modules !== undefined) updated += devServer.hotUpdate(request, good, after)
+    else if (after.ok && (!before.ok || before.js !== after.js)) reload = true
     if (after.ok || before === after) continue
     const error = await bundlingError(esbuild, after.errors, projectRoot)
     if (!errors.has(error.message)) errors.set(error.message, { error, requests: [] })
@@ -91,6 +106,7 @@ const refreshOnce = async () => {
   }
   // Each error once, however many bundles it fails, to the apps of those.
   for (const { error, requests } of errors.values()) devServer.hotError(error, requests)
+  if (updated > 0) log(`rn-serve: updated ${updated} app(s)`)
   if (reload) log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
 }
 let refreshing = Promise.resolve()
@@ -128,6 +144,8 @@ server.listen(port, host, () => {
   if (wildcard) log('rn-serve: on every network interface: anyone on the network can fetch the app and its source')
   if (polyfillPaths.length === 0) log("rn-serve: no @react-native/js-polyfills, as @react-native/metro-config has it: bundles have Metro's prelude but no polyfills")
   if (devMiddleware === null) log('rn-serve: no @react-native/dev-middleware, as react-native has it: no debugger')
+  if (runtime === null) log("rn-serve: no metro-runtime, as react-native has it: no Fast Refresh, a change reloads the app")
+  else if (values.babel && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   else mountDebugger(serverUrl)
   if (process.stdin.isTTY) keys(serverUrl)
 })

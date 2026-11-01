@@ -80,3 +80,90 @@ export function indexMappings(mappings) {
     },
   }
 }
+
+const vlq = (value) => {
+  let rest = value < 0 ? -value * 2 + 1 : value * 2
+  let out = ''
+  do {
+    const digit = rest % 32
+    rest = Math.floor(rest / 32)
+    out += BASE64[rest > 0 ? digit + 32 : digit]
+  } while (rest > 0)
+  return out
+}
+
+// A map, ready to be put after others: where its first segment with a source
+// is, and with a name, each of whose fields are from 0 and are written anew
+// from where the map before ends; and where it ends.
+export function pieceOf(map) {
+  const { mappings } = map
+  const fields = [0, 0, 0, 0, 0]
+  const state = [0, 0, 0, 0]
+  let first = null
+  let named = null
+  let at = 0
+  while (at < mappings.length) {
+    const code = mappings.codePointAt(at)
+    if (code === COMMA || code === SEMICOLON) {
+      at++
+      continue
+    }
+    const start = at
+    at = readSegment(mappings, at, fields)
+    if (fields.count < 4) continue
+    for (let i = 0; i < 3; i++) state[i] += fields[i + 1]
+    if (first === null) first = { start, end: at, fields: fields.slice(0, fields.count) }
+    if (fields.count >= 5) {
+      state[3] += fields[4]
+      if (named === null) named = { start, end: at, fields: fields.slice(0, 5) }
+    }
+  }
+  return { sources: map.sources, sourcesContent: map.sourcesContent ?? map.sources.map(() => null), names: map.names ?? [], mappings, first, named, end: first === null ? null : state, lines: linesOf(mappings) }
+}
+
+const linesOf = (mappings) => {
+  let count = 1
+  for (let at = mappings.indexOf(';'); at !== -1; at = mappings.indexOf(';', at + 1)) count++
+  return count
+}
+
+// A piece's segment, its fields from where the map before left them.
+function rebased(piece, segment, { sourceAt, nameAt, source, line, column, name }) {
+  const fields = [...segment.fields]
+  if (segment.start === piece.first.start) [fields[1], fields[2], fields[3]] = [sourceAt + fields[1] - source, fields[2] - line, fields[3] - column]
+  if (segment.start === piece.named?.start) fields[4] = nameAt + fields[4] - name
+  return fields.map(vlq).join('')
+}
+
+// Pieces of code, one after another, each on lines of its own, as one map:
+// `pieces`, [{ lines, piece }], `lines` a piece's line count, `piece`
+// pieceOf() its map, or null.
+export function concatMaps(pieces) {
+  const sources = []
+  const sourcesContent = []
+  const names = []
+  const out = []
+  // Where the last segment with a source, and the last with a name, left the fields.
+  let [source, line, column, name] = [0, 0, 0, 0]
+  for (const { lines, piece } of pieces) {
+    if (piece === null || piece.first === null) {
+      out.push(';'.repeat(lines - 1))
+      continue
+    }
+    const [sourceAt, nameAt] = [sources.length, names.length]
+    sources.push(...piece.sources)
+    sourcesContent.push(...piece.sourcesContent)
+    names.push(...piece.names)
+    // Its first segment with a source, and its first with a name (the same
+    // one, or one after), from where the map before left the fields.
+    const from = { sourceAt, nameAt, source, line, column, name }
+    let text = piece.mappings.slice(0, piece.first.start) + rebased(piece, piece.first, from)
+    if (piece.named === null || piece.named.start === piece.first.start) text += piece.mappings.slice(piece.first.end)
+    else text += piece.mappings.slice(piece.first.end, piece.named.start) + rebased(piece, piece.named, from) + piece.mappings.slice(piece.named.end)
+    // Its lines exactly: those it maps, and the rest.
+    out.push(piece.lines >= lines ? text.split(';').slice(0, lines).join(';') : text + ';'.repeat(lines - piece.lines))
+    ;[source, line, column] = [sourceAt + piece.end[0], piece.end[1], piece.end[2]]
+    if (piece.named !== null) name = nameAt + piece.end[3]
+  }
+  return { version: 3, sources, sourcesContent, names, mappings: out.join(';') }
+}

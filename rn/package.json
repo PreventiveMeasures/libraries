@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn",
   "version": "1.0.0-alpha.0",
-  "description": "React Native tooling: Metro resolution, assets, bundling, a dev server and a `react-native bundle` for Xcode and Gradle",
+  "description": "React Native tooling: Metro resolution, assets, bundling, a `react-native bundle` for Xcode and Gradle, and a dev server with Fast Refresh",
   "type": "module",
   "exports": {
     "./metro-resolver.js": {
@@ -57,10 +57,12 @@
     "src/dev-bundler.js",
     "src/exports.js",
     "src/gate.js",
+    "src/hot.js",
     "src/image-size.js",
     "src/load.js",
     "src/mappings.js",
     "src/metro-config.js",
+    "src/modules.js",
     "src/resolve.js",
     "src/serializer.js",
     "src/serve-assets.js",
@@ -106,7 +108,10 @@
     "esbuild-0.25": "npm:esbuild@0.25.12",
     "flow-remove-types": "^2.338.0",
     "metro-resolver": "0.87.2",
-    "oxc-parser": "^0.152.0"
+    "metro-runtime": "0.87.2",
+    "metro-runtime-0.81": "npm:metro-runtime@0.81.5",
+    "oxc-parser": "^0.152.0",
+    "react-refresh": "0.14.2"
   },
   "peerDependencies": {
     "esbuild": ">=0.25.0",

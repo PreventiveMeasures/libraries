@@ -42,6 +42,8 @@ describe('bundle URLs', () => {
       platform: 'ios',
       dev: false,
       minify: true,
+      shallow: false,
+      modulesOnly: false,
       sourceUrl: 'http://localhost:8081/index.bundle//&platform=ios&dev=false&minify=1&lazy=true',
       sourceMapUrl: 'http://localhost:8081/index.map?platform=ios&dev=false&minify=1&lazy=true',
     })

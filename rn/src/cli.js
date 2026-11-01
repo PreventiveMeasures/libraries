@@ -97,8 +97,10 @@ export const babelConfigOf = (cwd) => BABEL_CONFIGS.map((name) => resolve(cwd, n
 // function of { platform, dev } to the options bundle() takes of Babel,
 // with Metro's caller and Babel env, each target's workers its own.
 // `sourceMaps` makes each file's output carry its map, inline; `profile`,
-// each target's workers time the config's plugins, as its `profile`.
-export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false } = {}) {
+// each target's workers time the config's plugins, as its `profile`;
+// `refresh`, react-refresh's Babel plugin, a dev target's workers run it
+// over each file outside node_modules, for Fast Refresh.
+export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false, refresh = null } = {}) {
   const configFile = babelConfigOf(cwd)
   if (configFile === null) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
   const corePath = tryResolve(fromProject, '@babel/core')
@@ -116,7 +118,7 @@ export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = fa
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }) }, timed),
+      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }) }, timed),
       babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)

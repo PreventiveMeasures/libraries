@@ -14,7 +14,7 @@ import { createMetroResolver } from './resolve.js'
 import { reactNativeOf } from './serializer.js'
 
 // Lowered by esbuild in the bundle, after Babel, which leaves them.
-const LOWERED = {
+export const LOWERED = {
   'class-field': false,
   'class-private-accessor': false,
   'class-private-brand-check': false,
@@ -73,7 +73,7 @@ export async function createBundler(options) {
 // esbuild adds none after Babel: its helpers have `for (let key of ...)`,
 // with a closure (__copyProps), which it then writes with var and bind;
 // and fails on any left.
-async function lowersLetOf({ babel = null, babelPlugins = null, host = diskHost, projectRoot = process.cwd(), entry }) {
+export async function lowersLetOf({ babel = null, babelPlugins = null, host = diskHost, projectRoot = process.cwd(), entry }) {
   return babel !== null && (await babelPlugins?.(host.realpath(resolve(projectRoot, entry))))?.has('transform-block-scoping') === true
 }
 
@@ -164,9 +164,7 @@ function metroGraph({
         }
         if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
         if (namespace === MAIN && specifier === ENTRY) return file(importer)
-        const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
-        if (!state.graph.has(importer)) state.graph.set(importer, new Map())
-        state.graph.get(importer).set(specifier, resolution)
+        const resolution = resolveImport(state, { importer, specifier, kind, aliases, platform })
         // Left to esbuild, which can't resolve it either: in a try block, an
         // optional dependency, as Metro takes one, which fails at run time;
         // else an error.
@@ -216,11 +214,20 @@ function serializer(build, { polyfills, before, projectRoot, load }) {
   })
 }
 
+// What an import of `importer`'s resolves to, as Metro resolves it, put in
+// the state's graph: null where nothing.
+export function resolveImport(state, { importer, specifier, kind, aliases, platform }) {
+  const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
+  if (!state.graph.has(importer)) state.graph.set(importer, new Map())
+  state.graph.get(importer).set(specifier, resolution)
+  return resolution
+}
+
 // A build's state, given to `publish`: a new resolver, which reads each
 // package.json anew and counts each file it reads; given before what of
 // react-native runs before the entry is found, so that a manifest that fails
 // it (no JSON) is among the build's files.
-function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
+export function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
   const read = new Set()
   const resolveModule = createMetroResolver({ host: reading(host, read), assetExts })
   const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
@@ -241,7 +248,7 @@ const look = (read, path, found) => {
   read.add(path)
   return found
 }
-const reading = (host, read) => ({
+export const reading = (host, read) => ({
   isFile: (path) => look(read, path, host.isFile(path)),
   isDirectory: (path) => look(read, path, host.isDirectory(path)),
   realpath: (path) => host.realpath(path),
@@ -252,7 +259,7 @@ const reading = (host, read) => ({
   },
 })
 
-async function loadCached(options, host, cache, path) {
+export async function loadCached(options, host, cache, path) {
   const contents = decoder.decode(host.readFile(path))
   const hit = cache?.get(path)
   if (hit !== undefined && hit.contents === contents) return hit.result

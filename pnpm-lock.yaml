@@ -139,9 +139,18 @@ importers:
       metro-resolver:
         specifier: 0.87.2
         version: 0.87.2
+      metro-runtime:
+        specifier: 0.87.2
+        version: 0.87.2
+      metro-runtime-0.81:
+        specifier: npm:metro-runtime@0.81.5
+        version: metro-runtime@0.81.5
       oxc-parser:
         specifier: ^0.152.0
         version: 0.152.0
+      react-refresh:
+        specifier: 0.14.2
+        version: 0.14.2
 
   sourcemap:
     devDependencies:
@@ -285,6 +294,10 @@ packages:
     engines: {node: '>=6.9.0'}
     peerDependencies:
       '@babel/core': ^7.0.0-0
+
+  '@babel/runtime@7.29.10':
+    resolution: {integrity: sha512-NpugTzbKgGrNe45Ui32cN8vCFFMxVtP/9rtfwv0nP5FRDAjvYBxJcLVpYA9mr1jxP6cnIT7x9LUzuDTbWYYNRA==, tarball: https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.10.tgz}
+    engines: {node: '>=6.9.0'}
 
   '@babel/template@7.29.7':
     resolution: {integrity: sha512-puq+Gf35oI24FeN11LkoUQFqv9uwNeWpxXZi/Ji3rRIoKAzKnxRaZ+Gkj0vKS9ZCiTESfng1N9LyOyXvo+m+Gg==, tarball: https://registry.npmjs.org/@babel/template/-/template-7.29.7.tgz}
@@ -1331,6 +1344,14 @@ packages:
     resolution: {integrity: sha512-5irxge/5uJ+OqPwdj4GARrSmJVMVj4mkgn5WKv83X7NP9MH/AedDStqvZaMwEaiH/mQFm5W4GDbEqx1OJJeLBg==, tarball: https://registry.npmjs.org/metro-resolver/-/metro-resolver-0.87.2.tgz}
     engines: {node: ^22.13.0 || ^24.3.0 || >= 26.0.0}
 
+  metro-runtime@0.81.5:
+    resolution: {integrity: sha512-M/Gf71ictUKP9+77dV/y8XlAWg7xl76uhU7ggYFUwEdOHHWPG6gLBr1iiK0BmTjPFH8yRo/xyqMli4s3oGorPQ==, tarball: https://registry.npmjs.org/metro-runtime/-/metro-runtime-0.81.5.tgz}
+    engines: {node: '>=18.18'}
+
+  metro-runtime@0.87.2:
+    resolution: {integrity: sha512-68CLgcufiI162xyhSyI3Ax1kYPmUxKV6mt7Ll6gNd6Lb5ayJ+tQ1G7G+02Hda2ekV88Vq5zTsJ5hv2qpAhZa8g==, tarball: https://registry.npmjs.org/metro-runtime/-/metro-runtime-0.87.2.tgz}
+    engines: {node: ^22.13.0 || ^24.3.0 || >= 26.0.0}
+
   minimatch@8.0.7:
     resolution: {integrity: sha512-V+1uQNdzybxa14e/p00HZnQNNcTjnRJjDxg2V8wtkjFctq4M7hXFws4oekyTP0Jebeq7QYtpFyOeBAjc88zvYg==, tarball: https://registry.npmjs.org/minimatch/-/minimatch-8.0.7.tgz}
     engines: {node: '>=16 || 14 >=14.17'}
@@ -1433,6 +1454,10 @@ packages:
     resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==, tarball: https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz}
     engines: {node: '>=20'}
     hasBin: true
+
+  react-refresh@0.14.2:
+    resolution: {integrity: sha512-jCvmsr+1IUSMUyzOkRcvnVbX3ZYC6g9TDrDbFuFmRDq7PD4yaGbLKNQL6k2jnArV8hjYxh7hVhAZB6s9HDGpZA==, tarball: https://registry.npmjs.org/react-refresh/-/react-refresh-0.14.2.tgz}
+    engines: {node: '>=0.10.0'}
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==, tarball: https://registry.npmjs.org/require-directory/-/require-directory-2.1.1.tgz}
@@ -1680,6 +1705,8 @@ snapshots:
       '@babel/plugin-syntax-typescript': 7.29.7(@babel/core@7.29.7)
     transitivePeerDependencies:
       - supports-color
+
+  '@babel/runtime@7.29.10': {}
 
   '@babel/template@7.29.7':
     dependencies:
@@ -2344,6 +2371,16 @@ snapshots:
     dependencies:
       flow-enums-runtime: 0.0.6
 
+  metro-runtime@0.81.5:
+    dependencies:
+      '@babel/runtime': 7.29.10
+      flow-enums-runtime: 0.0.6
+
+  metro-runtime@0.87.2:
+    dependencies:
+      '@babel/runtime': 7.29.10
+      flow-enums-runtime: 0.0.6
+
   minimatch@8.0.7:
     dependencies:
       brace-expansion: 2.1.7
@@ -2484,6 +2521,8 @@ snapshots:
       find-up: 3.0.0
 
   playwright-core@1.63.0: {}
+
+  react-refresh@0.14.2: {}
 
   require-directory@2.1.1: {}
 

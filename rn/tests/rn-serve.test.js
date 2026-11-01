@@ -410,6 +410,105 @@ describe('rn-serve --babel', () => {
   })
 })
 
+// The bundle run as an app runs it, with metro-runtime's require. -> {
+// context, inject(update) }: its global object, and an update injected as
+// metro-runtime's HMRClient does.
+const runApp = (code) => {
+  const warnings = []
+  const context = { console: { log: () => {}, warn: (...args) => warnings.push(args.join(' ')), error: () => {} }, setTimeout, clearTimeout, warnings }
+  context.globalThis = context
+  runInNewContext(code, context)
+  return { context, inject: ({ added, modified }) => [...added, ...modified].forEach(({ module: [, text] }) => runInNewContext(text, context)) }
+}
+
+describe('rn-serve, with Fast Refresh', () => {
+  const HOT_APP = {
+    ...APP,
+    'node_modules/metro-runtime': linked('metro-runtime'),
+    'node_modules/react-refresh': linked('react-refresh'),
+    'babel.config.js': 'module.exports = {}\n',
+    'Greeting.js': "export function Greeting() {\n  return 'hi'\n}\n",
+    'greeting.js': "import { Greeting } from './Greeting'\nglobalThis.result = Greeting()\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+  }
+  const { root, cleanup } = writeTree(HOT_APP)
+  let server
+  let babel
+  before(async () => {
+    ;[server, babel] = await Promise.all([serve(root), serve(root, ['--babel'])])
+  })
+  after(async () => {
+    await Promise.all([server?.stop(), babel?.stop()])
+    cleanup()
+  })
+  const bundleUrl = (query = 'platform=ios') => `${server.url}/index.bundle?${query}`
+
+  it("serves a dev bundle in Metro's module format, which runs as the other did", async () => {
+    const code = String((await fetchRaw(bundleUrl())).body)
+    assert.match(code, /^__d\(function \(global, _\$\$_REQUIRE/mu)
+    const { context } = runApp(code)
+    assert.deepEqual(JSON.parse(JSON.stringify([context.result.where, context.result.dev, context.result.order, context.result.logo.name])), ['ios', true, ['polyfill', 'setup-env'], 'logo'])
+    // A release bundle, as rn-bundle builds it.
+    assert.doesNotMatch(String((await fetchRaw(bundleUrl('platform=ios&dev=false'))).body), /__d\(function/u)
+  })
+
+  it('symbolicates a frame of the bundle, and of a module as an update names it', async () => {
+    const code = String((await fetchRaw(bundleUrl())).body)
+    const frame = { file: `${server.url}/index.bundle//&platform=ios`, ...positionOf(code, 'throw new Error("boom")') }
+    const moduleUrl = `${server.url}/lib/where.ios.bundle//&platform=ios&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true`
+    const where = { file: moduleUrl, ...positionOf(String((await fetchRaw(moduleUrl)).body), 'var where') }
+    const { stack, codeFrame } = JSON.parse(String((await fetchRaw(`${server.url}/symbolicate`, { method: 'POST', body: JSON.stringify({ stack: [frame, where] }) })).body))
+    assert.deepEqual(stack.map(({ file, lineNumber }) => [file, lineNumber]), [[join(root, 'index.js'), 6], [join(root, 'lib/where.ios.js'), 1]])
+    assert.equal(codeFrame.fileName, join(root, 'index.js'))
+  })
+
+  it('sends each app what changed, in place of a reload: the module, at its own URL, with its map', async () => {
+    const { inject, context } = runApp(String((await fetchRaw(bundleUrl())).body))
+    await fetchRaw(bundleUrl('platform=ios&dev=false'))
+    const message = await socket(`${server.url}/message`)
+    const hot = await socket(`${server.url}/hot?bundleEntry=index.bundle&platform=ios`)
+    hot.ws.send(JSON.stringify({ type: 'register-entrypoints', entryPoints: [bundleUrl('platform=ios&dev=true&lazy=true')] }))
+    await until(() => hot.messages.length === 3, 'bundle-registered')
+    const where = join(root, 'lib/where.ios.js')
+    try {
+      writeFileSync(where, "export const where = 'ios, changed'\n")
+      await until(() => hot.messages.length === 6, 'an update')
+      const [start, { type, body }, done] = hot.messages.slice(3)
+      assert.deepEqual([start, type, done], [{ type: 'update-start', body: { isInitialUpdate: false } }, 'update', { type: 'update-done', body: {} }])
+      assert.deepEqual([body.isInitialUpdate, body.added, body.deleted, body.modified.length], [false, [], [], 1])
+      const [{ sourceURL, sourceMappingURL }] = body.modified
+      assert.equal(sourceURL, `${server.url}/lib/where.ios.bundle//&platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true`)
+      inject(body)
+      // The entry is no boundary, and nothing set React Refresh up: metro-runtime can't refresh.
+      assert.deepEqual(context.warnings, ['Could not reload the application after an edit.'])
+      const moduleCode = String((await fetchRaw(sourceURL)).body)
+      assert.match(moduleCode, /^__d\(function .*"ios, changed"/su)
+      const map = JSON.parse(String((await fetchRaw(sourceMappingURL)).body))
+      assert.deepEqual(map.sources, ['lib/where.ios.js'])
+      // The release bundle's app reloads, as before.
+      await until(() => message.messages.length > 0, "the release bundle's reload")
+      assert.equal(context.result.where, 'ios')
+      // A build error, then what changed from the build the app has.
+      writeFileSync(where, "export const where = 'ios\n")
+      await until(() => hot.messages.some(({ type: kind }) => kind === 'error'), 'a build error')
+      writeFileSync(where, "export const where = 'ios, fixed'\n")
+      await until(() => hot.messages.filter(({ type: kind }) => kind === 'update').length === 2, 'an update once fixed')
+      assert.match(hot.messages.findLast(({ type: kind }) => kind === 'update').body.modified[0].module[1], /"ios, fixed"/u)
+    } finally {
+      writeFileSync(where, APP['lib/where.ios.js'])
+      message.ws.close()
+      hot.ws.close()
+    }
+  })
+
+  it('with --babel, has each component of the project register for Fast Refresh, as react-refresh\'s plugin does', async () => {
+    const code = String((await fetchRaw(`${babel.url}/greeting.bundle?platform=ios`)).body)
+    const greeting = code.split('\n__d(').find((text) => text.includes('"Greeting.js"'))
+    assert.match(greeting, /\$RefreshReg\$\(_c, "Greeting"\)/u)
+    assert.equal(runApp(code).context.result, 'hi')
+  })
+})
+
 describe('rn-serve flags', () => {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'aliases.json': {} })
   after(cleanup)

@@ -3,7 +3,9 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates). Each request passes
 // the gate first. HTTP:
 //   /status                    packager-status:running
-//   /<entry>.bundle?platform=  the bundle, its sourceMappingURL and sourceURL
+//   /<entry>.bundle?platform=  the bundle, its sourceMappingURL and sourceURL;
+//                              with &shallow=true, a module of one, as an
+//                              update names it
 //   /<entry>.map?platform=     its source map
 //   /assets/<path>?platform=   an asset of a bundle served
 //   POST /symbolicate          LogBox's stack frames, at their sources
@@ -11,8 +13,8 @@
 // and anything else to `middleware` (@react-native/dev-middleware's), if any.
 // WebSockets:
 //   /message                   reload and devMenu, to each app
-//   /hot                       each app's HMRClient: never an update, only
-//                              build errors; a change reloads instead
+//   /hot                       each app's HMRClient: Fast Refresh's updates
+//                              (hotUpdate), and build errors
 // and `websocketEndpoints`, `ws` servers (dev-middleware's inspector).
 // Nothing runs a command or opens a file a request names.
 
@@ -23,6 +25,7 @@ import { resolve } from 'node:path'
 import { bundleRequest, toNormalUrl } from './bundle-url.js'
 import { diskHost } from './defaults.js'
 import { SAFE_HEADERS } from './gate.js'
+import { hotUpdate } from './hot.js'
 import { assetResponse } from './serve-assets.js'
 import { bundleUrls, stackOf, symbolicate } from './symbolicate.js'
 import { acceptWebSocket } from './websocket.js'
@@ -83,13 +86,15 @@ function readBody(request) {
   })
 }
 
-// -> { server, broadcast(method), hotError(error, requests), mount({
-// middleware, websocketEndpoints }), clients() }
+// -> { server, broadcast(method), hotError(error, requests),
+// hotUpdate(request, before, after), mount({ middleware,
+// websocketEndpoints }), clients() }
 export function createDevServer({ projectRoot, esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()
-  // Each HMRClient, and the bundles it is for: as its URL names one, and those it registers.
+  // Each HMRClient, and the bundles it is for, as its URL names one and as it
+  // registers them: Map<key, the URL it names it by>.
   const hotClients = new Map()
   const broadcast = (method) => {
     const text = JSON.stringify({ version: 2, method })
@@ -101,7 +106,7 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
     const text = JSON.stringify({ type: 'error', body })
     const failed = new Set(requests.map(bundleKey))
     for (const [client, bundles] of hotClients) {
-      if (bundles.size === 0 || [...bundles].some((key) => failed.has(key))) client.send(text)
+      if (bundles.size === 0 || [...bundles.keys()].some((key) => failed.has(key))) client.send(text)
     }
   }
 
@@ -165,7 +170,7 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
   const mount = (mounted) => {
     ;({ middleware, websocketEndpoints } = mounted)
   }
-  return { server, broadcast, hotError, mount, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
+  return { server, broadcast, hotError, hotUpdate: (request, before, after) => sendUpdate(hotClients, request, before, after), mount, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
 }
 
 async function serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot }) {
@@ -175,6 +180,20 @@ async function serveBundle(request, response, bundle, { devBundler, esbuild, pro
   // Chrome DevTools may need the source map.
   if (bundle.kind === 'map') return reply(request, response, 200, outcome.map, { 'Content-Type': JSON_TYPE, 'Access-Control-Allow-Origin': 'devtools://devtools' })
   return reply(request, response, 200, `${outcome.js}//# sourceMappingURL=${bundle.sourceMapUrl}\n//# sourceURL=${bundle.sourceUrl}\n`, { 'Content-Type': JS })
+}
+
+// What changed in a bundle, from the build its apps have, to each. -> how
+// many it went to.
+function sendUpdate(hotClients, request, before, after) {
+  const key = bundleKey(request)
+  let sent = 0
+  for (const [client, bundles] of hotClients) {
+    const body = bundles.has(key) ? hotUpdate(before, after, bundles.get(key)) : null
+    if (body === null) continue
+    for (const message of [{ type: 'update-start', body: { isInitialUpdate: false } }, { type: 'update', body }, { type: 'update-done', body: {} }]) client.send(JSON.stringify(message))
+    sent++
+  }
+  return sent
 }
 
 // A WebSocket the gate lets through: ours, else an endpoint's, else none.
@@ -196,22 +215,23 @@ function upgrade(request, socket, head, { gate, sockets, endpoints }) {
   }
 }
 
-// An HMRClient, for the bundle its URL names (`?bundleEntry=index.bundle&platform=ios`)
-// and each it registers.
+// An HMRClient, for the bundle its URL names (`?bundleEntry=index.bundle&platform=ios`),
+// on the host it asked, and each it registers.
 function hotSocket(client, hotClients, { log, clientLogs }) {
-  const bundles = new Set()
+  const bundles = new Map()
   const register = (url) => {
     const key = typeof url === 'string' ? keyOfUrl(url) : null
-    if (key !== null) bundles.add(key)
+    if (key !== null) bundles.set(key, toNormalUrl(url))
   }
   const query = new URL(client.request.url, 'http://localhost').searchParams
-  register(`http://localhost/${query.get('bundleEntry') ?? ''}?platform=${encodeURIComponent(query.get('platform') ?? '')}`)
+  register(`http://${client.request.headers.host}/${query.get('bundleEntry') ?? ''}?platform=${encodeURIComponent(query.get('platform') ?? '')}`)
   hotClients.set(client, bundles)
   return { onMessage: (text) => onHotMessage(client, text, { log, clientLogs, register }), onClose: () => hotClients.delete(client) }
 }
 
-// HMRClient's messages, as Metro's HmrServer answers them but for updates:
-// an initial update of nothing, which tells it it's connected.
+// HMRClient's messages, as Metro's HmrServer answers them: an initial update
+// of nothing, as the app's bundle is the latest build, which tells it it's
+// connected.
 function onHotMessage(client, text, { log, clientLogs, register }) {
   let data
   try {
