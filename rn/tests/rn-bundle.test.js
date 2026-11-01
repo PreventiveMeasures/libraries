@@ -42,9 +42,9 @@ const APP = {
   'node_modules/dep/index.js': '',
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
-  // Flow that parses as JS, as another thing: `(box < string) > 'generic'.value`.
+  // Valid JS too, as `(box < string) > 'generic'.value`.
   'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
-  // As much, with no @flow: Flow where Babel's config parses Flow in each file, and --flow does.
+  // The same with no @flow, which Babel's `all: true` reads as Flow.
   'lib/untagged.js': "const box = (value) => ({ value })\nexport class Tag { value = 1 }\nexport const untagged = box<string> /* a comment */ ('untagged').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
@@ -147,10 +147,8 @@ describe('rn-bundle', () => {
 
 // The project's own Babel, as an app installs it: the workspace's copies linked in.
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
-// A babel.config.js with these plugins, and three of its own, putting for
-// __PLATFORM__ the platform of Metro's caller, for __BABEL_ENV__ Babel's env,
-// and for __SYNTAX__ the class syntax and decorators a file has as Babel gets
-// it, taking the decorators off.
+// __SYNTAX__ is the class syntax and decorators a file still has when Babel
+// gets it; the decorators are then taken off.
 const babelConfig = (plugins) => [
   'module.exports = (api) => {',
   '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
@@ -168,7 +166,6 @@ const babelConfig = (plugins) => [
 ].join('\n')
 const BABEL_APP = {
   ...APP,
-  // Flow parsed in each file, @flow or not.
   'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], ['@babel/plugin-transform-flow-strip-types', { all: true }], '@babel/plugin-transform-react-jsx']),
   'modern.js': [
     "import { Counter, syntax as counter } from './lib/counter'",
@@ -198,8 +195,8 @@ const BABEL_APP = {
     'export const syntax = __SYNTAX__',
     '',
   ].join('\n'),
-  // TSX for Babel's classic runtime, which takes React where only JSX uses it; a
-  // field that is a type alone, which Metro drops, so the base class's stays.
+  // React is used only by JSX, which Babel's classic runtime needs it for;
+  // `context` has no value, so Metro drops it and the base class's stays.
   'lib/card.tsx': [
     "import React, { Component } from 'react'",
     "import { Shape } from './shape'",
@@ -223,7 +220,7 @@ const BABEL_APP = {
   'lib/note.ts': "const field = (name: string) => () => {}\nexport class Note {\n  static table = 'notes'\n  @field('body') body!: string\n}\nexport const syntax = __SYNTAX__\n",
   'node_modules/react/package.json': { name: 'react', version: '19.0.0' },
   'node_modules/react/index.js': "class Component { constructor(props) { this.props = props; this.context = 'base' } }\nmodule.exports = { Component, createElement: (type, props, ...children) => ({ type, ...props, children }) }\n",
-  // As WatermelonDB's models are: a decorator on a field, which esbuild drops where it lowers the field.
+  // A decorated field, as in WatermelonDB models.
   'lib/decorated.js': "const field = () => () => {}\nexport class Post {\n  static table = 'posts'\n  @field('title') title\n}\nexport const syntax = __SYNTAX__\n",
   'node_modules/@babel/core': linked('@babel/core'),
   'node_modules/@babel/plugin-transform-flow-strip-types': linked('@babel/plugin-transform-flow-strip-types'),
@@ -231,9 +228,6 @@ const BABEL_APP = {
   'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
 }
 
-// What modern.js prints, built with --babel: each JS and TS file lowered by
-// esbuild before Babel, but the classes of a file with type arguments, @flow
-// or not, and of a decorated file.
 const MODERN = {
   counter: [4, 1, true, true, false],
   generic: 'generic',
@@ -313,8 +307,7 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
 })
 
 describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
-  // A babel.config.js whose TS plugin takes these options, as
-  // @react-native/babel-preset has it for .ts and .tsx, its JSX built by h.
+  // As @react-native/babel-preset has the TS plugin, for .ts and .tsx.
   const config = (options) => [
     'module.exports = {',
     "  plugins: [['@babel/plugin-transform-react-jsx', { pragma: 'h' }]],",
@@ -337,15 +330,12 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), field: new Child().value ?? null }))',
       '',
     ].join('\n'),
-    // A module with an effect, imported for its type alone.
+    // Has a side effect; imported only for its type.
     'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
     'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
-    // h, which only JSX uses: kept for the config's jsxPragma, then for the file's @jsx.
     'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
     'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
-    // A pragma Babel reads where it shares its line with code.
     'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
-    // A field with no value: a type alone, unless allowDeclareFields.
     'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),

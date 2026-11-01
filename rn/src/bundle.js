@@ -11,10 +11,8 @@ import { createMetroResolver } from './resolve.js'
 
 const LOADERS = new Map([['.js', 'js'], ['.cjs', 'js'], ['.mjs', 'js'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
 const JS = new Set(['.js', '.cjs', '.mjs'])
-// What esbuild lowers in a file before Babel gets it, a TS file made JS, as
-// @exodus/test prepares code for Hermes: class fields, private members and
-// static blocks, import attributes, `using`. And decorators, only to tell a
-// file that has them: lowering a field, esbuild drops its decorators.
+// Lowered by esbuild before Babel. Decorators only to detect them: esbuild
+// drops a field's decorators when it lowers the field.
 const DOWNGRADED = {
   'class-field': false,
   'class-private-accessor': false,
@@ -30,16 +28,12 @@ const DOWNGRADED = {
   using: false,
   decorators: false,
 }
-// What a call with type arguments, `f<T>(x)` or f<T>`x`, can't be without: a
-// `>`, then what alone may come between it and the arguments, space and
-// comments, then `(` or a backtick.
+// A call with type arguments needs a `>`, then only space or comments, then
+// `(` or a backtick.
 const MAYBE_TYPE_ARGUMENTS = /(?<!=)>(?:\s|\/\/.*|\/\*[\s\S]*?\*\/)*[(`]/u
-// TS reading a JS file as JS does but for type arguments: every import kept,
-// class fields defined.
+// So that TS reads JS as JS does, but for type arguments.
 const AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
-// Comments, as near as a scan with no parser tells them, and the JSX pragmas
-// Babel reads off their text, which esbuild drops: each a line of it, its kind
-// (none for @jsx) and its value.
+// Babel reads a JSX pragma off any line of a comment's text.
 const COMMENT = /\/\*([\s\S]*?)\*\/|\/\/(.*)/gu
 const JSX_PRAGMA = /^\s*(?:\*\s*)?@jsx(Frag|ImportSource|Runtime)?\s+(\S+)\s*$/gmu
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u
@@ -56,14 +50,11 @@ export async function bundle({
   host = diskHost,
   projectRoot = process.cwd(),
   jsx = false,
-  // (source, path) => source with Flow types stripped, for files that have them.
+  // (source, path) => source with Flow types stripped.
   stripFlow = null,
-  // (source, path) => the code the project's Babel makes of each JS and TS
-  // file, given it as esbuild makes it, where that keeps its meaning.
+  // (source, path) => the project's Babel output.
   babel = null,
-  // async (path) => the options the TS plugin of the project's Babel config
-  // takes for a TS file, which say what imports it keeps; null where it has
-  // none.
+  // async (path) => the options of the project's Babel TS plugin for a file, or null.
   babelTypescript = null,
   define = {},
   // (file, specifier) => the specifier an alias rewrites it to, or null.
@@ -126,9 +117,6 @@ export async function bundle({
   return { outputFiles: result.outputFiles, warnings: result.warnings, assets: [...assets.keys()].toSorted().map((path) => assets.get(path)), graph }
 }
 
-// Every JS and TS file through Babel, as Metro's transformer runs it, made
-// ready for it by esbuild first; or a JS file with Flow types stripped, one
-// that doesn't parse after (Flow that is code: `enum`, `component`) failing.
 async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript }, path) {
   const loader = jsx && JS.has(extname(path)) ? 'jsx' : (LOADERS.get(extname(path)) ?? 'js')
   const contents = decoder.decode(host.readFile(path))
@@ -153,12 +141,12 @@ async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, bab
   } catch (error) {
     return { errors: [{ text: `Can't strip Flow types from ${relative(projectRoot, path)}: ${error.message}` }] }
   }
+  // Flow that is code (`enum`, `component`) isn't stripped.
   const left = await parseErrors(esbuild, stripped, loader, path)
   if (left !== null) return { errors: left.map((error) => ({ ...error, text: `Flow syntax flow-remove-types doesn't strip: ${error.text}` })) }
   return { contents: stripped, loader }
 }
 
-// esbuild's errors parsing a file, or null where it parses.
 async function parseErrors(esbuild, code, loader, path) {
   try {
     await esbuild.transform(code, { loader, sourcefile: path, logLevel: 'silent' })
@@ -168,16 +156,13 @@ async function parseErrors(esbuild, code, loader, path) {
   }
 }
 
-// Whether a JS file has Flow types to strip: where esbuild can't parse it, or
-// where it may have type arguments.
 async function hasFlow(esbuild, code, loader) {
   return (await parseErrors(esbuild, code, loader)) !== null || (await typeArguments(esbuild, code))
 }
 
-// Whether a JS file may have a call with type arguments, `f<T>(x)`, which JS
-// reads as `(f < T) > x` and Flow as a call: in a @flow file, and in any where
-// Babel's config parses Flow in each (`all: true`). Told by esbuild reading it
-// as TS, where it is a call too, other than as JS.
+// `f<T>(x)` is a call to Flow (in @flow files, or in every file with Babel's
+// `all: true`), but `(f < T) > x` to JS. esbuild's TS parser reads it as a
+// call too, so such a file reads differently as TS than as JS.
 async function typeArguments(esbuild, code) {
   if (!MAYBE_TYPE_ARGUMENTS.test(code)) return false
   const read = async (loader, tsconfigRaw) => (await esbuild.transform(code, { loader, jsx: 'preserve', tsconfigRaw, logLevel: 'silent' })).code
@@ -190,31 +175,27 @@ async function typeArguments(esbuild, code) {
   }
 }
 
-// Whether esbuild failed on what it parsed; not on an option it doesn't take.
+// Parse errors have a location; errors in options don't.
 function located(error) {
   return Array.isArray(error?.errors) && error.errors.every(({ location }) => location)
 }
 
-// A JS file for Babel: with --flow, its Flow types stripped where it has them,
-// what flow-remove-types can't parse left to Babel as it is; then with what
-// esbuild lowers lowered, where that keeps its meaning.
 async function javascript({ esbuild, stripFlow }, contents, path) {
   let source = contents
   if (stripFlow !== null && (await hasFlow(esbuild, contents, 'jsx'))) {
     try {
       source = stripFlow(contents, path)
     } catch (error) {
+      // Left to Babel.
       if (!(error instanceof SyntaxError)) throw error
     }
   }
   return (await downgrade(esbuild, source, path)) ?? source
 }
 
-// A JS file with what esbuild lowers lowered, for Babel to make the rest of;
-// or null, for Babel to take it as it is: where esbuild can't parse it (Flow,
-// syntax only a Babel plugin takes), where it may have type arguments, and
-// where it has decorators, which the project's Babel config gives their
-// meaning (legacy, or not).
+// null leaves the file to Babel as it is: esbuild can't parse it, may misread
+// it, or would lower decorators, whose semantics (legacy or not) the project's
+// Babel config picks.
 async function downgrade(esbuild, contents, path) {
   if (await typeArguments(esbuild, contents)) return null
   let code
@@ -227,30 +208,21 @@ async function downgrade(esbuild, contents, path) {
   return decorated(code) ? null : code
 }
 
-// A TS file as JS, by esbuild, with what it lowers lowered, as Metro's Babel
-// preset makes it: class fields assigned in the constructor, those that are
-// types alone dropped (useDefineForClassFields: false); its fields and
-// imports as the project's Babel TS plugin keeps them, by its options for the
-// file. One with decorators has its types stripped alone, its classes left to
-// the project's Babel config, which gives the decorators their meaning.
-// Throws what esbuild can't parse.
+// Fields and imports kept as the project's Babel TS plugin keeps them. By
+// default (as in @react-native/babel-preset) it drops fields with no value and
+// unused imports, but not, in TSX, those only JSX uses. tsconfig isn't read:
+// Metro doesn't.
 async function typescript(esbuild, contents, loader, path, plugin) {
   const { onlyRemoveTypeImports = false, allowDeclareFields = false, jsxPragma = 'React.createElement', jsxPragmaFrag = 'React.Fragment' } = plugin ?? {}
-  // A field with no value is a type alone, dropped; with allowDeclareFields, a
-  // field, kept and defined as in JS, and only one `declare`d is dropped.
-  const definedFields = allowDeclareFields === true
-  // Each import but of types alone, as esbuild keeps them by
-  // verbatimModuleSyntax; else none unused, as esbuild drops them, but in TSX
-  // those the JSX pragmas name, which its JSX, kept, uses.
   const verbatimModuleSyntax = onlyRemoveTypeImports === true
   const keep = verbatimModuleSyntax || loader !== 'tsx' ? [] : pragmaImports(contents, jsxPragma, jsxPragmaFrag)
   const tsconfigRaw = (useDefineForClassFields) => ({ compilerOptions: { useDefineForClassFields, verbatimModuleSyntax } })
-  const code = await lower(esbuild, contents, loader, path, { supported: DOWNGRADED, tsconfigRaw: tsconfigRaw(definedFields) }, keep)
+  const code = await lower(esbuild, contents, loader, path, { supported: DOWNGRADED, tsconfigRaw: tsconfigRaw(allowDeclareFields === true) }, keep)
+  // Decorated: types stripped alone, classes left to the project's Babel config.
   return decorated(code) ? lower(esbuild, contents, loader, path, { tsconfigRaw: tsconfigRaw(true) }, keep) : code
 }
 
-// The names whose imports Babel's TS plugin keeps for JSX alone: the roots of
-// its jsxPragma and jsxPragmaFrag, or of the file's @jsx and @jsxFrag.
+// As Babel's TS plugin picks the imports it keeps for JSX.
 function pragmaImports(contents, jsxPragma, jsxPragmaFrag) {
   let [pragma, frag] = [jsxPragma, jsxPragmaFrag]
   for (const [kind, value] of jsxPragmas(contents)) {
@@ -260,14 +232,13 @@ function pragmaImports(contents, jsxPragma, jsxPragmaFrag) {
   return [...new Set([pragma, frag].map((name) => String(name).split('.')[0]).filter((name) => IDENTIFIER.test(name)))]
 }
 
-// Whether esbuild lowered decorators: it brings in this helper for that alone.
+// esbuild brings in this helper only to lower decorators.
 function decorated(code) {
   return code.includes('__decoratorStart(')
 }
 
-// A file as esbuild makes it JS, its JSX kept, with the JSX pragmas Babel
-// reads carried over, and the imports of the names given kept: a use of each
-// appended, then taken off.
+// esbuild drops comments, so the JSX pragmas are carried over; and a use of
+// each name to keep, appended then taken off, keeps its import.
 async function lower(esbuild, contents, loader, path, options, keep = []) {
   const uses = keep.map((name) => `typeof ${name};\n`).join('')
   const { code } = await esbuild.transform(uses ? `${contents}\n;${uses}` : contents, { loader, jsx: 'preserve', sourcefile: path, logLevel: 'silent', ...options })
@@ -275,7 +246,6 @@ async function lower(esbuild, contents, loader, path, options, keep = []) {
   return pragmas + (uses && code.endsWith(uses) ? code.slice(0, -uses.length) : code)
 }
 
-// The JSX pragmas Babel reads off a file's comments: [kind, value] each.
 function jsxPragmas(contents) {
   if (!contents.includes('@jsx')) return []
   return [...contents.matchAll(COMMENT)].flatMap(([, block, line]) => [...(block ?? line).matchAll(JSX_PRAGMA)].map(([, kind, value]) => [kind, value]))
