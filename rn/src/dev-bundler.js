@@ -61,7 +61,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
   // -> an outcome: { ok: true, js, map, assets, files, index() }, { ok:
   // false, errors, files }; null where the request names no entry here.
-  const get = async (request) => {
+  const get = (request) => {
     const entry = entryOf(config, request)
     if (entry === null) return null
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
