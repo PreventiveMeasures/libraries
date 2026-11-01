@@ -59,6 +59,17 @@ const ghsa = (id, overrides = {}) => ({
   ...overrides,
 })
 
+describe('malware', () => {
+  it('flags OSV\'s records of malicious packages (MAL-...), a crate\'s as an npm package\'s, and no other record', async () => {
+    stubOsv({ 'evil-crate@1.0.0': ['MAL-2024-9999'], 'smallvec@1.6.0': ['RUSTSEC-2021-0003'] }, {
+      'MAL-2024-9999': { id: 'MAL-2024-9999', summary: 'Malicious code in evil-crate (crates.io)', affected: [{ package: { name: 'evil-crate', ecosystem: 'crates.io' } }] },
+      'RUSTSEC-2021-0003': rustsec('RUSTSEC-2021-0003'),
+    })
+    const found = await cargo([{ name: 'evil-crate', version: '1.0.0' }, { name: 'smallvec', version: '1.6.0' }])
+    assert.deepEqual(found.map(({ name, id, severity, malware }) => [name, id, severity, malware]), [['evil-crate', 'MAL-2024-9999', undefined, true], ['smallvec', 'RUSTSEC-2021-0003', undefined, undefined]])
+  })
+})
+
 describe('cargo', () => {
   it('answers one entry per crate and record, with the versions each affects, RustSec standing for the GHSA it is published as', async () => {
     const calls = stubOsv({

@@ -38,6 +38,14 @@ export function detailsOf(text, id) {
   return { details: text }
 }
 
+// An advisory of malware, not a vulnerability in a package: one of OSV's
+// records of malicious packages (MAL-...), its id or one of its aliases,
+// as a registry row takes the ids of OSV's records of it, or one filed
+// under CWE-506, Embedded Malicious Code, as GitHub files its malware
+// advisories, which the registry and OSV answer with (flatmap-stream's
+// "Malicious Package", ua-parser-js's "Embedded malware", rated high).
+export const isMalware = ({ id, aliases, cwe }) => [id, ...aliases].some((each) => each.startsWith('MAL-')) || cwe.includes('CWE-506')
+
 export const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info']
 const isCvssVector = matches(/^CVSS:[34]\.\d(?:\/[A-Z]{1,4}:[A-Z]{1,2})+$/u)
 const isCwe = matches(/^CWE-\d{1,6}$/u)

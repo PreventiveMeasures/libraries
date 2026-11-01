@@ -260,6 +260,17 @@ describe('npm', () => {
     ])
   })
 
+  it('flags malware: an advisory filed under CWE-506, as GitHub files its malware advisories, whatever it is rated; hidden functionality alone is no malware', async () => {
+    stubRegistry(() => ({
+      'ua-parser-js': [row({ id: 1, url: 'https://github.com/advisories/GHSA-pjwm-rvh2-c87w', title: 'Embedded malware in ua-parser-js', severity: 'high', vulnerable_versions: '=0.7.29', cwe: ['CWE-506', 'CWE-912'] })],
+      backdoored: [row({ id: 2, url: 'https://github.com/advisories/GHSA-2222-3333-4444', title: 'Hidden debug endpoint', severity: 'moderate', vulnerable_versions: '*', cwe: ['CWE-912'] })],
+      minimist: [row()],
+    }))
+    const found = await npm([{ name: 'ua-parser-js', version: '0.7.29' }, { name: 'backdoored', version: '1.0.0' }, { name: 'minimist', version: '1.2.5' }])
+    assert.deepEqual(found.map(({ name, severity, malware }) => [name, severity, malware]), [['backdoored', 'moderate', undefined], ['minimist', 'critical', undefined], ['ua-parser-js', 'high', true]],
+      'its severity as rated')
+  })
+
   it('refuses a title that is not well-formed text', async () => {
     stubRegistry(() => ({ pkg: [row({ title: 'a\uD800b' })] }))
     await assert.rejects(npm([{ name: 'pkg', version: '1.2.0' }]), /advisories: malformed advisories for pkg/u)
@@ -331,7 +342,8 @@ describe('npm, with osv', () => {
       { source: 'osv', name: 'nx', id: 'MAL-2025-41443', aliases: ['GHSA-cxm3-wv7p-598c'], versions: ['21.5.0'] },
     ])
     assert.deepEqual(found.at(-1), { ecosystem: 'npm', name: 'nx', source: 'osv', id: 'MAL-2025-41443', ghsa: 'GHSA-cxm3-wv7p-598c', url: 'https://github.com/advisories/GHSA-cxm3-wv7p-598c',
-      aliases: ['GHSA-cxm3-wv7p-598c'], title: 'Malicious code in nx (npm)', cwe: [], versions: ['21.5.0'] })
+      aliases: ['GHSA-cxm3-wv7p-598c'], title: 'Malicious code in nx (npm)', cwe: [], malware: true, versions: ['21.5.0'] })
+    assert.deepEqual(found.map(({ name, malware }) => [name, malware]), [['event-stream', true], ['minimist', undefined], ['nx', true]])
     assert.deepEqual(calls.filter((url) => url.startsWith(VULN)).toSorted(), ['GHSA-xvch-5gv4-984h', 'MAL-2018-1', 'MAL-2025-41443'].map((id) => `${VULN}${id}`), 'each record fetched once')
   })
 

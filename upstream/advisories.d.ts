@@ -133,6 +133,14 @@ export interface Advisory {
   // `unmaintained`, `unsound`, `notice`. For an id answered more than once,
   // only where each answer gives it.
   informational?: string
+  // Where the advisory is of malware, not a vulnerability: one of OSV's
+  // records of malicious packages (MAL-...), its `id` or one of its
+  // `aliases` (a registry row has those of OSV's records of it with
+  // `osv`), or one filed under CWE-506, Embedded Malicious Code, as
+  // GitHub files its malware advisories. Its `severity` is its sources'
+  // as ever: a MAL- record rates none, and GitHub rates some malware high
+  // (ua-parser-js's "Embedded malware"). Absent otherwise.
+  malware?: true
   versions: string[]
 }
 
