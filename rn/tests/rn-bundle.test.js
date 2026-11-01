@@ -465,7 +465,7 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
     const { stderr } = build({}, ['--profile'])
     assert.match(stderr, /^Babel: 6 files, \d+ ms, summed over its workers\n {6}ms {7}% {4}files {6}calls {2}plugin$/mu)
     assert.match(stderr, /^ +\d+ +[\d.]+ +\d+ +\d+ {2}internal\.blockHoist$/mu)
-    assert.match(stderr, /^ +\d+ +[\d.]+ {22}outside plugins: config, parsing, traversal, printing$/mu)
+    assert.match(stderr, /^ {6}ms {7}% {4}files {6}calls {2}Babel, outside plugins\n(?: +\d+ +[\d.]+ +6 +\d+ {2}(?:config|parsing|scopes|printing)\n){4} +\d+ +[\d.]+ {22}traversal, and the rest$/mu)
     // Each plugin's one visitor runs once in each file it is in.
     const rows = Object.fromEntries([...stderr.matchAll(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}(\S+)$/gmu)].map(([, files, calls, key]) => [key, [Number(files), Number(calls)]]))
     const counts = { ...once, ...js, 'transform-arrow-functions': 6 }
