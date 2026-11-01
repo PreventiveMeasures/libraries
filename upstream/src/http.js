@@ -130,9 +130,8 @@ export async function requestWithHeaders(url, options) {
 
 export const request = async (url, options) => (await requestWithHeaders(url, options)).body
 
-// Whether `url` answers a HEAD request with a 2xx, within the JSON timeout:
-// only its status is read, never a body. A redirect is not followed, and is
-// no.
+// Whether `url` answers a HEAD with a 2xx. No body is read; a redirect is
+// not followed, and counts as no.
 export async function answersHead(url) {
   const res = await send(url, { method: 'HEAD', as: 'json' })
   await res.body?.cancel()

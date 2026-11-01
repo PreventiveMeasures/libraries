@@ -87,15 +87,9 @@ function withOsv(registry, osv) {
   return [...rows, ...added]
 }
 
-// Whether the registry serves `name` to anyone: a HEAD of its document,
-// which reads none of it, answered 2xx to a request with no token, which
-// withNpmToken would send with a scoped name's. A private package of an
-// org, which the registry hides from anyone without its token (private
-// packages are always scoped), and one only another registry has, answer
-// 404. An unscoped name is asked too, as a package only another registry
-// has may be unscoped. Any other answer, or none, is no as well, as
-// triage's isPublicNpmPackage takes it: the package is asked of the
-// registry alone, and the call goes on.
+// Whether npm's registry serves `name` to anyone: a HEAD with no token,
+// answered 2xx. Private packages and other registries' answer 404; any
+// other answer, or none, counts as private too, as in triage.
 async function servesAnyone(name) {
   try {
     return await answersHead(buildUrl(NPM_REGISTRY, name.split('/')))
@@ -104,14 +98,10 @@ async function servesAnyone(name) {
   }
 }
 
-// The names and versions of `asked` OSV may be told of: the packages whose
-// name the registry serves to anyone (servesAnyone). A name, not a
-// version: the versions npm takes down for malware, which OSV's malicious
-// packages' records are of, are gone from the registry, while their name
-// stays, npm's security holding package. One found public is kept for a
-// month (readRecord), as an org may make a scoped package private; one
-// not, or not answered for, asked again each time, as it may be published
-// since.
+// The packages of `asked` whose name is public (servesAnyone). The name
+// decides, not the version: npm takes down malicious versions but keeps
+// their name. Public names are kept a month, as a scoped package can be
+// made private; the rest are asked again each time.
 async function publicOnly(asked, cache) {
   const names = [...asked.keys()]
   const kept = await pool(names, NAMES_AT_ONCE, (name) => readRecord('npm/public', name, cache))
@@ -123,15 +113,15 @@ async function publicOnly(asked, cache) {
   return new Map([...asked].filter(([name]) => serving.has(name)))
 }
 
-// With `osv`, OSV's records of the public packages (publicOnly), never a
-// private package's: no request to OSV names one.
+// OSV's records of the public packages only: no request to OSV names a
+// private one.
 async function osvOfPublic(asked, options) {
   const told = await publicOnly(asked, options.cache)
   return told.size > 0 ? await osvRows({ osv: 'npm' }, told, options) : []
 }
 
 // What `npm audit` asks the registry, one row per vulnerable range, and
-// with `osv`, what OSV has besides of the public packages.
+// with `osv`, OSV's records of the public packages.
 export const NPM = {
   assertName: assertPackageName,
   assertVersion: assertPackageVersion,

@@ -277,11 +277,10 @@ describe('npm, with osv', () => {
 
   const REGISTRY = 'https://registry.npmjs.org/'
 
-  // The registry answering `registry` (name → rows), and a HEAD of each
-  // name's document 200 but for those `hidden`, which it answers 404, as a
-  // private package to a request with no token; and OSV its `hits`
-  // (`name@version` → ids) and `records` (id → record). `calls` is every
-  // URL asked, a HEAD's as `HEAD <url>`.
+  // The registry answering `registry` (name → rows), and a HEAD with 200,
+  // or 404 for `hidden` names; OSV answering `hits` (`name@version` → ids)
+  // and `records` (id → record). `calls` lists every URL, a HEAD's as
+  // `HEAD <url>`.
   function stubBoth(registry, hits, records, hidden = []) {
     const calls = []
     globalThis.fetch = (url, init = {}) => {
@@ -396,7 +395,7 @@ describe('npm, with osv', () => {
       return fetch(url, init)
     }
     const found = await advisories([
-      // Gone from the registry, its name npm's security holding package's.
+      // Taken down by npm, which keeps its name.
       { ecosystem: 'npm', name: 'flatmap-stream', versions: ['0.1.1'] },
       { ecosystem: 'npm', name: '@acme/secret', versions: ['1.0.0'] },
       { ecosystem: 'npm', name: 'internal-only', versions: ['3.1.4'] },
@@ -409,7 +408,7 @@ describe('npm, with osv', () => {
       'HEAD https://registry.npmjs.org/internal-only',
     ], 'an unscoped name asked too')
     assert.ok(calls.includes(BULK), 'the registry is asked for every one\'s advisories, as before')
-    // None served to anyone: OSV is not asked at all.
+    // No public name: OSV isn't asked.
     calls.length = 0
     assert.deepEqual(await advisories([{ ecosystem: 'npm', name: '@acme/secret', versions: ['1.0.0'] }], { osv: true }), [])
     assert.ok(!calls.some((url) => url.startsWith('https://api.osv.dev/')), calls.join('\n'))
