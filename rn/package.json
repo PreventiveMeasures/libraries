@@ -51,7 +51,8 @@
     "src/exports.js",
     "src/image-size.js",
     "src/metro-config.js",
-    "src/resolve.js"
+    "src/resolve.js",
+    "src/serializer.js"
   ],
   "engines": {
     "node": ">=24.14.0"

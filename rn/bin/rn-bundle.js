@@ -14,7 +14,12 @@
 // types are stripped first, by flow-remove-types; with --babel, where that
 // isn't installed, Babel's config strips them. The extensions metro.config.js
 // lists among `assetExts` are assets too, read off it, never run: by
-// oxc-parser where installed, else in the usual form by a regex.
+// oxc-parser where installed, else in the usual form by a regex. As Metro
+// serializes a bundle as @react-native/metro-config configures it: Metro's
+// prelude, then @react-native/js-polyfills's polyfills (the project's
+// @react-native/metro-config's), then react-native/setup-env (InitializeCore
+// before 0.87), then the entry; each asset registered with the project's
+// react-native's registry (react-native/asset-registry from 0.87).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -27,6 +32,7 @@ import { babelWorkers } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
 import { defaults, diskHost } from '../src/defaults.js'
 import { metroAssetExts, scanMetroAssetExts } from '../src/metro-config.js'
+import { prelude } from '../src/serializer.js'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -88,6 +94,18 @@ function stripFlow() {
   }
 }
 
+// @react-native/metro-config's serializer.getPolyfills: the list
+// @react-native/js-polyfills gives, of the project's copy, which its
+// @react-native/metro-config depends on; none where it has none.
+function polyfills() {
+  const metroConfig = locate(fromProject, '@react-native/metro-config')
+  const list = locate(fromProject, '@react-native/js-polyfills') ?? (metroConfig === null ? null : locate(createRequire(metroConfig), '@react-native/js-polyfills'))
+  if (list === null) return []
+  const getPolyfills = fromHere(list)
+  const paths = typeof getPolyfills === 'function' ? getPolyfills() : null
+  return Array.isArray(paths) && paths.every((path) => typeof path === 'string') ? paths : fail(`${list} lists no polyfills`)
+}
+
 function babelAliases(file) {
   let alias
   try {
@@ -146,6 +164,8 @@ try {
     assetExts: assetExts(),
     define,
     minify: values.minify,
+    prelude: prelude(define.__DEV__, values.dev ? 'development' : 'production'),
+    polyfills: polyfills(),
     aliases: values['babel-aliases'] === undefined ? null : babelAliases(values['babel-aliases']),
   })
 } catch (error) {

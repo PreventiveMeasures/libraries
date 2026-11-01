@@ -1,13 +1,16 @@
 // `stasis bundle --metro` and `stasis build --metro=PLATFORM` in one: the
 // module graph as Metro resolves it for a platform, captured as esbuild
 // follows the imports, is what esbuild builds. Each asset is built as Metro's
-// asset module; each file is read through the host.
+// asset module; each file is read through the host. As Metro's serializer
+// has a bundle (serializer.js): the prelude, the polyfills, the modules run
+// before the entry, then the entry.
 
 import { dirname, extname, relative, resolve } from 'node:path'
 
 import { assetData, assetModule } from './assets.js'
 import { defaults, diskHost } from './defaults.js'
 import { createMetroResolver } from './resolve.js'
+import { reactNativeOf } from './serializer.js'
 
 // JS read as JSX, as @react-native/babel-preset reads it: react-native's own
 // .js files have JSX, and JSX reads plain JS as JS does.
@@ -43,6 +46,13 @@ const USE_REACT = 'typeof React;\n'
 const decoder = new TextDecoder()
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
+// The module that runs the polyfills, then each module run before the entry,
+// then the entry.
+const MAIN = 'metro-main'
+const POLYFILL = 'metro-polyfill:'
+const ENTRY = 'metro-entry:'
+// As Metro wraps a polyfill: a script, given the global object.
+const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this"
 
 // -> { outputFiles, warnings, assets: AssetData[], graph: Map<importer, Map<specifier, Resolution>> }
 export async function bundle({
@@ -62,11 +72,22 @@ export async function bundle({
   minify = false,
   // (file, specifier) => the specifier an alias rewrites it to, or null.
   aliases = null,
-  assetRegistryPath = 'react-native/Libraries/Image/AssetRegistry',
+  // Metro's transformer.assetRegistryPath: the project's react-native's where not given.
+  assetRegistryPath = null,
   // Metro's resolver.assetExts: its defaults where not given.
   assetExts = defaults.assetExts,
+  // The code before the bundle: prelude() for Metro's.
+  prelude = null,
+  // Paths of the scripts to run first, as Metro's serializer.getPolyfills.
+  polyfills = [],
+  // Specifiers, from the entry, of the modules to run before it, as Metro's
+  // serializer.getModulesRunBeforeMainModule: the project's react-native's
+  // where not given.
+  runBeforeMain = null,
 }) {
   const resolveModule = createMetroResolver({ host, assetExts })
+  const reactNative = reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform)
+  const before = runBeforeMain ?? reactNative.runBeforeMain
   const graph = new Map()
   const assets = new Map()
   const options = { esbuild, host, projectRoot, stripFlow, babel, babelTypescript }
@@ -76,11 +97,14 @@ export async function bundle({
     resolved.add(path)
     return { path }
   }
+  const main = { polyfills, before, projectRoot, options }
   const plugin = {
     name: 'metro-graph',
     setup(build) {
-      build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind }) => {
-        if (kind === 'entry-point') return file(host.realpath(resolve(projectRoot, specifier)))
+      build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind, namespace }) => {
+        if (kind === 'entry-point') return specifier === MAIN ? { path: host.realpath(resolve(projectRoot, entry)), namespace: MAIN } : file(host.realpath(resolve(projectRoot, specifier)))
+        if (namespace === MAIN && specifier.startsWith(POLYFILL)) return { path: specifier.slice(POLYFILL.length), namespace: 'metro-polyfill' }
+        if (namespace === MAIN && specifier === ENTRY) return file(importer)
         const resolution = resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
         if (!graph.has(importer)) graph.set(importer, new Map())
         graph.get(importer).set(specifier, resolution)
@@ -100,13 +124,14 @@ export async function bundle({
       build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
         const data = assetData(path, { urlPath: relative(projectRoot, path).replaceAll('\\', '/'), platform, host })
         assets.set(path, data)
-        return { contents: assetModule(data, assetRegistryPath), loader: 'js', resolveDir: dirname(path) }
+        return { contents: assetModule(data, assetRegistryPath ?? reactNative.assetRegistryPath), loader: 'js', resolveDir: dirname(path) }
       })
       build.onLoad({ filter: ANY, namespace: 'metro-empty' }, () => ({ contents: '', loader: 'js' }))
+      serializer(build, main)
     },
   }
   const result = await esbuild.build({
-    entryPoints: [entry],
+    entryPoints: [polyfills.length > 0 || before.length > 0 ? MAIN : entry],
     absWorkingDir: projectRoot,
     bundle: true,
     write: false,
@@ -118,8 +143,23 @@ export async function bundle({
     supported: babel === null ? {} : LOWERED,
     logLevel: 'silent',
     plugins: [plugin],
+    ...(prelude !== null && { banner: { js: prelude } }),
   })
   return { outputFiles: result.outputFiles, warnings: result.warnings, assets: [...assets.keys()].toSorted().map((path) => assets.get(path)), graph }
+}
+
+// The main module, and each polyfill, which is loaded as any file and run as
+// a script.
+function serializer(build, { polyfills, before, projectRoot, options }) {
+  build.onLoad({ filter: ANY, namespace: MAIN }, () => {
+    const specifiers = [...polyfills.map((path) => POLYFILL + path), ...before, ENTRY]
+    return { contents: specifiers.map((specifier) => `import ${JSON.stringify(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
+  })
+  build.onLoad({ filter: ANY, namespace: 'metro-polyfill' }, async ({ path }) => {
+    const loaded = await loadFile(options, path)
+    // On its first line, so that its lines stay where they are.
+    return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(path) } : loaded
+  })
 }
 
 async function loadFile({ esbuild, host, projectRoot, stripFlow, babel, babelTypescript }, path) {

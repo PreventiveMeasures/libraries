@@ -493,3 +493,73 @@ describe('rn-bundle with the assetExts metro.config.js adds', () => {
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'anim.js')], { encoding: 'utf8' }).stdout).map(({ type }) => type), ['riv', 'lottie'])
   })
 })
+
+// An app of a react-native from 0.87 on (`modern`), or before, as
+// @react-native/metro-config configures Metro for it, its polyfills those of
+// the @react-native/js-polyfills it depends on.
+const REGISTRY = 'const assets = []\nexports.registerAsset = (asset) => assets.push(asset)\nexports.getAssetByID = (id) => assets[id - 1]\n'
+const POLYFILLS = 'node_modules/@react-native/metro-config/node_modules/@react-native/js-polyfills'
+const reactNativeApp = (modern) => ({
+  'index.js': [
+    `import { getAssetByID } from '${modern ? 'react-native/asset-registry' : 'react-native/Libraries/Image/AssetRegistry'}'`,
+    "const logo = require('./img/logo.png')",
+    'console.log(JSON.stringify({ order: globalThis.order, logo: getAssetByID(logo).name, prefix: __METRO_GLOBAL_PREFIX__, started: typeof __BUNDLE_START_TIME__ }))',
+    '',
+  ].join('\n'),
+  'img/logo.png': png(20, 10),
+  ...(modern
+    ? {
+        'node_modules/react-native/package.json': { name: 'react-native', version: '0.88.1', exports: { './asset-registry': './src/asset-registry.js', './setup-env': './src/setup-env.js', './Libraries/*': './Libraries/*' } },
+        'node_modules/react-native/src/asset-registry.js': REGISTRY,
+        'node_modules/react-native/src/setup-env.js': "(globalThis.order ??= []).push('setup-env')\n",
+        // Kept, delegating, but no longer what runs before the entry.
+        'node_modules/react-native/Libraries/Core/InitializeCore.js': "require('../../src/setup-env')\n;(globalThis.order ??= []).push('InitializeCore')\n",
+      }
+    : {
+        'node_modules/react-native/package.json': { name: 'react-native', version: '0.86.0' },
+        'node_modules/react-native/Libraries/Image/AssetRegistry.js': REGISTRY,
+        'node_modules/react-native/Libraries/Core/InitializeCore.js': "(globalThis.order ??= []).push('InitializeCore')\n",
+      }),
+  'node_modules/@react-native/metro-config/package.json': { name: '@react-native/metro-config', main: 'index.js' },
+  'node_modules/@react-native/metro-config/index.js': "throw new Error('never run')\n",
+  [`${POLYFILLS}/package.json`]: { name: '@react-native/js-polyfills', main: 'index.js' },
+  [`${POLYFILLS}/index.js`]: "module.exports = () => [require.resolve('./console.js'), require.resolve('./error-guard.js')]\n",
+  [`${POLYFILLS}/console.js`]: "'use strict'\n;(global.order ??= []).push('console')\n",
+  [`${POLYFILLS}/error-guard.js`]: "/**\n * @flow strict\n */\n'use strict'\nconst name: string = 'error-guard'\n;(global.order ??= []).push(name)\n",
+})
+const PRELUDE = (dev) => `var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=${dev},process=globalThis.process||{},__METRO_GLOBAL_PREFIX__='';process.env=process.env||{};process.env.NODE_ENV=process.env.NODE_ENV||"${dev ? 'development' : 'production'}";`
+
+describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
+  const modern = writeTree(reactNativeApp(true))
+  const older = writeTree(reactNativeApp(false))
+  const babel = writeTree({
+    ...reactNativeApp(true),
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-flow-strip-types'] }\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-flow-strip-types': linked('@babel/plugin-transform-flow-strip-types'),
+  })
+  after(() => {
+    for (const tree of [modern, older, babel]) tree.cleanup()
+  })
+  const build = (root, args = [], node = []) => {
+    const r = spawnSync(process.execPath, [...node, BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return { code: readFileSync(join(root, 'out.js'), 'utf8'), out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
+  }
+
+  it("from react-native 0.87 on: Metro's prelude, the polyfills, react-native/setup-env, then the entry; assets registered with react-native/asset-registry", () => {
+    const { code, out } = build(modern.root)
+    assert.ok(code.startsWith(`${PRELUDE(false)}\n`))
+    assert.deepEqual(out, { order: ['console', 'error-guard', 'setup-env'], logo: 'logo', prefix: '', started: 'number' })
+    assert.ok(build(modern.root, ['--dev']).code.startsWith(`${PRELUDE(true)}\n`))
+    assert.ok(build(modern.root, ['--define=__DEV__=false', '--dev']).code.startsWith('var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=false,'))
+  })
+
+  it('before react-native 0.87: InitializeCore, and Libraries/Image/AssetRegistry', () => {
+    assert.deepEqual(build(older.root).out, { order: ['console', 'error-guard', 'InitializeCore'], logo: 'logo', prefix: '', started: 'number' })
+  })
+
+  it('makes the polyfills as it makes any file: through the Babel config, minified', () => {
+    assert.deepEqual(build(babel.root, ['--babel', '--minify'], ['--import', notInstalled('flow-remove-types')]).out.order, ['console', 'error-guard', 'setup-env'])
+  })
+})
