@@ -269,6 +269,9 @@ describe('rn-serve, of a manifest edited', () => {
     'node_modules/dep/package.json': { name: 'dep', main: 'a.js' },
     'node_modules/dep/a.js': "module.exports = 'a'\n",
     'node_modules/dep/b.js': "module.exports = 'b'\n",
+    // An import of a module not there yet, beside a file no build reads.
+    'later.js': "globalThis.result = require('./src/later')\n",
+    'src/other.txt': '',
   })
   let server
   before(async () => {
@@ -299,6 +302,16 @@ describe('rn-serve, of a manifest edited', () => {
     rmSync(join(root, 'index.ios.js'))
     await until(() => message.messages.length > 1, 'a reload for index.js again')
     assert.equal(run(String((await fetchRaw(bundleUrl)).body)).result, 'b')
+    message.ws.close()
+  })
+
+  it('builds anew and reloads the apps where a module an import names is made', async () => {
+    const bundleUrl = `${server.url}/later.bundle?platform=ios`
+    assert.equal((await fetchRaw(bundleUrl)).status, 500)
+    const message = await socket(`${server.url}/message`)
+    writeFileSync(join(root, 'src/later.js'), "module.exports = 'later'\n")
+    await until(() => message.messages.length > 0, 'a reload for src/later.js')
+    assert.equal(run(String((await fetchRaw(bundleUrl)).body)).result, 'later')
     message.ws.close()
   })
 })
