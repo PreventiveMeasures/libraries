@@ -87,7 +87,8 @@
         "upstream/tests/**",
         "vfs/tests/**",
         "report/tests/**",
-        "sourcemap/tests/**"
+        "sourcemap/tests/**",
+        "rn/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",
