@@ -2,7 +2,7 @@
 // rn-bundle --platform=ios --output=main.js [--dev] [--minify]
 //   [--assets-dest=DIR] [--asset-catalog-dest=DIR] [--sourcemap-output=FILE]
 //   [--sourcemap-sources-root=DIR] [--sourcemap-use-absolute-path]
-//   [--metro-config=FILE] [--babel] [--profile] [--define=K=V ...]
+//   [--metro-config=FILE] [--babel] [--esm] [--profile] [--define=K=V ...]
 //   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
@@ -22,7 +22,13 @@
 // after esbuild makes TS JS and lowers what Babel's preset throws on (static
 // blocks, `using`) and what the config's plugins lower as esbuild does
 // (async functions and generators, `export * as`), which Babel is then
-// without; esbuild lowers the rest in the bundle, after Babel. --profile
+// without; esbuild lowers the rest in the bundle, after Babel. --esm leaves
+// import and export to esbuild, which links the modules as it does without
+// Babel, dropping what of them is unused: the config is without its plugin
+// that makes them CommonJS, but in a file that names `module` or `exports`
+// with them, or in which esbuild finds an import of what an ES module doesn't
+// export, which it warns of (Metro's is undefined). An import resolves for
+// ESM, as Metro resolves it: by exports' `import` condition. --profile
 // reports the time each of the config's plugins takes, summed over Babel's
 // workers: its files, its visitors' calls, and that outside the plugins. Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
@@ -63,6 +69,7 @@ const { values, positionals } = parseArgs({
     'sourcemap-use-absolute-path': { type: 'boolean', default: false },
     'metro-config': { type: 'string' },
     babel: { type: 'boolean', default: false },
+    esm: { type: 'boolean', default: false },
     profile: { type: 'boolean', default: false },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
@@ -75,6 +82,7 @@ if (positionals.length !== 1) fail('one entry file is required')
 if (values.platform === undefined) fail('--platform is required, e.g. --platform=ios')
 if (values.output === undefined) fail('--output is required')
 if (values.profile && !values.babel) fail('--profile times the plugins of --babel: pass it')
+if (values.esm && !values.babel) fail('--esm keeps ES modules through --babel: pass it')
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 const sourcemap = values['sourcemap-output']
 if (sourcemap === undefined && (values['sourcemap-sources-root'] !== undefined || values['sourcemap-use-absolute-path'])) fail('--sourcemap-sources-root and --sourcemap-use-absolute-path shape the map of --sourcemap-output: pass it')
@@ -100,6 +108,7 @@ try {
     stripFlow: flowStripper(project, values.babel),
     babel: babel?.babel ?? null,
     babelPlugins: babel?.babelPlugins ?? null,
+    esm: values.esm,
     assetExts: assetExts(cwd, project, fail, values['metro-config'] ?? null),
     define,
     minify: values.minify,
