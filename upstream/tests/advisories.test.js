@@ -265,7 +265,7 @@ describe('npm', () => {
       'ua-parser-js': [row({ id: 1, url: 'https://github.com/advisories/GHSA-pjwm-rvh2-c87w', title: 'Embedded malware in ua-parser-js', severity: 'high', vulnerable_versions: '=0.7.29', cwe: ['CWE-506', 'CWE-912'] })],
       '@solana/web3.js': [row({ id: 3, url: 'https://github.com/advisories/GHSA-jcxm-7wvp-g6p5', title: 'Modified package published to npm, containing malware that exfiltrates private key material', severity: 'high', vulnerable_versions: '>=1.95.6 <1.95.8', cwe: ['CWE-200'] })],
       backdoored: [row({ id: 2, url: 'https://github.com/advisories/GHSA-2222-3333-4444', title: 'Hidden debug endpoint', severity: 'moderate', vulnerable_versions: '*', cwe: ['CWE-912'] })],
-      // A word that only starts with malware is not it.
+      // Not the whole word.
       scanner: [row({ id: 4, url: 'https://github.com/advisories/GHSA-5555-6666-7777', title: 'Malwareless mode skips signature checks', severity: 'low', vulnerable_versions: '*', cwe: ['CWE-693'] })],
       minimist: [row()],
     }))
