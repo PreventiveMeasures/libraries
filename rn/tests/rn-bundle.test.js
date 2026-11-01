@@ -84,6 +84,17 @@ describe('rn-bundle', () => {
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
   const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
 
+  it('minifies with --minify, to a bundle that does the same', () => {
+    for (const [file, args] of [['plain.js', []], ['min.js', ['--minify']]]) {
+      const r = run(['--platform=ios', ...OPTIONS, ...args, `--output=${file}`, 'index.js'])
+      assert.equal(r.status, 0, r.stderr)
+    }
+    assert.deepEqual(output('min.js'), output('plain.js'))
+    const [plain, min] = ['plain.js', 'min.js'].map((file) => readFileSync(join(root, file), 'utf8'))
+    assert.ok(min.length < plain.length * 0.6, `${min.length} of ${plain.length}`)
+    assert.ok(min.split('\n').length < plain.split('\n').length / 10, `${min.split('\n').length} lines of ${plain.split('\n').length}`)
+  })
+
   it('bundles for iOS: its files, the aliases, Flow, the defines, and each asset as Metro builds it', () => {
     const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)

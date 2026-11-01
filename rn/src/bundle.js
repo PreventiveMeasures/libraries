@@ -58,6 +58,7 @@ export async function bundle({
   // async (source, path) => the text of each comment of a TS file, as Babel parses it.
   babelComments = null,
   define = {},
+  minify = false,
   // (file, specifier) => the specifier an alias rewrites it to, or null.
   aliases = null,
   assetRegistryPath = 'react-native/Libraries/Image/AssetRegistry',
@@ -112,6 +113,7 @@ export async function bundle({
     format: 'iife',
     platform: 'neutral',
     define,
+    minify,
     logLevel: 'silent',
     plugins: [plugin],
   })
