@@ -9,7 +9,9 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 
 // (corePath, options, profile) => async (source, filename, without = []) =>
 // code, by the @babel/core at corePath, with options (all but the filename)
-// for each file, its config's plugins of the keys in without left out. Where
+// for each file, its config's plugins of the keys in without left out; with
+// options.refresh, react-refresh's Babel plugin at that path for each file
+// outside node_modules, as Metro's transformer adds it for Fast Refresh. Where
 // profile is newProfile()'s, the time of each transform is added to it, and
 // that of each plugin: its visitors' and hooks', by its key.
 export function babelWorkers(corePath, options, profile = null) {
@@ -93,8 +95,10 @@ export function profileReport({ files, ms, plugins, own }, root) {
 }
 
 if (workerData?.babel !== undefined) {
-  const { corePath, options, profile } = workerData.babel
+  const { corePath, options: { refresh = null, ...given }, profile } = workerData.babel
   const core = createRequire(corePath)(corePath)
+  // As Metro's transformer has it, a file in node_modules has no component to edit.
+  const optionsOf = (filename) => (refresh === null || filename.includes('node_modules') ? { ...given, filename } : { ...given, filename, plugins: [...(given.plugins ?? []), [refresh, { skipEnvCheck: true }]] })
   // By plugin key, the calls and own time of its visitors and hooks, in the
   // file being transformed: a call's own, not that of a plugin it calls.
   let spent = new Map()
@@ -152,10 +156,10 @@ if (workerData?.babel !== undefined) {
   }
   // Sync: a worker transforms one file at a time.
   const transform = (source, filename, without) => {
-    if (without.length === 0 && !profile) return core.transformSync(source, { ...options, filename })
+    if (without.length === 0 && !profile) return core.transformSync(source, optionsOf(filename))
     // The config's plugins, loaded, which transformSync takes as they are.
     const start = performance.now()
-    const config = core.loadOptionsSync({ ...options, filename })
+    const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
     const plugins = config.plugins.filter(({ key }) => !without.includes(key))
     if (!profile) return core.transformSync(source, { ...config, plugins })
@@ -172,12 +176,12 @@ if (workerData?.babel !== undefined) {
   const LET = /\b(?:let|const)\b/u
   const lowerLeft = (result, filename) => {
     if (result === null || !LET.test(result.code)) return result
-    const config = core.loadOptionsSync({ ...options, filename })
+    const config = core.loadOptionsSync(optionsOf(filename))
     const blockScoping = config?.plugins.find(({ key }) => key === 'transform-block-scoping')
     if (blockScoping === undefined) return result
     // Parsed as the config parses (a return outside a function, if it takes one).
     const parsing = { sourceType: config.sourceType ?? 'unambiguous', ...(config.parserOpts && { parserOpts: config.parserOpts }) }
-    return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: options.cwd, filename, compact: false, ...parsing, plugins: [blockScoping], ...(options.sourceMaps && { sourceMaps: options.sourceMaps, inputSourceMap: true }) })
+    return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: given.cwd, filename, compact: false, ...parsing, plugins: [blockScoping], ...(given.sourceMaps && { sourceMaps: given.sourceMaps, inputSourceMap: true }) })
   }
   parentPort.on('message', ({ port, source, filename, without }) => {
     const start = performance.now()

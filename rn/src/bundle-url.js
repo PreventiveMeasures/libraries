@@ -2,7 +2,8 @@
 // (parseBundleOptionsFromBundleRequestUrl; jsc-safe-url; MIT, Copyright (c)
 // Meta Platforms, Inc. and affiliates): the entry from the path, the
 // platform from `platform` or the file name, `dev` on and `minify` off
-// unless told.
+// unless told; `shallow` and `modulesOnly`, as a module's URL in an update
+// has them (`shallow`: the module alone, not those it imports).
 
 const TRUE = new Set(['true', '1'])
 const PLATFORMS = new Set(['ios', 'android', 'windows', 'web'])
@@ -32,7 +33,8 @@ export function toNormalUrl(url) {
 const flag = (params, name, fallback) => (params.has(name) ? TRUE.has(params.get(name)) : fallback)
 
 // `url`: a request's, its origin given. -> { kind: 'bundle' | 'map',
-// entryFile: './index', platform, dev, minify, sourceUrl, sourceMapUrl },
+// entryFile: './index', platform, dev, minify, shallow, modulesOnly,
+// sourceUrl, sourceMapUrl },
 // null where it is no bundle or source map; throws a URIError on a path
 // that doesn't decode.
 export function bundleRequest(url) {
@@ -50,6 +52,8 @@ export function bundleRequest(url) {
     platform,
     dev: flag(searchParams, 'dev', true),
     minify: flag(searchParams, 'minify', false),
+    shallow: flag(searchParams, 'shallow', false),
+    modulesOnly: flag(searchParams, 'modulesOnly', false),
     sourceUrl: toJscSafeUrl(`${origin}${bundlePath}${search}${hash}`),
     sourceMapUrl: `${origin}${requestPath.replace(/\.bundle$/u, '.map')}${search}${hash}`,
   }

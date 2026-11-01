@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import esbuild from 'esbuild'
@@ -8,6 +10,7 @@ import { createGate } from '../src/gate.js'
 import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
 import { createDevBundler } from '../src/dev-bundler.js'
+import { moduleUrls } from '../src/hot.js'
 import { createWatcher } from '../src/watch.js'
 import { writeTree } from './fixtures.js'
 
@@ -42,6 +45,8 @@ describe('bundle URLs', () => {
       platform: 'ios',
       dev: false,
       minify: true,
+      shallow: false,
+      modulesOnly: false,
       sourceUrl: 'http://localhost:8081/index.bundle//&platform=ios&dev=false&minify=1&lazy=true',
       sourceMapUrl: 'http://localhost:8081/index.map?platform=ios&dev=false&minify=1&lazy=true',
     })
@@ -181,6 +186,57 @@ describe('the dev bundler', () => {
     try {
       const outcomes = await Promise.all([request('./index'), request('./other'), request('./index', 'android')].map((asked) => devBundler.get(asked)))
       assert.deepEqual(outcomes.map(({ ok, js }) => [ok, /result = (\d)/u.exec(js)?.[1]]), [[true, '1'], [true, '2'], [true, '1']])
+    } finally {
+      await devBundler.dispose()
+    }
+  })
+})
+
+describe('the dev bundler, in the module format', () => {
+  // The app in a workspace, a module of which is out of it.
+  const { root, cleanup } = writeTree({
+    'app/index.js': "import { shared } from '../shared/Shared'\nimport config from './config.json'\nimport { setup } from './config.js'\nglobalThis.result = [shared, config, setup]\n",
+    'app/config.js': "export const setup = 'js'\n",
+    'app/config.json': '{ "of": "json" }\n',
+    'shared/Shared.js': "export const shared = 'shared'\n",
+  })
+  after(cleanup)
+  const projectRoot = join(root, 'app')
+  const runtime = createRequire(import.meta.url).resolve('metro-runtime/src/polyfills/require.js')
+
+  it('serves a module out of the project root, alone, at the URL an update names it by', async () => {
+    const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
+    try {
+      const outcome = await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false })
+      const record = [...outcome.modules.values()].find(({ name }) => name === '../shared/Shared.js')
+      const { sourceURL } = moduleUrls('http://localhost:8081/index.bundle?platform=ios', record.name)
+      const shallow = await devBundler.get(bundleRequest(new URL(toNormalUrl(sourceURL))))
+      assert.ok(shallow?.js.startsWith('__d(function'), sourceURL)
+      assert.ok(shallow.js.includes(`,${record.id},[],"../shared/Shared.js");`))
+      assert.deepEqual(shallow.index().sources, [join(root, 'shared/Shared.js')])
+    } finally {
+      await devBundler.dispose()
+    }
+  })
+
+  it('tells modules of one name but their extension apart', async () => {
+    const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
+    try {
+      await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false })
+      const shallow = async (name) => (await devBundler.get(bundleRequest(new URL(toNormalUrl(moduleUrls('http://localhost:8081/index.bundle?platform=ios', name).sourceURL))))).index().sources
+      assert.deepEqual([await shallow('config.js'), await shallow('config.json')], [[join(projectRoot, 'config.js')], [join(projectRoot, 'config.json')]])
+    } finally {
+      await devBundler.dispose()
+    }
+  })
+
+  it("serves a module of the bundle its URL's minify names, whichever was asked for last", async () => {
+    const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
+    try {
+      for (const minify of [false, true]) await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify })
+      const shallow = (minify) => devBundler.get(bundleRequest(new URL(toNormalUrl(moduleUrls(`http://localhost:8081/index.bundle?platform=ios&minify=${minify}`, '../shared/Shared.js').sourceURL))))
+      assert.match((await shallow(false)).js, /var shared = "shared";/u)
+      assert.doesNotMatch((await shallow(true)).js, /var shared = /u)
     } finally {
       await devBundler.dispose()
     }
