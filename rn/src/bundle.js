@@ -117,10 +117,12 @@ function metroGraph({
   cache = null,
 }) {
   const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap }
-  // A new resolver each build, which reads each package.json anew.
+  // A new resolver each build, which reads each package.json anew, and
+  // counts it among the files the build read.
   const fresh = () => {
-    const resolveModule = createMetroResolver({ host, assetExts })
-    return { resolveModule, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform), graph: new Map(), assets: new Map(), resolved: new Set(), read: new Set() }
+    const read = new Set()
+    const resolveModule = createMetroResolver({ host: reading(host, read), assetExts })
+    return { resolveModule, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform), graph: new Map(), assets: new Map(), resolved: new Set(), read }
   }
   let state = fresh()
   const before = () => runBeforeMain ?? state.reactNative.runBeforeMain
@@ -194,6 +196,18 @@ function serializer(build, { polyfills, before, projectRoot, load }) {
     return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(path) } : loaded
   })
 }
+
+// The host, each file read through it added to `read`.
+const reading = (host, read) => ({
+  isFile: (path) => host.isFile(path),
+  isDirectory: (path) => host.isDirectory(path),
+  realpath: (path) => host.realpath(path),
+  readdir: (path) => host.readdir(path),
+  readFile: (path) => {
+    read.add(path)
+    return host.readFile(path)
+  },
+})
 
 async function loadCached(options, host, cache, path) {
   const contents = decoder.decode(host.readFile(path))

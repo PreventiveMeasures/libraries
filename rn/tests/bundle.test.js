@@ -13,7 +13,11 @@ const esbuild = require('esbuild')
 const core = require('@babel/core')
 
 const APP = {
-  'index.js': "import { value } from './lib/value'\nimport { typed, fail } from './lib/typed'\nglobalThis.result = [value, typed]\nglobalThis.fail = fail\n",
+  'package.json': { name: 'app' },
+  'index.js': "import { value } from './lib/value'\nimport { typed, fail } from './lib/typed'\nimport dep from 'dep'\nglobalThis.result = [value, typed, dep]\nglobalThis.fail = fail\n",
+  // Resolved by its manifest's main.
+  'node_modules/dep/package.json': { name: 'dep', main: 'lib/main.js' },
+  'node_modules/dep/lib/main.js': "module.exports = 'dep'\n",
   'lib/value.js': 'export const value = 1\n',
   'lib/typed.ts': "type T = number\n\nexport const typed: T = 2\nexport function fail(): never {\n  throw new Error('typed')\n}\n",
 }
@@ -33,20 +37,25 @@ describe('bundle', () => {
   const options = { entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root }
   const files = (...names) => names.map((name) => join(root, name)).toSorted()
 
-  it('builds again and again on one context, each build reading the files anew, and says which it read', async () => {
+  it('builds again and again on one context, each build reading the files anew, and says which it read, manifests too', async () => {
     const bundler = await createBundler(options)
     try {
       const first = await bundler.rebuild()
-      assert.deepEqual(run(js(first)), [1, 2])
-      assert.deepEqual(first.files.toSorted(), files('index.js', 'lib/typed.ts', 'lib/value.js'))
+      assert.deepEqual(run(js(first)), [1, 2, 'dep'])
+      assert.deepEqual(first.files.toSorted(), files('index.js', 'lib/typed.ts', 'lib/value.js', 'node_modules/dep/lib/main.js', 'node_modules/dep/package.json', 'package.json'))
       writeFileSync(join(root, 'lib/value.js'), 'export const value = 3\n')
-      assert.deepEqual(run(js(await bundler.rebuild())), [3, 2])
+      assert.deepEqual(run(js(await bundler.rebuild())), [3, 2, 'dep'])
+      // A manifest edited: what it resolves to changes.
+      writeFileSync(join(root, 'node_modules/dep/package.json'), JSON.stringify({ name: 'dep', main: 'lib/other.js' }))
+      writeFileSync(join(root, 'node_modules/dep/lib/other.js'), "module.exports = 'other'\n")
+      assert.deepEqual(run(js(await bundler.rebuild())), [3, 2, 'other'])
       writeFileSync(join(root, 'lib/value.js'), 'export const value = (\n')
       const error = await bundler.rebuild().then(() => null, (failure) => failure)
       assert.ok(Array.isArray(error?.errors), String(error))
       assert.ok(error.files.includes(join(root, 'lib/value.js')))
     } finally {
       writeFileSync(join(root, 'lib/value.js'), APP['lib/value.js'])
+      writeFileSync(join(root, 'node_modules/dep/package.json'), JSON.stringify(APP['node_modules/dep/package.json']))
       await bundler.dispose()
     }
   })
@@ -61,10 +70,10 @@ describe('bundle', () => {
     try {
       await bundler.rebuild()
       await bundler.rebuild()
-      assert.deepEqual(transformed.toSorted(), ['index.js', 'typed.ts', 'value.js'])
+      assert.deepEqual(transformed.toSorted(), ['index.js', 'main.js', 'typed.ts', 'value.js'])
       writeFileSync(join(root, 'lib/value.js'), 'export const value = 4\n')
-      assert.deepEqual(run(js(await bundler.rebuild())), [4, 2])
-      assert.deepEqual(transformed.toSorted(), ['index.js', 'typed.ts', 'value.js', 'value.js'])
+      assert.deepEqual(run(js(await bundler.rebuild())), [4, 2, 'dep'])
+      assert.deepEqual(transformed.toSorted(), ['index.js', 'main.js', 'typed.ts', 'value.js', 'value.js'])
     } finally {
       writeFileSync(join(root, 'lib/value.js'), APP['lib/value.js'])
       await bundler.dispose()
