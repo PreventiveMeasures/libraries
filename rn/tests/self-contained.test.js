@@ -42,7 +42,7 @@ describe('rn/ ships every module it has', () => {
 
   it('lists a plausible set of files', () => {
     assert.ok(shipped.size >= 10, `expected a files allowlist, found ${shipped.size}`)
-    assert.ok(doors.length >= 8, `expected the entry points and their typings, found ${doors.length}`)
+    assert.ok(doors.length >= 6, `expected the entry points and their typings, found ${doors.length}`)
   })
 
   for (const file of files) {
@@ -71,7 +71,7 @@ describe('rn/ ships every module it has', () => {
 
 describe('rn/ imports nothing from outside but Node\'s builtins', () => {
   it('has files to check', () => {
-    assert.ok(files.length >= 16, `expected the rn/ modules, found ${files.length}`)
+    assert.ok(files.length >= 14, `expected the rn/ modules, found ${files.length}`)
   })
 
   it('declares no dependencies', () => {

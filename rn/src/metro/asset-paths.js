@@ -6,10 +6,9 @@
 
 import { basename, dirname, extname, join } from 'node:path'
 
-import { diskHost } from '../host.js'
-import { assetExts as ASSET_EXTS, assetResolutions as ASSET_RESOLUTIONS } from './defaults.js'
+import { defaults } from './defaults.js'
 
-const DEFAULT_ASSET_EXTS = new Set(ASSET_EXTS)
+const DEFAULT_ASSET_EXTS = new Set(defaults.assetExts)
 
 // A Set of extensions, as given or of the array given.
 export const extensionSet = (exts) => (exts instanceof Set ? exts : new Set(exts))
@@ -27,6 +26,7 @@ export function isAssetFile(filePath, assetExts = DEFAULT_ASSET_EXTS) {
 
 const PLATFORM_FILE = /^(.+?)(\.([^.]+))?\.([^.]+)$/u
 const SCALED = /^(.+?)(@([\d.]+)x)?$/u
+const SCALE_VARIANT = /@\d+(?:\.\d+)?x$/u
 
 // The asset a file of it names, for `platform` (null for none): its name and
 // type (`a@2x.ios.png` is `a`'s, a png), its scale (1 where it names none),
@@ -40,7 +40,7 @@ export function parseAssetPath(filePath, platform = null) {
   const [, base, , suffix = null, type] = match
   const own = suffix === null || suffix === platform
   const [, name, , scale] = SCALED.exec(own ? base : `${base}.${suffix}`)
-  const resolution = scale === undefined ? Number.NaN : Number.parseFloat(scale)
+  const resolution = Number.parseFloat(scale)
   return {
     assetName: join(dirname(filePath), `${name}.${type}`),
     name,
@@ -52,26 +52,15 @@ export function parseAssetPath(filePath, platform = null) {
 
 // The files an import of the asset `filePath` resolves to: it and its scale
 // variants (`a@1.5x.png` ... `a@4x.png`, by `assetResolutions`) that are
-// files, by their real paths. Null where none is, or where the import names
-// a variant itself (`./a@2x.png`), which Metro refuses.
-export function assetFiles(host, filePath, assetResolutions = ASSET_RESOLUTIONS) {
+// files, by their real paths. Null where none is -- a directory named like
+// one (`lodash.zip`) is no asset -- or where the import names a variant
+// itself (`./a@2x.png`), which Metro refuses.
+export function assetFiles(host, filePath, assetResolutions) {
   const ext = extname(filePath)
-  const name = basename(filePath, ext)
-  if (/@\d+(?:\.\d+)?x$/u.test(name)) return null
-  return assetCandidates(host, dirname(filePath), name, ext, assetResolutions)
-}
-
-// `assetName` + `ext` in `dirPath`, and at each of `assetResolutions`, those
-// that are files, by their real paths; null where none is. A directory named
-// like one (`lodash.zip`) is no asset.
-function assetCandidates(host, dirPath, assetName, ext, assetResolutions) {
-  const base = join(dirPath, assetName)
+  const base = join(dirname(filePath), basename(filePath, ext))
+  if (SCALE_VARIANT.test(base)) return null
   const files = [`${base}${ext}`, ...assetResolutions.map((scale) => `${base}@${scale}x${ext}`)]
     .filter((file) => host.isFile(file))
     .map((file) => host.realpath(file))
   return files.length > 0 ? files : null
 }
-
-// DependencyGraph's resolveAsset, the one a metro-resolver context takes.
-export const resolveAsset = (dirPath, assetName, extension, { host = diskHost, assetResolutions = ASSET_RESOLUTIONS } = {}) =>
-  assetCandidates(host, dirPath, assetName, extension, assetResolutions)

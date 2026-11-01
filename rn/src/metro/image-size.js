@@ -18,9 +18,8 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 export const asBuffer = (bytes) => (Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
 
 const hasBytes = (content, offset, length) => Number.isSafeInteger(offset) && Number.isSafeInteger(length) && offset >= 0 && length >= 0 && offset <= content.length && length <= content.length - offset
-const startsWith = (content, prefix) => hasBytes(content, 0, prefix.length) && content.subarray(0, prefix.length).equals(prefix)
+const startsWith = (content, prefix) => content.subarray(0, prefix.length).equals(prefix)
 const ascii = (content, start, end) => content.toString('ascii', start, end)
-const uint24le = (content, offset) => content[offset] + content[offset + 1] * 256 + content[offset + 2] * 65536
 
 function parseBmp(content) {
   if (!hasBytes(content, 0, 26) || ascii(content, 0, 2) !== 'BM') return null
@@ -186,7 +185,7 @@ function parseWebp(content) {
     const length = content.readUInt32LE(offset + 4)
     const data = offset + 8
     if (!hasBytes(content, data, length)) return null
-    if (type === 'VP8X' && length >= 10) return { width: 1 + uint24le(content, data + 4), height: 1 + uint24le(content, data + 7) }
+    if (type === 'VP8X' && length >= 10) return { width: 1 + content.readUIntLE(data + 4, 3), height: 1 + content.readUIntLE(data + 7, 3) }
     if (type === 'VP8L' && length >= 5 && content[data] === 0x2f) {
       return {
         width: 1 + (((content[data + 2] & 0x3f) << 8) | content[data + 1]),
@@ -203,10 +202,10 @@ function parseWebp(content) {
   return null
 }
 
-// Metro's image types, each by its parser; the parsers in the order Metro
-// falls back through them.
+// Metro's image types, each by its parser, in the order Metro falls back
+// through them.
 const PARSERS = new Map([['bmp', parseBmp], ['gif', parseGif], ['jpeg', parseJpeg], ['jpg', parseJpeg], ['ktx', parseKtx], ['png', parsePng], ['psd', parsePsd], ['svg', parseSvg], ['tiff', parseTiff], ['webp', parseWebp]])
-const FALLBACKS = [parseBmp, parseGif, parseJpeg, parseKtx, parsePng, parsePsd, parseSvg, parseTiff, parseWebp]
+const FALLBACKS = new Set(PARSERS.values())
 
 // Whether Metro takes an asset of `type` as an image, whose size it reads.
 export const isAssetTypeAnImage = (type) => PARSERS.has(type)
@@ -225,14 +224,8 @@ const tryParse = (parser, content) => {
 // finite size.
 export function imageDimensions(type, bytes, filePath) {
   const content = asBuffer(bytes)
-  const own = PARSERS.get(type)
-  const parsers = own === undefined ? FALLBACKS : [own, ...FALLBACKS.filter((parser) => parser !== own)]
-  let dimensions = null
-  for (const parser of parsers) {
-    dimensions = tryParse(parser, content)
-    if (dimensions !== null) break
-  }
-  const { width, height } = dimensions ?? {}
+  const parsers = PARSERS.has(type) ? new Set([PARSERS.get(type), ...FALLBACKS]) : FALLBACKS
+  const { width, height } = parsers.values().map((parser) => tryParse(parser, content)).find((dimensions) => dimensions !== null) ?? {}
   if (!(Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0)) throw new Error(`Invalid ${type} image asset: ${filePath}`)
   return { width, height }
 }

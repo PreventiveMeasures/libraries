@@ -5,7 +5,7 @@ import { basename, dirname, join, relative } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { createMetroResolver, defaults } from '../metro-resolver.js'
-import { CASES, TREE } from './metro-tree.js'
+import { TREE, requestsIn } from './metro-tree.js'
 import { shown, writeTree } from './fixtures.js'
 
 // createMetroResolver against metro-resolver itself (a devDependency, at the
@@ -100,16 +100,11 @@ function metro(options) {
   }
 }
 
-const PLATFORMS = [null, 'ios', 'android', 'web']
-const KINDS = [false, true]
-
 describe('createMetroResolver resolves as metro-resolver does', () => {
   const { root, cleanup } = writeTree(TREE)
   after(cleanup)
 
-  // Every case, on every platform, from a require() and from an import.
-  const requests = PLATFORMS.flatMap((platform) => KINDS.flatMap((isESMImport) =>
-    CASES.flatMap(([from, specifiers]) => specifiers.map((specifier) => [join(root, from), specifier, { platform, isESMImport }]))))
+  const requests = requestsIn(root)
 
   // The requests the two resolve apart under `options`.
   const differences = (options) => {

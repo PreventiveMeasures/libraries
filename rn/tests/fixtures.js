@@ -2,19 +2,27 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 
-// A tree on disk under a fresh directory, by its real path: each path a file
-// (text, bytes, or an object written as JSON), or { link } for a symlink to
-// that target. -> { root, cleanup }
+import { createVfs } from '@preventive/vfs'
+
+// A tree maps paths to files -- text, bytes, or an object written as JSON --
+// and to { link }, a symlink to that target.
+const isLink = (content) => content !== null && typeof content === 'object' && 'link' in content
+const dataOf = (content) => (typeof content === 'string' || content instanceof Uint8Array ? content : JSON.stringify(content))
+
+// The tree on disk under a fresh directory, by its real path. -> { root, cleanup }
 export function writeTree(tree) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'rn-test-')))
   for (const [rel, content] of Object.entries(tree)) {
     const path = join(root, rel)
     mkdirSync(dirname(path), { recursive: true })
-    if (content !== null && typeof content === 'object' && 'link' in content) symlinkSync(content.link, path)
-    else writeFileSync(path, typeof content === 'string' || content instanceof Uint8Array ? content : JSON.stringify(content))
+    if (isLink(content)) symlinkSync(content.link, path)
+    else writeFileSync(path, dataOf(content))
   }
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) }
 }
+
+// The tree as a Vfs holds it, from `/`.
+export const vfsOf = (tree) => createVfs(Object.fromEntries(Object.entries(tree).map(([rel, content]) => [rel, isLink(content) ? { type: 'symlink', target: content.link } : dataOf(content)])))
 
 // A tree's files under node_modules/<name>.
 export const pkg = (name, files) => Object.fromEntries(Object.entries(files).map(([rel, content]) => [`node_modules/${name}/${rel}`, content]))

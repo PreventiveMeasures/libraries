@@ -20,19 +20,3 @@ export const diskHost = Object.freeze({
   readFile: (path) => readFileSync(path),
   readdir: (path) => readdirSync(path),
 })
-
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-
-// The manifest at `file`, parsed, through `host`. One that is there but is no
-// JSON object fails the resolution rather than being passed by, as Metro's
-// package cache throws on it.
-export function readManifest(host, file) {
-  let manifest
-  try {
-    manifest = JSON.parse(decoder.decode(host.readFile(file)))
-  } catch (cause) {
-    throw new Error(`Invalid package.json: ${file}`, { cause })
-  }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error(`Invalid package.json: ${file}: not an object`)
-  return manifest
-}

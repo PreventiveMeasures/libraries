@@ -2,9 +2,20 @@
 // is plain JavaScript. A change to an exported signature belongs in the same
 // commit as the change here.
 
-import type { Host } from './host.js'
-
-export type { Host } from './host.js'
+// What the resolver and the asset readers read a tree through, synchronously:
+// the disk where none is given. Paths are absolute, as node:path spells them
+// on the platform; a file and a directory are what a link at the path leads
+// to. A Vfs from @preventive/vfs is one as it is.
+export interface Host {
+  // False, not an error, where nothing is there.
+  isFile(path: string): boolean
+  isDirectory(path: string): boolean
+  // The path with every link on it followed; throws where nothing is there.
+  realpath(path: string): string
+  readFile(path: string): Uint8Array
+  // The names in a directory, in any order.
+  readdir(path: string): string[]
+}
 
 // What a React Native app's Metro takes where its config sets nothing:
 // metro-config's defaults with @react-native/metro-config's over them.
@@ -64,8 +75,3 @@ export type Resolution =
 export type MetroResolve = (originModulePath: string, specifier: string, options?: ResolveOptions) => Resolution | null
 
 export function createMetroResolver(options?: MetroResolverOptions): MetroResolve
-
-// DependencyGraph's resolveAsset, as a metro-resolver context takes it: the
-// asset's files in `dirPath` at each of `assetResolutions`, by real paths, or
-// null where none is.
-export function resolveAsset(dirPath: string, assetName: string, extension: string, options?: { host?: Host; assetResolutions?: readonly string[] }): string[] | null

@@ -9,20 +9,22 @@
 // pattern. Every miss here -- a map refused, a subpath it does not list, a
 // null target -- is null: Metro's cue to fall back to resolving by files.
 // An `exports` that is a number or a boolean fails the resolution outright:
-// that throws MetroFailure. Mirrors metro-resolver 0.87.2, MIT licensed,
-// Copyright (c) Meta Platforms, Inc. and affiliates.
+// that is FAILED. Mirrors metro-resolver 0.87.2, MIT licensed, Copyright (c)
+// Meta Platforms, Inc. and affiliates.
 
-export class MetroFailure extends Error {}
+// What fails a resolution outright, here and in the resolver, where a miss
+// (null) falls back.
+export const FAILED = Symbol('failed')
 
 const exportsMaps = new WeakMap()
 
 // normalizeExportsField: `exports` as a Map of subpaths, null where Metro
 // refuses it -- a root array to its first `./` string (its first value where
-// any is not a string), a subpath's array to its first item.
+// any is not a string), a subpath's array to its first item -- and FAILED
+// where Metro's WeakMap of them throws, on a key that is no object.
 function exportsMap(exportsField) {
   if (typeof exportsField === 'string') return new Map([['.', exportsField]])
-  // Metro's WeakMap refuses anything but an object as a key.
-  if (typeof exportsField !== 'object') throw new MetroFailure(`Can't read "exports": ${JSON.stringify(exportsField)}`)
+  if (typeof exportsField !== 'object') return FAILED
   if (!exportsMaps.has(exportsField)) exportsMaps.set(exportsField, normalizeExports(exportsField))
   return exportsMaps.get(exportsField)
 }
@@ -101,9 +103,10 @@ const expand = (found) => (found === null ? null : found.star === null ? found.t
 const INVALID_SEGMENTS = new Set(['', '.', '..', 'node_modules'])
 
 // The package-relative path `subpath` (`.` or `./x`) maps to through the
-// `exports` field, or null.
+// `exports` field, or null, or FAILED.
 export function exportsTarget(exportsField, subpath, conditions) {
   const map = exportsMap(exportsField)
+  if (map === FAILED) return FAILED
   const found = map === null ? null : target(map, subpath, conditions)
   if (found?.to.slice(2).split(/[\\/]/u).some((segment) => INVALID_SEGMENTS.has(segment))) return null
   return expand(found)

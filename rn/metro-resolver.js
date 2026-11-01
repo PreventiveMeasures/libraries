@@ -3,4 +3,3 @@
 // Typed and described in metro-resolver.d.ts.
 export { createMetroResolver } from './src/metro/resolve.js'
 export { defaults } from './src/metro/defaults.js'
-export { resolveAsset } from './src/metro/asset-paths.js'

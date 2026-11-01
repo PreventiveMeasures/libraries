@@ -2,36 +2,11 @@
 // plain JavaScript. A change to an exported signature belongs in the same
 // commit as the change here.
 
-import type { Host } from './host.js'
-
-export type { Host } from './host.js'
+import type { Host } from './metro-resolver.js'
 
 // Whether any dot-suffix of the file's name is one of `assetExts`, Metro's
 // default asset extensions where not given.
 export function isAssetFile(filePath: string, assetExts?: readonly string[] | ReadonlySet<string>): boolean
-
-// A file of an asset, as Metro reads its name for `platform`.
-export interface AssetPath {
-  // The asset's own file name, scale and platform left out, in the file's
-  // directory: `img/a.png` for `img/a@2x.ios.png`.
-  assetName: string
-  name: string
-  // The platform the name says, where it is the one asked for.
-  platform: string | null
-  // The scale the name says, else 1.
-  resolution: number
-  type: string
-}
-
-// Null for a name with no extension.
-export function parseAssetPath(filePath: string, platform?: string | null): AssetPath | null
-
-// Whether Metro reads the size of an asset of `type`.
-export function isAssetTypeAnImage(type: string): boolean
-
-// The image's width and height, by the type's parser, else the first other
-// that reads the bytes; throws where none reads a positive size.
-export function imageDimensions(type: string, bytes: Uint8Array, filePath: string): { width: number; height: number }
 
 export interface AssetRecord {
   // Absolute paths, by scale.

@@ -15,10 +15,6 @@
     "./assets-dest.js": {
       "types": "./assets-dest.d.ts",
       "default": "./assets-dest.js"
-    },
-    "./host.js": {
-      "types": "./host.d.ts",
-      "default": "./host.js"
     }
   },
   "files": [
@@ -26,8 +22,6 @@
     "LICENSE-MIT",
     "assets-dest.d.ts",
     "assets-dest.js",
-    "host.d.ts",
-    "host.js",
     "metro-assets.d.ts",
     "metro-assets.js",
     "metro-resolver.d.ts",

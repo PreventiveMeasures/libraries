@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { createVfs } from '@preventive/vfs'
-
-import { assetData, assetModule, assetRecord, imageDimensions, isAssetFile, isAssetTypeAnImage, parseAssetPath } from '../metro-assets.js'
-import { png, writeTree } from './fixtures.js'
+import { assetData, assetModule, assetRecord, isAssetFile } from '../metro-assets.js'
+import { parseAssetPath } from '../src/metro/asset-paths.js'
+import { imageDimensions, isAssetTypeAnImage } from '../src/metro/image-size.js'
+import { png, vfsOf, writeTree } from './fixtures.js'
 
 describe('parseAssetPath', () => {
   // [path, platform, expected], as Metro's AssetPaths.tryParse reads them.
@@ -145,7 +145,7 @@ describe('assetRecord and assetData', () => {
   })
 
   it('reads a tree through a host', () => {
-    const vfs = createVfs({ 'a/x.png': png(2, 2), 'a/x@2x.png': png(4, 4) })
+    const vfs = vfsOf({ 'a/x.png': png(2, 2), 'a/x@2x.png': png(4, 4) })
     const data = assetData('/a/x.png', { urlPath: 'a/x.png', host: vfs })
     assert.deepEqual([data.files, data.width], [['/a/x.png', '/a/x@2x.png'], 2])
   })

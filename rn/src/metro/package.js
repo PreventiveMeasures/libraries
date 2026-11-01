@@ -6,48 +6,69 @@
 
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 
-import { readManifest } from '../host.js'
+export const toPosix = (path) => path.replaceAll(sep, '/')
 
-const toPosix = (path) => (sep === '/' ? path : path.replaceAll(sep, '/'))
+// `dir` and each directory above it, up to the root.
+export function* selfAndAncestors(dir) {
+  for (let at = dir; ; at = dirname(at)) {
+    yield at
+    if (dirname(at) === at) return
+  }
+}
+
+// A subpath as the "browser" spec matches it: as it is, with `.js`, with `.json`.
+const variants = (subpath) => [subpath, `${subpath}.js`, `${subpath}.json`]
+
+const memo = (map, key, make) => {
+  if (!map.has(key)) map.set(key, make())
+  return map.get(key)
+}
+
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+// The manifest at `file`, parsed. One that is there but is no JSON object
+// fails the resolution rather than being passed by, as Metro's package cache
+// throws on it.
+function readManifest(host, file) {
+  let manifest
+  try {
+    manifest = JSON.parse(decoder.decode(host.readFile(file)))
+  } catch (cause) {
+    throw new Error(`Invalid package.json: ${file}`, { cause })
+  }
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error(`Invalid package.json: ${file}: not an object`)
+  return manifest
+}
 
 // The packages of a tree read through `host`, each manifest read once, for
 // `mainFields`: a tree that changes needs a new one.
 export function createPackages(host, mainFields) {
   const manifests = new Map()
-  const read = (file) => {
-    if (!manifests.has(file)) manifests.set(file, readManifest(host, file))
-    return manifests.get(file)
-  }
-  const exists = (path) => host.isFile(path) || host.isDirectory(path)
-  const redirects = new WeakMap()
-  // A package's root by its real path, as Metro's file map spells a
-  // directory it found: what its redirects are joined to.
   const roots = new Map()
-  const rootOf = (dir) => {
-    if (!roots.has(dir)) roots.set(dir, host.realpath(dir))
-    return roots.get(dir)
-  }
+  const redirects = new WeakMap()
+  const read = (file) => memo(manifests, file, () => readManifest(host, file))
+  // A package's root by its real path, as Metro's file map spells a directory
+  // it found: what its redirects are joined to.
+  const found = (dir, path) => ({ rootPath: memo(roots, dir, () => host.realpath(dir)), packageJson: read(join(dir, 'package.json')), packageRelativePath: toPosix(relative(dir, path)) })
 
   // The package closest to `path`, which need not exist: { rootPath,
-  // packageJson, packageRelativePath }, or null. A directory's own
+  // packageJson, packageRelativePath (posix) }, or null. A directory's own
   // package.json is its own; past that, the directories above as `path`
   // spells them, but none past a `node_modules` (a package does not hold the
   // one it is installed in). The lookup starts at the deepest directory
   // there: one missing on the way, named node_modules, finds no package
   // either.
   function forModule(path) {
-    if (host.isDirectory(path) && host.isFile(join(path, 'package.json'))) {
-      return { rootPath: rootOf(path), packageJson: read(join(path, 'package.json')), packageRelativePath: '' }
-    }
+    const isDirectory = host.isDirectory(path)
+    if (isDirectory && host.isFile(join(path, 'package.json'))) return found(path, path)
     let below = path
-    if (!exists(path)) {
-      while (dirname(below) !== below && !exists(dirname(below))) below = dirname(below)
+    if (!isDirectory && !host.isFile(path)) {
+      while (dirname(below) !== below && !host.isDirectory(dirname(below))) below = dirname(below)
       if (basename(below) === 'node_modules') return null
     }
-    for (let dir = dirname(below); basename(dir) !== 'node_modules'; dir = dirname(dir)) {
-      const file = join(dir, 'package.json')
-      if (host.isFile(file)) return { rootPath: rootOf(dir), packageJson: read(file), packageRelativePath: relative(dir, path) }
-      if (dirname(dir) === dir) break
+    for (const dir of selfAndAncestors(dirname(below))) {
+      if (basename(dir) === 'node_modules') return null
+      if (host.isFile(join(dir, 'package.json'))) return found(dir, path)
     }
     return null
   }
@@ -56,32 +77,31 @@ export function createPackages(host, mainFields) {
   // or null where it has none. A value neither a string nor false redirects
   // nothing.
   function redirectsOf(pkg) {
-    if (redirects.has(pkg)) return redirects.get(pkg)
-    let map = null
-    for (const field of mainFields.toReversed()) {
-      const value = pkg[field]
-      if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
-      map ??= new Map()
-      for (const [key, to] of Object.entries(value)) {
-        if (typeof to === 'string' || to === false) map.set(key, to)
-        else map.delete(key)
+    return memo(redirects, pkg, () => {
+      let map = null
+      for (const field of mainFields.toReversed()) {
+        const value = pkg[field]
+        if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
+        map ??= new Map()
+        for (const [key, to] of Object.entries(value)) {
+          if (typeof to === 'string' || to === false) map.set(key, to)
+          else map.delete(key)
+        }
       }
-    }
-    redirects.set(pkg, map)
-    return map
+      return map
+    })
   }
 
-  // What `pkg`'s redirects map `subpath` to: a string, false (an empty
-  // module), or null for no entry. A subpath is tried as it is, then with
-  // `.js` and `.json` added; an array of variants is tried as given.
-  function match(subpath, pkg) {
+  // What `pkg`'s redirects map the first of `subpaths` they have to: a string,
+  // false (an empty module), or null for none.
+  function match(subpaths, pkg) {
     const map = redirectsOf(pkg)
-    if (map === null) return null
-    for (const variant of Array.isArray(subpath) ? subpath : [subpath, `${subpath}.js`, `${subpath}.json`]) {
-      if (map.has(variant)) return map.get(variant)
-    }
-    return null
+    const key = map === null ? undefined : subpaths.find((subpath) => map.has(subpath))
+    return key === undefined ? null : map.get(key)
   }
+
+  // A bare specifier as the redirects of `pkg` map it.
+  const matchSpecifier = (specifier, pkg) => match(variants(specifier), pkg)
 
   // The absolute `path` as the redirects of the package closest to it map it,
   // by its package-relative spelling: a path, or false (an empty module). A
@@ -89,7 +109,7 @@ export function createPackages(host, mainFields) {
   function redirect(path) {
     const pkg = forModule(path)
     if (pkg === null) return path
-    const to = match(`./${toPosix(pkg.packageRelativePath)}`, pkg.packageJson)
+    const to = match(variants(`./${pkg.packageRelativePath}`), pkg.packageJson)
     if (typeof to !== 'string') return to ?? path
     return isAbsolute(to) ? normalize(to) : join(pkg.rootPath, to)
   }
@@ -99,11 +119,11 @@ export function createPackages(host, mainFields) {
   // decides, a false entry keeping it as it is.
   function entryPoint(pkg) {
     const main = mainFields.map((field) => pkg[field]).find((value) => typeof value === 'string' && value.length > 0) ?? 'index'
-    const variants = [main, main.startsWith('./') ? main.slice(2) : `./${main}`]
-      .flatMap((variant) => [variant, `${variant}.js`, `${variant}.json`, variant.replace(/\.js$|\.json$/u, '')])
-    const to = match(variants, pkg)
+    const spellings = [main, main.startsWith('./') ? main.slice(2) : `./${main}`]
+      .flatMap((spelling) => [...variants(spelling), spelling.replace(/\.js$|\.json$/u, '')])
+    const to = match(spellings, pkg)
     return typeof to === 'string' ? to : main
   }
 
-  return { read, forModule, match, redirect, entryPoint }
+  return { read, forModule, matchSpecifier, redirect, entryPoint }
 }

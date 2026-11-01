@@ -6,7 +6,7 @@
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { basename, dirname, join, posix, sep } from 'node:path'
+import { basename, dirname, join, posix } from 'node:path'
 
 import { diskHost } from '../host.js'
 import { parseAssetPath } from './asset-paths.js'
@@ -29,14 +29,12 @@ function parsed(assetPath, platform) {
 export function assetRecord(assetPath, { platform = null, host = diskHost } = {}) {
   const own = parsed(basename(assetPath), platform)
   const dir = dirname(assetPath)
-  const records = new Map()
-  for (const name of host.readdir(dir).toSorted(byBytes)) {
+  // A file of the asset is named for it first; the others need no parsing.
+  const entries = host.readdir(dir).filter((name) => name.startsWith(own.name)).toSorted(byBytes).flatMap((name) => {
     const asset = parseAssetPath(name, platform)
-    if (asset === null) continue
-    const key = asset.platform === null ? asset.assetName : `${asset.assetName} : ${asset.platform}`
-    if (!records.has(key)) records.set(key, [])
-    records.get(key).push({ file: join(dir, name), scale: asset.resolution })
-  }
+    return asset === null ? [] : [{ key: asset.platform === null ? asset.assetName : `${asset.assetName} : ${asset.platform}`, file: join(dir, name), scale: asset.resolution }]
+  })
+  const records = Map.groupBy(entries, ({ key }) => key)
   const record = (platform === null ? undefined : records.get(`${own.assetName} : ${platform}`)) ?? records.get(own.assetName)
   if (record === undefined) throw new Error(`Asset not found: ${assetPath} for platform: ${platform ?? '(unspecified)'}`)
   const byScale = record.toSorted((a, b) => a.scale - b.scale)
@@ -61,11 +59,11 @@ export function assetData(assetPath, { urlPath, platform = null, publicPath = '/
     dimensions = imageDimensions(type, contents[0], files[0])
   }
   // A path above the root keeps its `..`, which a join would fold away.
-  const location = urlPath.startsWith('..') ? `${publicPath.replace(/\/$/u, '')}/${posix.dirname(urlPath)}` : join(publicPath, posix.dirname(urlPath))
+  const httpServerLocation = urlPath.startsWith('..') ? `${publicPath.replace(/\/$/u, '')}/${posix.dirname(urlPath)}` : posix.join(publicPath, posix.dirname(urlPath))
   return {
     __packager_asset: true,
     fileSystemLocation: dirname(assetPath),
-    httpServerLocation: sep === '/' ? location : location.replaceAll(sep, '/'),
+    httpServerLocation,
     width: dimensions === null ? undefined : dimensions.width / scales[0],
     height: dimensions === null ? undefined : dimensions.height / scales[0],
     scales,

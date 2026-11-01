@@ -10,23 +10,20 @@
 // Where Metro throws, this answers null, every failure alike: a path that is
 // no module, a package whose main module is missing, a "browser" redirect to
 // an absolute path, a `#` specifier from a package with no "imports", an
-// "exports" that is a number or a boolean. A package.json that is there but
-// is no JSON object throws, as it does in Metro.
+// "exports" that is a number or a boolean. Inside, a step answers null to
+// fall back, FAILED to fail the whole resolution. A package.json that is
+// there but is no JSON object throws, as it does in Metro.
 
 import { basename, dirname, isAbsolute, join, posix, resolve as resolvePath, sep, win32 } from 'node:path'
 
 import { diskHost } from '../host.js'
 import { assetFiles, extensionSet, isAssetFile } from './asset-paths.js'
-import * as defaults from './defaults.js'
-import { MetroFailure, exportsTarget, importsTarget } from './exports.js'
-import { createPackages } from './package.js'
+import { defaults } from './defaults.js'
+import { FAILED, exportsTarget, importsTarget } from './exports.js'
+import { createPackages, selfAndAncestors, toPosix } from './package.js'
 
 const EMPTY = Object.freeze({ type: 'empty' })
 const RELATIVE = /^\.\.?(?:\/|$)/u
-const toPosix = (path) => (sep === '/' ? path : path.replaceAll(sep, '/'))
-const fail = (reason) => {
-  throw new MetroFailure(reason)
-}
 
 export function createMetroResolver(options = {}) {
   const {
@@ -42,7 +39,8 @@ export function createMetroResolver(options = {}) {
     extraNodeModules = null,
     disableHierarchicalLookup = false,
   } = options
-  for (const path of [...nodeModulesPaths, ...Object.values(extraNodeModules ?? {})]) {
+  const extra = new Map(Object.entries(extraNodeModules ?? {}))
+  for (const path of [...nodeModulesPaths, ...extra.values()]) {
     if (typeof path !== 'string' || !isAbsolute(path)) throw new TypeError(`createMetroResolver: nodeModulesPaths and extraNodeModules take absolute paths, not ${JSON.stringify(path)}`)
   }
   const config = {
@@ -50,51 +48,45 @@ export function createMetroResolver(options = {}) {
     sourceExts: [...sourceExts],
     assetExts: extensionSet(assetExts),
     assetResolutions: [...assetResolutions],
-    preferNativePlatform,
     nodeModulesPaths: [...nodeModulesPaths],
-    extraNodeModules: new Map(Object.entries(extraNodeModules ?? {})),
+    extraNodeModules: extra,
     disableHierarchicalLookup,
     packages: createPackages(host, [...mainFields]),
   }
-  // The conditions of a request: `default`, `import` or `require`, the names
-  // given, and the platform's. Made once for each platform and kind.
-  const conditionSets = new Map()
-  const conditionsFor = (platform, isESMImport) => {
-    const key = `${isESMImport}\0${platform}`
-    if (!conditionSets.has(key)) {
-      const byPlatform = platform !== null && Object.hasOwn(conditionsByPlatform, platform) ? conditionsByPlatform[platform] : []
-      conditionSets.set(key, new Set(['default', isESMImport ? 'import' : 'require', ...conditionNames, ...byPlatform]))
-    }
-    return conditionSets.get(key)
-  }
+  const names = [...conditionNames]
+  const byPlatform = new Map(Object.entries(conditionsByPlatform).map(([platform, list]) => [platform, [...list]]))
   return function resolve(originModulePath, specifier, { platform = null, isESMImport = false } = {}) {
     if (typeof originModulePath !== 'string' || !isAbsolute(originModulePath)) throw new TypeError(`resolve: the origin must be an absolute path, not ${JSON.stringify(originModulePath)}`)
     if (typeof specifier !== 'string') throw new TypeError(`resolve: the specifier must be a string, not ${typeof specifier}`)
-    const context = { ...config, origin: originModulePath, platform, conditions: conditionsFor(platform, isESMImport === true) }
-    try {
-      return resolveRequest(context, specifier)
-    } catch (error) {
-      if (error instanceof MetroFailure) return null
-      throw error
+    const context = {
+      ...config,
+      origin: originModulePath,
+      // What a package's "exports" and "imports" are read with: `default`,
+      // `import` or `require`, the names given, and the platform's.
+      conditions: new Set(['default', isESMImport === true ? 'import' : 'require', ...names, ...(platform === null ? [] : (byPlatform.get(platform) ?? []))]),
+      // What a source file's name is tried with before each extension.
+      suffixes: [...(platform === null ? [] : [`.${platform}`]), ...(preferNativePlatform ? ['.native'] : []), ''],
     }
+    const resolution = resolveRequest(context, specifier)
+    return resolution === FAILED ? null : resolution
   }
 }
 
 function resolveRequest(context, specifier) {
   const { origin, packages } = context
-  if (RELATIVE.test(specifier) || isAbsolute(specifier)) return resolveModulePath(context, specifier) ?? fail(`Cannot resolve ${specifier}`)
+  if (RELATIVE.test(specifier) || isAbsolute(specifier)) return resolveModulePath(context, specifier) ?? FAILED
   const own = packages.forModule(origin)
   if (specifier.startsWith('#')) {
-    if (own?.packageJson.imports == null) fail(`No "imports" to map ${specifier}`)
+    if (own?.packageJson.imports == null) return FAILED
     const hit = packageTarget(context, own.rootPath, importsTarget(own.packageJson.imports, specifier, context.conditions))
     if (hit !== null) return hit
   }
   // The importer's own package may redirect a bare specifier: to a path in
   // it, to another specifier, or to nothing.
-  const redirected = own === null ? null : packages.match(specifier, own.packageJson)
+  const redirected = own === null ? null : packages.matchSpecifier(specifier, own.packageJson)
   if (redirected === false) return EMPTY
-  if (redirected !== null && RELATIVE.test(redirected)) return resolveModulePath(context, resolvePath(own.rootPath, redirected)) ?? fail(`Cannot resolve ${redirected}`)
-  if (redirected !== null && (posix.isAbsolute(redirected) || win32.isAbsolute(redirected))) fail(`"browser" redirects ${specifier} to an absolute path`)
+  if (redirected !== null && RELATIVE.test(redirected)) return resolveModulePath(context, resolvePath(own.rootPath, redirected)) ?? FAILED
+  if (redirected !== null && (posix.isAbsolute(redirected) || win32.isAbsolute(redirected))) return FAILED
   const bare = parseBareSpecifier(redirected ?? specifier)
   // A package importing itself by its name, through its own "exports".
   if (own?.packageJson.exports != null && own.packageJson.name === bare.packageName) {
@@ -106,27 +98,15 @@ function resolveRequest(context, specifier) {
     if (hit !== null) return hit
   }
   const extra = context.extraNodeModules.get(bare.packageName)
-  const hit = extra === undefined ? null : fromTargetPath(context, join(extra, bare.posixSubpath))
-  return hit ?? fail(`Cannot find ${specifier}`)
+  return (extra === undefined ? null : fromTargetPath(context, join(extra, bare.posixSubpath))) ?? FAILED
 }
 
 // Every node_modules from the origin's directory up, then each of
 // `nodeModulesPaths` not among them; those alone without hierarchical lookup.
-function* nodeModulesDirs({ origin, nodeModulesPaths, disableHierarchicalLookup }) {
-  const visited = new Set()
-  if (!disableHierarchicalLookup) {
-    for (const dir of selfAndAncestors(dirname(origin))) {
-      const nodeModules = dir.endsWith(sep) ? `${dir}node_modules` : `${dir}${sep}node_modules`
-      visited.add(nodeModules)
-      yield nodeModules
-    }
-  }
-  for (const nodeModules of nodeModulesPaths) if (!visited.has(nodeModules)) yield nodeModules
-}
-
-function* selfAndAncestors(dir) {
-  yield dir
-  if (dirname(dir) !== dir) yield* selfAndAncestors(dirname(dir))
+function nodeModulesDirs({ origin, nodeModulesPaths, disableHierarchicalLookup }) {
+  if (disableHierarchicalLookup) return nodeModulesPaths
+  const above = [...selfAndAncestors(dirname(origin))].map((dir) => (dir.endsWith(sep) ? `${dir}node_modules` : `${dir}${sep}node_modules`))
+  return [...above, ...nodeModulesPaths.filter((nodeModules) => !above.includes(nodeModules))]
 }
 
 // A bare specifier in the node_modules at `nodeModules`, where the shallowest
@@ -146,7 +126,7 @@ function fromTargetPath(context, targetPath) {
   if (candidate === false) return EMPTY
   const pkg = context.packages.forModule(candidate)
   if (pkg?.packageJson.exports != null) {
-    const subpath = pkg.packageRelativePath === '' ? '.' : `./${toPosix(pkg.packageRelativePath)}`
+    const subpath = pkg.packageRelativePath === '' ? '.' : `./${pkg.packageRelativePath}`
     const hit = packageTarget(context, pkg.rootPath, exportsTarget(pkg.packageJson.exports, subpath, context.conditions))
     if (hit !== null) return hit
   }
@@ -157,11 +137,10 @@ function fromTargetPath(context, targetPath) {
 // extension or index probed: an asset with its scale variants, else the file
 // itself; null where it names none, Metro's cue to resolve by files instead.
 function packageTarget(context, rootPath, target) {
-  if (target === null) return null
+  if (target === null || target === FAILED) return target
   const filePath = join(rootPath, target)
-  const files = isAssetFile(filePath, context.assetExts) ? assetFiles(context.host, filePath, context.assetResolutions) : null
-  if (files !== null) return { type: 'assetFiles', filePaths: files }
-  return context.host.isFile(filePath) ? sourceFile(context, filePath) : null
+  const asset = isAssetFile(filePath, context.assetExts) ? assetResolution(context, filePath) : null
+  return asset ?? (context.host.isFile(filePath) ? sourceFile(context, filePath) : null)
 }
 
 // A relative or absolute path, through the redirects of the package closest
@@ -184,7 +163,7 @@ function resolvePackageEntryPoint(context, packagePath) {
   const manifest = join(packagePath, 'package.json')
   if (!host.isFile(manifest)) return resolveFile(context, packagePath, 'index')
   const main = join(packagePath, packages.entryPoint(packages.read(manifest)))
-  return resolveFile(context, dirname(main), basename(main)) ?? resolveFile(context, main, 'index') ?? fail(`No main module in ${packagePath}`)
+  return resolveFile(context, dirname(main), basename(main)) ?? resolveFile(context, main, 'index') ?? FAILED
 }
 
 // `fileName` in `dirPath` as an asset, at its scales, where its extension is
@@ -192,17 +171,13 @@ function resolvePackageEntryPoint(context, packagePath) {
 // extension the platform's file, the native one, the plain one, each through
 // its package's redirects.
 function resolveFile(context, dirPath, fileName) {
-  const { assetExts, host, platform, preferNativePlatform, sourceExts } = context
-  if (isAssetFile(fileName, assetExts)) {
-    const files = assetFiles(host, join(dirPath, fileName), context.assetResolutions)
-    return files === null ? null : { type: 'assetFiles', filePaths: files }
-  }
+  const { host, packages } = context
+  if (isAssetFile(fileName, context.assetExts)) return assetResolution(context, join(dirPath, fileName))
   const prefix = join(dirPath, fileName)
   if (host.isFile(prefix)) return sourceFile(context, prefix)
-  const suffixes = [...(platform === null ? [] : [`.${platform}`]), ...(preferNativePlatform ? ['.native'] : []), '']
-  for (const ext of sourceExts) {
-    for (const suffix of suffixes) {
-      const candidate = context.packages.redirect(`${prefix}${suffix}.${ext}`)
+  for (const ext of context.sourceExts) {
+    for (const suffix of context.suffixes) {
+      const candidate = packages.redirect(`${prefix}${suffix}.${ext}`)
       if (candidate === false) return EMPTY
       if (host.isFile(candidate)) return sourceFile(context, candidate)
     }
@@ -212,10 +187,15 @@ function resolveFile(context, dirPath, fileName) {
 
 const sourceFile = ({ host }, filePath) => ({ type: 'sourceFile', filePath: host.realpath(filePath) })
 
+function assetResolution({ host, assetResolutions }, filePath) {
+  const filePaths = assetFiles(host, filePath, assetResolutions)
+  return filePaths === null ? null : { type: 'assetFiles', filePaths }
+}
+
 // A bare specifier's package name, its first segment, and its subpath (`.`
 // or `./x`), as Metro splits one.
 function parseBareSpecifier(specifier) {
-  const normalizedSpecifier = sep === '/' ? specifier : specifier.replaceAll('\\', '/')
+  const normalizedSpecifier = toPosix(specifier)
   const first = normalizedSpecifier.indexOf('/')
   const second = normalizedSpecifier.startsWith('@') && first !== -1 ? normalizedSpecifier.indexOf('/', first + 1) : first
   const end = second === -1 ? normalizedSpecifier.length : second

@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 import { pkg } from './fixtures.js'
 
 // One tree of what Metro resolves, and what to resolve in it: the parity test
@@ -132,3 +134,7 @@ export const CASES = [
   ['vendor/x.js', ['far', 'pkg', 'stream', 'stream/sub']],
 ]
 
+// Every case, on every platform, from a require() and from an import, from
+// the tree at `root`: [originModulePath, specifier, options].
+export const requestsIn = (root) => [null, 'ios', 'android', 'web'].flatMap((platform) => [false, true].flatMap((isESMImport) =>
+  CASES.flatMap(([from, specifiers]) => specifiers.map((specifier) => [join(root, from), specifier, { platform, isESMImport }]))))
