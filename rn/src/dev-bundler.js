@@ -39,6 +39,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return promise
   }
 
+  // Disposed once its builds asked for are done.
   const drop = async (build) => {
     await build.chain
     try {
@@ -47,12 +48,15 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
       // Never opened.
     }
   }
-  const evict = async (limit) => {
+  // The least recently asked for, out at once, disposed after.
+  const evict = (limit) => {
+    const dropped = []
     while (builds.size > limit) {
       const [key, build] = builds.entries().next().value
       builds.delete(key)
-      await drop(build)
+      dropped.push(drop(build))
     }
+    return Promise.all(dropped)
   }
 
   // -> an outcome: { ok: true, js, map, assets, files, index() }, { ok:
@@ -64,8 +68,10 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry), last: null, pending: null, chain: Promise.resolve() }
     builds.delete(key)
     builds.set(key, build)
-    await evict(maxBuilds)
-    return outcomeOf(build)
+    // Its build on its chain before another request may evict it.
+    const outcome = outcomeOf(build)
+    void evict(maxBuilds)
+    return outcome
   }
 
   const files = () => new Set([...builds.values()].flatMap((build) => [...(build.last?.files ?? [])]))

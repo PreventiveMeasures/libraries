@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { after, describe, it } from 'node:test'
 
 import esbuild from 'esbuild'
 
@@ -7,7 +7,9 @@ import { bundleRequest, toJscSafeUrl, toNormalUrl } from '../src/bundle-url.js'
 import { createGate } from '../src/gate.js'
 import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
+import { createDevBundler } from '../src/dev-bundler.js'
 import { createWatcher } from '../src/watch.js'
+import { writeTree } from './fixtures.js'
 
 describe('the gate', () => {
   const gate = createGate({ hostnames: ['my-mac', 'my-mac.local'] })
@@ -166,5 +168,21 @@ describe('watching', () => {
     fake.fire('/app', 'rn-serve.log')
     fake.fire('/store/dep/lib', 'y.js')
     assert.deepEqual(changes, ['/app/src/a/b.js', '/app/node_modules/pkg/package.json', '/app/node_modules/new-pkg', '/store/dep/lib/y.js'])
+  })
+})
+
+describe('the dev bundler', () => {
+  const { root, cleanup } = writeTree({ 'index.js': 'globalThis.result = 1\n', 'other.js': 'globalThis.result = 2\n' })
+  after(cleanup)
+  const request = (entryFile, platform = 'ios') => ({ kind: 'bundle', entryFile, platform, dev: true, minify: false })
+
+  it('builds each bundle asked for at once, though more than it keeps', async () => {
+    const devBundler = createDevBundler({ projectRoot: root, esbuild, targetOptions: () => ({ define: {} }), maxBuilds: 1 })
+    try {
+      const outcomes = await Promise.all([request('./index'), request('./other'), request('./index', 'android')].map((asked) => devBundler.get(asked)))
+      assert.deepEqual(outcomes.map(({ ok, js }) => [ok, /result = (\d)/u.exec(js)?.[1]]), [[true, '1'], [true, '2'], [true, '1']])
+    } finally {
+      await devBundler.dispose()
+    }
   })
 })
