@@ -9,11 +9,12 @@
 // @babel/core, and Metro's caller and Babel env, as Metro's transformer does;
 // each made JS and lowered by esbuild before that where it can be (TS, class
 // fields, private members, static blocks, import attributes, `using`), as
-// @exodus/test prepares code for Hermes, Babel making the rest of it. --flow
-// strips Flow types from each JS file that has them (flow-remove-types),
-// before both. The extensions metro.config.js lists among `assetExts` are
-// assets too, read off it, never run: by oxc-parser where installed, else in
-// the usual form by a regex.
+// @exodus/test prepares code for Hermes, Babel making the rest of it; a TS
+// file's imports kept as the config's TS plugin keeps them. --flow strips
+// Flow types from each JS file that has them (flow-remove-types), before
+// both. The extensions metro.config.js lists among `assetExts` are assets
+// too, read off it, never run: by oxc-parser where installed, else in the
+// usual form by a regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -103,7 +104,8 @@ function assetExts() {
   return listed === null ? fail('reading the assetExts of metro.config.js needs oxc-parser: npm i -D oxc-parser') : [...defaults.assetExts, ...listed]
 }
 
-// The project's babel.config.*, by the project's own @babel/core.
+// The project's babel.config.*, by the project's own @babel/core: the code it
+// makes of a file, and the options its TS plugin takes for one.
 function projectBabel() {
   const configFile = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
   if (configFile === undefined) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
@@ -118,9 +120,16 @@ function projectBabel() {
   // The env Metro's transformer names, which plugins read for a release
   // build: react-native-worklets omits each worklet's location and source map.
   const envName = values.dev ? 'development' : process.env.BABEL_ENV || 'production'
-  return async (source, filename) => (await core.transformAsync(source, { cwd, root: cwd, configFile, filename, caller, envName, compact: false })).code
+  const options = (filename) => ({ cwd, root: cwd, configFile, filename, caller, envName })
+  return {
+    transform: async (source, filename) => (await core.transformAsync(source, { ...options(filename), compact: false })).code,
+    // Which imports it keeps: @react-native/babel-preset's, those used as
+    // values, and those the JSX pragma names in TSX.
+    typescript: async (filename) => (await core.loadOptionsAsync(options(filename)))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
+  }
 }
 
+const babel = values.babel ? projectBabel() : null
 let result
 try {
   result = await bundle({
@@ -131,7 +140,8 @@ try {
     projectRoot: cwd,
     jsx: values.jsx,
     stripFlow: flowRemoveTypes && ((source) => flowRemoveTypes(source, { all: true, removeEmptyImports: true }).toString()),
-    babel: values.babel ? projectBabel() : null,
+    babel: babel?.transform ?? null,
+    babelTypescript: babel?.typescript ?? null,
     assetExts: assetExts(),
     define,
     aliases: values['babel-aliases'] === undefined ? null : babelAliases(values['babel-aliases']),

@@ -80,6 +80,7 @@
     "@babel/core": "^7.29.7",
     "@babel/plugin-transform-flow-strip-types": "^7.29.7",
     "@babel/plugin-transform-react-jsx": "^7.29.7",
+    "@babel/plugin-transform-typescript": "^7.29.9",
     "@preventive/vfs": "workspace:*",
     "babel-plugin-module-resolver": "^5.0.2",
     "esbuild": "^0.28.2",

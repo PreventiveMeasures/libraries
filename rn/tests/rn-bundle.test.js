@@ -312,6 +312,56 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
   })
 })
 
+describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
+  // A babel.config.js whose TS plugin takes these options, as
+  // @react-native/babel-preset has it for .ts and .tsx, its JSX built by h.
+  const config = (options) => [
+    'module.exports = {',
+    "  plugins: [['@babel/plugin-transform-react-jsx', { pragma: 'h' }]],",
+    '  overrides: [',
+    `    { test: /\\.ts$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify(options)}]] },`,
+    `    { test: /\\.tsx$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify({ ...options, isTSX: true })}]] },`,
+    '  ],',
+    '}',
+    '',
+  ].join('\n')
+  const { root, cleanup } = writeTree({
+    'babel.config.js': config({}),
+    'main.ts': [
+      "import { type Effect } from './effect'",
+      "import { view } from './view'",
+      "import { pragma } from './pragma'",
+      'const effects: Effect[] = (globalThis as any).effects ?? []',
+      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma() }))',
+      '',
+    ].join('\n'),
+    // A module with an effect, imported for its type alone.
+    'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
+    'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
+    // h, which only JSX uses: kept for the config's jsxPragma, then for the file's @jsx.
+    'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
+    'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
+    'node_modules/@babel/plugin-transform-typescript': linked('@babel/plugin-transform-typescript'),
+  })
+  after(cleanup)
+  const build = (options) => {
+    writeFileSync(join(root, 'babel.config.js'), config(options))
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', 'main.ts'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
+  }
+
+  it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] } })
+  })
+
+  it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {
+    assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect'])
+  })
+})
+
 describe('rn-bundle --babel, with no Babel config', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)
