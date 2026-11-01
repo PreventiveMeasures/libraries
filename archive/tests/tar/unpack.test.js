@@ -386,6 +386,39 @@ describe('a bound on its entries, where a caller sets one', () => {
   })
 })
 
+describe('a global header with no entry after it, where a caller takes it', () => {
+  const global = (comment) => pax([['comment', comment]], {}, 0x67).slice(0, 2)
+  it('is refused unless taken', () => {
+    for (const options of [undefined, {}, { trailingGlobal: false }]) {
+      assert.throws(() => unpack(archive(header(), ...global('x')), options), /an extended header is not followed by an entry at byte 1536/u)
+    }
+  })
+  it('reads as nothing, as GNU tar lists it', () => {
+    const [entry, ...rest] = unpack(archive(header(), ...global('x')), { trailingGlobal: true })
+    assert.deepEqual([entry.name, entry.extended, entry.globalPax.size, rest], ['a', [], 0, []])
+    assert.deepEqual(unpack(archive(...global('x')), { trailingGlobal: true }), [])
+    assert.deepEqual(unpack(archive(...global('x'), ...global('y')), { trailingGlobal: true }), [])
+  })
+  it('leaves a global header with an entry after it to that entry', () => {
+    const [entry] = unpack(archive(...global('x'), header({ name: utf8('b') }), ...global('y')), { trailingGlobal: true })
+    assert.deepEqual([entry.name, entry.globalPax.get('comment'), entry.extended.map(({ kind }) => kind)], ['b', 'x', ['global']])
+  })
+  it('takes no other extended header so', () => {
+    const longname = [header({ gnu: true, typeflag: 0x4c, name: utf8('././@LongLink'), size: 2 }), padded(utf8('b\0'))]
+    for (const [what, parts, at] of [
+      ['a pax header', pax([['path', 'x']]).slice(0, 2), 1024],
+      ['a long name', longname, 1024],
+      ['a pax header after a global one', [...global('x'), ...pax([['path', 'x']]).slice(0, 2)], 2048],
+      ['a global header after a pax one', [...pax([['uid', '1']]).slice(0, 2), ...global('x')], 2048],
+    ]) {
+      assert.throws(() => unpack(archive(...parts), { trailingGlobal: true }), new RegExp(`an extended header is not followed by an entry at byte ${at}`, 'u'), what)
+    }
+  })
+  it('takes a boolean', () => {
+    for (const bad of [1, 'true', null]) assert.throws(() => unpack(pack([]), { trailingGlobal: bad }), /trailingGlobal .+ is not a boolean/u, String(bad))
+  })
+})
+
 describe('what it hands back', () => {
   it('data that views the archive where it arrived whole', () => {
     const bytes = pack([{ name: 'a', data: utf8('hello') }])

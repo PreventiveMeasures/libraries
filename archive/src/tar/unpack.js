@@ -78,13 +78,16 @@ class Unpacker {
   #done = false
   #count = 0
   #maxEntries
+  #trailingGlobal
 
   // `keep` holds entries for a repeat to be compared with, which only the
   // in-memory call can afford; the options are unpack's.
-  constructor(keep, { symlinksAbove, maxEntries = Infinity } = {}) {
+  constructor(keep, { symlinksAbove, maxEntries = Infinity, trailingGlobal = false } = {}) {
     if (maxEntries !== Infinity && !(Number.isSafeInteger(maxEntries) && maxEntries >= 0)) throw new ArchiveError(`maxEntries ${String(maxEntries)} is not a whole number of entries`)
+    if (typeof trailingGlobal !== 'boolean') throw new ArchiveError(`trailingGlobal ${String(trailingGlobal)} is not a boolean`)
     this.#names = new Names(keep, levelsAbove(symlinksAbove))
     this.#maxEntries = maxEntries
+    this.#trailingGlobal = trailingGlobal
   }
 
   // The entries a chunk completes, each as it is read, so that a chunk
@@ -155,8 +158,10 @@ class Unpacker {
     if (block === null) return false
     const at = this.#position - BLOCK
     if (isZeroBlock(block)) {
-      // A global header too: one with no entry after it stands for nothing.
-      if (this.#extended.length > 0) throw new ArchiveError('an extended header is not followed by an entry', at)
+      // A global header too: one with no entry after it stands for nothing,
+      // unless the caller takes it as GNU tar does (trailingGlobal).
+      const unused = this.#trailingGlobal ? this.#extended.filter(({ kind }) => kind !== 'global') : this.#extended
+      if (unused.length > 0) throw new ArchiveError('an extended header is not followed by an entry', at)
       if (++this.#zeros === 2) {
         this.#done = true
         const after = this.#position
