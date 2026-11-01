@@ -129,13 +129,20 @@ export async function bundle({
     resolved.add(path)
     return { path }
   }
+  // A path in a namespace of this plugin's, which esbuild prints as it is
+  // (in comments, and as a module's name), made relative to the project, as
+  // esbuild prints a file's, so that the bundle doesn't depend on where the
+  // project is; absolute, it is the path itself.
+  const named = (path, namespace) => ({ path: relative(projectRoot, path).replaceAll('\\', '/'), namespace })
+  const absolute = (path) => resolve(projectRoot, path)
   const main = { polyfills, before, projectRoot, options }
   const plugin = {
     name: 'metro-graph',
     setup(build) {
-      build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind, namespace }) => {
-        if (kind === 'entry-point') return specifier === MAIN ? { path: host.realpath(resolve(projectRoot, entry)), namespace: MAIN } : file(host.realpath(resolve(projectRoot, specifier)))
-        if (namespace === MAIN && specifier.startsWith(POLYFILL)) return { path: specifier.slice(POLYFILL.length), namespace: 'metro-polyfill' }
+      build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace }) => {
+        const importer = namespace === 'file' ? from : absolute(from)
+        if (kind === 'entry-point') return specifier === MAIN ? named(host.realpath(resolve(projectRoot, entry)), MAIN) : file(host.realpath(resolve(projectRoot, specifier)))
+        if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(specifier.slice(POLYFILL.length), 'metro-polyfill')
         if (namespace === MAIN && specifier === ENTRY) return file(importer)
         const resolution = resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
         if (!graph.has(importer)) graph.set(importer, new Map())
@@ -146,7 +153,7 @@ export async function bundle({
         if (resolution === null) return undefined
         if (resolution.type === 'empty') return { path: 'empty', namespace: 'metro-empty' }
         // Metro builds an asset into the module of its lowest path.
-        if (resolution.type === 'assetFiles') return { path: resolution.filePaths.toSorted()[0], namespace: 'metro-asset' }
+        if (resolution.type === 'assetFiles') return named(resolution.filePaths.toSorted()[0], 'metro-asset')
         return file(resolution.filePath)
       })
       build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => {
@@ -154,9 +161,9 @@ export async function bundle({
         return loadFile(options, path)
       })
       build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
-        const data = assetData(path, { urlPath: relative(projectRoot, path).replaceAll('\\', '/'), platform, host })
-        assets.set(path, data)
-        return { contents: assetModule(data, assetRegistryPath ?? reactNative.assetRegistryPath), loader: 'js', resolveDir: dirname(path) }
+        const data = assetData(absolute(path), { urlPath: path, platform, host })
+        assets.set(absolute(path), data)
+        return { contents: assetModule(data, assetRegistryPath ?? reactNative.assetRegistryPath), loader: 'js', resolveDir: dirname(absolute(path)) }
       })
       build.onLoad({ filter: ANY, namespace: 'metro-empty' }, () => ({ contents: '', loader: 'js' }))
       serializer(build, main)
@@ -188,9 +195,10 @@ function serializer(build, { polyfills, before, projectRoot, options }) {
     return { contents: specifiers.map((specifier) => `import ${JSON.stringify(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
   })
   build.onLoad({ filter: ANY, namespace: 'metro-polyfill' }, async ({ path }) => {
-    const loaded = await loadFile(options, path)
+    const file = resolve(projectRoot, path)
+    const loaded = await loadFile(options, file)
     // On its first line, so that its lines stay where they are.
-    return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(path) } : loaded
+    return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(file) } : loaded
   })
 }
 
