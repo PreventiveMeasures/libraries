@@ -35,7 +35,7 @@ export interface MetroResolverOptions {
   disableHierarchicalLookup?: boolean
   // The metro-resolver module to resolve with instead of the built-in (the
   // project's own, for its Metro's exact rules), given the context Metro's
-  // DependencyGraph builds over the host. Written for metro-resolver 0.80 on.
+  // DependencyGraph builds over the host. Written for metro-resolver 0.81 on.
   metroResolver?: { resolve(context: object, specifier: string, platform: string | null): Resolution } | null
 }
 

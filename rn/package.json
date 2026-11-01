@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn",
   "version": "1.0.0-alpha.0",
-  "description": "React Native tooling: Metro resolution and assets",
+  "description": "React Native tooling: Metro resolution, assets and bundling",
   "type": "module",
   "exports": {
     "./metro-resolver.js": {
@@ -25,6 +25,9 @@
       "default": "./babel-aliases.js"
     }
   },
+  "bin": {
+    "rn-bundle": "bin/rn-bundle.js"
+  },
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
@@ -32,6 +35,7 @@
     "assets-dest.js",
     "babel-aliases.d.ts",
     "babel-aliases.js",
+    "bin/rn-bundle.js",
     "metro-assets.d.ts",
     "metro-assets.js",
     "metro-config.d.ts",
@@ -41,6 +45,7 @@
     "src/assets-dest.js",
     "src/assets.js",
     "src/babel-aliases.js",
+    "src/bundle.js",
     "src/defaults.js",
     "src/exports.js",
     "src/image-size.js",
@@ -72,9 +77,31 @@
     "access": "public"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/plugin-transform-flow-strip-types": "^7.29.7",
+    "@babel/plugin-transform-react-jsx": "^7.29.7",
     "@preventive/vfs": "workspace:*",
     "babel-plugin-module-resolver": "^5.0.2",
+    "esbuild": "^0.28.2",
+    "esbuild-0.25": "npm:esbuild@0.25.12",
+    "flow-remove-types": "^2.338.0",
     "metro-resolver": "0.87.2",
     "oxc-parser": "^0.152.0"
+  },
+  "peerDependencies": {
+    "esbuild": ">=0.25.0",
+    "flow-remove-types": ">=2.300.0",
+    "oxc-parser": ">=0.152.0"
+  },
+  "peerDependenciesMeta": {
+    "esbuild": {
+      "optional": true
+    },
+    "flow-remove-types": {
+      "optional": true
+    },
+    "oxc-parser": {
+      "optional": true
+    }
   }
 }
