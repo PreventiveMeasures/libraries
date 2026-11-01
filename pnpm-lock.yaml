@@ -104,6 +104,15 @@ importers:
 
   report: {}
 
+  rn:
+    devDependencies:
+      '@preventive/vfs':
+        specifier: workspace:*
+        version: link:../vfs
+      metro-resolver:
+        specifier: 0.87.2
+        version: 0.87.2
+
   sourcemap:
     devDependencies:
       oxc-parser:
@@ -631,8 +640,15 @@ packages:
     resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==, tarball: https://registry.npmjs.org/css-tree/-/css-tree-3.2.1.tgz}
     engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
 
+  flow-enums-runtime@0.0.6:
+    resolution: {integrity: sha512-3PYnM29RFXwvAN6Pc/scUfkI7RwhQ/xqyLUyPNlXUp9S40zI8nup9tUSrTLSVnWGBN38FNiGWbwZOB6uR4OGdw==, tarball: https://registry.npmjs.org/flow-enums-runtime/-/flow-enums-runtime-0.0.6.tgz}
+
   mdn-data@2.27.1:
     resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==, tarball: https://registry.npmjs.org/mdn-data/-/mdn-data-2.27.1.tgz}
+
+  metro-resolver@0.87.2:
+    resolution: {integrity: sha512-5irxge/5uJ+OqPwdj4GARrSmJVMVj4mkgn5WKv83X7NP9MH/AedDStqvZaMwEaiH/mQFm5W4GDbEqx1OJJeLBg==, tarball: https://registry.npmjs.org/metro-resolver/-/metro-resolver-0.87.2.tgz}
+    engines: {node: ^22.13.0 || ^24.3.0 || >= 26.0.0}
 
   oxc-minify@0.152.0:
     resolution: {integrity: sha512-xp5WpI9+QAQBHW74FSi85gDeLczz0WzHfxOmbJUa4gCnChRMgO7qX2tn2IhmrZRnxoYD1P06o7zXYgJYCGvHNA==, tarball: https://registry.npmjs.org/oxc-minify/-/oxc-minify-0.152.0.tgz}
@@ -926,7 +942,13 @@ snapshots:
       mdn-data: 2.27.1
       source-map-js: 1.2.2
 
+  flow-enums-runtime@0.0.6: {}
+
   mdn-data@2.27.1: {}
+
+  metro-resolver@0.87.2:
+    dependencies:
+      flow-enums-runtime: 0.0.6
 
   oxc-minify@0.152.0:
     optionalDependencies:

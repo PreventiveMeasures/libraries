@@ -29,5 +29,6 @@ packages:
   - "report"
   - "sourcemap"
   - "publishers"
+  - "rn"
 
 preferWorkspacePackages: true

@@ -1,0 +1,64 @@
+{
+  "name": "@preventive/rn",
+  "version": "0.0.0",
+  "description": "React Native tooling: Metro resolution and assets",
+  "type": "module",
+  "exports": {
+    "./metro-resolver.js": {
+      "types": "./metro-resolver.d.ts",
+      "default": "./metro-resolver.js"
+    },
+    "./metro-assets.js": {
+      "types": "./metro-assets.d.ts",
+      "default": "./metro-assets.js"
+    },
+    "./assets-dest.js": {
+      "types": "./assets-dest.d.ts",
+      "default": "./assets-dest.js"
+    }
+  },
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "assets-dest.d.ts",
+    "assets-dest.js",
+    "metro-assets.d.ts",
+    "metro-assets.js",
+    "metro-resolver.d.ts",
+    "metro-resolver.js",
+    "src/assets-dest.js",
+    "src/assets.js",
+    "src/defaults.js",
+    "src/exports.js",
+    "src/image-size.js",
+    "src/resolve.js"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "rn"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/rn",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@preventive/vfs": "workspace:*",
+    "metro-resolver": "0.87.2"
+  }
+}
