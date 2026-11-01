@@ -15,10 +15,13 @@ export function babelWorkers(corePath, options) {
     const idle = workers.find(({ busy }) => busy === 0)
     if (idle !== undefined || workers.length >= max) return idle ?? workers.reduce((a, b) => (b.busy < a.busy ? b : a))
     const info = { worker: new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options } } }), busy: 0, pending: new Set() }
-    info.worker.unref()
-    // A worker that dies fails what it was given, which would wait forever.
-    info.worker.on('error', (error) => {
-      for (const reject of info.pending) reject(error)
+    // A worker that dies leaves the pool, failing what it was given, which
+    // would wait forever; one more is made where needed.
+    let failure
+    info.worker.on('error', (error) => (failure = error))
+    info.worker.on('exit', (code) => {
+      workers.splice(workers.indexOf(info), 1)
+      for (const reject of info.pending) reject(failure ?? new Error(`Babel's worker exited with code ${code}`))
     })
     workers.push(info)
     return info
@@ -27,7 +30,8 @@ export function babelWorkers(corePath, options) {
     const info = pick()
     const { port1, port2 } = new MessageChannel()
     const { promise: failed, reject } = Promise.withResolvers()
-    info.busy++
+    // Busy, a worker keeps the process alive; idle, it doesn't.
+    if (info.busy++ === 0) info.worker.ref()
     info.pending.add(reject)
     try {
       info.worker.postMessage({ port: port1, source, filename }, [port1])
@@ -35,7 +39,7 @@ export function babelWorkers(corePath, options) {
       if (error !== undefined) throw new Error(error)
       return code
     } finally {
-      info.busy--
+      if (--info.busy === 0) info.worker.unref()
       info.pending.delete(reject)
       port2.close()
     }
