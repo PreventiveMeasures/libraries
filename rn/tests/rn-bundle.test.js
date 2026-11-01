@@ -368,6 +368,9 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
     // React, which only JSX uses, for the classic runtime.
     'view.tsx': "import React from 'react'\nexport const view = () => <b>view</b>\n",
+    // React, which only types use, in TSX with no JSX: dropped.
+    'kind.ts': "import { kind } from './kind-of'\nconsole.log(JSON.stringify({ kind, react: (globalThis as any).react ?? false }))\n",
+    'kind-of.tsx': "import React from 'react'\nexport type Element = React.ReactElement\nexport const kind = 'tsx'\n",
     // A JSX pragma, which esbuild would drop with the comment.
     'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
     'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
@@ -383,7 +386,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       '',
     ].join('\n'),
     'node_modules/react/package.json': { name: 'react', version: '19.0.0' },
-    'node_modules/react/index.js': 'exports.createElement = (type, props, ...children) => ({ type, children })\n',
+    'node_modules/react/index.js': 'globalThis.react = true\nexports.createElement = (type, props, ...children) => ({ type, children })\n',
     'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' },
     'node_modules/react-native/Libraries/Utilities/codegenNativeComponent.js': 'module.exports = (name) => name\n',
     'node_modules/react-native/Libraries/NativeComponent/NativeComponentRegistry.js': 'exports.get = (name, config) => ({ name, config: config() })\n',
@@ -394,21 +397,73 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'node_modules/@react-native/babel-plugin-codegen': linked('@react-native/babel-plugin-codegen'),
   })
   after(cleanup)
-  const build = (options) => {
+  const build = (options, entry = 'main.ts') => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', 'main.ts'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
   }
 
   it('makes TS JS by esbuild as the plugin would by default; a file with a JSX pragma or a native component spec, Babel takes as it is', () => {
     assert.deepEqual(build({}), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
+    assert.deepEqual(build({}, 'kind.ts'), { kind: 'tsx', react: false })
   })
 
   it('leaves TS to Babel, where the plugin keeps imports or fields otherwise', () => {
     assert.deepEqual(build({ onlyRemoveTypeImports: true }).effects, ['effect'])
     const { field, fields } = build({ allowDeclareFields: true })
     assert.deepEqual([field, fields], [null, 2])
+  })
+})
+
+describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before it', () => {
+  // Under the keys of Babel's plugins, plugins that only record each file they run on.
+  const KEYS = ['transform-arrow-functions', 'transform-async-to-generator', 'transform-async-generator-functions', 'transform-export-namespace-from', 'transform-numeric-separator', 'syntax-hermes-parser', 'transform-flow-strip-types', 'transform-typescript']
+  const config = (options) => [
+    "const ran = (name) => ({ template }) => ({ name, visitor: { Program: { exit(path) { path.pushContainer('body', template.statement.ast('(globalThis.ran ??= []).push(' + JSON.stringify(name) + ')')) } } } })",
+    `module.exports = { plugins: [${KEYS.map((key) => `[ran(${JSON.stringify(key)}), ${JSON.stringify(options[key] ?? {})}]`).join(', ')}] }`,
+    '',
+  ].join('\n')
+  const { root, cleanup } = writeTree({
+    'main.js': [
+      "import { ns } from './lib/reexport'",
+      "import { load, twice } from './lib/work'",
+      "import { typed } from './lib/typed'",
+      "import { spec } from './lib/spec'",
+      'load().then((out) => console.log(JSON.stringify({ out, one: ns.one, typed, spec, arrow: String(twice).includes("=>"), ran: globalThis.ran })))',
+      '',
+    ].join('\n'),
+    'lib/reexport.js': "export * as ns from './ns'\n",
+    'lib/ns.js': 'export const one = 1_000\n',
+    'lib/work.js': 'export const twice = (x) => x * 2\nasync function* gen() { yield 1; yield 2 }\nexport async function load() { const out = []; for await (const x of gen()) out.push(twice(x)); return out }\n',
+    'lib/typed.ts': 'export const typed: number = 1\n',
+    // Taken by Babel as it is, with each plugin.
+    'lib/spec.js': "export const spec = 'codegenNativeComponent'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const build = (options) => {
+    writeFileSync(join(root, 'babel.config.js'), config(options))
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    const { ran, ...out } = JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
+    return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8') }
+  }
+  const once = Object.fromEntries(KEYS.map((key) => [key, 1]))
+  const js = { 'transform-flow-strip-types': 5, 'transform-typescript': 5 }
+
+  it('lowers by esbuild what such a plugin with no options lowers, and leaves it out of Babel, with those that have nothing to do after esbuild', () => {
+    const { code, ...out } = build({})
+    // Flow's plugin, which drops fields with no value, and TS's stay for JS:
+    // both are left out for TS alone. Arrows esbuild doesn't lower.
+    assert.deepEqual(out, { out: [2, 4], one: 1000, typed: 1, spec: 'codegenNativeComponent', arrow: true, ran: { ...once, ...js, 'transform-arrow-functions': 6 } })
+    assert.ok(code.includes('__asyncGenerator(') && code.includes('__forAwait('))
+  })
+
+  it('leaves to Babel what a plugin with options lowers', () => {
+    const { code, ran } = build({ 'transform-async-to-generator': { module: 'bluebird', method: 'coroutine' } })
+    assert.deepEqual(ran, { ...once, ...js, 'transform-arrow-functions': 6, 'transform-async-to-generator': 6 })
+    assert.ok(/async function load\(/u.test(code) && code.includes('__asyncGenerator('))
   })
 })
 

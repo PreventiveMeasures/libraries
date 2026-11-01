@@ -10,7 +10,9 @@
 // project's babel.config.* over each JS and TS file first, with its own
 // @babel/core, and Metro's caller and Babel env, as Metro's transformer does,
 // after esbuild makes TS JS and lowers what Babel's preset throws on (static
-// blocks, `using`); esbuild lowers the rest in the bundle, after Babel. Flow
+// blocks, `using`) and what the config's plugins lower as esbuild does
+// (async functions and generators, `export * as`), which Babel is then
+// without; esbuild lowers the rest in the bundle, after Babel. Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
 // isn't installed, Babel's config strips them, as it does a file with Flow
 // that is code (`component`, `hook`), which flow-remove-types leaves. The
@@ -146,7 +148,7 @@ function projectBabel() {
   const options = { cwd, root: cwd, configFile, caller, envName }
   return {
     transform: babelWorkers(corePath, { ...options, compact: false }),
-    typescript: async (filename) => (await core.loadOptionsAsync({ ...options, filename }))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
+    plugins: async (filename) => new Map((await core.loadOptionsAsync({ ...options, filename }))?.plugins.map((plugin) => [plugin.key, plugin.options])),
   }
 }
 
@@ -161,7 +163,7 @@ try {
     projectRoot: cwd,
     stripFlow: stripFlow(),
     babel: babel?.transform ?? null,
-    babelTypescript: babel?.typescript ?? null,
+    babelPlugins: babel?.plugins ?? null,
     assetExts: assetExts(),
     define,
     minify: values.minify,
