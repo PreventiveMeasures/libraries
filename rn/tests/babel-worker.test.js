@@ -7,6 +7,7 @@ import { babelWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
+const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))
 
 describe('babelWorkers', () => {
   const { root, cleanup } = writeTree({
@@ -20,22 +21,22 @@ describe('babelWorkers', () => {
   it('transforms in a worker, by the @babel/core given, failing with its errors', async () => {
     const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false })
     const files = await Promise.all(['a', 'b', 'c'].map((name) => transform(`const ${name} = 1 ?? 2`, join(root, `${name}.js`))))
-    assert.deepEqual(files, ['const a = 1 ?? 2;', 'const b = 1 ?? 2;', 'const c = 1 ?? 2;'])
+    assert.deepEqual(files, ['a', 'b', 'c'].map((name) => ({ code: `const ${name} = 1 ?? 2;`, imports: [] })))
     await assert.rejects(transform('const a = (b: ) => 1', join(root, 'bad.js')), /bad\.js: Unexpected token/u)
   })
 
   it("leaves out the config's plugins of the keys it is given", async () => {
     const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs')] })
-    assert.equal(await transform('a()', join(root, 'a.js')), 'a();\n"marked";')
-    assert.equal(await transform('a()', join(root, 'a.js'), ['mark']), 'a();')
-    assert.equal(await transform('a()', join(root, 'a.js'), ['other']), 'a();\n"marked";')
+    assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
+    assert.equal((await transform('a()', join(root, 'a.js'), ['mark'])).code, 'a();')
+    assert.equal((await transform('a()', join(root, 'a.js'), ['other'])).code, 'a();\n"marked";')
   })
 
   it('adds to a profile the time of each transform, and of each plugin: its files and visitor calls', async () => {
     const profile = newProfile()
     const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs')] }, profile)
-    assert.equal(await transform('a()', join(root, 'a.js')), 'a();\n"marked";')
-    assert.equal(await transform('b()', join(root, 'b.js'), ['mark']), 'b();')
+    assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
+    assert.equal((await transform('b()', join(root, 'b.js'), ['mark'])).code, 'b();')
     assert.equal(profile.files, 2)
     const { files, calls, ms } = profile.plugins.get('mark')
     assert.deepEqual([files, calls], [1, 1])
@@ -46,7 +47,15 @@ describe('babelWorkers', () => {
 
   it("profiles through the config's own visitor wrapper", async () => {
     const options = { babelrc: false, configFile: join(root, 'wrap.config.cjs'), compact: false }
-    for (const profile of [null, newProfile()]) assert.equal(await babelWorkers(CORE, options, profile)('a()', join(root, 'a.js')), 'a();\n"marked";\n"wrapped";')
+    for (const profile of [null, newProfile()]) assert.equal((await babelWorkers(CORE, options, profile)('a()', join(root, 'a.js'))).code, 'a();\n"marked";\n"wrapped";')
+  })
+
+  it("gives the specifiers of the file's import and export-from declarations, as Metro's transformer records them, though Babel makes each a require call", async () => {
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [MODULES_COMMONJS, join(root, 'mark.cjs')] })
+    const source = "import a from 'a'\nexport { b } from 'b'\nexport * from 'c'\nexport const d = require('d')\n"
+    const { code, imports } = await transform(source, join(root, 'imports.js'))
+    assert.deepEqual([...code.matchAll(/require\(["'](\w)["']\)/gu)].map(([, specifier]) => specifier).toSorted(), ['a', 'b', 'c', 'd'])
+    assert.deepEqual(imports, ['a', 'b', 'c'])
   })
 
   it('reports a profile, most time first, with that outside the plugins', () => {

@@ -141,8 +141,9 @@ function metroGraph({
   // (source, path) => source with Flow types stripped.
   stripFlow = null,
   // (source, path, without) => the project's Babel output, but for the plugins
-  // of the keys in without; with `esm`, a Set of the files left CommonJS, the
-  // rest ES modules, which esbuild links (load.js).
+  // of the keys in without, or { code, imports }, with the specifiers of the
+  // file's imports; with `esm`, a Set of the files left CommonJS, the rest ES
+  // modules, which esbuild links (load.js).
   babel = null,
   esm = false,
   // async (path) => the plugins of the project's Babel config for a file: a
@@ -189,7 +190,7 @@ function metroGraph({
         if (!reuse) fresh()
         reuse = false
       })
-      build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace }) => {
+      build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace, pluginData }) => {
         const importer = namespace === 'file' ? from : resolve(projectRoot, from)
         if (kind === 'entry-point') {
           // Looked for before it is found: an entry not there (deleted) is a file a watcher sees made.
@@ -199,7 +200,7 @@ function metroGraph({
         }
         if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
         if (namespace === MAIN && specifier === ENTRY) return file(importer)
-        const resolution = resolveImport(state, { importer, specifier, kind, aliases, platform })
+        const resolution = resolveImport(state, { importer, specifier, kind, aliases, platform, imports: pluginData?.imports })
         // Left to esbuild, which can't resolve it either: in a try block, an
         // optional dependency, as Metro takes one, which fails at run time;
         // else an error.
@@ -250,9 +251,12 @@ function serializer(build, { polyfills, before, projectRoot, load }) {
 }
 
 // What an import of `importer`'s resolves to, as Metro resolves it, put in
-// the state's graph: null where nothing.
-export function resolveImport(state, { importer, specifier, kind, aliases, platform }) {
-  const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport: kind === 'import-statement' || kind === 'dynamic-import' })
+// the state's graph: null where nothing. `imports`, the specifiers of the
+// file's imports, as its Babel output has them (load.js): a require call Babel
+// made of one resolves as an ESM import, as Metro resolves it.
+export function resolveImport(state, { importer, specifier, kind, aliases, platform, imports = [] }) {
+  const isESMImport = kind === 'import-statement' || kind === 'dynamic-import' || (kind === 'require-call' && imports.includes(specifier))
+  const resolution = state.resolveModule(importer, aliases?.(importer, specifier) ?? specifier, { platform, isESMImport })
   if (!state.graph.has(importer)) state.graph.set(importer, new Map())
   state.graph.get(importer).set(specifier, resolution)
   return resolution

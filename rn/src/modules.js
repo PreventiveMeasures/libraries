@@ -134,7 +134,7 @@ async function moduleOf(run, state, { key, kind }, visit) {
     if (source.errors !== undefined) throw Object.assign(new Error('load'), { errors: source.errors })
   }
   let built = await buildOf(run, key, source)
-  const resolve1 = (imported) => resolveImport(state, { importer: key, specifier: imported.specifier, kind: imported.kind, aliases: run.aliases, platform })
+  const resolve1 = (imported) => resolveImport(state, { importer: key, specifier: imported.specifier, kind: imported.kind, aliases: run.aliases, platform, imports: source.pluginData?.imports })
   let resolved = built.imports.map((imported) => ({ ...imported, resolution: resolve1(imported) }))
   // An import of nothing, not known as optional: esbuild says whether it is.
   if (resolved.some(({ specifier, resolution }) => resolution === null && !built.optional.has(specifier))) {

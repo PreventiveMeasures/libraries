@@ -613,8 +613,10 @@ describe('rn-bundle --babel --esm, with a Babel config that makes modules Common
       "import { area } from './lib/shapes'",
       "import { viaExports } from './lib/bound'",
       "import { partial } from './lib/partial'",
+      "import cond from 'cond'",
+      "import required from './lib/required'",
       "const esm = require('./lib/esm')",
-      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), partial, esm: [esm.default, esm.value] }))',
+      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), partial, cond, required, esm: [esm.default, esm.value] }))',
       '',
     ].join('\n'),
     'lib/cjs.js': "module.exports = () => 'made'\nmodule.exports.named = 'named'\n",
@@ -628,6 +630,11 @@ describe('rn-bundle --babel --esm, with a Babel config that makes modules Common
     // An import of what a module doesn't export, undefined in Metro's bundle.
     'lib/partial.js': "import { present, absent } from './present'\nexport const partial = [present, absent ?? null]\n",
     'lib/present.js': "export const present = 'present'\n",
+    'lib/required.js': "module.exports = require('cond')\n",
+    // As the package's exports have it, for an import and for a require call.
+    'node_modules/cond/package.json': { name: 'cond', exports: { import: './esm.js', require: './cjs.js' } },
+    'node_modules/cond/esm.js': "export default 'import'\n",
+    'node_modules/cond/cjs.js': "module.exports = 'require'\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
   })
@@ -638,7 +645,12 @@ describe('rn-bundle --babel --esm, with a Babel config that makes modules Common
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     return { code, stderr: r.stderr, out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
   }
-  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], esm: ['default', 'value'] }
+  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'] }
+
+  it('resolves an import Babel makes a require call as an ESM import, as Metro does', () => {
+    const { out } = build()
+    assert.deepEqual([out.cond, out.required], ['import', 'require'])
+  })
 
   it('leaves import and export to esbuild, which links the modules and drops what is unused of them', () => {
     const commonjs = build()

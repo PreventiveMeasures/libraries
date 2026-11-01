@@ -8,12 +8,14 @@ import { isAbsolute, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
 // (corePath, options, profile) => async (source, filename, without = []) =>
-// code, by the @babel/core at corePath, with options (all but the filename)
-// for each file, its config's plugins of the keys in without left out; with
-// options.refresh, react-refresh's Babel plugin at that path for each file
-// outside node_modules, as Metro's transformer adds it for Fast Refresh. Where
-// profile is newProfile()'s, the time of each transform is added to it, and
-// that of each plugin: its visitors' and hooks', by its key.
+// { code, imports }, by the @babel/core at corePath, with options (all but
+// the filename) for each file, its config's plugins of the keys in without
+// left out; with options.refresh, react-refresh's Babel plugin at that path
+// for each file outside node_modules, as Metro's transformer adds it for Fast
+// Refresh. `imports`, the specifiers of the file's import and export-from
+// declarations (IMPORTS). Where profile is newProfile()'s, the time of each
+// transform is added to it, and that of each plugin: its visitors' and
+// hooks', by its key.
 export function babelWorkers(corePath, options, profile = null) {
   const max = availableParallelism() >= 4 ? 2 : 1
   const workers = []
@@ -41,11 +43,11 @@ export function babelWorkers(corePath, options, profile = null) {
     info.pending.add(reject)
     try {
       info.worker.postMessage({ port: port1, source, filename, without }, [port1])
-      const [{ code, error, loc, spent }] = await Promise.race([once(port2, 'message'), failed])
+      const [{ code, imports, error, loc, spent }] = await Promise.race([once(port2, 'message'), failed])
       // Babel's error, with where in the file Babel says, if it does.
       if (error !== undefined) throw Object.assign(new Error(error), loc === undefined ? {} : { loc })
       if (spent !== undefined) addSpent(profile, spent)
-      return code
+      return { code, imports }
     } finally {
       if (--info.busy === 0) info.worker.unref()
       info.pending.delete(reject)
@@ -97,8 +99,21 @@ export function profileReport({ files, ms, plugins, own }, root) {
 if (workerData?.babel !== undefined) {
   const { corePath, options: { refresh = null, ...given }, profile } = workerData.babel
   const core = createRequire(corePath)(corePath)
+  // The specifiers of the file's import and export-from declarations, but
+  // types', as Metro's transformer records where each is (its
+  // importLocationsPlugin): the require call Babel's CommonJS makes of one,
+  // Metro resolves as an ESM import (bundle.js).
+  let imports = new Set()
+  const IMPORTS = {
+    name: 'rn-bundle-imports',
+    visitor: {
+      'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'({ node }) {
+        if (node.source != null && node.loc != null && (node.importKind ?? node.exportKind) !== 'type') imports.add(node.source.value)
+      },
+    },
+  }
   // As Metro's transformer has it, a file in node_modules has no component to edit.
-  const optionsOf = (filename) => (refresh === null || filename.includes('node_modules') ? { ...given, filename } : { ...given, filename, plugins: [...(given.plugins ?? []), [refresh, { skipEnvCheck: true }]] })
+  const optionsOf = (filename) => ({ ...given, filename, plugins: [...(given.plugins ?? []), IMPORTS, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })
   // By plugin key, the calls and own time of its visitors and hooks, in the
   // file being transformed: a call's own, not that of a plugin it calls.
   let spent = new Map()
@@ -187,10 +202,11 @@ if (workerData?.babel !== undefined) {
     const start = performance.now()
     spent = new Map()
     own = new Map()
+    imports = new Set()
     try {
       const { code } = lowerLeft(transform(source, filename, without), filename)
       const entries = (map) => [...map].map(([key, [calls, ms]]) => [key, calls, ms])
-      port.postMessage(profile ? { code, spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } } : { code })
+      port.postMessage({ code, imports: [...imports], ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
     } catch (error) {
       port.postMessage({ error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) })
     }
