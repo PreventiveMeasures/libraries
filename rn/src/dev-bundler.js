@@ -183,7 +183,7 @@ function moduleOutcome(builds, { entryFile, platform, dev, minify }, projectRoot
   for (const build of [...builds.values()].toReversed()) {
     if (build.request.platform !== platform || build.request.dev !== dev || build.request.minify !== minify || build.last?.modules === undefined) continue
     for (const record of build.last.modules.values()) {
-      if (record.name.replace(/\.[^/.]+$/u, '') !== name) continue
+      if (record.name !== name) continue
       const map = JSON.stringify(concatMaps([{ lines: 1, piece: null }, { lines: record.lines, piece: record.piece }, { lines: 1, piece: null }]))
       return withIndex({ ok: true, version: build.last.version, js: defineCall(record), map, assets: [], files: new Set() }, projectRoot)
     }

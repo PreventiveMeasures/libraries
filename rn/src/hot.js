@@ -16,7 +16,8 @@ const PARENT = '[..]'
 export const moduleName = (entryFile) => entryFile.replace(/^\.\//u, '').split('/').map((segment) => (segment === PARENT ? '..' : segment)).join('/')
 
 // The URLs of a module's code and map, as Metro has them: the client's
-// bundle URL, its path the module's, for the module alone.
+// bundle URL, its path the module's, for the module alone; but with the
+// module's extension kept, as config.js and config.json are two.
 export function moduleUrls(clientUrl, name) {
   const url = new URL(clientUrl)
   url.protocol = 'http:'
@@ -28,7 +29,7 @@ export function moduleUrls(clientUrl, name) {
   query.set('modulesOnly', 'true')
   query.set('runModule', query.get('runModule') || 'false')
   query.set('shallow', 'true')
-  const path = (ext) => `/${urlPath(name.replace(/\.[^/.]+$/u, ''))}.${ext}`
+  const path = (ext) => `/${urlPath(name)}.${ext}`
   url.pathname = path('map')
   const sourceMappingURL = url.toString()
   url.pathname = path('bundle')

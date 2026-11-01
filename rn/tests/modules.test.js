@@ -174,8 +174,8 @@ describe('the module format', () => {
       const second = await modules.rebuild()
       const update = hotUpdate(first, second, 'http://10.0.0.2:8081/index.bundle?platform=ios&dev=true&lazy=true&excludeSource=true')
       const [{ module: [id, code], sourceURL, sourceMappingURL }] = update.modified
-      assert.equal(sourceMappingURL, 'http://10.0.0.2:8081/label.map?platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true')
-      assert.equal(sourceURL, 'http://10.0.0.2:8081/label.bundle//&platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true')
+      assert.equal(sourceMappingURL, 'http://10.0.0.2:8081/label.js.map?platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true')
+      assert.equal(sourceURL, 'http://10.0.0.2:8081/label.js.bundle//&platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true')
       assert.ok(code.endsWith(`//# sourceMappingURL=${sourceMappingURL}\n//# sourceURL=${sourceURL}\n`))
       const idOf = (name) => [...second.modules.values()].find((record) => record.name === name).id
       const inverse = JSON.parse(/,(\{[^}]*\})\);\n\/\/# sourceMappingURL/u.exec(code)[1])
@@ -241,14 +241,14 @@ describe('the module format, with metro-runtime 0.81 (react-native 0.78)', () =>
 describe('moduleUrls', () => {
   it('names a module out of the project root by `[..]`, which a URL keeps, and moduleName() reads back', () => {
     const { sourceMappingURL } = moduleUrls('http://h:1/index.bundle?platform=ios', '../../ui/Component.tsx')
-    assert.equal(new URL(sourceMappingURL).pathname, '/[..]/[..]/ui/Component.map')
-    assert.equal(moduleName(bundleRequest(new URL(sourceMappingURL)).entryFile), '../../ui/Component')
+    assert.equal(new URL(sourceMappingURL).pathname, '/[..]/[..]/ui/Component.tsx.map')
+    assert.equal(moduleName(bundleRequest(new URL(sourceMappingURL)).entryFile), '../../ui/Component.tsx')
   })
 
-  it('puts the module in the path, encoded, its extension that of a bundle or a map', () => {
+  it('puts the module in the path, encoded, its extension then that of a bundle or a map', () => {
     assert.deepEqual(moduleUrls('https://h:1/x.bundle?bundleEntry=x.bundle&platform=android', 'src/a b/App.tsx'), {
-      sourceURL: 'http://h:1/src/a%20b/App.bundle//&platform=android&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true',
-      sourceMappingURL: 'http://h:1/src/a%20b/App.map?platform=android&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true',
+      sourceURL: 'http://h:1/src/a%20b/App.tsx.bundle//&platform=android&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true',
+      sourceMappingURL: 'http://h:1/src/a%20b/App.tsx.map?platform=android&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true',
     })
   })
 })

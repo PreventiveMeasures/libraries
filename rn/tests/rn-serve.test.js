@@ -457,7 +457,7 @@ describe('rn-serve, with Fast Refresh', () => {
   it('symbolicates a frame of the bundle, and of a module as an update names it', async () => {
     const code = String((await fetchRaw(bundleUrl())).body)
     const frame = { file: `${server.url}/index.bundle//&platform=ios`, ...positionOf(code, 'throw new Error("boom")') }
-    const moduleUrl = `${server.url}/lib/where.ios.bundle//&platform=ios&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true`
+    const moduleUrl = `${server.url}/lib/where.ios.js.bundle//&platform=ios&dev=true&minify=false&modulesOnly=true&runModule=false&shallow=true`
     const where = { file: moduleUrl, ...positionOf(String((await fetchRaw(moduleUrl)).body), 'var where') }
     const { stack, codeFrame } = JSON.parse(String((await fetchRaw(`${server.url}/symbolicate`, { method: 'POST', body: JSON.stringify({ stack: [frame, where] }) })).body))
     assert.deepEqual(stack.map(({ file, lineNumber }) => [file, lineNumber]), [[join(root, 'index.js'), 6], [join(root, 'lib/where.ios.js'), 1]])
@@ -479,7 +479,7 @@ describe('rn-serve, with Fast Refresh', () => {
       assert.deepEqual([start, type, done], [{ type: 'update-start', body: { isInitialUpdate: false } }, 'update', { type: 'update-done', body: {} }])
       assert.deepEqual([body.isInitialUpdate, body.added, body.deleted, body.modified.length], [false, [], [], 1])
       const [{ sourceURL, sourceMappingURL }] = body.modified
-      assert.equal(sourceURL, `${server.url}/lib/where.ios.bundle//&platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true`)
+      assert.equal(sourceURL, `${server.url}/lib/where.ios.js.bundle//&platform=ios&dev=true&lazy=true&minify=false&modulesOnly=true&runModule=false&shallow=true`)
       inject(body)
       // The entry is no boundary, and nothing set React Refresh up: metro-runtime can't refresh.
       assert.deepEqual(context.warnings, ['Could not reload the application after an edit.'])

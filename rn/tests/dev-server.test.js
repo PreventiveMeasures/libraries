@@ -194,7 +194,12 @@ describe('the dev bundler', () => {
 
 describe('the dev bundler, in the module format', () => {
   // The app in a workspace, a module of which is out of it.
-  const { root, cleanup } = writeTree({ 'app/index.js': "import { shared } from '../shared/Shared'\nglobalThis.result = shared\n", 'shared/Shared.js': "export const shared = 'shared'\n" })
+  const { root, cleanup } = writeTree({
+    'app/index.js': "import { shared } from '../shared/Shared'\nimport config from './config.json'\nimport { setup } from './config.js'\nglobalThis.result = [shared, config, setup]\n",
+    'app/config.js': "export const setup = 'js'\n",
+    'app/config.json': '{ "of": "json" }\n',
+    'shared/Shared.js': "export const shared = 'shared'\n",
+  })
   after(cleanup)
   const projectRoot = join(root, 'app')
   const runtime = createRequire(import.meta.url).resolve('metro-runtime/src/polyfills/require.js')
@@ -209,6 +214,17 @@ describe('the dev bundler, in the module format', () => {
       assert.ok(shallow?.js.startsWith('__d(function'), sourceURL)
       assert.ok(shallow.js.includes(`,${record.id},[],"../shared/Shared.js");`))
       assert.deepEqual(shallow.index().sources, [join(root, 'shared/Shared.js')])
+    } finally {
+      await devBundler.dispose()
+    }
+  })
+
+  it('tells modules of one name but their extension apart', async () => {
+    const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
+    try {
+      await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false })
+      const shallow = async (name) => (await devBundler.get(bundleRequest(new URL(toNormalUrl(moduleUrls('http://localhost:8081/index.bundle?platform=ios', name).sourceURL))))).index().sources
+      assert.deepEqual([await shallow('config.js'), await shallow('config.json')], [[join(projectRoot, 'config.js')], [join(projectRoot, 'config.json')]])
     } finally {
       await devBundler.dispose()
     }
