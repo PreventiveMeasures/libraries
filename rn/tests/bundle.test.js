@@ -131,3 +131,21 @@ describe('bundle, of an asset it cannot build', () => {
     }
   })
 })
+
+describe('bundle, of a manifest that is no JSON', () => {
+  const { root, cleanup } = writeTree({ 'package.json': '{', 'index.js': 'globalThis.result = 1\n' })
+  after(cleanup)
+
+  it('fails the build, not the bundler, and says it read it, so that a watcher sees it fixed', async () => {
+    const bundler = await createBundler({ entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root })
+    try {
+      const error = await bundler.rebuild().then(() => null, (failure) => failure)
+      assert.ok(Array.isArray(error?.errors), String(error))
+      assert.ok(error.files.includes(join(root, 'package.json')), String(error.files))
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app' }))
+      assert.equal(run(js(await bundler.rebuild())), 1)
+    } finally {
+      await bundler.dispose()
+    }
+  })
+})

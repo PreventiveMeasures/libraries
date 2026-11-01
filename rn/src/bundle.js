@@ -118,14 +118,12 @@ function metroGraph({
   cache = null,
 }, { reuseFirst }) {
   const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap }
-  // A new resolver each build, which reads each package.json anew, and
-  // counts it among the files the build read.
-  const fresh = () => {
-    const read = new Set()
-    const resolveModule = createMetroResolver({ host: reading(host, read), assetExts })
-    return { resolveModule, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform), graph: new Map(), assets: new Map(), resolved: new Set(), read }
-  }
-  let state = fresh()
+  let state = null
+  const fresh = () => newState({ host, assetExts, projectRoot, entry, platform }, (made) => {
+    state = made
+  })
+  // bundle()'s, made before its build; createBundler()'s, as each starts.
+  if (reuseFirst) fresh()
   const before = () => runBeforeMain ?? state.reactNative.runBeforeMain
   const load = (path) => {
     state.read.add(path)
@@ -141,7 +139,7 @@ function metroGraph({
     setup(build) {
       let reuse = reuseFirst
       build.onStart(() => {
-        if (!reuse) state = fresh()
+        if (!reuse) fresh()
         reuse = false
       })
       build.onResolve({ filter: ANY }, ({ path: specifier, importer, kind, namespace }) => {
@@ -181,7 +179,7 @@ function metroGraph({
     graph: state.graph,
     files: [...state.read],
   })
-  return { plugin, result, before, files: () => [...state.read] }
+  return { plugin, result, before, files: () => [...(state?.read ?? [])] }
 }
 
 // The main module, and each polyfill, which is loaded as any file and run as
@@ -196,6 +194,18 @@ function serializer(build, { polyfills, before, projectRoot, load }) {
     // On its first line, so that its lines stay where they are.
     return loaded.errors === undefined ? { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(path) } : loaded
   })
+}
+
+// A build's state, given to `publish`: a new resolver, which reads each
+// package.json anew and counts each file it reads; given before what of
+// react-native runs before the entry is found, so that a manifest that fails
+// it (no JSON) is among the build's files.
+function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
+  const read = new Set()
+  const resolveModule = createMetroResolver({ host: reading(host, read), assetExts })
+  const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
+  publish(made)
+  publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
 }
 
 // The host, each file read through it added to `read`.
