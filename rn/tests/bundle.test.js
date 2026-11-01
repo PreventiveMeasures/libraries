@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
 import { bundle, createBundler } from '../src/bundle.js'
-import { writeTree } from './fixtures.js'
+import { png, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
 const esbuild = require('esbuild')
@@ -102,6 +102,28 @@ describe('bundle', () => {
       const map = new SourceMap(JSON.parse(result.outputFiles.find(({ path }) => path.endsWith('.map')).text))
       const { originalSource, originalLine, originalColumn } = map.findEntry(line, lines[line].indexOf('throw'))
       assert.deepEqual([basename(originalSource), originalLine + 1, originalColumn], ['typed.ts', 5, 2], transform === null ? 'esbuild' : 'Babel')
+    }
+  })
+})
+
+describe('bundle, of an asset it cannot build', () => {
+  const { root, cleanup } = writeTree({
+    'index.js': "globalThis.result = require('react-native/Libraries/Image/AssetRegistry').getAssetByID(require('./img/logo.png')).width\n",
+    'img/logo.png': '',
+    'node_modules/react-native/Libraries/Image/AssetRegistry.js': 'const assets = []\nexports.registerAsset = (asset) => assets.push(asset)\nexports.getAssetByID = (id) => assets[id - 1]\n',
+  })
+  after(cleanup)
+
+  it('says it read the asset, so that a watcher sees it fixed', async () => {
+    const bundler = await createBundler({ entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root })
+    try {
+      const error = await bundler.rebuild().then(() => null, (failure) => failure)
+      assert.match(error?.errors?.[0]?.text ?? '', /cannot be an empty file/u)
+      assert.ok(error.files.includes(join(root, 'img/logo.png')), String(error.files))
+      writeFileSync(join(root, 'img/logo.png'), png(20, 10))
+      assert.equal(run(js(await bundler.rebuild())), 20)
+    } finally {
+      await bundler.dispose()
     }
   })
 })
