@@ -1,20 +1,14 @@
-// An image asset's width and height, as Metro reads them (its
-// lib/imageSize.js): by the parser of the asset's type, else by the first of
-// the others that reads the bytes, as Metro has long read assets by what they
-// hold rather than what they are named. Mirrors Metro 0.87, MIT licensed,
-// Copyright (c) Meta Platforms, Inc. and affiliates, whose parsers derive
-// from image-size's (notice at the end).
+// Image sizes as Metro 0.87's lib/imageSize.js reads them (MIT, Copyright (c)
+// Meta Platforms, Inc. and affiliates), its parsers derived from image-size's
+// (notice at the end).
 
 import { Buffer } from 'node:buffer'
 
 const MAX_SVG_HEADER_LENGTH = 64 * 1024
 const KTX1 = Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x31, 0x31, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])
 const KTX2 = Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])
-const KTX_LE = Buffer.from([0x01, 0x02, 0x03, 0x04])
-const KTX_BE = Buffer.from([0x04, 0x03, 0x02, 0x01])
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
-// The bytes as a Buffer over the same memory, whatever view they came in.
 export const asBuffer = (bytes) => (Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
 
 const hasBytes = (content, offset, length) => Number.isSafeInteger(offset) && Number.isSafeInteger(length) && offset >= 0 && length >= 0 && offset <= content.length && length <= content.length - offset
@@ -37,7 +31,6 @@ function parseGif(content) {
 const isStandaloneJpegMarker = (marker) => marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)
 const isJpegStartOfFrame = (marker) => marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
 
-// The first start-of-frame segment's, walking the segments up to the scan.
 function parseJpeg(content) {
   if (!hasBytes(content, 0, 4) || content[0] !== 0xff || content[1] !== 0xd8) return null
   let offset = 2
@@ -63,16 +56,16 @@ function parseJpeg(content) {
 
 function parseKtx(content) {
   if (hasBytes(content, 0, 64) && startsWith(content, KTX1)) {
-    const endianness = content.subarray(12, 16)
-    if (endianness.equals(KTX_LE)) return { width: content.readUInt32LE(36), height: content.readUInt32LE(40) }
-    if (endianness.equals(KTX_BE)) return { width: content.readUInt32BE(36), height: content.readUInt32BE(40) }
+    const endianness = content.readUInt32LE(12)
+    if (endianness === 0x04030201) return { width: content.readUInt32LE(36), height: content.readUInt32LE(40) }
+    if (endianness === 0x01020304) return { width: content.readUInt32BE(36), height: content.readUInt32BE(40) }
     return null
   }
   if (hasBytes(content, 0, 80) && startsWith(content, KTX2)) return { width: content.readUInt32LE(20), height: content.readUInt32LE(24) }
   return null
 }
 
-// IHDR's, first; or, in Apple's CgBI PNG, right after the CgBI chunk.
+// IHDR, first or after Apple's CgBI chunk.
 function parsePng(content) {
   if (!hasBytes(content, 0, 24) || !startsWith(content, PNG)) return null
   const firstLength = content.readUInt32BE(8)
@@ -91,8 +84,7 @@ function parsePsd(content) {
 
 const SVG_UNITS = { in: 96, cm: 96 / 2.54, em: 16, ex: 8, mm: 96 / 2.54 / 10, pc: (96 / 72) * 12, pt: 96 / 72, px: 1 }
 
-// The index of the `>` closing the tag that starts at `start`, past quoted
-// attribute values.
+// The `>` closing the tag at `start`, past quoted values.
 function tagEnd(input, start) {
   let quote = null
   for (let index = start; index < input.length; index++) {
@@ -121,8 +113,6 @@ function svgViewBox(value) {
   return { width: values[2], height: values[3] }
 }
 
-// The root <svg>'s width and height in px, the viewBox's aspect filling in
-// one missing, else the viewBox's own.
 function parseSvg(content) {
   const header = content.subarray(0, Math.min(content.length, MAX_SVG_HEADER_LENGTH)).toString('utf8')
   const start = /<svg(?:\s|>)/u.exec(header)?.index
@@ -145,7 +135,6 @@ function parseSvg(content) {
 const tiff16 = (content, offset, bigEndian) => (bigEndian ? content.readUInt16BE(offset) : content.readUInt16LE(offset))
 const tiff32 = (content, offset, bigEndian) => (bigEndian ? content.readUInt32BE(offset) : content.readUInt32LE(offset))
 
-// A dimension tag's single SHORT or LONG value, else null.
 function tiffDimension(content, entry, bigEndian) {
   if (tiff32(content, entry + 4, bigEndian) !== 1) return null
   const type = tiff16(content, entry + 2, bigEndian)
@@ -154,7 +143,6 @@ function tiffDimension(content, entry, bigEndian) {
   return null
 }
 
-// ImageWidth's and ImageLength's, in the first IFD.
 function parseTiff(content) {
   if (!hasBytes(content, 0, 8)) return null
   const order = ascii(content, 0, 2)
@@ -176,7 +164,6 @@ function parseTiff(content) {
   return found.width !== undefined && found.height !== undefined ? { width: found.width, height: found.height } : null
 }
 
-// The first chunk of VP8X, VP8L or VP8 that says.
 function parseWebp(content) {
   if (!hasBytes(content, 0, 20) || ascii(content, 0, 4) !== 'RIFF' || ascii(content, 8, 12) !== 'WEBP') return null
   let offset = 12
@@ -202,12 +189,10 @@ function parseWebp(content) {
   return null
 }
 
-// Metro's image types, each by its parser, in the order Metro falls back
-// through them.
+// Metro's image types, in the order it falls back through their parsers.
 const PARSERS = new Map([['bmp', parseBmp], ['gif', parseGif], ['jpeg', parseJpeg], ['jpg', parseJpeg], ['ktx', parseKtx], ['png', parsePng], ['psd', parsePsd], ['svg', parseSvg], ['tiff', parseTiff], ['webp', parseWebp]])
 const FALLBACKS = new Set(PARSERS.values())
 
-// Whether Metro takes an asset of `type` as an image, whose size it reads.
 export const isAssetTypeAnImage = (type) => PARSERS.has(type)
 
 const tryParse = (parser, content) => {
@@ -218,10 +203,7 @@ const tryParse = (parser, content) => {
   }
 }
 
-// The width and height of the image `bytes` of an asset of `type` holds, by
-// the parser for the type, else the first other that reads them; `filePath`
-// names it in the error thrown where none does, or none reads a positive
-// finite size.
+// By the type's parser, else the first other that reads the bytes.
 export function imageDimensions(type, bytes, filePath) {
   const content = asBuffer(bytes)
   const parsers = PARSERS.has(type) ? new Set([PARSERS.get(type), ...FALLBACKS]) : FALLBACKS
@@ -230,8 +212,7 @@ export function imageDimensions(type, bytes, filePath) {
   return { width, height }
 }
 
-// image-size, from which these parsers derive (by way of Metro), is under the
-// MIT License:
+// image-size is under the MIT License:
 //
 // Copyright (c) 2013-Present Aditya Yadav, http://netroy.in
 //

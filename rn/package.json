@@ -27,14 +27,11 @@
     "metro-resolver.d.ts",
     "metro-resolver.js",
     "src/assets-dest.js",
-    "src/host.js",
-    "src/metro/asset-paths.js",
-    "src/metro/assets.js",
-    "src/metro/defaults.js",
-    "src/metro/exports.js",
-    "src/metro/image-size.js",
-    "src/metro/package.js",
-    "src/metro/resolve.js"
+    "src/assets.js",
+    "src/defaults.js",
+    "src/exports.js",
+    "src/image-size.js",
+    "src/resolve.js"
   ],
   "engines": {
     "node": ">=24.14.0"

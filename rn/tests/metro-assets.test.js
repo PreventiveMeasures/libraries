@@ -5,8 +5,8 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { assetData, assetModule, assetRecord, isAssetFile } from '../metro-assets.js'
-import { parseAssetPath } from '../src/metro/asset-paths.js'
-import { imageDimensions, isAssetTypeAnImage } from '../src/metro/image-size.js'
+import { parseAssetPath } from '../src/assets.js'
+import { imageDimensions, isAssetTypeAnImage } from '../src/image-size.js'
 import { png, vfsOf, writeTree } from './fixtures.js'
 
 describe('parseAssetPath', () => {

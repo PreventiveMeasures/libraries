@@ -9,7 +9,7 @@ import { createVfs } from '@preventive/vfs'
 const isLink = (content) => content !== null && typeof content === 'object' && 'link' in content
 const dataOf = (content) => (typeof content === 'string' || content instanceof Uint8Array ? content : JSON.stringify(content))
 
-// The tree on disk under a fresh directory, by its real path. -> { root, cleanup }
+// -> { root, cleanup }, `root` a real path.
 export function writeTree(tree) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'rn-test-')))
   for (const [rel, content] of Object.entries(tree)) {
@@ -27,8 +27,7 @@ export const vfsOf = (tree) => createVfs(Object.fromEntries(Object.entries(tree)
 // A tree's files under node_modules/<name>.
 export const pkg = (name, files) => Object.fromEntries(Object.entries(files).map(([rel, content]) => [`node_modules/${name}/${rel}`, content]))
 
-// A resolution with its paths from `root`, posix: `<empty>`, a path, or the
-// paths of an asset's files joined by `,`; null for none.
+// A resolution as paths from `root`, an asset's joined by `,`.
 export function shown(root, resolution) {
   if (resolution == null) return null
   const rel = (path) => relative(root, path).split(sep).join('/')

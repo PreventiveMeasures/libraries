@@ -8,12 +8,8 @@ import { createMetroResolver, defaults } from '../metro-resolver.js'
 import { TREE, requestsIn } from './metro-tree.js'
 import { shown, writeTree } from './fixtures.js'
 
-// createMetroResolver against metro-resolver itself (a devDependency, at the
-// version the resolver mirrors), over one tree on disk: every case, on every
-// platform, from a require() and from an import, must resolve alike. The
-// context metro-resolver gets is the one Metro's DependencyGraph builds,
-// written out here from Metro's file map rather than from the resolver under
-// test.
+// createMetroResolver against metro-resolver itself, given the context
+// Metro's DependencyGraph builds, written here apart from the code under test.
 const require = createRequire(import.meta.url)
 const { resolve: metroResolve } = require('metro-resolver')
 const { default: createDefaultContext } = require('metro-resolver/private/createDefaultContext')
@@ -26,8 +22,7 @@ const kind = (path) => {
   }
 }
 
-// Metro's file map's hierarchicalLookup(path, 'package.json', { breakOnSegment:
-// 'node_modules' }), the directory found by its real path.
+// Metro's file map's hierarchicalLookup of package.json, breaking on node_modules.
 function packageForModule(path) {
   const found = (dir, rel) => ({ rootPath: realpathSync(dir), packageJson: JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')), packageRelativePath: rel })
   if (kind(path)?.isDirectory() && kind(join(path, 'package.json'))?.isFile()) return found(path, '')
@@ -43,8 +38,7 @@ function packageForModule(path) {
   return null
 }
 
-// metro-resolver's resolve, with Metro's own context, as Metro's
-// ModuleResolution calls it: a failure to resolve is null.
+// metro-resolver's resolve as ModuleResolution calls it; a failure is null.
 function metro(options) {
   const assetExts = new Set(options.assetExts ?? defaults.assetExts)
   const lookup = (path) => {
@@ -128,8 +122,7 @@ describe('createMetroResolver resolves as metro-resolver does', () => {
     assert.deepEqual(differences({ ...options, disableHierarchicalLookup: true }), [])
   })
 
-  // Metro's reading of what the cases above only compare, pinned:
-  // [label, importer, specifier, expected, request options].
+  // [label, importer, specifier, expected, request options]
   const PINNED = [
     ['a file with the platform as its only extension is no candidate', 'index.js', './src/u', 'src/u.js'],
     ['a trailing slash asks for a directory', 'index.js', './src/k/', 'src/k/index.js'],
