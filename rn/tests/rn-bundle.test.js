@@ -17,6 +17,7 @@ const APP = {
     "import { greet } from '#lib/greet'",
     "import { typed } from './lib/typed'",
     "import { generic } from './lib/generic'",
+    "import { untagged } from './lib/untagged'",
     "import dual from 'dual'",
     "import { optional } from './lib/optional'",
     "import font from './fonts/Inter.ttf'",
@@ -27,7 +28,7 @@ const APP = {
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
     "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, untagged, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -43,6 +44,8 @@ const APP = {
   'lib/types.js': '// @flow\nexport type T = string\n',
   // Flow that parses as JS, as another thing: `(box < string) > 'generic'.value`.
   'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
+  // As much, with no @flow: Flow where Babel's config parses Flow in each file, and --flow does.
+  'lib/untagged.js': "const box = (value) => ({ value })\nexport class Tag { value = 1 }\nexport const untagged = box<string>('untagged').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
   'broken.js': "import './lib/broken'\n",
@@ -85,7 +88,7 @@ describe('rn-bundle', () => {
     const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
-    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'untagged', 'rn', 'none', false, 'production'])
     assert.deepEqual(out.ids.toSorted(), [1, 2, 3])
     const [logo, icon, font] = out.assets
     assert.deepEqual(logo, { __packager_asset: true, httpServerLocation: '/assets/img', width: 20, height: 10, scales: [1, 2, 3], hash: md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'), name: 'logo', type: 'png' })
@@ -165,16 +168,18 @@ const babelConfig = (plugins) => [
 ].join('\n')
 const BABEL_APP = {
   ...APP,
-  'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx']),
+  // Flow parsed in each file, @flow or not.
+  'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], ['@babel/plugin-transform-flow-strip-types', { all: true }], '@babel/plugin-transform-react-jsx']),
   'modern.js': [
     "import { Counter, syntax as counter } from './lib/counter'",
     "import { generic, syntax as flow } from './lib/generic'",
+    "import { syntax as untagged } from './lib/untagged'",
     "import { syntax as decorated } from './lib/decorated'",
     "import { Card, syntax as card } from './lib/card'",
     "import { syntax as note } from './lib/note'",
     'const c = Counter.make().bump().bump()',
     "const k = new Card({ title: 'hi' })",
-    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, decorated, card, note } }))',
+    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, untagged, decorated, card, note } }))',
     '',
   ].join('\n'),
   'lib/counter.js': [
@@ -227,12 +232,13 @@ const BABEL_APP = {
 }
 
 // What modern.js prints, built with --babel: each JS and TS file lowered by
-// esbuild before Babel, but a @flow file's and decorated file's classes.
+// esbuild before Babel, but the classes of a file with type arguments, @flow
+// or not, and of a decorated file.
 const MODERN = {
   counter: [4, 1, true, true, false],
   generic: 'generic',
   card: ['base', 'card', { type: 'Text', renders: 1, children: ['hi'] }, 2],
-  syntax: { counter: [], flow: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
+  syntax: { counter: [], flow: ['ClassProperty'], untagged: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
 }
 
 describe('rn-bundle --babel', () => {
@@ -246,7 +252,7 @@ describe('rn-bundle --babel', () => {
     const r = run(['--platform=ios', '--babel', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
-    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'untagged', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
 
@@ -295,14 +301,14 @@ describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () 
     const r = run(['--platform=ios', '--babel', '--flow', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
-    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.platform], ['ios', 'hi', 'flow', 'generic', 'ios'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.platform], ['ios', 'hi', 'flow', 'generic', 'untagged', 'ios'])
   })
 
   it('lowers each JS file by esbuild after, Flow files too', () => {
     const r = run(['--platform=ios', '--babel', '--flow', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('modern.out.js')
-    assert.deepEqual(out, { ...MODERN, syntax: { ...MODERN.syntax, flow: [] } })
+    assert.deepEqual(out, { ...MODERN, syntax: { ...MODERN.syntax, flow: [], untagged: [] } })
   })
 })
 
