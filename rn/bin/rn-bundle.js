@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // rn-bundle --platform=ios --output=main.js [--dev] [--assets-dest=DIR]
-//   [--jsx] [--flow|--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
+//   [--jsx] [--flow] [--babel] [--define=K=V ...] [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
 // --assets-dest as `react-native bundle` lays them out. A release build, as
 // `react-native bundle --dev=false` makes it, unless --dev. --babel runs the
 // project's babel.config.* over each JS and TS file first, with its own
-// @babel/core, and Metro's caller and Babel env, as Metro's transformer does.
-// The extensions metro.config.js lists among `assetExts` are assets too, read
-// off it, never run: by oxc-parser where installed, else in the usual form by
-// a regex.
+// @babel/core, and Metro's caller and Babel env, as Metro's transformer does,
+// after esbuild makes TS JS and lowers what it can. --flow strips Flow types
+// first (flow-remove-types). The extensions metro.config.js lists among
+// `assetExts` are assets too, read off it, never run: by oxc-parser where
+// installed, else in the usual form by a regex.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -45,7 +46,6 @@ const fail = (message) => {
 if (positionals.length !== 1) fail('one entry file is required')
 if (values.platform === undefined) fail('--platform is required, e.g. --platform=ios')
 if (values.output === undefined) fail('--output is required')
-if (values.babel && values.flow) fail("--babel compiles Flow with the project's Babel config; --flow strips it without: pass one")
 if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 
 // __DEV__ and process.env.NODE_ENV as Metro's prelude sets them for --dev or
@@ -115,9 +115,18 @@ function projectBabel() {
   // The env Metro's transformer names, which plugins read for a release
   // build: react-native-worklets omits each worklet's location and source map.
   const envName = values.dev ? 'development' : process.env.BABEL_ENV || 'production'
-  return async (source, filename) => (await core.transformAsync(source, { cwd, root: cwd, configFile, filename, caller, envName, compact: false })).code
+  const options = (filename) => ({ cwd, root: cwd, configFile, filename, caller, envName })
+  return {
+    transform: async (source, filename) => (await core.transformAsync(source, { ...options(filename), compact: false })).code,
+    typescript: async (filename) => (await core.loadOptionsAsync(options(filename)))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
+    comments: async (source, filename) => {
+      const plugins = ['typescript', 'decorators', ...(filename.endsWith('.tsx') ? ['jsx'] : [])]
+      return (await core.parseAsync(source, { babelrc: false, configFile: false, filename, parserOpts: { plugins } })).comments.map(({ value }) => value)
+    },
+  }
 }
 
+const babel = values.babel ? projectBabel() : null
 let result
 try {
   result = await bundle({
@@ -128,7 +137,9 @@ try {
     projectRoot: cwd,
     jsx: values.jsx,
     stripFlow: flowRemoveTypes && ((source) => flowRemoveTypes(source, { all: true, removeEmptyImports: true }).toString()),
-    babel: values.babel ? projectBabel() : null,
+    babel: babel?.transform ?? null,
+    babelTypescript: babel?.typescript ?? null,
+    babelComments: babel?.comments ?? null,
     assetExts: assetExts(),
     define,
     aliases: values['babel-aliases'] === undefined ? null : babelAliases(values['babel-aliases']),

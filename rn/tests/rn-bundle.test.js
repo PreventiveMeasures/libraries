@@ -16,6 +16,8 @@ const APP = {
     "import { where } from './lib/where'",
     "import { greet } from '#lib/greet'",
     "import { typed } from './lib/typed'",
+    "import { generic } from './lib/generic'",
+    "import { untagged } from './lib/untagged'",
     "import dual from 'dual'",
     "import { optional } from './lib/optional'",
     "import font from './fonts/Inter.ttf'",
@@ -26,7 +28,7 @@ const APP = {
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
     "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, untagged, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -40,6 +42,10 @@ const APP = {
   'node_modules/dep/index.js': '',
   'lib/typed.js': "// @flow\nimport type { T } from './types'\nexport const typed: string = 'flow'\n",
   'lib/types.js': '// @flow\nexport type T = string\n',
+  // Valid JS too, as `(box < string) > 'generic'.value`.
+  'lib/generic.js': "// @flow\nconst box = (value) => ({ value })\nexport class Box { value = 1 }\nexport const generic = box<string>('generic').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
+  // The same with no @flow, which Babel's `all: true` reads as Flow.
+  'lib/untagged.js': "const box = (value) => ({ value })\nexport class Tag { value = 1 }\nexport const untagged = box<string> /* a comment */ ('untagged').value\nexport const syntax = typeof __SYNTAX__ === 'undefined' ? null : __SYNTAX__\n",
   'enum.js': "import { Mode } from './lib/mode'\nconsole.log(Mode)\n",
   'lib/mode.js': '// @flow\nexport enum Mode { A, B }\n',
   'broken.js': "import './lib/broken'\n",
@@ -82,7 +88,7 @@ describe('rn-bundle', () => {
     const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
-    assert.deepEqual([out.where, out.greet, out.typed, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'rn', 'none', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'untagged', 'rn', 'none', false, 'production'])
     assert.deepEqual(out.ids.toSorted(), [1, 2, 3])
     const [logo, icon, font] = out.assets
     assert.deepEqual(logo, { __packager_asset: true, httpServerLocation: '/assets/img', width: 20, height: 10, scales: [1, 2, 3], hash: md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'), name: 'logo', type: 'png' })
@@ -141,20 +147,92 @@ describe('rn-bundle', () => {
 
 // The project's own Babel, as an app installs it: the workspace's copies linked in.
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
+// __SYNTAX__ is the class syntax and decorators a file still has when Babel
+// gets it; the decorators are then taken off.
+const babelConfig = (plugins) => [
+  'module.exports = (api) => {',
+  '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
+  "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
+  '  const syntaxOf = ({ types: t }) => ({',
+  '    pre() { this.seen = new Set() },',
+  '    visitor: {',
+  "      'ClassProperty|ClassPrivateProperty|ClassPrivateMethod|StaticBlock|Decorator'(path) { this.seen.add(path.type); if (path.isDecorator()) path.remove() },",
+  "      Identifier(path) { if (path.node.name === '__SYNTAX__') path.replaceWith(t.valueToNode([...this.seen].toSorted())) },",
+  '    },',
+  '  })',
+  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), syntaxOf] }`,
+  '}',
+  '',
+].join('\n')
 const BABEL_APP = {
   ...APP,
-  'babel.config.js': [
-    'module.exports = (api) => {',
-    '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
-    "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
-    "  return { plugins: [['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-flow-strip-types', '@babel/plugin-transform-react-jsx', platformOf, inline('__BABEL_ENV__', api.env())] }",
-    '}',
+  'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], ['@babel/plugin-transform-flow-strip-types', { all: true }], '@babel/plugin-transform-react-jsx']),
+  'modern.js': [
+    "import { Counter, syntax as counter } from './lib/counter'",
+    "import { generic, syntax as flow } from './lib/generic'",
+    "import { syntax as untagged } from './lib/untagged'",
+    "import { syntax as decorated } from './lib/decorated'",
+    "import { Card, syntax as card } from './lib/card'",
+    "import { syntax as note } from './lib/note'",
+    'const c = Counter.make().bump().bump()',
+    "const k = new Card({ title: 'hi' })",
+    'console.log(JSON.stringify({ counter: [c.count, Counter.made, Counter.ready, Counter.owns(c), Counter.owns({})], generic, card: [k.context, Card.kind, k.render(), k.render().renders], syntax: { counter, flow, untagged, decorated, card, note } }))',
     '',
   ].join('\n'),
+  'lib/counter.js': [
+    'export class Counter {',
+    '  static #made = 0',
+    '  static { Counter.ready = true }',
+    '  #count = 0',
+    '  step = 2',
+    '  static make() { Counter.#made++; return new Counter() }',
+    '  #bump() { this.#count += this.step; return this }',
+    '  bump() { return this.#bump() }',
+    '  get count() { return this.#count }',
+    '  static owns(value) { return #count in value }',
+    '  static get made() { return Counter.#made }',
+    '}',
+    'export const syntax = __SYNTAX__',
+    '',
+  ].join('\n'),
+  // React is used only by JSX, which Babel's classic runtime needs it for;
+  // `context` has no value, so Metro drops it and the base class's stays.
+  'lib/card.tsx': [
+    "import React, { Component } from 'react'",
+    "import { Shape } from './shape'",
+    'export class Card extends Component<{ title: string }> {',
+    '  declare shape: Shape',
+    '  context!: string',
+    "  static kind = 'card'",
+    '  #renders = 0',
+    '  render() {',
+    '    this.#renders++',
+    '    return <Text renders={this.#renders}>{this.props.title as string}</Text>',
+    '  }',
+    '}',
+    "const Text = 'Text'",
+    'export const syntax = __SYNTAX__',
+    '',
+  ].join('\n'),
+  'lib/shape.ts': 'export type Shape = { width: number }\n',
+  'bad-ts.js': "import './lib/bad'\n",
+  'lib/bad.ts': 'const a: = 1\n',
+  'lib/note.ts': "const field = (name: string) => () => {}\nexport class Note {\n  static table = 'notes'\n  @field('body') body!: string\n}\nexport const syntax = __SYNTAX__\n",
+  'node_modules/react/package.json': { name: 'react', version: '19.0.0' },
+  'node_modules/react/index.js': "class Component { constructor(props) { this.props = props; this.context = 'base' } }\nmodule.exports = { Component, createElement: (type, props, ...children) => ({ type, ...props, children }) }\n",
+  // A decorated field, as in WatermelonDB models.
+  'lib/decorated.js': "const field = () => () => {}\nexport class Post {\n  static table = 'posts'\n  @field('title') title\n}\nexport const syntax = __SYNTAX__\n",
   'node_modules/@babel/core': linked('@babel/core'),
   'node_modules/@babel/plugin-transform-flow-strip-types': linked('@babel/plugin-transform-flow-strip-types'),
   'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
   'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
+}
+
+const MODERN = {
+  counter: [4, 1, true, true, false],
+  generic: 'generic',
+  card: ['base', 'card', { type: 'Text', renders: 1, children: ['hi'] }, 2],
+  syntax: { counter: [], flow: ['ClassProperty'], untagged: ['ClassProperty'], decorated: ['ClassProperty', 'Decorator'], card: [], note: ['ClassProperty', 'Decorator'] },
 }
 
 describe('rn-bundle --babel', () => {
@@ -168,7 +246,7 @@ describe('rn-bundle --babel', () => {
     const r = run(['--platform=ios', '--babel', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
-    assert.deepEqual([out.where, out.greet, out.typed, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'rn', 'none', 'ios', false, 'production'])
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'untagged', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
 
@@ -185,12 +263,128 @@ describe('rn-bundle --babel', () => {
     assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
   })
 
-  it('takes neither --flow nor --babel-aliases with it', () => {
-    for (const other of ['--flow', '--babel-aliases=aliases.json']) {
-      const r = run(['--platform=ios', '--babel', other, '--output=out.js', 'index.js'])
-      assert.equal(r.status, 1)
-      assert.match(r.stderr, /pass one/u)
-    }
+  it('makes each TS file JS and lowers each file by esbuild before Babel, but for Flow and decorators', () => {
+    const r = run(['--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
+  })
+
+  it('fails on a TS file esbuild cannot parse', () => {
+    const r = run(['--platform=ios', '--babel', '--output=out.js', 'bad-ts.js'])
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /Unexpected "="[\s\S]*lib\/bad\.ts:1:9/u)
+  })
+
+  it('takes no --babel-aliases with it', () => {
+    const r = run(['--platform=ios', '--babel', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /pass one/u)
+  })
+})
+
+describe('rn-bundle --babel --flow, with a Babel config that takes no Flow', () => {
+  const { root, cleanup } = writeTree({ ...BABEL_APP, 'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-react-jsx']) })
+  after(cleanup)
+  const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
+  const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
+
+  it('strips the Flow types of each file that has them before Babel', () => {
+    const noFlow = run(['--platform=ios', '--babel', '--output=ios.js', 'index.js'])
+    assert.equal(noFlow.status, 1)
+    assert.match(noFlow.stderr, /Babel: [\s\S]*typed\.js/u)
+    const r = run(['--platform=ios', '--babel', '--flow', '--output=ios.js', 'index.js'])
+    assert.equal(r.status, 0, r.stderr)
+    const out = output('ios.js')
+    assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.untagged, out.platform], ['ios', 'hi', 'flow', 'generic', 'untagged', 'ios'])
+  })
+
+  it('lowers each JS file by esbuild after, Flow files too', () => {
+    const r = run(['--platform=ios', '--babel', '--flow', '--output=modern.out.js', 'modern.js'])
+    assert.equal(r.status, 0, r.stderr)
+    const out = output('modern.out.js')
+    assert.deepEqual(out, { ...MODERN, syntax: { ...MODERN.syntax, flow: [], untagged: [] } })
+  })
+})
+
+describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
+  // As @react-native/babel-preset has the TS plugin, for .ts and .tsx, and
+  // its codegen; __FIELDS__ is the number of class fields Babel gets.
+  const config = (options) => [
+    'module.exports = {',
+    "  plugins: ['@react-native/babel-plugin-codegen', ['@babel/plugin-transform-react-jsx', { pragma: 'h' }], ({ types: t }) => ({ pre() { this.fields = 0 }, visitor: { ClassProperty() { this.fields++ }, Identifier(path) { if (path.node.name === '__FIELDS__') path.replaceWith(t.numericLiteral(this.fields)) } } })],",
+    '  overrides: [',
+    `    { test: /\\.ts$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify(options)}]] },`,
+    `    { test: /\\.tsx$/, plugins: [['@babel/plugin-transform-typescript', ${JSON.stringify({ ...options, isTSX: true })}]] },`,
+    '  ],',
+    '}',
+    '',
+  ].join('\n')
+  const { root, cleanup } = writeTree({
+    'babel.config.js': config({}),
+    'main.ts': [
+      "import { type Effect } from './effect'",
+      "import { hook } from './hook'",
+      "import { view } from './view'",
+      "import { pragma } from './pragma'",
+      "import { inline } from './inline'",
+      "import { strings } from './strings'",
+      "import { Child, fields } from './fields'",
+      "import Button from './ButtonNativeComponent'",
+      'const effects: Effect[] = (globalThis as any).effects ?? []',
+      'const button = { name: (Button as any).name, color: (Button as any).config.validAttributes.color }',
+      'console.log(JSON.stringify({ effects, hook, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null, fields, button }))',
+      '',
+    ].join('\n'),
+    // Has a side effect; imported only for its type.
+    'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
+    'h.ts': 'export const h = (type: string, props: unknown, ...children: unknown[]) => ({ type, children })\n',
+    // The JSX pragma's import, with no JSX: unused.
+    'hook.tsx': "import { h } from './factory'\nexport const hook = 'hook'\n",
+    'factory.ts': ";((globalThis as any).effects ??= []).push('factory')\nexport const h = () => null\n",
+    'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
+    'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
+    'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
+    // A pragma in a string isn't one; a real one may follow a URL's `//`.
+    'strings.tsx': "import { h as r } from './h'\nexport const text = '/* @jsx nope */', url = 'https://example.com' /** @jsx r */\nexport const strings = () => <s>{text}</s>\n",
+    'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\nexport const fields = __FIELDS__\n",
+    // The codegen makes a view config of the props it reads off the spec's types.
+    'ButtonNativeComponent.ts': [
+      "import type { ViewProps } from 'react-native'",
+      "import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent'",
+      'interface NativeProps extends ViewProps {',
+      '  color?: string',
+      '}',
+      "export default codegenNativeComponent<NativeProps>('Button')",
+      '',
+    ].join('\n'),
+    'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' },
+    'node_modules/react-native/Libraries/Utilities/codegenNativeComponent.js': 'module.exports = (name) => name\n',
+    'node_modules/react-native/Libraries/NativeComponent/NativeComponentRegistry.js': 'exports.get = (name, config) => ({ name, config: config() })\n',
+    'node_modules/react-native/Libraries/NativeComponent/ViewConfigIgnore.js': 'exports.ConditionallyIgnoredEventHandlers = (handlers) => handlers\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
+    'node_modules/@babel/plugin-transform-typescript': linked('@babel/plugin-transform-typescript'),
+    'node_modules/@react-native/babel-plugin-codegen': linked('@react-native/babel-plugin-codegen'),
+  })
+  after(cleanup)
+  const build = (options) => {
+    writeFileSync(join(root, 'babel.config.js'), config(options))
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', 'main.ts'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
+  }
+
+  it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], hook: 'hook', view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
+  })
+
+  it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {
+    assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect', 'factory'])
+  })
+
+  it('keeps a field with no value, with allowDeclareFields, its class left to Babel', () => {
+    const { field, fields } = build({ jsxPragma: 'h', allowDeclareFields: true })
+    assert.deepEqual([field, fields], [null, 2])
   })
 })
 
@@ -206,7 +400,7 @@ describe('rn-bundle --babel, with no Babel config', () => {
 })
 
 describe('rn-bundle with the project\'s own esbuild', () => {
-  const { root, cleanup } = writeTree({ ...APP, 'node_modules/esbuild': linked('esbuild-0.25') })
+  const { root, cleanup } = writeTree({ ...BABEL_APP, 'node_modules/esbuild': linked('esbuild-0.25') })
   after(cleanup)
 
   it('builds with it, from 0.25 on', () => {
@@ -216,6 +410,13 @@ describe('rn-bundle with the project\'s own esbuild', () => {
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
     assert.deepEqual([out.where, out.greet, out.typed, out.dual], ['ios', 'hi', 'flow', 'rn'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
+  })
+
+  it('lowers with it before Babel, from 0.25 on', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stderr, /\(esbuild 0\.25\.\d+\)/u)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
   })
 })
 
