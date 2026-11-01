@@ -98,6 +98,20 @@ describe('NPM_TOKEN', () => {
     assert.deepEqual(calls, [['https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', undefined]])
   })
 
+  it('never goes with the check, for osv, that the registry serves a name to anyone', async () => {
+    const calls = []
+    globalThis.fetch = (url, init = {}) => {
+      calls.push([init.method ?? 'GET', String(url), init.headers?.Authorization])
+      if (init.method === 'HEAD') return Promise.resolve(new Response(null, { status: 404 }))
+      return Promise.resolve(Response.json({}))
+    }
+    assert.deepEqual(await advisories([{ ecosystem: 'npm', name: '@acme/private', versions: ['1.0.0'] }], { osv: true }), [])
+    assert.deepEqual(calls.toSorted(), [
+      ['HEAD', 'https://registry.npmjs.org/@acme/private', undefined],
+      ['POST', 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', undefined],
+    ], 'and OSV never asked')
+  })
+
   it("is only ever for a GET of that name's own URLs on the registry", () => {
     const auth = (name, url, options) => withNpmToken(name, url, options).headers?.Authorization
     assert.equal(auth('@acme/private', 'https://registry.npmjs.org/@acme/private/latest'), BEARER)
