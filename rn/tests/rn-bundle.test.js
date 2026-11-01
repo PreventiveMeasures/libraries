@@ -406,17 +406,20 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'babel.config.js': config({}),
     'main.ts': [
       "import { type Effect } from './effect'",
+      "import { Mark } from './mark'",
       "import { view } from './view'",
       "import { pragma } from './pragma'",
       "import { Child, fields } from './fields'",
       "import Button from './ButtonNativeComponent'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
+      'const mark: Mark | null = null',
       'const button = { name: (Button as any).name, color: (Button as any).config.validAttributes.color }',
       'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), field: new Child().value ?? null, fields, button }))',
       '',
     ].join('\n'),
     // Has a side effect; imported only for its type.
     'effect.ts': ";((globalThis as any).effects ??= []).push('effect')\nexport type Effect = string\n",
+    'mark.ts': ";((globalThis as any).effects ??= []).push('mark')\nexport type Mark = string\n",
     // React, which only JSX uses, for the classic runtime.
     'view.tsx': "import React from 'react'\nexport const view = () => <b>view</b>\n",
     // React, which only types use, in TSX with no JSX: dropped.
@@ -448,9 +451,9 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'node_modules/@react-native/babel-plugin-codegen': linked('@react-native/babel-plugin-codegen'),
   })
   after(cleanup)
-  const build = (options, entry = 'main.ts') => {
+  const build = (options, entry = 'main.ts', ...args) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
   }
@@ -461,9 +464,15 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   })
 
   it('leaves TS to Babel, where the plugin keeps imports or fields otherwise', () => {
-    assert.deepEqual(build({ onlyRemoveTypeImports: true }).effects, ['effect'])
-    const { field, fields } = build({ allowDeclareFields: true })
-    assert.deepEqual([field, fields], [null, 2])
+    for (const args of [[], ['--esm']]) {
+      assert.deepEqual(build({ onlyRemoveTypeImports: true }, 'main.ts', ...args).effects, ['effect', 'mark'])
+      const { field, fields } = build({ allowDeclareFields: true }, 'main.ts', ...args)
+      assert.deepEqual([field, fields], [null, 2])
+    }
+  })
+
+  it('with --esm, loads TS as the JS Babel makes of it', () => {
+    assert.deepEqual(build({}, 'main.ts', '--esm'), build({}))
   })
 })
 
@@ -592,6 +601,65 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
     const r = build([])
     assert.equal(r.status, 0, r.stderr)
     assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /for \(let key of/u)
+  })
+})
+
+describe('rn-bundle --babel --esm, with a Babel config that makes modules CommonJS', () => {
+  const { root, cleanup } = writeTree({
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
+    'index.js': [
+      "import make, { named } from './lib/cjs'",
+      "import { used } from './lib/named'",
+      "import { area } from './lib/shapes'",
+      "import { viaExports } from './lib/bound'",
+      "import { partial } from './lib/partial'",
+      "const esm = require('./lib/esm')",
+      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), partial, esm: [esm.default, esm.value] }))',
+      '',
+    ].join('\n'),
+    'lib/cjs.js': "module.exports = () => 'made'\nmodule.exports.named = 'named'\n",
+    'lib/named.js': "export const used = 'used'\nexport const unused = 'UNUSED-EXPORT'\n",
+    'lib/esm.js': "export default 'default'\nexport const value = 'value'\n",
+    // A type's export, as esbuild keeps it of TS it makes JS one file at a time.
+    'lib/shapes.ts': "export { Shape, area } from './shape'\n",
+    'lib/shape.ts': 'export type Shape = { side: number }\nexport const area = (side: number): number => side * side\n',
+    // A module that names `exports`: Babel's CommonJS binds it to the module's.
+    'lib/bound.js': "export const own = 'own'\nexport const viaExports = () => exports.own\n",
+    // An import of what a module doesn't export, undefined in Metro's bundle.
+    'lib/partial.js': "import { present, absent } from './present'\nexport const partial = [present, absent ?? null]\n",
+    'lib/present.js': "export const present = 'present'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
+  })
+  after(cleanup)
+  const build = (...args) => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    const code = readFileSync(join(root, 'out.js'), 'utf8')
+    return { code, stderr: r.stderr, out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
+  }
+  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], esm: ['default', 'value'] }
+
+  it('leaves import and export to esbuild, which links the modules and drops what is unused of them', () => {
+    const commonjs = build()
+    assert.deepEqual(commonjs.out, OUT)
+    assert.ok(/\brequire_named\b/u.test(commonjs.code) && commonjs.code.includes('UNUSED-EXPORT'))
+    const esm = build('--esm')
+    assert.deepEqual(esm.out, OUT)
+    assert.ok(!/\brequire_(?:named|shapes|shape|index)\b/u.test(esm.code) && !esm.code.includes('UNUSED-EXPORT'))
+    // CommonJS: a file that is, and a module that names `exports`, as Babel makes it.
+    assert.ok(/\brequire_cjs\b/u.test(esm.code) && /\brequire_bound\b/u.test(esm.code))
+  })
+
+  it('leaves CommonJS a file in which esbuild finds an import of what a module does not export, warning of it', () => {
+    const { code, stderr } = build('--esm')
+    assert.ok(/\brequire_partial\b/u.test(code) && !/\brequire_present\b/u.test(code))
+    assert.match(stderr, /▲ \[WARNING\] No matching export in "lib\/present\.js" for import "absent": left CommonJS, as Metro has it, the import undefined\n\n {4}lib\/partial\.js:1:18:/u)
+  })
+
+  it('takes --esm only with --babel', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--esm', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: --esm keeps ES modules through --babel: pass it\n'])
   })
 })
 

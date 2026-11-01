@@ -1,7 +1,9 @@
 // Each file as esbuild loads it: Flow stripped, then, with Babel, lowered by
 // esbuild where Babel's preset throws and where the config's plugins lower
 // alike, then run through the project's Babel config but for those plugins;
-// with `sourcemap`, each step's map carried to the next.
+// with `sourcemap`, each step's map carried to the next. With `esm`, a Set of
+// the files left CommonJS, Babel leaves the rest's import and export to
+// esbuild, which links the modules.
 
 import { Buffer } from 'node:buffer'
 import { extname, relative } from 'node:path'
@@ -49,12 +51,19 @@ const INERT_TS = ['transform-typescript', 'syntax-typescript', 'transform-flow-s
 const MAYBE_TYPE_ARGUMENTS = /(?<!=)>(?:\s|\/\/.*|\/\*[\s\S]*?\*\/)*[(`]/u
 // Options of Babel's TS plugin that change which fields and imports it keeps.
 const TS_OPTIONS = ['onlyRemoveTypeImports', 'allowDeclareFields', 'jsxPragma', 'jsxPragmaFrag']
+// With `esm`, the config's plugin that makes modules CommonJS is left out:
+// esbuild links them, as it does without Babel. But not in a module that may
+// name `module` or `exports`, which Babel's CommonJS binds to its own, and
+// esbuild leaves unbound in an ES module.
+const COMMONJS = 'transform-modules-commonjs'
+const MODULE_SYNTAX = /\b(?:import|export)\b/u
+const COMMONJS_NAMES = /\b(?:module|exports)\b/u
 // Appended to TSX with JSX so that esbuild keeps React's import, which JSX,
 // left to Babel, uses (the classic runtime), as Babel's TS plugin keeps it.
 const USE_REACT = 'typeof React;\n'
 
 // The file's contents as esbuild loads them: { contents, loader } or { errors }.
-export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap = false }, path, contents) {
+export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap = false, esm = false }, path, contents) {
   const loader = LOADERS.get(extname(path)) ?? 'jsx'
   if (babel !== null && loader !== 'json') {
     let source = { code: contents, without: [] }
@@ -69,8 +78,11 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!Array.isArray(error?.errors)) throw error
       return { errors: error.errors }
     }
+    const esModule = esm !== false && !esm.has(path) && !(MODULE_SYNTAX.test(source.code) && COMMONJS_NAMES.test(source.code))
     try {
-      return { contents: await babel(source.code, path, source.without), loader: 'js' }
+      // TS, as Babel makes it JS, loaded as TS by esbuild, which then takes an
+      // export of what it finds no export of for a type's, as it takes TS.
+      return { contents: await babel(source.code, path, esModule ? [...source.without, COMMONJS] : source.without), loader: loader === 'ts' || loader === 'tsx' ? 'ts' : 'js' }
     } catch (error) {
       // In the file Babel failed on, not at the import esbuild loaded it by;
       // at Babel's line where it had the file as it is, not esbuild's output.

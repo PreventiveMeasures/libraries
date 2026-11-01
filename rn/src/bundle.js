@@ -28,6 +28,9 @@ export const LOWERED = {
   'import-attributes': false,
   using: false,
 }
+// TS as Babel makes it JS, which esbuild loads as TS (load.js), read as the
+// JS it is: each import kept, fields defined.
+const TS_AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
 const decoder = new TextDecoder()
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
@@ -42,29 +45,61 @@ const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !
 // -> { outputFiles, warnings, assets: AssetData[], graph: Map<importer, Map<specifier, Resolution>>, files: string[] }:
 // `files`, those the build read, and those the resolver looked for.
 export async function bundle(options) {
-  // Its one build takes the state made to know what runs before the entry.
-  const graph = metroGraph(options, { reuseFirst: true })
-  const main = graph.before().length > 0 || (options.polyfills?.length ?? 0) > 0
-  return graph.result(await options.esbuild.build(buildOptions(options, graph, { main, lowersLet: await lowersLetOf(options) })))
+  const lowersLet = await lowersLetOf(options)
+  const esm = options.esm === true ? new Set() : false
+  // Each file loaded, for a build made again (linking()).
+  const cache = options.cache ?? (esm === false ? null : new Map())
+  return linking({ ...options, esm, cache }, async () => {
+    // Each build takes the state made to know what runs before the entry.
+    const graph = metroGraph({ ...options, esm, cache }, { reuseFirst: true })
+    const main = graph.before().length > 0 || (options.polyfills?.length ?? 0) > 0
+    return graph.result(await options.esbuild.build(buildOptions(options, graph, { main, lowersLet })))
+  })
 }
 
 // bundle(), to build again and again on one esbuild context: each build
 // resolves and reads every file anew, but for `cache`'s.
 export async function createBundler(options) {
-  const graph = metroGraph(options, { reuseFirst: false })
+  const esm = options.esm === true ? new Set() : false
+  const graph = metroGraph({ ...options, esm }, { reuseFirst: false })
   // Through the main module always, as what runs before the entry may change.
   const context = await options.esbuild.context(buildOptions(options, graph, { main: true, lowersLet: await lowersLetOf(options).catch(() => false) }))
   return {
     // Throws as esbuild does, the error's `files` those the build read and looked for.
     rebuild: async () => {
       try {
-        return graph.result(await context.rebuild())
+        return await linking({ ...options, esm }, async () => graph.result(await context.rebuild()))
       } catch (error) {
         if (error !== null && typeof error === 'object') error.files = graph.files()
         throw error
       }
     },
     dispose: () => context.dispose(),
+  }
+}
+
+// A build, made again while esbuild fails to link imports of what an ES
+// module doesn't export: each file it finds one in is then left CommonJS
+// (`esm`, a Set of them), the import undefined, as Metro has it; a warning
+// of each.
+// A file's namespace, as esbuild's messages have it.
+const FILE = new Set(['', 'file'])
+async function linking({ esm, cache = null, projectRoot = process.cwd() }, build) {
+  const warnings = []
+  for (;;) {
+    try {
+      const result = await build()
+      return { ...result, warnings: [...warnings, ...result.warnings] }
+    } catch (error) {
+      const unlinked = (esm === false ? [] : (error?.errors ?? [])).filter(({ text, location }) => text.startsWith('No matching export in ') && FILE.has(location?.namespace) && !esm.has(resolve(projectRoot, location.file)))
+      if (unlinked.length === 0) throw error
+      for (const message of unlinked) {
+        const path = resolve(projectRoot, message.location.file)
+        esm.add(path)
+        cache?.delete(path)
+        warnings.push({ ...message, text: `${message.text}: left CommonJS, as Metro has it, the import undefined` })
+      }
+    }
   }
 }
 
@@ -91,6 +126,7 @@ function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}
     supported: babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) },
     logLevel: 'silent',
     plugins: [plugin],
+    ...(babel !== null && { tsconfigRaw: TS_AS_JS }),
     ...(prelude !== null && { banner: { js: prelude } }),
     ...(sourcemap && { sourcemap: 'external' }),
   }
@@ -105,8 +141,10 @@ function metroGraph({
   // (source, path) => source with Flow types stripped.
   stripFlow = null,
   // (source, path, without) => the project's Babel output, but for the plugins
-  // of the keys in without.
+  // of the keys in without; with `esm`, a Set of the files left CommonJS, the
+  // rest ES modules, which esbuild links (load.js).
   babel = null,
+  esm = false,
   // async (path) => the plugins of the project's Babel config for a file: a
   // Map of their keys to their options, or, for a key of more than one
   // plugin, to { instances }, the options of each.
@@ -129,7 +167,7 @@ function metroGraph({
   // while its contents are the same; for one set of the options above.
   cache = null,
 }, { reuseFirst }) {
-  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap }
+  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm }
   let state = null
   const fresh = () => newState({ host, assetExts, projectRoot, entry, platform }, (made) => {
     state = made
@@ -137,10 +175,7 @@ function metroGraph({
   // bundle()'s, made before its build; createBundler()'s, as each starts.
   if (reuseFirst) fresh()
   const before = () => runBeforeMain ?? state.reactNative.runBeforeMain
-  const load = (path) => {
-    state.read.add(path)
-    return loadCached(options, host, cache, path)
-  }
+  const load = (path) => loadCached(options, reading(host, state.read), cache, path)
   // The files Metro resolved, which alone esbuild may load.
   const file = (path) => {
     state.resolved.add(path)
