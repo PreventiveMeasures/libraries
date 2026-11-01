@@ -29,7 +29,8 @@ const APP = {
     "const icon = require('./img/icon.png')",
     "const platform = typeof __PLATFORM__ === 'undefined' ? null : __PLATFORM__",
     "const babelEnv = typeof __BABEL_ENV__ === 'undefined' ? null : __BABEL_ENV__",
-    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
+    "const nodeEnv = typeof __NODE_ENV__ === 'undefined' ? null : __NODE_ENV__",
+    'console.log(JSON.stringify({ where, greet: greet(), typed, generic, dual, optional, platform, babelEnv, nodeEnv, dev: __DEV__, env: process.env.NODE_ENV, ids: [logo, icon, font], assets: [logo, icon, font].map(getAssetByID) }))',
     '',
   ].join('\n'),
   'lib/where.ios.js': "export const where = 'ios'\n",
@@ -177,6 +178,8 @@ const babelConfig = (plugins) => [
   'module.exports = (api) => {',
   '  const inline = (name, value) => ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === name) path.replaceWith(t.stringLiteral(value)) } } })',
   "  const platformOf = inline('__PLATFORM__', api.caller((caller) => caller && caller.platform))",
+  '  // NODE_ENV as a plugin reads it, as it transforms.',
+  "  const nodeEnvOf = ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === '__NODE_ENV__') path.replaceWith(t.stringLiteral(String(process.env.NODE_ENV))) } } })",
   '  const syntaxOf = ({ types: t }) => ({',
   '    pre() { this.seen = new Set() },',
   '    visitor: {',
@@ -184,7 +187,7 @@ const babelConfig = (plugins) => [
   "      Identifier(path) { if (path.node.name === '__SYNTAX__') path.replaceWith(t.valueToNode([...this.seen].toSorted())) },",
   '    },',
   '  })',
-  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), syntaxOf] }`,
+  `  return { parserOpts: { plugins: ['decorators-legacy'] }, plugins: [${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}, platformOf, inline('__BABEL_ENV__', api.env()), nodeEnvOf, syntaxOf] }`,
   '}',
   '',
 ].join('\n')
@@ -290,6 +293,17 @@ describe('rn-bundle --babel', () => {
     assert.equal(babelEnv([], { BABEL_ENV: 'staging' }), 'staging')
     assert.equal(babelEnv(['--dev']), 'development')
     assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
+  })
+
+  it('sets NODE_ENV for Babel\'s plugins as `react-native bundle` does: production, unless --dev', () => {
+    const nodeEnv = (args, env) => {
+      const r = run(['--platform=ios', ...args, '--babel', '--output=env.js', 'index.js'], env)
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).nodeEnv
+    }
+    assert.equal(nodeEnv([]), 'production')
+    assert.equal(nodeEnv([], { NODE_ENV: 'development' }), 'production')
+    assert.equal(nodeEnv(['--dev'], { NODE_ENV: 'production' }), 'development')
   })
 
   it('makes each TS file JS by esbuild before Babel, lowering the rest after it', () => {

@@ -73,6 +73,10 @@ for (const pair of values.define) {
   if (at < 1) fail(`--define takes K=V, not ${pair}`)
   define[pair.slice(0, at)] = pair.slice(at + 1)
 }
+// As `react-native bundle` sets it, before Metro's workers start, for Babel's
+// plugins to read: Reanimated's (3), for production, leaves out each
+// worklet's location and source map.
+process.env.NODE_ENV = values.dev ? 'development' : 'production'
 
 const cwd = process.cwd()
 const fromProject = createRequire(resolve(cwd, 'package.json'))
