@@ -788,6 +788,32 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   })
 })
 
+describe("rn-bundle --babel, with Babel's plugins of classes, modules and block scoping", () => {
+  // Each as Babel's visits nodes: of classes, `export default`, for a class's.
+  const plugin = (name, visitor) => `() => ({ name: '${name}', visitor: { ${visitor} } })`
+  const { root, cleanup } = writeTree({
+    'babel.config.js': `module.exports = { plugins: [${plugin('transform-classes', 'ExportDefaultDeclaration() {}, Class() {}')}, ${plugin('transform-modules-commonjs', 'Program() {}')}, ${plugin('transform-block-scoping', 'Program() {}')}] }\n`,
+    'index.js': "import a from './a'\nimport B from './b'\nconsole.log(JSON.stringify([a, new B().b, require('./c')]))\n",
+    'a.js': "export default 'a'\n",
+    'b.js': "export default class { b = 'b' }\n",
+    // A script, which names `import` and `export` in strings alone.
+    'c.js': "module.exports = ['import', 'export'].join() && 'c'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+
+  it('leaves each out of Babel in a file that gives it nothing to do', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'c'])
+    const files = (key) => Number(new RegExp(`^ +\\d+ +[\\d.]+ +(\\d+) +\\d+ {2}${key}$`, 'mu').exec(r.stderr)?.[1] ?? 0)
+    // Classes, in the file with one; modules, in those with import or
+    // export, and the script whose strings name them; block scoping, in the
+    // file with a class and the script.
+    assert.deepEqual(['transform-classes', 'transform-modules-commonjs', 'transform-block-scoping'].map(files), [1, 4, 2])
+  })
+})
+
 describe('rn-bundle --babel, with no Babel config', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)
