@@ -331,8 +331,10 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       "import { type Effect } from './effect'",
       "import { view } from './view'",
       "import { pragma } from './pragma'",
+      "import { inline } from './inline'",
+      "import { Child } from './fields'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
-      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma() }))',
+      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), field: new Child().value ?? null }))',
       '',
     ].join('\n'),
     // A module with an effect, imported for its type alone.
@@ -341,6 +343,10 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     // h, which only JSX uses: kept for the config's jsxPragma, then for the file's @jsx.
     'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
     'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
+    // A pragma Babel reads where it shares its line with code.
+    'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
+    // A field with no value: a type alone, unless allowDeclareFields.
+    'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/plugin-transform-typescript': linked('@babel/plugin-transform-typescript'),
@@ -354,11 +360,15 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   }
 
   it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
-    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] } })
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, field: 'base' })
   })
 
   it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {
     assert.deepEqual(build({ jsxPragma: 'h', onlyRemoveTypeImports: true }).effects, ['effect'])
+  })
+
+  it('keeps a field with no value, with allowDeclareFields', () => {
+    assert.equal(build({ jsxPragma: 'h', allowDeclareFields: true }).field, null)
   })
 })
 
