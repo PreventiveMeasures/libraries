@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { LockfileError, parsePodfileLock } from '../../cocoapods.js'
 import { sha1Hex } from '../../src/cocoapods/sha1.js'
 import { random } from '../random.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 const sha = (char) => char.repeat(40)
 const COMMIT = '0123456789abcdef0123456789abcdef01234567'
@@ -287,9 +292,9 @@ describe('in time linear in its length', () => {
     const line = (index) => `  P${'x'.repeat(16400)}${index}: ${sha('a')}`
     // One flat string, so that the time is the reader's alone.
     const text = ['SPEC CHECKSUMS:', ...Array.from({ length: 2000 }, (_, index) => line(index)), ''].join('\n')
-    const start = performance.now()
+    const start = cpuUsage()
     refuses(text, 'a key longer than 1024 characters, which Psych does not read at line 2')
-    const took = performance.now() - start
+    const took = cpuMs(start)
     assert.ok(took < 1000, `${Math.round(took)} ms`)
   })
 })

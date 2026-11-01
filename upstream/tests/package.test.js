@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 
 import { getRepo } from '../package.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // getRepo over a package.json as it sits on disk, rather than the
 // registry's document for one: the npm lookup's own tests cover the
@@ -151,9 +156,9 @@ describe('getRepo', () => {
   it('reads a long run of `.git` in linear time', { timeout: 10_000 }, () => {
     // A registry document is the publisher's: a regex backtracking over the run would take minutes.
     for (const repository of ['acme/app' + '.git'.repeat(200_000), 'https://github.com/acme/app' + '.git'.repeat(200_000) + '!']) {
-      const started = performance.now()
+      const started = cpuUsage()
       getRepo({ repository })
-      assert.ok(performance.now() - started < 1000, repository.slice(0, 27))
+      assert.ok(cpuMs(started) < 1000, repository.slice(0, 27))
     }
   })
 

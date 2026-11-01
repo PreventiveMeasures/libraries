@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { Vfs, VfsError, createVfs } from '../vfs.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 const fails = (fn, code, path) => assert.throws(fn, { name: 'VfsError', code, ...(path === undefined ? {} : { path }) })
 
@@ -103,9 +108,9 @@ describe('files', () => {
     const fs = new Vfs()
     fs.writeFile('/log', 'first\n')
     const early = fs.readFile('/log')
-    const started = performance.now()
+    const started = cpuUsage()
     for (let i = 0; i < 100000; i++) fs.appendFile('/log', 'line\n')
-    assert.ok(performance.now() - started < 2000, 'a hundred thousand appends')
+    assert.ok(cpuMs(started) < 2000, 'a hundred thousand appends')
     assert.equal(fs.stat('/log').size, 6 + 5 * 100000)
     assert.equal(fs.readText('/log').slice(0, 16), 'first\nline\nline\n')
     assert.deepEqual(early, new TextEncoder().encode('first\n'))

@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { hrtime } from 'node:process'
+import { cpuUsage } from 'node:process'
 import { DiffError, diffLines, sameLines, verifyChangeSet } from '../src/myers.js'
 import { applyRecords } from '../src/apply.js'
 import { lineComparisonKey, splitRecords } from '../src/compare.js'
 import { formatContext, formatNormal, formatUnified } from '../src/format.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // The change set is the thing under test here, not its rendering: every
 // change set diffLines returns has to reconstruct the second input, and
@@ -141,9 +145,9 @@ describe('rendering a change set is GNU rendering, for every style', () => {
 
 describe('the search stays fast', () => {
   const budget = (label, run, ms) => {
-    const started = hrtime.bigint()
+    const started = cpuUsage()
     run()
-    const took = Number(hrtime.bigint() - started) / 1e6
+    const took = cpuMs(started)
     assert.ok(took < ms, `${label}: took ${took.toFixed(0)}ms, budget ${ms}ms`)
   }
   it('two hundred thousand mostly shared lines', () => {
