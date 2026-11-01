@@ -60,7 +60,8 @@ export function babelWorkers(corePath, options, profile = null) {
 const OWN = ['config', 'parsing', 'scopes', 'printing']
 
 // { files, ms, plugins, own }, which babelWorkers adds to: plugins a
-// Map<key, { files, calls, ms }>, own one by each of OWN.
+// Map<key, { files, calls, ms }>, `files` those a plugin's visitors (or its
+// parser or printer) ran in, not all it is in; own one by each of OWN.
 export function newProfile() {
   return { files: 0, ms: 0, plugins: new Map(), own: new Map() }
 }
@@ -69,9 +70,9 @@ function addSpent(profile, { ms, plugins, own }) {
   profile.files++
   profile.ms += ms
   for (const [map, entries] of [[profile.plugins, plugins], [profile.own, own]]) {
-    for (const [key, calls, time] of entries) {
+    for (const [key, calls, time, worked] of entries) {
       const sum = map.get(key) ?? { files: 0, calls: 0, ms: 0 }
-      map.set(key, { files: sum.files + 1, calls: sum.calls + calls, ms: sum.ms + time })
+      map.set(key, { files: sum.files + (worked ? 1 : 0), calls: sum.calls + calls, ms: sum.ms + time })
     }
   }
 }
@@ -120,11 +121,13 @@ if (workerData?.babel !== undefined) {
   let inner = 0
   // Plugin calls, and Babel's own work timed, under way.
   let depth = 0
-  const add = (map, key, ms) => {
-    const [calls, time] = map.get(key) ?? [0, 0]
-    map.set(key, [calls + 1, time + ms])
+  // Each call counted, its file one the plugin worked in where it does:
+  // a visitor's, a parser's or printer's, not a pre or post hook's.
+  const add = (map, key, ms, works = true) => {
+    const [calls, time, worked] = map.get(key) ?? [0, 0, false]
+    map.set(key, [calls + 1, time + ms, worked || works])
   }
-  const timed = (key, fn) =>
+  const timed = (key, fn, works = true) =>
     function (...args) {
       const start = performance.now()
       const before = inner
@@ -134,7 +137,7 @@ if (workerData?.babel !== undefined) {
       } finally {
         depth--
         const elapsed = performance.now() - start
-        add(spent, key, elapsed - (inner - before))
+        add(spent, key, elapsed - (inner - before), works)
         inner = before + elapsed
       }
     }
@@ -167,7 +170,7 @@ if (workerData?.babel !== undefined) {
   const timeHooks = (plugin) => {
     if (hooked.has(plugin)) return
     hooked.add(plugin)
-    for (const hook of ['pre', 'post', 'parserOverride', 'generatorOverride']) if (typeof plugin[hook] === 'function') plugin[hook] = timed(plugin.key, plugin[hook])
+    for (const hook of ['pre', 'post', 'parserOverride', 'generatorOverride']) if (typeof plugin[hook] === 'function') plugin[hook] = timed(plugin.key, plugin[hook], hook.endsWith('Override'))
   }
   // Sync: a worker transforms one file at a time.
   const transform = (source, filename, without) => {
@@ -179,7 +182,7 @@ if (workerData?.babel !== undefined) {
     const plugins = config.plugins.filter(({ key }) => !without.includes(key))
     if (!profile) return core.transformSync(source, { ...config, plugins })
     plugins.forEach(timeHooks)
-    for (const { key } of plugins) spent.set(key, [0, 0])
+    for (const { key } of plugins) spent.set(key, [0, 0, false])
     // Timed as the config's own visitor wrapper, if any, makes it.
     const wrap = config.wrapPluginVisitorMethod
     return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
@@ -205,7 +208,7 @@ if (workerData?.babel !== undefined) {
     imports = new Set()
     try {
       const { code } = lowerLeft(transform(source, filename, without), filename)
-      const entries = (map) => [...map].map(([key, [calls, ms]]) => [key, calls, ms])
+      const entries = (map) => [...map].map(([key, [calls, ms, worked]]) => [key, calls, ms, worked])
       port.postMessage({ code, imports: [...imports], ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
     } catch (error) {
       port.postMessage({ error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) })

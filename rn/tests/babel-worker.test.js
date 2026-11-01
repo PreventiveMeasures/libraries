@@ -12,6 +12,8 @@ const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transf
 describe('babelWorkers', () => {
   const { root, cleanup } = writeTree({
     'broken.cjs': "throw new Error('broken core')\n",
+    // A pre hook, run in each file, and a visitor of classes, in a file with one.
+    'classy.cjs': "module.exports = () => ({ name: 'classy', pre() {}, visitor: { ClassDeclaration() {} } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
     // A config with its own visitor wrapper, which marks after mark's visitor.
     'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
@@ -32,14 +34,16 @@ describe('babelWorkers', () => {
     assert.equal((await transform('a()', join(root, 'a.js'), ['other'])).code, 'a();\n"marked";')
   })
 
-  it('adds to a profile the time of each transform, and of each plugin: its files and visitor calls', async () => {
+  it('adds to a profile the time of each transform, and of each plugin: the files its visitors ran in, and their calls', async () => {
     const profile = newProfile()
-    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs')] }, profile)
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs'), join(root, 'classy.cjs')] }, profile)
     assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
-    assert.equal((await transform('b()', join(root, 'b.js'), ['mark'])).code, 'b();')
+    assert.equal((await transform('class B {}', join(root, 'b.js'), ['mark'])).code, 'class B {}')
     assert.equal(profile.files, 2)
     const { files, calls, ms } = profile.plugins.get('mark')
     assert.deepEqual([files, calls], [1, 1])
+    // In both files, its visitor run in one: its pre hook's calls count, not their files.
+    assert.deepEqual([profile.plugins.get('classy').files, profile.plugins.get('classy').calls], [1, 3])
     assert.ok(ms > 0 && profile.ms > ms)
     // Babel's own, in each file: its config loaded, parsed, its scope crawled, printed.
     assert.deepEqual([...profile.own].map(([name, own]) => [name, own.files, own.calls >= 1, own.ms > 0]).toSorted(), ['config', 'parsing', 'printing', 'scopes'].map((name) => [name, 2, true, true]))
