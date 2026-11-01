@@ -114,7 +114,10 @@ export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = fa
     // The env Metro's transformer names, which plugins read for a release
     // build: react-native-worklets omits each worklet's location and source map.
     const envName = dev ? 'development' : process.env.BABEL_ENV || 'production'
-    const options = { cwd, root: cwd, configFile, caller, envName }
+    // A file with no import or export a script, as Metro's transformer has
+    // it, which Babel takes for an ES module else: parsed as strict, its
+    // helpers imported, then made CommonJS.
+    const options = { cwd, root: cwd, configFile, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,

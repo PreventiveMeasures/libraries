@@ -284,6 +284,9 @@ const BABEL_APP = {
   'lib/shape.ts': 'export type Shape = { width: number }\n',
   'bad-ts.js': "import './lib/bad'\n",
   'lib/bad.ts': 'const a: = 1\n',
+  // Sloppy, as a script may be.
+  'sloppy.js': "console.log(JSON.stringify(require('./lib/sloppy')))\n",
+  'lib/sloppy.js': "var scope = { value: 'with' }\nwith (scope) {\n  module.exports = value\n}\n",
   'lib/note.ts': "const field = (name: string) => () => {}\nexport class Note {\n  static table = 'notes'\n  @field('body') body!: string\n}\nexport const syntax = __SYNTAX__\n",
   'node_modules/react/package.json': { name: 'react', version: '19.0.0' },
   'node_modules/react/index.js': "class Component { constructor(props) { this.props = props; this.context = 'base' } }\nmodule.exports = { Component, createElement: (type, props, ...children) => ({ type, ...props, children }) }\n",
@@ -354,6 +357,12 @@ describe('rn-bundle --babel', () => {
     const r = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8', env: ENV })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty', 'StaticBlock'] } })
+  })
+
+  it('takes a file with no import or export for a script, as Metro does: sloppy', () => {
+    const r = run(['--platform=ios', '--babel', '--output=sloppy.out.js', 'sloppy.js'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(spawnSync(process.execPath, [join(root, 'sloppy.out.js')], { encoding: 'utf8' }).stdout, '"with"\n')
   })
 
   it('fails on a TS file esbuild cannot parse', () => {
