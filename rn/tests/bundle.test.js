@@ -42,7 +42,7 @@ describe('bundle', () => {
     try {
       const first = await bundler.rebuild()
       assert.deepEqual(run(js(first)), [1, 2, 'dep'])
-      assert.deepEqual(first.files.toSorted(), files('index.js', 'lib/typed.ts', 'lib/value.js', 'node_modules/dep/lib/main.js', 'node_modules/dep/package.json', 'package.json'))
+      for (const file of files('index.js', 'lib/typed.ts', 'lib/value.js', 'node_modules/dep/lib/main.js', 'node_modules/dep/package.json', 'package.json')) assert.ok(first.files.includes(file), file)
       writeFileSync(join(root, 'lib/value.js'), 'export const value = 3\n')
       assert.deepEqual(run(js(await bundler.rebuild())), [3, 2, 'dep'])
       // A manifest edited: what it resolves to changes.
@@ -144,6 +144,24 @@ describe('bundle, of a manifest that is no JSON', () => {
       assert.ok(error.files.includes(join(root, 'package.json')), String(error.files))
       writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app' }))
       assert.equal(run(js(await bundler.rebuild())), 1)
+    } finally {
+      await bundler.dispose()
+    }
+  })
+})
+
+describe('bundle, of an import written before its module', () => {
+  const { root, cleanup } = writeTree({ 'index.js': "globalThis.result = require('./src/later')\n", 'src/other.txt': '' })
+  after(cleanup)
+
+  it('says it looked for it, so that a watcher sees it made', async () => {
+    const bundler = await createBundler({ entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root })
+    try {
+      const error = await bundler.rebuild().then(() => null, (failure) => failure)
+      assert.match(error?.errors?.[0]?.text ?? '', /Could not resolve "\.\/src\/later"/u)
+      assert.ok(error.files.includes(join(root, 'src/later.js')), String(error.files))
+      writeFileSync(join(root, 'src/later.js'), "module.exports = 'later'\n")
+      assert.equal(run(js(await bundler.rebuild())), 'later')
     } finally {
       await bundler.dispose()
     }

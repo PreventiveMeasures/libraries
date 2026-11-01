@@ -39,7 +39,8 @@ const ENTRY = 'metro-entry:'
 // As Metro wraps a polyfill: a script, given the global object.
 const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this"
 
-// -> { outputFiles, warnings, assets: AssetData[], graph: Map<importer, Map<specifier, Resolution>>, files: string[] }
+// -> { outputFiles, warnings, assets: AssetData[], graph: Map<importer, Map<specifier, Resolution>>, files: string[] }:
+// `files`, those the build read, and those the resolver looked for.
 export async function bundle(options) {
   // Its one build takes the state made to know what runs before the entry.
   const graph = metroGraph(options, { reuseFirst: true })
@@ -53,7 +54,7 @@ export async function createBundler(options) {
   // Through the main module always, as what runs before the entry may change.
   const context = await options.esbuild.context(buildOptions(options, graph, true))
   return {
-    // Throws as esbuild does, the error's `files` those the build read.
+    // Throws as esbuild does, the error's `files` those the build read and looked for.
     rebuild: async () => {
       try {
         return graph.result(await context.rebuild())
@@ -208,10 +209,16 @@ function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
   publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
 }
 
-// The host, each file read through it added to `read`.
+// The host, each file read or looked for through it added to `read`: a
+// file not there yet (an import written before its module) is a file a
+// watcher sees made.
+const look = (read, path, found) => {
+  read.add(path)
+  return found
+}
 const reading = (host, read) => ({
-  isFile: (path) => host.isFile(path),
-  isDirectory: (path) => host.isDirectory(path),
+  isFile: (path) => look(read, path, host.isFile(path)),
+  isDirectory: (path) => look(read, path, host.isDirectory(path)),
   realpath: (path) => host.realpath(path),
   readdir: (path) => host.readdir(path),
   readFile: (path) => {
