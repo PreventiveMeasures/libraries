@@ -114,7 +114,6 @@ describe('rn-cli bundle', () => {
       [[...base, '--transformer', 'custom-transformer.js'], /--transformer: rn-bundle transforms by esbuild/u],
       [[...base, '--resolver-option', 'key=value'], /--resolver-option/u],
       [[...base, '--bundle-encoding', 'utf16le'], /writes utf8 alone/u],
-      [[...base, '--unstable-transform-profile', 'hermes-stable'], /default profile alone/u],
       [[...base, '--asset-catalog-dest'], /--asset-catalog-dest needs a directory/u],
       [[...base, '--reset-cache=true'], /--reset-cache takes no value/u],
       [[...base, '--watch'], /no such option --watch/u],
@@ -160,6 +159,16 @@ describe('rn-cli bundle, of a project with a Babel config', () => {
     assert.equal(babel(), true)
     assert.equal(babel('--babel', 'false'), false)
     assert.equal(babel('--babel'), true)
+  })
+
+  it('gives rn-bundle --unstable-transform-profile with --babel, of no use without', () => {
+    const profile = (...args) => {
+      const r = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--unstable-transform-profile', 'hermes-stable', ...args, '--verbose'])
+      assert.equal(r.status, 0, r.stderr)
+      return translated(r).filter((arg) => arg.startsWith('--babel') || arg.startsWith('--unstable'))
+    }
+    assert.deepEqual(profile(), ['--babel', '--unstable-transform-profile=hermes-stable'])
+    assert.deepEqual(profile('--babel', 'false'), [])
   })
 
   it('refuses a .babelrc alone, which rn-bundle would leave out, unless --babel false', () => {
