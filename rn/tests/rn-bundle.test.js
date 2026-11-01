@@ -7,6 +7,7 @@ import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { defaults } from '../src/defaults.js'
 import { png, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
@@ -309,7 +310,7 @@ const MODERN = {
 // Whether esbuild finds nothing in a bundle left to lower.
 const lowered = (code) => esbuild.transformSync(code, { supported: { 'class-field': false, 'class-private-field': false, 'class-private-method': false, 'class-static-blocks': false, 'class-static-field': false, using: false } }).code === esbuild.transformSync(code).code
 
-describe('rn-bundle --babel', () => {
+describe('rn-bundle, with a Babel config', () => {
   const { root, cleanup } = writeTree(BABEL_APP)
   after(cleanup)
   // Without the shell's BABEL_ENV and NODE_ENV, which Babel would read: only those a test sets.
@@ -317,7 +318,7 @@ describe('rn-bundle --babel', () => {
   const run = (args, env = {}) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env: { ...ENV, ...env } })
 
   it('builds each file as the project\'s Babel config makes it, for the platform', () => {
-    const r = run(['--platform=ios', '--babel', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
+    const r = run(['--platform=ios', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
@@ -326,21 +327,19 @@ describe('rn-bundle --babel', () => {
 
   it("gives Babel's plugins what of the build Metro's transformer gives them: Platform inlined, the transform profile, default where not given", () => {
     const caller = (...args) => {
-      const r = run(['--platform=ios', '--babel', ...args, '--output=caller.out.js', 'caller.js'])
+      const r = run(['--platform=ios', ...args, '--output=caller.out.js', 'caller.js'])
       assert.equal(r.status, 0, r.stderr)
       return spawnSync(process.execPath, [join(root, 'caller.out.js')], { encoding: 'utf8' }).stdout
     }
     assert.equal(caller(), '[true,"default"]\n')
     assert.equal(caller('--unstable-transform-profile=hermes-stable'), '[true,"hermes-stable"]\n')
-    const unknown = run(['--platform=ios', '--babel', '--unstable-transform-profile=hermes', '--output=caller.out.js', 'caller.js'])
+    const unknown = run(['--platform=ios', '--unstable-transform-profile=hermes', '--output=caller.out.js', 'caller.js'])
     assert.deepEqual([unknown.status, unknown.stderr], [1, 'rn-bundle: --unstable-transform-profile is one of default, hermes-stable, hermes-canary\n'])
-    const alone = run(['--platform=ios', '--unstable-transform-profile=hermes-stable', '--output=caller.out.js', 'caller.js'])
-    assert.equal(alone.status, 1)
   })
 
   it('runs Babel in the env Metro\'s transformer names: production, else BABEL_ENV, unless --dev', () => {
     const babelEnv = (args, env) => {
-      const r = run(['--platform=ios', ...args, '--babel', '--output=env.js', 'index.js'], env)
+      const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).babelEnv
     }
@@ -353,7 +352,7 @@ describe('rn-bundle --babel', () => {
 
   it('sets NODE_ENV for Babel\'s plugins as `react-native bundle` does: production, unless --dev', () => {
     const nodeEnv = (args, env) => {
-      const r = run(['--platform=ios', ...args, '--babel', '--output=env.js', 'index.js'], env)
+      const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).nodeEnv
     }
@@ -363,58 +362,58 @@ describe('rn-bundle --babel', () => {
   })
 
   it('makes each TS file JS by esbuild before Babel, lowering the rest after it', () => {
-    const r = run(['--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'])
+    const r = run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
     assert.ok(lowered(readFileSync(join(root, 'modern.out.js'), 'utf8')))
   })
 
   it('leaves Flow to Babel without flow-remove-types: a @flow file that may have type arguments as it is', () => {
-    const r = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8', env: ENV })
+    const r = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8', env: ENV })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty', 'StaticBlock'] } })
   })
 
   it('takes a file with no import or export for a script, as Metro does: sloppy', () => {
-    const r = run(['--platform=ios', '--babel', '--output=sloppy.out.js', 'sloppy.js'])
+    const r = run(['--platform=ios', '--output=sloppy.out.js', 'sloppy.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.equal(spawnSync(process.execPath, [join(root, 'sloppy.out.js')], { encoding: 'utf8' }).stdout, '"with"\n')
   })
 
   it('fails on a TS file esbuild cannot parse', () => {
-    const r = run(['--platform=ios', '--babel', '--output=out.js', 'bad-ts.js'])
+    const r = run(['--platform=ios', '--output=out.js', 'bad-ts.js'])
     assert.equal(r.status, 1)
     assert.match(r.stderr, /Unexpected "="[\s\S]*lib\/bad\.ts:1:9/u)
   })
 
-  it('takes no --babel-aliases with it', () => {
-    const r = run(['--platform=ios', '--babel', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
+  it('takes no --babel-aliases where Babel runs', () => {
+    const r = run(['--platform=ios', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
     assert.equal(r.status, 1)
-    assert.match(r.stderr, /pass one/u)
+    assert.match(r.stderr, /--babel-aliases maps the imports where no Babel runs/u)
   })
 })
 
-describe('rn-bundle --babel, with a Babel config that takes no Flow', () => {
+describe('rn-bundle, with Babel, with a Babel config that takes no Flow', () => {
   const { root, cleanup } = writeTree({ ...BABEL_APP, 'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-react-jsx']) })
   after(cleanup)
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
   const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
 
   it('strips the Flow types of each file that has them before Babel', () => {
-    const r = run(['--platform=ios', '--babel', '--output=ios.js', 'index.js'])
+    const r = run(['--platform=ios', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.platform], ['ios', 'hi', 'flow', 'generic', 'ios'])
   })
 
   it('lowers a static block before Babel once Flow types are stripped', () => {
-    const r = run(['--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'])
+    const r = run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(output('modern.out.js'), MODERN)
   })
 })
 
-describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
+describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
   // As @react-native/babel-preset has the TS plugin, for .ts and .tsx, and
   // its codegen; __FIELDS__ is the number of class fields Babel gets.
   const config = (options) => [
@@ -478,7 +477,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   after(cleanup)
   const build = (options, entry = 'main.ts', ...args) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
   }
@@ -501,7 +500,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   })
 })
 
-describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before it', () => {
+describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers before it', () => {
   // Under the keys of Babel's plugins, plugins that only record each file they run on.
   const KEYS = ['transform-arrow-functions', 'transform-async-to-generator', 'transform-async-generator-functions', 'transform-export-namespace-from', 'transform-numeric-separator', 'syntax-hermes-parser', 'transform-flow-strip-types', 'transform-typescript']
   const config = (options) => [
@@ -529,7 +528,7 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
   after(cleanup)
   const build = (options, args = []) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const { ran, ...out } = JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
     return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8'), stderr: r.stderr }
@@ -557,11 +556,6 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
     assert.deepEqual(Object.fromEntries(KEYS.map((key) => [key, rows[key]])), Object.fromEntries(KEYS.map((key) => [key, [counts[key], counts[key]]])))
   })
 
-  it('takes --profile only with --babel', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: --profile times the plugins of --babel: pass it\n'])
-  })
-
   it('leaves to Babel what a plugin with options lowers', () => {
     const { code, ran } = build({ 'transform-async-to-generator': { module: 'bluebird', method: 'coroutine' } })
     assert.deepEqual(ran, { ...once, ...js, 'transform-arrow-functions': 6, 'transform-async-to-generator': 6 })
@@ -569,7 +563,7 @@ describe('rn-bundle --babel, with Babel plugins for what esbuild lowers before i
   })
 })
 
-describe('rn-bundle --babel, with a Babel config that lowers let and const', () => {
+describe('rn-bundle, with Babel, with a Babel config that lowers let and const', () => {
   // As @react-native/babel-preset lowers them for Hermes, whose own don't
   // bind each iteration of a loop apart; a plugin of that key, which here
   // lowers nothing.
@@ -587,7 +581,7 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
   after(cleanup)
   const build = (plugins, entry = 'main.js', rest = '') => {
     writeFileSync(join(root, 'babel.config.js'), config(plugins, rest))
-    return spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+    return spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
   }
   const blockScoping = "() => ({ name: 'transform-block-scoping', visitor: {} })"
 
@@ -629,7 +623,7 @@ describe('rn-bundle --babel, with a Babel config that lowers let and const', () 
   })
 })
 
-describe('rn-bundle --babel --esm, with a Babel config that makes modules CommonJS', () => {
+describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () => {
   const { root, cleanup } = writeTree({
     'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
     'index.js': [
@@ -665,7 +659,7 @@ describe('rn-bundle --babel --esm, with a Babel config that makes modules Common
   })
   after(cleanup)
   const build = (...args) => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     return { code, stderr: r.stderr, out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
@@ -694,13 +688,9 @@ describe('rn-bundle --babel --esm, with a Babel config that makes modules Common
     assert.match(stderr, /▲ \[WARNING\] No matching export in "lib\/present\.js" for import "absent": left CommonJS, as Metro has it, the import undefined\n\n {4}lib\/partial\.js:1:18:/u)
   })
 
-  it('takes --esm only with --babel', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--esm', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: --esm keeps ES modules through --babel: pass it\n'])
-  })
 })
 
-describe('rn-bundle --babel, with plugins after babel-plugin-module-resolver', () => {
+describe('rn-bundle, with Babel, with plugins after babel-plugin-module-resolver', () => {
   // As a project's plugin that inlines a *.plugin.json it reads at the path
   // module-resolver rewrote the import to; one that fails on a file.
   const { root, cleanup } = writeTree({
@@ -732,7 +722,7 @@ describe('rn-bundle --babel, with plugins after babel-plugin-module-resolver', (
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
   after(cleanup)
-  const run = (entry) => spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+  const run = (entry) => spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
 
   it('keeps module-resolver in Babel, before the plugins that read what it rewrote', () => {
     const r = run('index.js')
@@ -751,7 +741,7 @@ describe('rn-bundle --babel, with plugins after babel-plugin-module-resolver', (
   })
 })
 
-describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () => {
+describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
   const { root, cleanup } = writeTree({
     'index.js': "import { a } from '#lib/a'\nimport { b } from './b'\nimport { e } from './escaped'\nimport { i } from './identity'\nconsole.log(JSON.stringify([a, b, e, i]))\n",
     'lib/a.js': "export const a = 'a'\n",
@@ -766,7 +756,7 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   // -> the files module-resolver runs in, of the bundle's five.
   const ran = (options) => {
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)
@@ -788,7 +778,7 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   })
 })
 
-describe("rn-bundle --babel, with Babel's plugins of classes, modules and block scoping", () => {
+describe("rn-bundle, with Babel's plugins of classes, modules and block scoping", () => {
   // Each as Babel's visits nodes: of classes, `export default`, for a class's.
   const plugin = (name, visitor) => `() => ({ name: '${name}', visitor: { ${visitor} } })`
   const { root, cleanup } = writeTree({
@@ -803,7 +793,7 @@ describe("rn-bundle --babel, with Babel's plugins of classes, modules and block 
   after(cleanup)
 
   it('leaves each out of Babel in a file that gives it nothing to do', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'c'])
     const files = (key) => Number(new RegExp(`^ +\\d+ +[\\d.]+ +(\\d+) +\\d+ {2}${key}$`, 'mu').exec(r.stderr)?.[1] ?? 0)
@@ -814,14 +804,53 @@ describe("rn-bundle --babel, with Babel's plugins of classes, modules and block 
   })
 })
 
-describe('rn-bundle --babel, with no Babel config', () => {
+describe('rn-bundle, of a project with no Babel config', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)
+  const run = (args) => spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
 
-  it('fails', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
-    assert.equal(r.status, 1)
-    assert.match(r.stderr, /--babel needs a babel\.config/u)
+  it('builds with no Babel, where no @react-native/babel-preset is either', () => {
+    const r = run(OPTIONS)
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout).platform, null)
+  })
+
+  it('takes --profile, --esm and --unstable-transform-profile only where Babel runs', () => {
+    assert.deepEqual([run(['--profile']).status, run(['--profile']).stderr], [1, "rn-bundle: --profile times the plugins of the project's Babel config, and it has none\n"])
+    assert.deepEqual([run(['--esm']).status, run(['--esm']).stderr], [1, "rn-bundle: --esm keeps ES modules through the project's Babel config, and it has none\n"])
+    const profile = run(['--unstable-transform-profile=hermes-stable'])
+    assert.deepEqual([profile.status, profile.stderr], [1, "rn-bundle: --unstable-transform-profile is the profile the project's Babel config builds for, and it has none\n"])
+  })
+})
+
+// As Metro's transformer finds a project's Babel config: a .babelrc it
+// extends, else @react-native/babel-preset.
+const PLATFORM_PLUGIN = 'module.exports = ({ types: t }) => ({ visitor: { Identifier(path, state) { if (path.node.name === "__PLATFORM__") path.replaceWith(t.stringLiteral(state.opts.tag ?? path.hub.file.opts.caller.platform)) } } })\n'
+describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset alone', () => {
+  const ENTRY = { 'platform.js': 'console.log(JSON.stringify(__PLATFORM__))\n', 'node_modules/@babel/core': linked('@babel/core') }
+  const babelrc = writeTree({ ...ENTRY, '.babelrc': { plugins: [['./platform-plugin.js', { tag: 'babelrc' }]] }, 'platform-plugin.js': PLATFORM_PLUGIN })
+  const preset = writeTree({
+    ...ENTRY,
+    'node_modules/@react-native/babel-preset/package.json': { name: '@react-native/babel-preset', main: 'index.js' },
+    'node_modules/@react-native/babel-preset/index.js': "module.exports = (api, options) => ({ plugins: [[require('./platform-plugin'), { tag: 'preset, for ' + (options.projectRoot === process.cwd() ? 'the project' : options.projectRoot) }]] })\n",
+    'node_modules/@react-native/babel-preset/platform-plugin.js': PLATFORM_PLUGIN,
+  })
+  after(() => {
+    babelrc.cleanup()
+    preset.cleanup()
+  })
+  const platform = (root) => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'platform.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+  }
+
+  it('runs a .babelrc, which Metro extends', () => {
+    assert.equal(platform(babelrc.root), 'babelrc')
+  })
+
+  it('runs @react-native/babel-preset, for the project, where it has no config, as Metro does', () => {
+    assert.equal(platform(preset.root), 'preset, for the project')
   })
 })
 
@@ -830,7 +859,8 @@ describe('rn-bundle with the project\'s own esbuild', () => {
   after(cleanup)
 
   it('builds with it, from 0.25 on', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...OPTIONS, '--output=ios.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    // The aliases are the Babel config's.
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...OPTIONS.filter((option) => !option.startsWith('--babel-aliases')), '--output=ios.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /\(esbuild 0\.25\.\d+\)/u)
     const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
@@ -839,16 +869,32 @@ describe('rn-bundle with the project\'s own esbuild', () => {
   })
 
   it('lowers with it before Babel, from 0.25 on', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /\(esbuild 0\.25\.\d+\)/u)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
   })
 })
 
-describe('rn-bundle with the assetExts metro.config.js adds', () => {
+// As @react-native/metro-config has a project's defaults (a few of them),
+// over metro-config's, which loads the config.
+const METRO_CONFIG = {
+  'node_modules/metro-config': linked('metro-config'),
+  'node_modules/@react-native/metro-config/package.json': { name: '@react-native/metro-config', main: 'index.js' },
+  'node_modules/@react-native/metro-config/index.js': [
+    "const { mergeConfig } = require('metro-config')",
+    `const assetExts = ${JSON.stringify([...defaults.assetExts])}`,
+    "exports.getDefaultConfig = () => ({ resolver: { assetExts }, transformer: { assetRegistryPath: 'react-native/Libraries/Image/AssetRegistry' }, serializer: { getModulesRunBeforeMainModule: () => [] } })",
+    'exports.mergeConfig = mergeConfig',
+    '',
+  ].join('\n'),
+}
+const templateConfig = (custom) => `const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')\nconst defaultConfig = getDefaultConfig(__dirname)\nmodule.exports = mergeConfig(defaultConfig, ${custom})\n`
+
+describe('rn-bundle with a Metro config', () => {
   const RIVE = {
     ...APP,
+    ...METRO_CONFIG,
     'metro.config.js': [
       "const { getDefaultConfig } = require('@react-native/metro-config')",
       'const defaultConfig = getDefaultConfig(__dirname)',
@@ -861,18 +907,25 @@ describe('rn-bundle with the assetExts metro.config.js adds', () => {
       'module.exports = config',
       '',
     ].join('\n'),
-    'node_modules/@react-native/metro-config/index.js': "exports.getDefaultConfig = () => { throw new Error('never run') }\n",
     'anim.js': "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify([require('./anim/spin.riv'), require('./anim/wave.lottie')].map(getAssetByID)))\n",
     'anim/spin.riv': 'RIVE',
     'anim/spin@2x.riv': 'RIVE@2x',
     'anim/wave.lottie': 'PK',
-    'config/.keep': '',
+        'serializer.js': "globalThis.order = []\nconsole.log(JSON.stringify(require('./later.mjs')))\n",
+    'later.mjs': "export const later = 'mjs'\n",
+    'blocked.js': "console.log(require('./lib/blocked/hidden'))\n",
+    'lib/blocked/hidden.js': "module.exports = 'hidden'\n",
+    'scripts/polyfill.js': "(globalThis.order ??= []).push('polyfill')\n",
+    'scripts/extra.js': "globalThis.order.push('extra')\n",
+    'scripts/before.js': "globalThis.order.push('before')\n",
   }
   const { root, cleanup } = writeTree(RIVE)
   after(cleanup)
   const hash = (...contents) => contents.reduce((md5sum, content) => md5sum.update(content), createHash('md5')).digest('hex')
+  const bundleWith = (args, entry) => spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=config-out.js', entry], { cwd: root, encoding: 'utf8' })
+  const outputOf = () => JSON.parse(spawnSync(process.execPath, [join(root, 'config-out.js')], { encoding: 'utf8' }).stdout)
 
-  it('builds them as assets, read off the config, never run', () => {
+  it('loads it as Metro does, by metro-config, running it: the assetExts it adds are assets', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=android', '--assets-dest=res', '--output=anim.js', 'anim.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const [spin, wave] = JSON.parse(spawnSync(process.execPath, [join(root, 'anim.js')], { encoding: 'utf8' }).stdout)
@@ -881,32 +934,69 @@ describe('rn-bundle with the assetExts metro.config.js adds', () => {
     assert.deepEqual(listFiles(join(root, 'res')), ['raw/anim_spin.riv', 'raw/anim_wave.lottie', 'raw/keep.xml'])
   })
 
-  it('reads them off --metro-config where given, refusing one not there', () => {
-    const bundleWith = (config, entry) => spawnSync(process.execPath, [BIN, '--platform=ios', `--metro-config=${config}`, '--output=config-out.js', entry], { cwd: root, encoding: 'utf8' })
-    const r = bundleWith('metro.json', 'anim.js')
+  it('loads --metro-config where given, refusing one not there', () => {
+    const r = bundleWith(['--metro-config=metro.json'], 'anim.js')
     assert.equal(r.status, 1)
     assert.match(r.stderr, /no such Metro config: metro\.json/u)
-    writeFileSync(join(root, 'config/other.config.js'), "module.exports = { resolver: { assetExts: ['glow'] } }\n", { flag: 'w' })
+    writeFileSync(join(root, 'other.config.js'), templateConfig("{ resolver: { assetExts: ['glow'] } }"))
     writeFileSync(join(root, 'anim/halo.glow'), 'GLOW')
     writeFileSync(join(root, 'glow.js'), "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify(getAssetByID(require('./anim/halo.glow')).type))\n")
-    const other = bundleWith('config/other.config.js', 'glow.js')
+    const other = bundleWith(['--metro-config=other.config.js'], 'glow.js')
     assert.equal(other.status, 0, other.stderr)
-    assert.equal(JSON.parse(spawnSync(process.execPath, [join(root, 'config-out.js')], { encoding: 'utf8' }).stdout), 'glow')
+    assert.equal(outputOf(), 'glow')
   })
 
-  const withoutOxc = () => spawnSync(process.execPath, ['--import', notInstalled('oxc-parser'), BIN, '--platform=ios', '--output=anim.js', 'anim.js'], { cwd: root, encoding: 'utf8' })
-
-  it('without oxc-parser, refuses a config only a parser reads', () => {
-    const r = withoutOxc()
-    assert.equal(r.status, 1)
-    assert.match(r.stderr, /assetExts of metro\.config\.js needs oxc-parser/u)
-  })
-
-  it('without oxc-parser, reads the spread form', () => {
-    writeFileSync(join(root, 'metro.config.js'), RIVE['metro.config.js'].replace("config.resolver.assetExts.push('lottie')\n", '').replace("'riv'", "'riv', 'lottie'"))
-    const r = withoutOxc()
+  it("takes its polyfills, the modules it runs before the entry, its sourceExts and its blockList, which hides what it matches", () => {
+    writeFileSync(join(root, 'serializer.config.js'), templateConfig([
+      '{',
+      "  serializer: { getPolyfills: () => [require.resolve('./scripts/polyfill.js')], polyfillModuleNames: [require.resolve('./scripts/extra.js')], getModulesRunBeforeMainModule: () => [require.resolve('./scripts/before.js')] },",
+      "  resolver: { sourceExts: [...defaultConfig.resolver.sourceExts ?? ['js', 'json'], 'mjs'], blockList: [/[/\\\\]lib[/\\\\]blocked[/\\\\]/] },",
+      '}',
+    ].join('\n')))
+    const r = bundleWith(['--metro-config=serializer.config.js'], 'serializer.js')
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'anim.js')], { encoding: 'utf8' }).stdout).map(({ type }) => type), ['riv', 'lottie'])
+    assert.deepEqual(outputOf(), { later: 'mjs' })
+    assert.match(readFileSync(join(root, 'config-out.js'), 'utf8'), /"polyfill"\)[\s\S]*"extra"\)[\s\S]*"before"\)/u)
+    const blocked = bundleWith(['--metro-config=serializer.config.js'], 'blocked.js')
+    assert.equal(blocked.status, 1)
+    assert.match(blocked.stderr, /esbuild resolved lib\/blocked\/hidden\.js where Metro resolves nothing/u)
+  })
+
+  it('refuses each option it does not do, and isn\'t as Metro or @react-native/metro-config has it: a Babel transformer or a resolver of its own', () => {
+    writeFileSync(join(root, 'svg.config.js'), templateConfig("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') }, resolver: { resolveRequest: (context, name, platform) => context.resolveRequest(context, name, platform) } }"))
+    writeFileSync(join(root, 'svg-transformer.js'), 'module.exports = {}\n')
+    const r = bundleWith(['--metro-config=svg.config.js'], 'anim.js')
+    assert.equal(r.status, 1)
+    assert.equal(r.stderr, [
+      'rn-bundle: svg.config.js: resolver.resolveRequest is a function, a resolver of its own: rn-bundle does it as Metro\'s default alone',
+      "rn-bundle: svg.config.js: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone",
+      '',
+    ].join('\n'))
+  })
+
+  it("leaves what is of no bearing on the bundle: a dev server's options, a minifier's where it doesn't minify", () => {
+    writeFileSync(join(root, 'server.config.js'), templateConfig('{ server: { enhanceMiddleware: (middleware) => (request, response, next) => middleware(request, response, next) }, transformer: { minifierConfig: { mangle: false } }, watchFolders: [__dirname] }'))
+    assert.equal(bundleWith(['--metro-config=server.config.js'], 'anim.js').status, 0)
+    const minified = bundleWith(['--metro-config=server.config.js', '--minify'], 'anim.js')
+    assert.equal(minified.status, 1)
+    assert.match(minified.stderr, /transformer\.minifierConfig is \{"mangle":false\}/u)
+  })
+
+  it('refuses a config of another directory, which has it for the project root, as Metro does', () => {
+    writeFileSync(join(root, 'anim/elsewhere.config.js'), templateConfig('{}'))
+    const r = bundleWith(['--metro-config=anim/elsewhere.config.js'], 'anim.js')
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /anim\/elsewhere\.config\.js: projectRoot is "anim", where the project is/u)
+  })
+})
+
+describe('rn-bundle with a Metro config, but no metro-config', () => {
+  const { root, cleanup } = writeTree({ ...APP, 'metro.config.js': 'module.exports = {}\n' })
+  after(cleanup)
+
+  it('fails, as it is to run it', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...OPTIONS, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: loading metro.config.js needs metro-config, as react-native has it: npm i -D metro-config\n'])
   })
 })
 
@@ -982,7 +1072,7 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
   })
 
   it('makes the polyfills as it makes any file: through the Babel config, minified', () => {
-    assert.deepEqual(build(babel.root, ['--babel', '--minify'], ['--import', notInstalled('flow-remove-types')]).out.order, ['console', 'error-guard', 'setup-env'])
+    assert.deepEqual(build(babel.root, ['--minify'], ['--import', notInstalled('flow-remove-types')]).out.order, ['console', 'error-guard', 'setup-env'])
   })
 })
 
@@ -1036,13 +1126,13 @@ describe('rn-bundle --sourcemap-output', () => {
 
   it('maps through Babel, a polyfill too, and esbuild\'s minifying', () => {
     const { root } = babel
-    const bundle = build(root, ['--babel', '--minify'])
+    const bundle = build(root, ['--minify'])
     assert.deepEqual(origin(bundle, '"error-guard"'), [join(root, POLYFILLS, 'error-guard.js'), 5, 21])
     assert.deepEqual(origin(bundle, 'JSON.stringify'), [join(root, 'index.js'), 3, 12])
   })
 })
 
-describe('rn-bundle --babel, with Flow that is code', () => {
+describe('rn-bundle, with Babel, with Flow that is code', () => {
   // As @react-native/babel-preset's Flow parser (flow-parser/babel-plugin,
   // parseLangTypes: 'flow') reads a file that says @flow alone: one that
   // reads `component`, as a function.
@@ -1066,7 +1156,7 @@ describe('rn-bundle --babel, with Flow that is code', () => {
   after(cleanup)
 
   it("leaves a file with Flow flow-remove-types doesn't strip to Babel as it is, its @flow pragma kept", () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['hello world', 'typed'])
   })

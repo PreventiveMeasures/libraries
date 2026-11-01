@@ -9,12 +9,11 @@
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { createBundler } from './bundle.js'
+import { createBundler, metroResolverOf } from './bundle.js'
 import { defaults, diskHost } from './defaults.js'
 import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall } from './modules.js'
-import { createMetroResolver } from './resolve.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
 const decoder = new TextDecoder()
@@ -27,8 +26,12 @@ export const inside = (root, path) => {
 // `targetOptions({ platform, dev })` -> the options bundle() takes for the
 // project's files: jsx, stripFlow, babel..., aliases, define. `onBuild({
 // request, outcome, ms })` after each build.
-export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, assetExts = defaults.assetExts, polyfills = [], runtime = null, maxBuilds = 8, onBuild = () => {} }) {
-  const config = { projectRoot, esbuild, targetOptions, host, assetExts, polyfills, runtime, onBuild, caches: new Map(), ids: new Map() }
+// Of Metro's config: `resolver` and `blockList` as bundle() takes them,
+// `polyfills` a list or a function of the platform to one, `runBeforeMain`
+// null or a function of the entry's path to the modules run before it, and
+// `assetRegistryPath`.
+export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, assetExts = defaults.assetExts, resolver = {}, blockList = null, polyfills = [], runBeforeMain = null, assetRegistryPath = null, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
+  const config = { projectRoot, esbuild, targetOptions, host, assetExts, resolver, blockList, polyfills, runBeforeMain, assetRegistryPath, runtime, onBuild, caches: new Map(), ids: new Map() }
   const builds = new Map()
   let version = 0
 
@@ -130,12 +133,12 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
 // The entry a request names, as Metro resolves it from the project root,
 // and only there.
-function entryOf({ projectRoot, host, assetExts }, { entryFile, platform }) {
-  const resolution = createMetroResolver({ host, assetExts })(`${projectRoot}${sep}.`, entryFile, { platform })
+function entryOf({ projectRoot, host, assetExts, resolver, blockList }, { entryFile, platform }) {
+  const resolution = metroResolverOf({ host, assetExts, resolver, blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
   return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? { path: resolution.filePath } : null
 }
 
-function open({ projectRoot, esbuild, targetOptions, host, assetExts, polyfills, runtime, caches, ids }, { platform, dev, minify }, entry) {
+function open({ projectRoot, esbuild, targetOptions, host, assetExts, resolver, blockList, polyfills, runBeforeMain, assetRegistryPath, runtime, caches, ids }, { platform, dev, minify }, entry) {
   const target = `${platform}\0${dev}\0${minify}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map() })
   const options = targetOptions({ platform, dev })
@@ -149,7 +152,11 @@ function open({ projectRoot, esbuild, targetOptions, host, assetExts, polyfills,
     assetExts,
     minify,
     cache: caches.get(target).files,
-    polyfills,
+    resolver,
+    blockList,
+    polyfills: typeof polyfills === 'function' ? polyfills(platform) : polyfills,
+    runBeforeMain: runBeforeMain?.(entry.path) ?? null,
+    assetRegistryPath,
     prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
   }
   if (dev && runtime !== null) return createModuleBundler({ ...common, runtime, ids, builds: caches.get(target).modules })

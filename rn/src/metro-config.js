@@ -1,4 +1,5 @@
-// A metro.config.js's assetExts, read off it: running it needs Metro.
+// A metro.config.js's assetExts, read off it, never run, for what can't run
+// it (stasis): rn-bundle and rn-serve load it, as Metro does (metro-options.js).
 
 const LIST_METHODS = new Set(['concat', 'filter', 'slice'])
 

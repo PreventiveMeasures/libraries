@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// rn-serve [--port=8081] [--host=127.0.0.1] [--babel] [--define=K=V ...]
-//   [--babel-aliases=FILE] [--client-logs]
+// rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
+//   [--define=K=V ...] [--babel-aliases=FILE] [--client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
@@ -10,12 +10,15 @@
 // each file's transform kept in memory while its source is the same. A dev
 // bundle is in Metro's module format, with metro-runtime's require (that
 // react-native has): each app of one gets what changed, as Metro's Fast
-// Refresh sends it, with --babel each component of the project's built
-// with react-refresh's Babel plugin (react-native's) for it to refresh; an
-// app of another bundle reloads. Without --babel, a metro-runtime before
-// 0.83.3 (react-native before 0.81) reloads the app on an edit of an ES
-// module: esbuild makes its exports getters, which that runtime takes for no
-// refresh boundary. A build error is shown in the app.
+// Refresh sends it, where the project's Babel config runs each component of
+// the project's built with react-refresh's Babel plugin (react-native's) for
+// it to refresh; an app of another bundle reloads. Without Babel, a
+// metro-runtime before 0.83.3 (react-native before 0.81) reloads the app on
+// an edit of an ES module: esbuild makes its exports getters, which that
+// runtime takes for no refresh boundary. A build error is shown in the app.
+// The project's Metro config is loaded as rn-bundle loads it, its server's
+// port the default of --port, and an option of its server or symbolicator
+// not as Metro's default an error too.
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 
@@ -25,17 +28,18 @@ import { hostname } from 'node:os'
 import { emitKeypressEvents } from 'node:readline'
 import { parseArgs } from 'node:util'
 
-import { assetExts, babelAliases, defines, failer, flowStripper, locateThrough, peers, polyfills, projectBabel } from '../src/cli.js'
+import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createGate } from '../src/gate.js'
+import { metroOptions } from '../src/metro-options.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { createWatcher } from '../src/watch.js'
 
 const { values } = parseArgs({
   options: {
-    port: { type: 'string', default: '8081' },
+    port: { type: 'string' },
     host: { type: 'string', default: '127.0.0.1' },
-    babel: { type: 'boolean', default: false },
+    'metro-config': { type: 'string' },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
     'client-logs': { type: 'boolean', default: false },
@@ -44,22 +48,22 @@ const { values } = parseArgs({
 
 const fail = failer('rn-serve')
 const log = (line) => process.stdout.write(`${line}\n`)
-const port = Number(values.port)
-if (!/^\d+$/u.test(values.port) || port > 65_535) fail(`--port takes a port, not ${values.port}`)
-if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
+if (values.port !== undefined && (!/^\d+$/u.test(values.port) || Number(values.port) > 65_535)) fail(`--port takes a port, not ${values.port}`)
 defines(true, values.define, fail)
 
 const projectRoot = realpathSync(process.cwd())
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
-const stripFlow = flowStripper(project, values.babel)
+const metro = await metroOptions(projectRoot, project, fail, { file: values['metro-config'] ?? null, name: 'rn-serve', serving: true })
+const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.port)
 // For Fast Refresh: the module system dev bundles are written for, and the
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
-const refreshPlugin = values.babel ? locateThrough(project, 'react-refresh/babel', ['react-native']) : null
-const babelFor = values.babel ? projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin }) : null
+const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup })
+if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
+const stripFlow = flowStripper(project, babelFor !== null)
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
-const polyfillPaths = polyfills(project, fail)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
 
 const { host } = values
@@ -71,8 +75,12 @@ let watcher = null
 const devBundler = createDevBundler({
   projectRoot,
   esbuild,
-  assetExts: assetExts(projectRoot, project, fail),
-  polyfills: polyfillPaths,
+  assetExts: metro.assetExts,
+  resolver: metro.resolver,
+  blockList: metro.blockList,
+  polyfills: metro.polyfills,
+  runBeforeMain: metro.runBeforeMain,
+  assetRegistryPath: metro.assetRegistryPath,
   runtime,
   targetOptions: ({ platform, dev }) => ({
     stripFlow,
@@ -144,11 +152,11 @@ server.listen(port, host, () => {
   const serverUrl = `http://${urlHost}:${server.address().port}`
   log(`rn-serve: ${serverUrl} for ${projectRoot} (esbuild ${esbuild.version})`)
   if (wildcard) log('rn-serve: on every network interface: anyone on the network can fetch the app and its source')
-  if (polyfillPaths.length === 0) log("rn-serve: no @react-native/js-polyfills, as @react-native/metro-config has it: bundles have Metro's prelude but no polyfills")
+  if (metro.file === null && metro.polyfills(null).length === 0) log("rn-serve: no @react-native/js-polyfills, as @react-native/metro-config has it: bundles have Metro's prelude but no polyfills")
   if (devMiddleware === null) log('rn-serve: no @react-native/dev-middleware, as react-native has it: no debugger')
   else mountDebugger(serverUrl)
   if (runtime === null) log("rn-serve: no metro-runtime, as react-native has it: no Fast Refresh, a change reloads the app")
-  else if (values.babel && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
+  else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
 })
 

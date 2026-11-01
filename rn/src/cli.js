@@ -1,7 +1,7 @@
 // What rn-bundle and rn-serve share: their peers, as the project installs
 // them, else as installed beside rn/; Flow stripping; the project's Babel
-// config, in worker threads; @react-native/js-polyfills's polyfills; the
-// assetExts of metro.config.js; --babel-aliases; --define.
+// config, in worker threads; @react-native/js-polyfills's polyfills;
+// --babel-aliases; --define. Its Metro config: metro-options.js.
 
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -9,8 +9,6 @@ import { resolve } from 'node:path'
 
 import { createAliases } from './babel-aliases.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
-import { defaults } from './defaults.js'
-import { metroAssetExts, scanMetroAssetExts } from './metro-config.js'
 
 const BABEL_CONFIGS = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json']
 
@@ -53,7 +51,7 @@ export function defines(dev, pairs, fail) {
   return define
 }
 
-// Flow types stripped by flow-remove-types; with --babel, where it isn't
+// Flow types stripped by flow-remove-types; where Babel runs and it isn't
 // installed, left to Babel's config, as Metro leaves them.
 export function flowStripper({ locate, load }, babel) {
   const flowRemoveTypes = locate('flow-remove-types')
@@ -78,38 +76,39 @@ export function babelAliases(cwd, file, fail) {
   }
 }
 
-// Metro's asset extensions, and those metro.config.js adds (`file`'s, where
-// given): read by its AST where oxc-parser is installed, else in the one form
-// a regex reads.
-export function assetExts(cwd, { locate, load }, fail, file = null) {
-  const config = resolve(cwd, file ?? 'metro.config.js')
-  if (!existsSync(config)) return file === null ? defaults.assetExts : fail(`no such Metro config: ${file}`)
-  const source = readFileSync(config, 'utf8')
-  const oxc = locate('oxc-parser')
-  const listed = oxc === null ? scanMetroAssetExts(source) : metroAssetExts(load(oxc).parseSync(config, source, { sourceType: 'unambiguous' }).program)
-  return listed === null ? fail(`reading the assetExts of ${file ?? 'metro.config.js'} needs oxc-parser: npm i -D oxc-parser`) : [...defaults.assetExts, ...listed]
+// The project's Babel config, as Metro's transformer takes it
+// (@react-native/metro-babel-transformer's getBabelRC): a babel.config.*,
+// which Babel finds itself; else the .babelrc or .babelrc.js it extends;
+// else @react-native/babel-preset. -> Babel's options of it, and what it is;
+// null where the project has none of them.
+export function babelConfigOf(cwd, { fromProject }) {
+  const configFile = BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file))
+  if (configFile !== undefined) return { options: { configFile }, what: configFile }
+  const babelrc = ['.babelrc', '.babelrc.js'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
+  if (babelrc !== undefined) return { options: { configFile: false, extends: babelrc }, what: babelrc }
+  const preset = tryResolve(fromProject, '@react-native/babel-preset')
+  return preset === null ? null : { options: { configFile: false, presets: [[preset, { projectRoot: cwd }]] }, what: '@react-native/babel-preset', preset: true }
 }
-
-// The project's babel.config.*: its path, or null.
-export const babelConfigOf = (cwd) => BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file)) ?? null
 
 // Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
 export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 
-// The project's babel.config.*, by the project's own @babel/core. -> a
-// function of { platform, dev } to the options bundle() takes of Babel,
-// with Metro's caller and Babel env, each target's workers its own.
-// `sourceMaps` makes each file's output carry its map, inline; `profile`,
-// each target's workers time the config's plugins, as its `profile`;
-// `refresh`, react-refresh's Babel plugin, a dev target's workers run it
-// over each file outside node_modules, for Fast Refresh; `transformProfile`,
-// one of TRANSFORM_PROFILES, the caller's, for the config's plugins.
-export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default' } = {}) {
-  const configFile = babelConfigOf(cwd)
-  if (configFile === null) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
-  const corePath = tryResolve(fromProject, '@babel/core')
-  if (corePath === null) fail('--babel needs @babel/core installed in the project')
-  const core = load(corePath)
+// The project's Babel config (babelConfigOf()), by the project's own
+// @babel/core: null where the project has none, or only the preset with no
+// @babel/core. -> a function of { platform, dev } to the options bundle()
+// takes of Babel, with Metro's caller and Babel env, each target's workers
+// its own. `sourceMaps` makes each file's output carry its map, inline;
+// `profile`, each target's workers time the config's plugins, as its
+// `profile`; `refresh`, react-refresh's Babel plugin, a dev target's workers
+// run it over each file outside node_modules, for Fast Refresh;
+// `transformProfile`, one of TRANSFORM_PROFILES, the caller's, for the
+// config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup.
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true } = {}) {
+  const config = babelConfigOf(cwd, project)
+  if (config === null) return null
+  const corePath = tryResolve(project.fromProject, '@babel/core')
+  if (corePath === null) return config.preset ? null : fail(`${config.what} needs @babel/core installed in the project`)
+  const core = project.load(corePath)
   const targets = new Map()
   return ({ platform, dev }) => {
     const key = `${platform}\0${dev}`
@@ -125,7 +124,7 @@ export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = fa
     // A file with no import or export a script, as Metro's transformer has
     // it, which Babel takes for an ES module else: parsed as strict, its
     // helpers imported, then made CommonJS.
-    const options = { cwd, root: cwd, configFile, caller, envName, sourceType: 'unambiguous' }
+    const options = { cwd, root: cwd, ...config.options, babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,

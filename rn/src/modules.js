@@ -56,7 +56,7 @@ export function createModuleBundler(options) {
       try {
         // Its state published before what of react-native runs before the
         // entry is found, which reads manifests a failure is of.
-        newState({ host, assetExts, projectRoot, entry, platform }, (made) => {
+        newState({ host, assetExts, resolver: options.resolver, blockList: options.blockList ?? null, projectRoot, entry, platform }, (made) => {
           state = made
         })
         return await graphOf(run, state, { scripts: [runtime, ...polyfills], prelude })
@@ -92,7 +92,7 @@ async function graphOf(run, state, { scripts, prelude }) {
     throw Object.assign(new Error('no entry'), { errors: [{ text: `Could not resolve "${entry}"`, location: null }] })
   }
   visit({ key: entryKey, kind: 'file' })
-  const before = state.reactNative.runBeforeMain.map((specifier) => moduleOfResolution(resolveImport(state, { importer: entryKey, specifier, kind: 'import-statement', aliases: run.aliases, platform: run.platform }))).filter((found) => found !== null)
+  const before = (run.runBeforeMain ?? state.reactNative.runBeforeMain).map((specifier) => moduleOfResolution(resolveImport(state, { importer: entryKey, specifier, kind: 'import-statement', aliases: run.aliases, platform: run.platform }))).filter((found) => found !== null)
   for (const found of before) visit(found)
   const scriptsBuilt = Promise.all(scripts.map((path) => scriptOf(run, state, path).catch(fail(path))))
   let size = 0

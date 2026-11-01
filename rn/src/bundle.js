@@ -156,6 +156,10 @@ function metroGraph({
   assetRegistryPath = null,
   // Metro's resolver.assetExts: its defaults where not given.
   assetExts = defaults.assetExts,
+  // Metro's other resolver options, as createMetroResolver takes them; and
+  // its blockList, RegExps of the files it sees none of.
+  resolver = {},
+  blockList = null,
   // Paths of the scripts to run first, as Metro's serializer.getPolyfills.
   polyfills = [],
   // Specifiers, from the entry, of the modules to run before it, as Metro's
@@ -170,7 +174,7 @@ function metroGraph({
 }, { reuseFirst }) {
   const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm }
   let state = null
-  const fresh = () => newState({ host, assetExts, projectRoot, entry, platform }, (made) => {
+  const fresh = () => newState({ host, assetExts, resolver, blockList, projectRoot, entry, platform }, (made) => {
     state = made
   })
   // bundle()'s, made before its build; createBundler()'s, as each starts.
@@ -266,12 +270,20 @@ export function resolveImport(state, { importer, specifier, kind, aliases, platf
 // package.json anew and counts each file it reads; given before what of
 // react-native runs before the entry is found, so that a manifest that fails
 // it (no JSON) is among the build's files.
-export function newState({ host, assetExts, projectRoot, entry, platform }, publish) {
+export function newState({ host, assetExts, resolver = {}, blockList = null, projectRoot, entry, platform }, publish) {
   const read = new Set()
-  const resolveModule = createMetroResolver({ host: reading(host, read), assetExts })
+  const resolveModule = metroResolverOf({ host: reading(host, read), assetExts, resolver, blockList })
   const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
   publish(made)
   publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
+}
+
+// Metro's resolver over the host, as Metro's config has it: its options, and
+// no file `blockList` matches, as Metro's file map has none of them.
+export function metroResolverOf({ host, assetExts, resolver = {}, blockList = null }) {
+  const blocked = (path) => blockList !== null && blockList.some((pattern) => pattern.test(path))
+  const seen = blockList === null ? host : { ...host, isFile: (path) => !blocked(path) && host.isFile(path) }
+  return createMetroResolver({ ...resolver, host: seen, assetExts })
 }
 
 // A path in a namespace of this plugin's, which esbuild prints as it is (in
