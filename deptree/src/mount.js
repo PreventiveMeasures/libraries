@@ -25,7 +25,7 @@ export function checkNoModules(vfs, folded) {
 // dependencies and cargo's vendor: `what` it is called.
 export const checkNoDir = (name, what) => (vfs, folded) => {
   for (const there of vfs.readdir('/')) {
-    if (there === name || (folded && fold(there) === name)) {
+    if (there === name || (folded && fold(there) === fold(name))) {
       throw new DeptreeError(`${what} is there already, which is neither kept beside the tree nor removed`, where(`/${there}`))
     }
   }
