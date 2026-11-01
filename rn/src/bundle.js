@@ -34,7 +34,6 @@ const MAYBE_TYPE_ARGUMENTS = /(?<!=)>(?:\s|\/\/.*|\/\*[\s\S]*?\*\/)*[(`]/u
 // So that TS reads JS as JS does, but for type arguments.
 const AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
 // Babel reads a JSX pragma off any line of a comment's text.
-const COMMENT = /\/\*([\s\S]*?)\*\/|\/\/(.*)/gu
 const JSX_PRAGMA = /^\s*(?:\*\s*)?@jsx(Frag|ImportSource|Runtime)?\s+(\S+)\s*$/gmu
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u
 const decoder = new TextDecoder()
@@ -56,6 +55,8 @@ export async function bundle({
   babel = null,
   // async (path) => the options of the project's Babel TS plugin for a file, or null.
   babelTypescript = null,
+  // async (source, path) => the text of each comment of a TS file, as Babel parses it.
+  babelComments = null,
   define = {},
   // (file, specifier) => the specifier an alias rewrites it to, or null.
   aliases = null,
@@ -66,7 +67,7 @@ export async function bundle({
   const resolveModule = createMetroResolver({ host, assetExts })
   const graph = new Map()
   const assets = new Map()
-  const options = { esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript }
+  const options = { esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript, babelComments }
   // The files Metro resolved, which alone esbuild may load.
   const resolved = new Set()
   const file = (path) => {
@@ -117,14 +118,15 @@ export async function bundle({
   return { outputFiles: result.outputFiles, warnings: result.warnings, assets: [...assets.keys()].toSorted().map((path) => assets.get(path)), graph }
 }
 
-async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript }, path) {
+async function loadFile({ esbuild, host, projectRoot, jsx, stripFlow, babel, babelTypescript, babelComments }, path) {
   const loader = jsx && JS.has(extname(path)) ? 'jsx' : (LOADERS.get(extname(path)) ?? 'js')
   const contents = decoder.decode(host.readFile(path))
   if (babel !== null && loader !== 'json') {
     let source
     try {
-      source = loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, contents, loader, path, await babelTypescript?.(path)) : await javascript({ esbuild, stripFlow }, contents, path)
+      source = loader === 'ts' || loader === 'tsx' ? await typescript({ esbuild, babelTypescript, babelComments }, contents, loader, path) : await javascript({ esbuild, stripFlow }, contents, path)
     } catch (error) {
+      if (error?.code === 'BABEL_PARSE_ERROR') return { errors: [{ text: `Babel: ${error.message}` }] }
       if (!Array.isArray(error?.errors)) throw error
       return { errors: error.errors }
     }
@@ -194,10 +196,10 @@ async function javascript({ esbuild, stripFlow }, contents, path) {
 }
 
 // null leaves the file to Babel as it is: esbuild can't parse it, may misread
-// it, or would lower decorators, whose semantics (legacy or not) the project's
-// Babel config picks.
+// it, would drop the JSX pragmas Babel reads off its comments, or would lower
+// decorators, whose semantics (legacy or not) the project's Babel config picks.
 async function downgrade(esbuild, contents, path) {
-  if (await typeArguments(esbuild, contents)) return null
+  if (contents.includes('@jsx') || (await typeArguments(esbuild, contents))) return null
   let code
   try {
     code = await lower(esbuild, contents, 'jsx', path, { supported: DOWNGRADED })
@@ -212,20 +214,24 @@ async function downgrade(esbuild, contents, path) {
 // default (as in @react-native/babel-preset) it drops fields with no value and
 // unused imports, but not, in TSX, those only JSX uses. tsconfig isn't read:
 // Metro doesn't.
-async function typescript(esbuild, contents, loader, path, plugin) {
-  const { onlyRemoveTypeImports = false, allowDeclareFields = false, jsxPragma = 'React.createElement', jsxPragmaFrag = 'React.Fragment' } = plugin ?? {}
+async function typescript({ esbuild, babelTypescript, babelComments }, contents, loader, path) {
+  const { onlyRemoveTypeImports = false, allowDeclareFields = false, jsxPragma = 'React.createElement', jsxPragmaFrag = 'React.Fragment' } = (await babelTypescript?.(path)) ?? {}
+  // esbuild drops comments, so the JSX pragmas Babel reads off them are carried over.
+  const pragmas = contents.includes('@jsx') && babelComments !== null ? jsxPragmas(await babelComments(contents, path)) : []
   const verbatimModuleSyntax = onlyRemoveTypeImports === true
-  const keep = verbatimModuleSyntax || loader !== 'tsx' ? [] : pragmaImports(contents, jsxPragma, jsxPragmaFrag)
+  const keep = verbatimModuleSyntax || loader !== 'tsx' ? [] : pragmaImports(pragmas, jsxPragma, jsxPragmaFrag)
   const tsconfigRaw = (useDefineForClassFields) => ({ compilerOptions: { useDefineForClassFields, verbatimModuleSyntax } })
-  const code = await lower(esbuild, contents, loader, path, { supported: DOWNGRADED, tsconfigRaw: tsconfigRaw(allowDeclareFields === true) }, keep)
+  const lowered = (options) => lower(esbuild, contents, loader, path, options, keep)
+  const code = await lowered({ supported: DOWNGRADED, tsconfigRaw: tsconfigRaw(allowDeclareFields === true) })
   // Decorated: types stripped alone, classes left to the project's Babel config.
-  return decorated(code) ? lower(esbuild, contents, loader, path, { tsconfigRaw: tsconfigRaw(true) }, keep) : code
+  const js = decorated(code) ? await lowered({ tsconfigRaw: tsconfigRaw(true) }) : code
+  return pragmas.map(([kind = '', value]) => `/* @jsx${kind} ${value} */\n`).join('') + js
 }
 
 // As Babel's TS plugin picks the imports it keeps for JSX.
-function pragmaImports(contents, jsxPragma, jsxPragmaFrag) {
+function pragmaImports(pragmas, jsxPragma, jsxPragmaFrag) {
   let [pragma, frag] = [jsxPragma, jsxPragmaFrag]
-  for (const [kind, value] of jsxPragmas(contents)) {
+  for (const [kind, value] of pragmas) {
     if (kind === undefined) pragma = value
     else if (kind === 'Frag') frag = value
   }
@@ -237,16 +243,14 @@ function decorated(code) {
   return code.includes('__decoratorStart(')
 }
 
-// esbuild drops comments, so the JSX pragmas are carried over; and a use of
-// each name to keep, appended then taken off, keeps its import.
+// A use of each name to keep, appended then taken off, keeps its import.
 async function lower(esbuild, contents, loader, path, options, keep = []) {
   const uses = keep.map((name) => `typeof ${name};\n`).join('')
   const { code } = await esbuild.transform(uses ? `${contents}\n;${uses}` : contents, { loader, jsx: 'preserve', sourcefile: path, logLevel: 'silent', ...options })
-  const pragmas = jsxPragmas(contents).map(([kind = '', value]) => `/* @jsx${kind} ${value} */\n`).join('')
-  return pragmas + (uses && code.endsWith(uses) ? code.slice(0, -uses.length) : code)
+  return uses && code.endsWith(uses) ? code.slice(0, -uses.length) : code
 }
 
-function jsxPragmas(contents) {
-  if (!contents.includes('@jsx')) return []
-  return [...contents.matchAll(COMMENT)].flatMap(([, block, line]) => [...(block ?? line).matchAll(JSX_PRAGMA)].map(([, kind, value]) => [kind, value]))
+// [kind, value] of each JSX pragma in the comments' text.
+function jsxPragmas(comments) {
+  return comments.flatMap((text) => [...text.matchAll(JSX_PRAGMA)].map(([, kind, value]) => [kind, value]))
 }

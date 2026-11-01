@@ -325,9 +325,10 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
       "import { view } from './view'",
       "import { pragma } from './pragma'",
       "import { inline } from './inline'",
+      "import { strings } from './strings'",
       "import { Child } from './fields'",
       'const effects: Effect[] = (globalThis as any).effects ?? []',
-      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), field: new Child().value ?? null }))',
+      'console.log(JSON.stringify({ effects, view: view(), pragma: pragma(), inline: inline(), strings: strings(), field: new Child().value ?? null }))',
       '',
     ].join('\n'),
     // Has a side effect; imported only for its type.
@@ -336,6 +337,8 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
     'view.tsx': "import { h } from './h'\nexport const view = () => <b>view</b>\n",
     'pragma.tsx': "/** @jsx p */\nimport { h as p } from './h'\nexport const pragma = () => <i>pragma</i>\n",
     'inline.tsx': "/** @jsx q */ import { h as q } from './h'\nexport const inline = () => <u>inline</u>\n",
+    // A pragma in a string isn't one; a real one may follow a URL's `//`.
+    'strings.tsx': "import { h as r } from './h'\nexport const text = '/* @jsx nope */', url = 'https://example.com' /** @jsx r */\nexport const strings = () => <s>{text}</s>\n",
     'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
@@ -350,7 +353,7 @@ describe('rn-bundle --babel, with Babel\'s TS plugin in the config', () => {
   }
 
   it('keeps the imports it keeps: none of types alone, and those the JSX pragmas name', () => {
-    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, field: 'base' })
+    assert.deepEqual(build({ jsxPragma: 'h' }), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, inline: { type: 'u', children: ['inline'] }, strings: { type: 's', children: ['/* @jsx nope */'] }, field: 'base' })
   })
 
   it('keeps each import but of types alone, with onlyRemoveTypeImports', () => {

@@ -119,6 +119,10 @@ function projectBabel() {
   return {
     transform: async (source, filename) => (await core.transformAsync(source, { ...options(filename), compact: false })).code,
     typescript: async (filename) => (await core.loadOptionsAsync(options(filename)))?.plugins.find(({ key }) => key === 'transform-typescript')?.options ?? null,
+    comments: async (source, filename) => {
+      const plugins = ['typescript', 'decorators', ...(filename.endsWith('.tsx') ? ['jsx'] : [])]
+      return (await core.parseAsync(source, { babelrc: false, configFile: false, filename, parserOpts: { plugins } })).comments.map(({ value }) => value)
+    },
   }
 }
 
@@ -135,6 +139,7 @@ try {
     stripFlow: flowRemoveTypes && ((source) => flowRemoveTypes(source, { all: true, removeEmptyImports: true }).toString()),
     babel: babel?.transform ?? null,
     babelTypescript: babel?.typescript ?? null,
+    babelComments: babel?.comments ?? null,
     assetExts: assetExts(),
     define,
     aliases: values['babel-aliases'] === undefined ? null : babelAliases(values['babel-aliases']),
