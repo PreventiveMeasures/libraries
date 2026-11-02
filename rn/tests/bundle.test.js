@@ -184,6 +184,27 @@ describe('bundle, of an import written before its module', () => {
   })
 })
 
+describe('bundle, of a file not UTF-8', () => {
+  // Latin-1's é, which UTF-8 has no character of alone; and a UTF-8 BOM, which is UTF-8.
+  const latin1 = Buffer.concat([Buffer.from("module.exports = 'caf"), Buffer.from([0xe9]), Buffer.from("'\n")])
+  const { root, cleanup } = writeTree({ 'index.js': "globalThis.result = [require('./lib/name'), require('./lib/bom')]\n", 'lib/name.js': latin1, 'lib/bom.js': "﻿module.exports = 'bom'\n" })
+  after(cleanup)
+
+  it('fails to load it, not taking its bytes for U+FFFD, and says it read it, so that a watcher sees it fixed', async () => {
+    const bundler = await createBundler({ entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root })
+    try {
+      const error = await bundler.rebuild().then(() => null, (failure) => failure)
+      assert.match(error?.errors?.[0]?.text ?? '', /Not UTF-8/u)
+      assert.equal(error.errors[0].location?.file, 'lib/name.js')
+      assert.ok(error.files.includes(join(root, 'lib/name.js')), String(error.files))
+      writeFileSync(join(root, 'lib/name.js'), "module.exports = 'café'\n")
+      assert.deepEqual(run(js(await bundler.rebuild())), ['café', 'bom'])
+    } finally {
+      await bundler.dispose()
+    }
+  })
+})
+
 describe('bundle, of an entry not there', () => {
   const { root, cleanup } = writeTree({ 'src/other.txt': '' })
   after(cleanup)

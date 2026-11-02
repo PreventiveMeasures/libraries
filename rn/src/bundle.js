@@ -32,7 +32,8 @@ export const LOWERED = {
 // TS as Babel makes it JS, which esbuild loads as TS (load.js), read as the
 // JS it is: each import kept, fields defined.
 const TS_AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
-const decoder = new TextDecoder()
+// A file's contents, of UTF-8 alone: a byte of none fails, not taken for U+FFFD.
+const decoder = new TextDecoder('utf-8', { fatal: true })
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
 // The module that runs the polyfills, then each module run before the entry,
@@ -416,9 +417,15 @@ export function lookingOnce(host) {
 // Each counted in the store (its note()): in memory, or loaded anew, and
 // why one is kept none of. Its contents as the host's readAhead() gives
 // them, where it has one (a promise of them, of null where the read
-// failed), else as it reads them.
+// failed), else as it reads them. A file not UTF-8 fails to load.
 export async function loadCached(options, host, cache, path) {
-  const contents = decoder.decode((await host.readAhead?.()) ?? host.readFile(path))
+  const bytes = (await host.readAhead?.()) ?? host.readFile(path)
+  let contents
+  try {
+    contents = decoder.decode(bytes)
+  } catch {
+    return { errors: [{ text: 'Not UTF-8: the file has bytes UTF-8 has no character of', location: { file: relative(options.projectRoot ?? process.cwd(), path).replaceAll('\\', '/') } }] }
+  }
   const { store = null, esm = false } = options
   const hit = cache?.get(path)
   if (hit !== undefined && hit.contents === contents) {
