@@ -110,8 +110,9 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // `profile`; `refresh`, react-refresh's Babel plugin, a dev target's workers
 // run it over each file outside node_modules, for Fast Refresh;
 // `transformProfile`, one of TRANSFORM_PROFILES, the caller's, for the
-// config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup.
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true } = {}) {
+// config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup;
+// `keepPlugins`, each target's workers leave module-resolver as it is (load.js).
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, keepPlugins = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -136,7 +137,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }) }, timed),
+      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }) }, timed),
       babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)
