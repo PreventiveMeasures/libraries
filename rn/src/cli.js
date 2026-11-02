@@ -76,26 +76,34 @@ export function babelAliases(cwd, file, fail) {
   }
 }
 
+// A dependency of Metro's transformer (@react-native/metro-babel-transformer,
+// the project's or its @react-native/metro-config's) as it requires it: the
+// one it finds, else the project's.
+function ofTransformer(project, name) {
+  const transformer = locateThrough(project, '@react-native/metro-babel-transformer', ['@react-native/metro-config'])
+  return (transformer === null ? null : tryResolve(createRequire(transformer), name)) ?? tryResolve(project.fromProject, name)
+}
+
 // The project's Babel config, as Metro's transformer takes it
 // (@react-native/metro-babel-transformer's getBabelRC): a babel.config.*,
 // which Babel finds itself; else the .babelrc or .babelrc.js it extends;
-// else @react-native/babel-preset. -> Babel's options of it, and what it is;
-// null where the project has none of them.
-export function babelConfigOf(cwd, { fromProject }) {
+// else its @react-native/babel-preset. -> Babel's options of it, and what it
+// is; null where the project has none of them.
+export function babelConfigOf(cwd, project) {
   const configFile = BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file))
   if (configFile !== undefined) return { options: { configFile }, what: configFile }
   const babelrc = ['.babelrc', '.babelrc.js'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
   if (babelrc !== undefined) return { options: { configFile: false, extends: babelrc }, what: babelrc }
-  const preset = tryResolve(fromProject, '@react-native/babel-preset')
+  const preset = ofTransformer(project, '@react-native/babel-preset')
   return preset === null ? null : { options: { configFile: false, presets: [[preset, { projectRoot: cwd }]] }, what: '@react-native/babel-preset', preset: true }
 }
 
 // Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
 export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 
-// The project's Babel config (babelConfigOf()), by the project's own
-// @babel/core: null where the project has none, or only the preset with no
-// @babel/core. -> a function of { platform, dev } to the options bundle()
+// The project's Babel config (babelConfigOf()), by the @babel/core Metro's
+// transformer runs, else the project's: null where the project has none, or
+// only the preset with no @babel/core. -> a function of { platform, dev } to the options bundle()
 // takes of Babel, with Metro's caller and Babel env, each target's workers
 // its own. `sourceMaps` makes each file's output carry its map, inline;
 // `profile`, each target's workers time the config's plugins, as its
@@ -106,7 +114,7 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
-  const corePath = tryResolve(project.fromProject, '@babel/core')
+  const corePath = ofTransformer(project, '@babel/core')
   if (corePath === null) return config.preset ? null : fail(`${config.what} needs @babel/core installed in the project`)
   const core = project.load(corePath)
   const targets = new Map()

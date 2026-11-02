@@ -7,7 +7,7 @@ import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { METRO_CONFIG, png, writeTree } from './fixtures.js'
+import { METRO_CONFIG, pkg, png, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
 const BIN = fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url))
@@ -828,15 +828,26 @@ const PLATFORM_PLUGIN = 'module.exports = ({ types: t }) => ({ visitor: { Identi
 describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset alone', () => {
   const ENTRY = { 'platform.js': 'console.log(JSON.stringify(__PLATFORM__))\n', 'node_modules/@babel/core': linked('@babel/core') }
   const babelrc = writeTree({ ...ENTRY, '.babelrc': { plugins: [['./platform-plugin.js', { tag: 'babelrc' }]] }, 'platform-plugin.js': PLATFORM_PLUGIN })
-  const preset = writeTree({
-    ...ENTRY,
-    'node_modules/@react-native/babel-preset/package.json': { name: '@react-native/babel-preset', main: 'index.js' },
-    'node_modules/@react-native/babel-preset/index.js': "module.exports = (api, options) => ({ plugins: [[require('./platform-plugin'), { tag: 'preset, for ' + (options.projectRoot === process.cwd() ? 'the project' : options.projectRoot) }]] })\n",
-    'node_modules/@react-native/babel-preset/platform-plugin.js': PLATFORM_PLUGIN,
+  const PRESET = pkg('@react-native/babel-preset', {
+    'package.json': { name: '@react-native/babel-preset', main: 'index.js' },
+    'index.js': "module.exports = (api, options) => ({ plugins: [[require('./platform-plugin'), { tag: 'preset, for ' + (options.projectRoot === process.cwd() ? 'the project' : options.projectRoot) }]] })\n",
+    'platform-plugin.js': PLATFORM_PLUGIN,
+  })
+  const preset = writeTree({ ...ENTRY, ...PRESET })
+  // Beneath Metro's transformer alone, as pnpm has them: its preset, its
+  // @babel/core.
+  const transformer = 'node_modules/@react-native/metro-config/node_modules/@react-native/metro-babel-transformer'
+  const nested = writeTree({
+    'platform.js': ENTRY['platform.js'],
+    ...pkg('@react-native/metro-config', { 'package.json': { name: '@react-native/metro-config', main: 'index.js' }, 'index.js': '' }),
+    ...pkg('@react-native/metro-config/node_modules/@react-native/metro-babel-transformer', { 'package.json': { name: '@react-native/metro-babel-transformer', main: 'index.js' }, 'index.js': '' }),
+    ...Object.fromEntries(Object.entries(PRESET).map(([path, content]) => [`${transformer}/${path}`, content])),
+    [`${transformer}/node_modules/@babel/core`]: linked('@babel/core'),
   })
   after(() => {
     babelrc.cleanup()
     preset.cleanup()
+    nested.cleanup()
   })
   const platform = (root) => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'platform.js'], { cwd: root, encoding: 'utf8' })
@@ -850,6 +861,7 @@ describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset
 
   it('runs @react-native/babel-preset, for the project, where it has no config, as Metro does', () => {
     assert.equal(platform(preset.root), 'preset, for the project')
+    assert.equal(platform(nested.root), 'preset, for the project')
   })
 })
 
