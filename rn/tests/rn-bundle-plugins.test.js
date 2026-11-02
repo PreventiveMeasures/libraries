@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { writeTree } from './fixtures.js'
+import { printed, writeTree } from './fixtures.js'
 import { BIN, linked } from './rn-bundle-app.js'
 
 describe('rn-bundle, with Babel, with plugins after babel-plugin-module-resolver', () => {
@@ -44,7 +44,7 @@ describe('rn-bundle, with Babel, with plugins after babel-plugin-module-resolver
   it('keeps module-resolver in Babel, before the plugins that read what it rewrote', () => {
     const r = run('index.js')
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), { name: 'a' })
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), { name: 'a' })
   })
 
   it("reports Babel's error in the file it failed on, at its line where Babel says one", () => {
@@ -95,7 +95,7 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8', timeout: 30_000 })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'a', 'a'])
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)
   }
 
@@ -123,7 +123,7 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}]] }\n`)
       const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+      return JSON.parse(printed(join(root, 'out.js')))
     }
     assert.equal(build({ '#lib': './lib' }, 'continued.js'), 'a')
     // A group before its own: the second alias's \\1 is of its own group.
@@ -137,7 +137,7 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}], ${JSON.stringify(plugin)}] }\n`)
       const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+      return JSON.parse(printed(join(root, 'out.js')))
     }
     const jsx = ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]
     assert.equal(bundled({ '^react/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'jsx.js'), 'b')
@@ -181,7 +181,7 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
   it('leaves modules and block scoping out of Babel in a file that gives them nothing to do', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'c'])
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['a', 'b', 'c'])
     const files = (key) => Number(new RegExp(`^ +\\d+ +[\\d.]+ +(\\d+) +\\d+ {2}${key}$`, 'mu').exec(r.stderr)?.[1] ?? 0)
     // Classes, in each file with `export default` or a class; modules, in
     // those with import or export, and the script whose strings name them;
@@ -196,7 +196,7 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
     try {
       const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'made.js'], { cwd: root, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
-      assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, '"lowered"\n')
+      assert.equal(printed(join(root, 'out.js')), '"lowered"\n')
     } finally {
       writeFileSync(join(root, 'babel.config.js'), config)
     }

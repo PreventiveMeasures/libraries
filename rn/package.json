@@ -63,6 +63,7 @@
     "src/hot.js",
     "src/image-size.js",
     "src/load-cache.js",
+    "src/load-pack.js",
     "src/load.js",
     "src/mappings.js",
     "src/metro-config.js",

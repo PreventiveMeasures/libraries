@@ -16,6 +16,7 @@ import { workletsGate } from './worklets.js'
 // (babelWorkers()).
 export function transformerOf({ corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, ...given }, profile }) {
   const core = createRequire(corePath)(corePath)
+  memoizeHelpers(core)
   const cwd = given.cwd ?? process.cwd()
   const imports = importsOf()
   const inlining = inliningOf(core, inlineRequires, given.cwd)
@@ -71,6 +72,27 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
     }
   }
 }
+
+// @babel/core's File#availableHelper(name, versionRange), which
+// transform-runtime asks of each helper a file uses: semver's intersects()
+// of two ranges it parses anew each time, some 1% of Babel's work. Of the
+// helper's name and the range alone (Babel's helpers, of their versions),
+// each answer is had once.
+export function memoizeHelpers(core) {
+  const proto = core.File?.prototype
+  const available = proto?.availableHelper
+  if (typeof available !== 'function' || MEMOIZED.has(available)) return
+  const known = new Map()
+  const memoized = function (name, versionRange) {
+    if (typeof name !== 'string' || (versionRange !== undefined && typeof versionRange !== 'string')) return available.call(this, name, versionRange)
+    const key = `${name}\0${versionRange}`
+    if (!known.has(key)) known.set(key, available.call(this, name, versionRange))
+    return known.get(key)
+  }
+  MEMOIZED.add(memoized)
+  proto.availableHelper = memoized
+}
+const MEMOIZED = new WeakSet()
 
 // The specifiers of the file's import and export-from declarations, but
 // types', as Metro's transformer records where each is (its
