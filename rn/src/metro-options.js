@@ -3,7 +3,7 @@
 // rn-bundle and rn-serve take. An option they don't do is an error, unless
 // it is Metro's default or @react-native/metro-config's, or of no bearing on
 // what they build (how Metro caches, watches or reports). What can't run the
-// config reads its assetExts off it instead (metro-config.js).
+// config reads its assetExts off it instead (asset-exts.js).
 
 import { existsSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -158,7 +158,7 @@ const patterns = (blockList) => {
 // its inline requires, where Metro is the project's (`inlineRequires`).
 function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null)) {
   let polyfills = null
-  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, watchFolders: null, maxWorkers: null, minifyRefusal: null, transformRefusal: () => null }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, watchFolders: null, maxWorkers: null, ownLists: [], minifyRefusal: null, transformRefusal: () => null }
   return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
@@ -184,13 +184,16 @@ async function baselinesOf(metro, project, cwd) {
   }
 }
 
-// The project's Metro config (`file`, else the one Metro finds), as
-// bundle() and createDevBundler() take it: { file, assetExts, resolver,
+// The project's Metro config (`file`, else the one Metro finds; none where
+// false, as of a project with no config), as bundle() and
+// createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
 // assetRegistryPath or null, babelRCLookup, babelRuntime, port or null,
 // watchFolders (Metro's, the project root the first; their real paths) or
 // null, maxWorkers (workersOf()) or null where the config's is Metro's default
 // (its getMaxWorkers() of the CPUs, too many for rn: defaultWorkers()),
+// ownLists (which of the resolver's assetExts, sourceExts and
+// assetResolutions the config sets as neither default has them),
 // minifyRefusal, transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
 // { platform, dev }) (inlineRequiresOf()) }. `name` is the command's,
 // `serving` whether it serves, `minify` whether it minifies; where it
@@ -199,9 +202,10 @@ async function baselinesOf(metro, project, cwd) {
 // of the transform options getTransformOptions gives a bundle, as Metro asks
 // it for each, that they don't do (TRANSFORMS), or null.
 export async function metroOptions(cwd, project, fail, { file = null, name, serving = false, minify = false }) {
-  if (file !== null && !existsSync(resolve(cwd, file))) fail(`no such Metro config: ${file}`)
+  if (typeof file === 'string' && !existsSync(resolve(cwd, file))) fail(`no such Metro config: ${file}`)
   const metroConfig = locateThrough(project, 'metro-config', ['@react-native/metro-config']) ?? locateThrough(project, 'metro-config', ['react-native', '@react-native/community-cli-plugin'])
   if (metroConfig === null) {
+    if (file === false) return fallback(project, fail)
     const found = file ?? ['js', 'cjs', 'mjs', 'json', 'ts'].map((ext) => `metro.config.${ext}`).find((each) => existsSync(resolve(cwd, each)))
     return found === undefined ? fallback(project, fail) : fail(`loading ${found} needs metro-config, as react-native has it: npm i -D metro-config`)
   }
@@ -210,12 +214,12 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   // before, a served one's alone.
   const [major, minor] = createRequire(metroConfig)('metro-config/package.json').version.split('.').map(Number)
   const hot = serving || major > 0 || minor >= 84
-  const given = file === null ? undefined : resolve(cwd, file)
-  const { isEmpty, filepath } = await metro.resolveConfig(given, cwd)
+  const given = typeof file === 'string' ? resolve(cwd, file) : undefined
+  const { isEmpty, filepath } = file === false ? { isEmpty: true } : await metro.resolveConfig(given, cwd)
   const plugins = transformPluginsOf(metroConfig)
-  // Without one, Metro's defaults: from 0.82 on, a package's exports read;
-  // its requires inlined as @react-native/metro-config has them, where the
-  // project has it.
+  // Without one, or of none loaded (rn.config.json's metroConfig false),
+  // Metro's defaults: from 0.82 on, a package's exports read; its requires
+  // inlined as @react-native/metro-config has them, where the project has it.
   if (isEmpty) return fallback(project, fail, { packageExports: Boolean((await metro.getDefaultConfig(cwd)).resolver.unstable_enablePackageExports) }, inlineRequiresOf((await baselinesOf(metro, project, cwd)).at(-1).transformer?.getTransformOptions, plugins, hot))
   const shown = relative(cwd, filepath)
   let config
@@ -259,6 +263,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     port: server?.port ?? null,
     watchFolders: config.watchFolders.map((folder) => realPathOf(resolve(cwd, folder))),
     maxWorkers: baselines.some((baseline) => baseline.maxWorkers === config.maxWorkers) ? null : workersOf(config.maxWorkers),
+    ownLists: ['assetExts', 'sourceExts', 'assetResolutions'].filter((key) => !baselines.some((base) => same(resolver[key], base.resolver?.[key]))),
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
     transformRefusal: async (entryPath, target) => {
       // Its getDependencies, of what preloads, of no bearing here; but of

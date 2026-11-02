@@ -307,6 +307,24 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     assert.ok(/\brequire_cjs\b/u.test(esm.code) && /\brequire_bound\b/u.test(esm.code) && !/\brequire_mentions\b/u.test(esm.code))
   })
 
+  it("takes --esm's default of rn.config.json's esm, --no-esm over it", async () => {
+    // Each built before, of no rn.config.json.
+    const [esm, commonjs] = [(await build('--esm')).code, (await build()).code]
+    assert.notEqual(esm, commonjs)
+    writeFileSync(join(root, 'rn.config.json'), '{ "esm": true }')
+    try {
+      const code = async (...args) => {
+        const r = await runBundle(['--platform=ios', ...args, '--output=config-out.js', 'index.js'], { cwd: root })
+        assert.equal(r.status, 0, r.stderr)
+        return readFileSync(join(root, 'config-out.js'), 'utf8')
+      }
+      assert.equal(await code(), esm)
+      assert.equal(await code('--no-esm'), commonjs)
+    } finally {
+      rmSync(join(root, 'rn.config.json'))
+    }
+  })
+
   it('leaves CommonJS a file in which esbuild finds an import of what a module does not export, warning of it', async () => {
     const { code, stderr } = await build('--esm')
     assert.ok(/\brequire_partial\b/u.test(code) && !/\brequire_present\b/u.test(code))

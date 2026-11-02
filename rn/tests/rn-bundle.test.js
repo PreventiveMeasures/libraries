@@ -6,7 +6,7 @@ import { SourceMap } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { METRO_CONFIG, memoized, pkg, printed, writeTree } from './fixtures.js'
+import { METRO_CONFIG, memoized, pkg, png, printed, writeTree } from './fixtures.js'
 import { APP, BABEL_APP, BIN, MODERN, OPTIONS, PLATFORM_PLUGIN, POLYFILLS, PRELUDE, linked, listFiles, md5, notInstalled, reactNativeApp, runBundle, templateConfig } from './rn-bundle-app.js'
 
 describe('rn-bundle', () => {
@@ -329,6 +329,104 @@ describe('rn-bundle with a Metro config, but no metro-config', () => {
   it('fails, as it is to run it', async () => {
     const r = await runBundle(['--platform=ios', ...OPTIONS, '--output=out.js', 'index.js'], { cwd: root })
     assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: loading metro.config.js needs metro-config, as react-native has it: npm i -D metro-config\n'])
+  })
+})
+
+describe("rn-bundle, of a project's rn.config.json", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    ...METRO_CONFIG,
+    // A config it refuses, which metroConfig false leaves unread.
+    'metro.config.js': templateConfig("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') } }"),
+    'svg-transformer.js': 'module.exports = {}\n',
+    'glow.config.js': templateConfig("{ resolver: { assetExts: ['glow'] } }"),
+    // A config that sets none of the resolver's lists.
+    'plain.config.js': templateConfig('{}'),
+    'halo.glow': 'GLOW',
+    'glow.js': "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify(getAssetByID(require('./halo.glow')).type))\n",
+    'spin.riv': 'RIVE',
+    'both.js': "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify([require('./halo.glow'), require('./spin.riv')].map((id) => getAssetByID(id).type)))\n",
+    'later.mjs': "export const later = 'mjs'\n",
+    'mjs.js': "console.log(JSON.stringify(require('./later')))\n",
+    // Of a scale Metro's assetResolutions has none of.
+    'tiny@0.75x.png': png(3, 3),
+    'tiny.js': "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconst { scales, width } = getAssetByID(require('./tiny.png'))\nconsole.log(JSON.stringify({ scales, width }))\n",
+  })
+  after(cleanup)
+  const outputOf = () => JSON.parse(printed(join(root, 'out.js')))
+  const bundleWith = (config, args = [], entry = 'index.js') => {
+    writeFileSync(join(root, 'rn.config.json'), JSON.stringify(config))
+    return runBundle(['--platform=ios', ...OPTIONS, ...args, '--output=out.js', entry], { cwd: root })
+  }
+
+  it('loads the Metro config Metro finds, as of none', async () => {
+    const r = await bundleWith({ metroConfig: true })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /^rn-bundle: metro\.config\.js: transformer\.babelTransformerPath is "svg-transformer\.js"/u)
+  })
+
+  it("loads no Metro config of metroConfig false, as of a project with none: Metro's defaults as @react-native/metro-config has them", async () => {
+    const r = await bundleWith({ metroConfig: false })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(printed(join(root, 'out.js'))).where, 'ios')
+  })
+
+  it('loads the Metro config of its path, --metro-config over it', async () => {
+    const r = await bundleWith({ metroConfig: 'glow.config.js' }, [], 'glow.js')
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(printed(join(root, 'out.js'))), 'glow')
+    const over = await bundleWith({ metroConfig: false }, ['--metro-config=glow.config.js'], 'glow.js')
+    assert.equal(over.status, 0, over.stderr)
+    const refused = await bundleWith({ metroConfig: 'glow.config.js' }, ['--metro-config=metro.config.js'], 'glow.js')
+    assert.match(refused.stderr, /^rn-bundle: metro\.config\.js: transformer\.babelTransformerPath/u)
+    assert.match((await bundleWith({ metroConfig: 'none.config.js' })).stderr, /^rn-bundle: no such Metro config: none\.config\.js\n$/u)
+  })
+
+  it('takes esm where Babel runs, as --esm, --no-esm over it', async () => {
+    const r = await bundleWith({ metroConfig: false, esm: true })
+    assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: rn.config.json's esm keeps ES modules through the project's Babel config, and it has none\n"])
+    const over = await bundleWith({ metroConfig: false, esm: true }, ['--no-esm'])
+    assert.equal(over.status, 0, over.stderr)
+  })
+
+  it("adds its assetExts to Metro's defaults, of a Metro config or none, refusing one that sets them too", async () => {
+    const r = await bundleWith({ metroConfig: false, assetExts: ['glow'] }, [], 'glow.js')
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(outputOf(), 'glow')
+    const both = await bundleWith({ metroConfig: 'plain.config.js', assetExts: ['glow', 'riv'] }, [], 'both.js')
+    assert.equal(both.status, 0, both.stderr)
+    assert.deepEqual(outputOf(), ['glow', 'riv'])
+    const refused = await bundleWith({ metroConfig: 'glow.config.js', assetExts: ['riv'] }, [], 'both.js')
+    assert.deepEqual([refused.status, refused.stderr], [1, "rn-bundle: rn.config.json: assetExts adds to Metro's defaults, and glow.config.js sets resolver.assetExts too: set it in one of them\n"])
+    // Of neither, no asset: the file a module.
+    assert.equal((await bundleWith({ metroConfig: false }, [], 'glow.js')).status, 0)
+    assert.doesNotMatch(readFileSync(join(root, 'out.js'), 'utf8'), /metro-asset:halo\.glow/u)
+  })
+
+  it('adds its sourceExts, which an import resolves by, after the others', async () => {
+    const r = await bundleWith({ metroConfig: false, sourceExts: ['mjs'] }, [], 'mjs.js')
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(outputOf(), { later: 'mjs' })
+    assert.equal((await bundleWith({ metroConfig: false }, [], 'mjs.js')).status, 1)
+  })
+
+  it('adds its assetResolutions, the scales an import of an asset resolves its files of', async () => {
+    const r = await bundleWith({ metroConfig: false, assetResolutions: [0.75] }, ['--assets-dest=res'], 'tiny.js')
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(outputOf(), { scales: [0.75], width: 4 })
+    assert.deepEqual(listFiles(join(root, 'res')), ['assets/tiny@0.75x.png'])
+    assert.equal((await bundleWith({ metroConfig: false }, [], 'tiny.js')).status, 1)
+  })
+
+  it('refuses an extension it adds to one of assetExts and sourceExts the other has', async () => {
+    const r = await bundleWith({ metroConfig: false, sourceExts: ['svg'] })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: sourceExts adds svg, which assetExts has: Metro takes a file of it for an asset, and rn.config.json removes none\n'])
+  })
+
+  it('refuses an option it does not know, and takes devTools, which is of rn-serve', async () => {
+    const r = await bundleWith({ metroConfig: false, esModules: true })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools\n'])
+    assert.equal((await bundleWith({ metroConfig: false, devTools: true })).status, 0)
   })
 })
 

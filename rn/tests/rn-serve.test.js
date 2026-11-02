@@ -599,6 +599,30 @@ describe('rn-serve, with Fast Refresh', () => {
   })
 })
 
+describe("rn-serve, of rn.config.json's assetExts and sourceExts", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'rn.config.json': { assetExts: ['riv'], sourceExts: ['mjs'] },
+    'lists.js': "import { getAssetByID } from 'react-native/asset-registry'\nglobalThis.result = { later: require('./later').later, spin: getAssetByID(require('./anim/spin.riv')).type }\n",
+    'later.mjs': "export const later = 'mjs'\n",
+    'anim/spin.riv': 'RIVE',
+  })
+  let server
+  before(async () => {
+    server = await serve(root)
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+
+  it('builds each bundle of them, as rn-bundle does, and serves the assets', async () => {
+    assert.deepEqual(run(String((await fetchRaw(`${server.url}/lists.bundle?platform=ios`)).body)).result, { later: 'mjs', spin: 'riv' })
+    const asset = await fetchRaw(`${server.url}/assets/anim/spin.riv?platform=ios&hash=x`)
+    assert.deepEqual([asset.status, String(asset.body)], [200, 'RIVE'])
+  })
+})
+
 describe('rn-serve --esm', () => {
   const { root, cleanup } = writeTree({
     ...APP,
@@ -775,6 +799,87 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
     try {
       assert.equal(String((await fetchRaw(`${server.url}/json/list`)).body), '[]')
       assert.match(server.output(), /no metro-runtime/u)
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
+describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devTools", () => {
+  // A dev-middleware of its inspector's sockets, `ws`'s as rn-serve has them,
+  // and of each /open-debugger asked (GET /test/opened).
+  const DEV_MIDDLEWARE = [
+    "const { EventEmitter } = require('node:events')",
+    `const { acceptWebSocket } = require(${JSON.stringify(fileURLToPath(new URL('../src/websocket.js', import.meta.url)))})`,
+    'const endpoint = () => {',
+    '  const server = new EventEmitter()',
+    '  server.handleUpgrade = (request, socket, head, done) => {',
+    '    const ws = new EventEmitter()',
+    "    if (acceptWebSocket(request, socket, head, { onMessage: (text) => ws.emit('message', Buffer.from(text)), onClose: () => ws.emit('close') }) !== null) done(ws)",
+    '  }',
+    '  return server',
+    '}',
+    'const opened = []',
+    'exports.createDevMiddleware = () => ({',
+    '  middleware: (request, response, next) => {',
+    "    if (request.method === 'POST' && request.url.startsWith('/open-debugger')) opened.push(request.url)",
+    "    else if (request.url === '/test/opened') return response.end(JSON.stringify(opened))",
+    '    else return next()',
+    '    response.end()',
+    '  },',
+    "  websocketEndpoints: { '/inspector/device': endpoint(), '/inspector/debug': endpoint() },",
+    '})',
+    '',
+  ].join('\n')
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'rn.config.json': { devTools: true },
+    'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
+    'node_modules/@react-native/dev-middleware/index.js': DEV_MIDDLEWARE,
+  })
+  after(cleanup)
+  const PAGES = JSON.stringify({ event: 'getPages', payload: [{ id: '1', title: 'App (iPhone)', app: 'com.app', capabilities: { nativePageReloads: true } }] })
+  const connect = async (server, path) => {
+    const ws = new WebSocket(`${server.url.replace(/^http/u, 'ws')}${path}`)
+    await once(ws, 'open')
+    return ws
+  }
+  // An app's runtime connecting, and listing its page.
+  const launch = async (server) => {
+    const device = await connect(server, '/inspector/device?device=phone&name=iPhone&app=com.app')
+    device.send(PAGES)
+    return device
+  }
+  const opened = async (server) => JSON.parse(String((await fetchRaw(`${server.url}/test/opened`)).body))
+
+  it('opens DevTools of each app as it connects, unless DevTools are connected to its device', async () => {
+    const server = await serve(root)
+    try {
+      const device = await launch(server)
+      assert.deepEqual(await until(async () => (await opened(server)).length > 0 && opened(server), 'DevTools opened'), ['/open-debugger?device=phone'])
+      // DevTools connected, the app relaunched: none opened again.
+      const debug = await connect(server, '/inspector/debug?device=phone&page=1')
+      device.close()
+      const again = await launch(server)
+      await sleep(300)
+      assert.deepEqual(await opened(server), ['/open-debugger?device=phone'])
+      // Closed, the app relaunched: opened again.
+      debug.close()
+      again.close()
+      await sleep(100)
+      ;(await launch(server)).close()
+      assert.equal((await until(async () => (await opened(server)).length > 1 && opened(server), 'DevTools opened again')).length, 2)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it('opens none with --no-dev-tools', async () => {
+    const server = await serve(root, ['--no-dev-tools'])
+    try {
+      ;(await launch(server)).close()
+      await sleep(300)
+      assert.deepEqual(await opened(server), [])
     } finally {
       await server.stop()
     }

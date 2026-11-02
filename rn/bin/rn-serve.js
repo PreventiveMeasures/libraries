@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
-//   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--esm]
-//   [--reset-cache] [--no-warm] [--no-client-logs]
+//   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE]
+//   [--esm | --no-esm] [--dev-tools | --no-dev-tools] [--reset-cache]
+//   [--no-warm] [--no-client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
@@ -9,7 +10,9 @@
 // as Metro's terminal prints it, each line labelled ` LOG `, ` WARN `, ...
 // (but --no-client-logs); reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
-// (j), its Network panel on: where the app's runtime reports no requests
+// (j; with --dev-tools, opened for each app as it connects, unless DevTools
+// are connected to its device already: src/devtools.js), its Network panel
+// on: where the app's runtime reports no requests
 // (React Native before 0.83), each dev bundle in Metro's module format has
 // a reporter of rn's, which tells rn-serve of each request an XMLHttpRequest
 // makes (fetch's too), which rn-serve shows the panel (src/network.js). A
@@ -49,6 +52,13 @@
 // option of its server or symbolicator not as Metro's default an error too.
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
+// The project's rn.config.json (src/rn-config.js) has the defaults of
+// --esm (its esm), --dev-tools (its devTools), --max-workers (its
+// maxWorkers, over the Metro config's) and of the Metro config (its
+// metroConfig: false, none, as of a project with none; a path, that file),
+// the flags over it; and what it adds to Metro's defaults of assetExts,
+// sourceExts and assetResolutions (a Metro config that sets one of them
+// too, an error).
 
 import { realpathSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'
@@ -59,11 +69,13 @@ import { parseArgs, styleText } from 'node:util'
 
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
+import { createDevToolsOpener } from '../src/devtools.js'
 import { createGate } from '../src/gate.js'
 import { createLoadCache } from '../src/load-cache.js'
 import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { REPORTER } from '../src/network.js'
+import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
 import { createWatcher } from '../src/watch.js'
@@ -81,7 +93,8 @@ const { values } = parseArgs({
     'max-workers': { type: 'string' },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
-    esm: { type: 'boolean', default: false },
+    esm: { type: 'boolean' },
+    'dev-tools': { type: 'boolean' },
     'reset-cache': { type: 'boolean', default: false },
     warm: { type: 'boolean', default: true },
     'client-logs': { type: 'boolean', default: true },
@@ -95,9 +108,12 @@ if (values.port !== undefined && (!/^\d+$/u.test(values.port) || Number(values.p
 defines(true, values.define, fail)
 
 const projectRoot = realpathSync(process.cwd())
+const rnConfig = readRnConfig(projectRoot, fail)
+const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
+const devTools = flagOf(values['dev-tools'], rnConfig, 'devTools', 'dev-tools').on
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
-const metro = await metroOptions(projectRoot, project, fail, { file: values['metro-config'] ?? null, name: 'rn-serve', serving: true })
+const metro = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
 const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.port)
 // For Fast Refresh: the module system dev bundles are written for, and the
 // plugin that has Babel register each component.
@@ -106,7 +122,7 @@ const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-nati
 const cacheDir = cacheDirOf(values['reset-cache'], log)
 const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot)
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
-if (values.esm && babelFor === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
+if (esm.on && babelFor === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
 let pruned = null
@@ -128,7 +144,7 @@ const devBundler = createDevBundler({
   injected: devMiddleware === null ? [] : [REPORTER],
   targetOptions: ({ platform, dev, inlineRequires }) => {
     const babel = babelFor?.({ platform, dev, inlineRequires }) ?? null
-    return { stripFlow, ...babel, aliases, esm: values.esm, define: defines(dev, values.define, fail), store: loadCache?.(babel) ?? null }
+    return { stripFlow, ...babel, aliases, esm: esm.on, define: defines(dev, values.define, fail), store: loadCache?.(babel) ?? null }
   },
   onBuild: ({ request, outcome, ms, cached }) => {
     watcher?.update(devBundler.files())
@@ -226,7 +242,8 @@ function status(ms, cached) {
 }
 
 // With its Network panel, which rn-serve has show the app's requests where
-// its runtime reports none (src/network.js): of each DevTools as it connects.
+// its runtime reports none (src/network.js): of each DevTools as it
+// connects; with --dev-tools, DevTools opened for each app as it connects.
 function mountDebugger(serverUrl) {
   const { network } = devServer
   try {
@@ -237,6 +254,11 @@ function mountDebugger(serverUrl) {
       unstable_customInspectorMessageHandler: network.handler,
     })
     mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', network.debuggerConnected)
+    if (devTools) {
+      const opener = createDevToolsOpener((device) => void openDebugger(serverUrl, device))
+      mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', opener.debuggerConnected)
+      mounted.websocketEndpoints?.['/inspector/device']?.prependListener?.('connection', opener.deviceConnected)
+    }
     devServer.mount(mounted)
   } catch (error) {
     log(`rn-serve: @react-native/dev-middleware fails, no debugger: ${error.message}`)
@@ -274,10 +296,11 @@ function keys(serverUrl) {
   })
 }
 
-// As React Native's `j`: the debugger of the app last connected.
-async function openDebugger(serverUrl) {
+// As React Native's `j`: the debugger of the app last connected; of
+// `device`'s, where given.
+async function openDebugger(serverUrl, device = null) {
   try {
-    const response = await fetch(`${serverUrl}/open-debugger`, { method: 'POST' })
+    const response = await fetch(`${serverUrl}/open-debugger${device === null ? '' : `?device=${encodeURIComponent(device)}`}`, { method: 'POST' })
     if (!response.ok) log(`rn-serve: no debugger: ${(await response.text()).trim()}`)
   } catch (error) {
     log(`rn-serve: no debugger: ${error.message}`)

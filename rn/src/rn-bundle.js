@@ -15,6 +15,7 @@ import { bundle } from './bundle.js'
 import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
+import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
 import { prelude } from './serializer.js'
 import { differences } from './self-test.js'
 import { metroSourceMap } from './source-map.js'
@@ -35,9 +36,11 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
     // plugins to read: Reanimated's (3), for production, leaves out each
     // worklet's location and source map.
     process.env.NODE_ENV = values.dev ? 'development' : 'production'
+    const rnConfig = readRnConfig(cwd, fail)
+    const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
     const project = peers(cwd, fail)
     const esbuild = project.peer('esbuild', 'bundling')
-    const metro = await metroOptions(cwd, project, fail, { file: values['metro-config'] ?? null, name: 'rn-bundle', minify: values.minify })
+    const metro = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-bundle', minify: values.minify }), rnConfig, fail)
     const transformRefusal = await metro.transformRefusal(resolve(cwd, entry), { platform: values.platform, dev: values.dev })
     if (transformRefusal !== null) fail(transformRefusal)
     const inlineRequires = await metro.inlineRequires(resolve(cwd, entry), { platform: values.platform, dev: values.dev })
@@ -47,7 +50,7 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
     if (babel !== null) closing.push(babel.babel.close)
     if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
     if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
-    if (values.esm && babel === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
+    if (esm.on && babel === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
     // The default, of no bearing on what is built, as Metro takes it.
     if (transformProfile !== 'default' && babel === null) fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
     if (babel !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
@@ -71,7 +74,7 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
       stripFlow: timedBefore(babel?.profile ?? null, 'flow-remove-types', flowStripper(project, babel !== null)),
       babel: babel?.babel ?? null,
       babelPlugins: babel?.babelPlugins ?? null,
-      esm: values.esm,
+      esm: esm.on,
       assetExts: metro.assetExts,
       resolver: { ...metro.resolver, dev: values.dev },
       blockList: metro.blockList,
@@ -112,6 +115,7 @@ function argsOf(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
+    allowNegative: true,
     options: {
       platform: { type: 'string' },
       output: { type: 'string' },
@@ -123,7 +127,7 @@ function argsOf(argv) {
       'sourcemap-sources-root': { type: 'string' },
       'sourcemap-use-absolute-path': { type: 'boolean', default: false },
       'metro-config': { type: 'string' },
-      esm: { type: 'boolean', default: false },
+      esm: { type: 'boolean' },
       profile: { type: 'boolean', default: false },
       'self-test': { type: 'boolean', default: false },
       'unstable-transform-profile': { type: 'string' },

@@ -18,7 +18,10 @@
 // utf8 alone; --unstable-transform-profile default. Another profile, as
 // rn-bundle takes it, for the project's Babel config. Refused, as rn-bundle can't do as Metro would:
 // --transformer, --resolver-option. rn-bundle runs the project's Babel
-// config as Metro's transformer does.
+// config as Metro's transformer does. Xcode and Gradle run it in the
+// project's root, so rn-bundle takes its rn.config.json (src/rn-config.js),
+// --config and --max-workers over it: its esm too, which
+// `react-native bundle` has no option of.
 
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
