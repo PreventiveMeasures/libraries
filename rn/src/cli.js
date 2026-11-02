@@ -106,6 +106,8 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // only the preset with no @babel/core. -> a function of { platform, dev } to the options bundle()
 // takes of Babel, with Metro's caller and Babel env, each target's workers
 // its own. `sourceMaps` makes each file's output carry its map, inline;
+// without it, Babel reads no file's own map (by its sourceMappingURL), of no
+// use then, nor looks through its comments for one;
 // `profile`, each target's workers time the config's plugins, as its
 // `profile`; `refresh`, react-refresh's Babel plugin, a dev target's workers
 // run it over each file outside node_modules, for Fast Refresh;
@@ -152,7 +154,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }), ...(cacheDir !== null && { cacheDir }) }, timed, maxWorkers),
+      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }), ...(cacheDir !== null && { cacheDir }) }, timed, maxWorkers),
       babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)
