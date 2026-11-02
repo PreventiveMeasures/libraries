@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict'
-import { realpathSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
 import { peers } from '../src/cli.js'
 import { metroOptions } from '../src/metro-options.js'
-import { writeTree } from './fixtures.js'
+import { METRO_CONFIG, writeTree } from './fixtures.js'
 
-const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
 const template = (custom = '{}') => `const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')\nmodule.exports = mergeConfig(getDefaultConfig(__dirname), ${custom})\n`
 
 describe("metroOptions, of a config over @react-native/metro-config's", () => {
@@ -16,8 +14,8 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     'package.json': { name: 'app' },
     'metro.config.js': template(),
     'svg-transformer.js': 'module.exports = {}\n',
-    'node_modules/metro-config': linked('metro-config'),
-    'node_modules/@react-native/metro-config': linked('@react-native/metro-config'),
+    'lib/.keep': '',
+    ...METRO_CONFIG,
   })
   after(cleanup)
   // -> its options, or the message it fails with.
@@ -35,11 +33,11 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     }
   }
 
-  it("takes React Native's template as it is, with its defaults: the polyfills, asset registry and blockList of @react-native/metro-config, Metro's port", async () => {
+  it("takes React Native's template as it is, with its defaults: @react-native/metro-config's polyfills and asset registry, Metro's blockList and port", async () => {
     const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })
     assert.equal(options.file, 'metro.config.js')
-    assert.deepEqual(options.polyfills('ios').map((path) => basename(path)), ['console.js', 'error-guard.js'])
-    assert.deepEqual([options.assetRegistryPath, options.blockList.map(String), options.port, options.babelRCLookup], ['react-native/asset-registry', [String(/(\/__tests__\/.*)$/u).replace('/u', '/')], 8081, true])
+    assert.deepEqual(options.polyfills('ios').map((path) => basename(path)), ['polyfill.js'])
+    assert.deepEqual([options.assetRegistryPath, options.blockList.map(String), options.port, options.babelRCLookup], ['react-native/Libraries/Image/AssetRegistry', [String(/(\/__tests__\/.*)$/u).replace('/u', '/')], 8081, true])
     assert.deepEqual([options.resolver.sourceExts, options.resolver.mainFields, options.resolver.conditionNames], [['js', 'jsx', 'json', 'ts', 'tsx'], ['react-native', 'browser', 'main'], ['react-native']])
     assert.equal(typeof options.runBeforeMain, 'function')
   })
@@ -52,10 +50,10 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
   it('refuses a Babel transformer, a resolver, a serializer and transform options of its own', async () => {
     const message = await load("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js'), getTransformOptions: async () => ({ transform: { inlineRequires: false } }) }, resolver: { resolveRequest: () => null }, serializer: { customSerializer: () => '' } }")
     assert.deepEqual(message.split('\nrn-bundle: '), [
-      'its config: resolver.resolveRequest is a function, a resolver of its own: rn-bundle does it as Metro\'s default alone',
-      'its config: serializer.customSerializer is a function, a serializer of its own: rn-bundle does it as Metro\'s default alone',
+      'its config: resolver.resolveRequest is a function: rn-bundle does it as Metro\'s default alone',
+      'its config: serializer.customSerializer is a function: rn-bundle does it as Metro\'s default alone',
       "its config: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone",
-      'its config: transformer.getTransformOptions is a function, transform options of its own: rn-bundle does it as Metro\'s default alone',
+      'its config: transformer.getTransformOptions is a function: rn-bundle does it as Metro\'s default alone',
     ])
   })
 
@@ -80,13 +78,21 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal(typeof (await load("{ transformer: { svgAssetPlugin: true }, watchFolders: ['..'], maxWorkers: 1, resolver: { useWatchman: false }, watcher: { additionalExts: ['cts'] } }")), 'object')
   })
 
+  it('refuses a config of another directory, which has it for the project root', async () => {
+    writeFileSync(join(root, 'lib/elsewhere.config.js'), template())
+    const fail = (message) => {
+      throw new Error(message)
+    }
+    await assert.rejects(metroOptions(root, peers(root, fail), fail, { file: 'lib/elsewhere.config.js', name: 'rn-bundle' }), /lib\/elsewhere\.config\.js: projectRoot is "lib", where the project is/u)
+  })
+
   it('refuses require.context', async () => {
     assert.match(await load('{ transformer: { unstable_allowRequireContext: true } }'), /transformer\.unstable_allowRequireContext is true, require\.context/u)
   })
 })
 
 describe('metroOptions, of a project with no config', () => {
-  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/metro-config': linked('metro-config') })
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/metro-config': METRO_CONFIG['node_modules/metro-config'] })
   after(cleanup)
 
   it("is Metro's defaults as @react-native/metro-config has them, its registry and what runs before the entry react-native's", async () => {

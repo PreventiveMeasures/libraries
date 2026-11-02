@@ -75,13 +75,7 @@ let watcher = null
 const devBundler = createDevBundler({
   projectRoot,
   esbuild,
-  assetExts: metro.assetExts,
-  resolver: metro.resolver,
-  blockList: metro.blockList,
-  polyfills: metro.polyfills,
-  runBeforeMain: metro.runBeforeMain,
-  assetRegistryPath: metro.assetRegistryPath,
-  minifyRefusal: metro.minifyRefusal,
+  metro,
   runtime,
   targetOptions: ({ platform, dev }) => ({
     stripFlow,

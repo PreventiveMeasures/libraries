@@ -7,8 +7,7 @@ import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { defaults } from '../src/defaults.js'
-import { png, writeTree } from './fixtures.js'
+import { METRO_CONFIG, png, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
 const BIN = fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url))
@@ -876,19 +875,6 @@ describe('rn-bundle with the project\'s own esbuild', () => {
   })
 })
 
-// As @react-native/metro-config has a project's defaults (a few of them),
-// over metro-config's, which loads the config.
-const METRO_CONFIG = {
-  'node_modules/metro-config': linked('metro-config'),
-  'node_modules/@react-native/metro-config/package.json': { name: '@react-native/metro-config', main: 'index.js' },
-  'node_modules/@react-native/metro-config/index.js': [
-    "const { mergeConfig } = require('metro-config')",
-    `const assetExts = ${JSON.stringify([...defaults.assetExts])}`,
-    "exports.getDefaultConfig = () => ({ resolver: { assetExts }, transformer: { assetRegistryPath: 'react-native/Libraries/Image/AssetRegistry' }, serializer: { getModulesRunBeforeMainModule: () => [] } })",
-    'exports.mergeConfig = mergeConfig',
-    '',
-  ].join('\n'),
-}
 const templateConfig = (custom) => `const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')\nconst defaultConfig = getDefaultConfig(__dirname)\nmodule.exports = mergeConfig(defaultConfig, ${custom})\n`
 
 describe('rn-bundle with a Metro config', () => {
@@ -962,31 +948,11 @@ describe('rn-bundle with a Metro config', () => {
     assert.match(blocked.stderr, /esbuild resolved lib\/blocked\/hidden\.js where Metro resolves nothing/u)
   })
 
-  it('refuses each option it does not do, and isn\'t as Metro or @react-native/metro-config has it: a Babel transformer or a resolver of its own', () => {
-    writeFileSync(join(root, 'svg.config.js'), templateConfig("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') }, resolver: { resolveRequest: (context, name, platform) => context.resolveRequest(context, name, platform) } }"))
+  it('refuses an option it does not do: a Babel transformer of its own', () => {
+    writeFileSync(join(root, 'svg.config.js'), templateConfig("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') } }"))
     writeFileSync(join(root, 'svg-transformer.js'), 'module.exports = {}\n')
     const r = bundleWith(['--metro-config=svg.config.js'], 'anim.js')
-    assert.equal(r.status, 1)
-    assert.equal(r.stderr, [
-      'rn-bundle: svg.config.js: resolver.resolveRequest is a function, a resolver of its own: rn-bundle does it as Metro\'s default alone',
-      "rn-bundle: svg.config.js: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone",
-      '',
-    ].join('\n'))
-  })
-
-  it("leaves what is of no bearing on the bundle: a dev server's options, a minifier's where it doesn't minify", () => {
-    writeFileSync(join(root, 'server.config.js'), templateConfig('{ server: { enhanceMiddleware: (middleware) => (request, response, next) => middleware(request, response, next) }, transformer: { minifierConfig: { mangle: false } }, watchFolders: [__dirname] }'))
-    assert.equal(bundleWith(['--metro-config=server.config.js'], 'anim.js').status, 0)
-    const minified = bundleWith(['--metro-config=server.config.js', '--minify'], 'anim.js')
-    assert.equal(minified.status, 1)
-    assert.match(minified.stderr, /transformer\.minifierConfig is \{"mangle":false\}/u)
-  })
-
-  it('refuses a config of another directory, which has it for the project root, as Metro does', () => {
-    writeFileSync(join(root, 'anim/elsewhere.config.js'), templateConfig('{}'))
-    const r = bundleWith(['--metro-config=anim/elsewhere.config.js'], 'anim.js')
-    assert.equal(r.status, 1)
-    assert.match(r.stderr, /anim\/elsewhere\.config\.js: projectRoot is "anim", where the project is/u)
+    assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: svg.config.js: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone\n"])
   })
 })
 

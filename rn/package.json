@@ -105,7 +105,6 @@
     "@babel/plugin-transform-typescript": "^7.29.9",
     "@preventive/vfs": "workspace:*",
     "@react-native/babel-plugin-codegen": "^0.88.1",
-    "@react-native/metro-config": "0.88.1",
     "babel-plugin-module-resolver": "^5.0.2",
     "esbuild": "^0.28.2",
     "esbuild-0.25": "npm:esbuild@0.25.12",
@@ -119,13 +118,17 @@
   },
   "peerDependencies": {
     "esbuild": ">=0.25.0",
-    "flow-remove-types": ">=2.300.0"
+    "flow-remove-types": ">=2.300.0",
+    "oxc-parser": ">=0.152.0"
   },
   "peerDependenciesMeta": {
     "esbuild": {
       "optional": true
     },
     "flow-remove-types": {
+      "optional": true
+    },
+    "oxc-parser": {
       "optional": true
     }
   }

@@ -16,6 +16,7 @@ import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall } from './modules.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
+const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null })
 const decoder = new TextDecoder()
 
 export const inside = (root, path) => {
@@ -26,13 +27,10 @@ export const inside = (root, path) => {
 // `targetOptions({ platform, dev })` -> the options bundle() takes for the
 // project's files: jsx, stripFlow, babel..., aliases, define. `onBuild({
 // request, outcome, ms })` after each build.
-// Of Metro's config: `resolver` and `blockList` as bundle() takes them,
-// `polyfills` a list or a function of the platform to one, `runBeforeMain`
-// null or a function of the entry's path to the modules run before it,
-// `assetRegistryPath`, and `minifyRefusal`, where its minifier's options are
-// not done, the error each minified bundle fails with.
-export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, assetExts = defaults.assetExts, resolver = {}, blockList = null, polyfills = [], runBeforeMain = null, assetRegistryPath = null, minifyRefusal = null, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
-  const config = { projectRoot, esbuild, targetOptions, host, assetExts, resolver, blockList, polyfills, runBeforeMain, assetRegistryPath, runtime, onBuild, caches: new Map(), ids: new Map() }
+// `metro`: the project's Metro config, as metroOptions() has it; Metro's
+// defaults where not given. A minified bundle fails with its minifyRefusal.
+export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, metro = NO_METRO, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
+  const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, onBuild, caches: new Map(), ids: new Map() }
   const builds = new Map()
   let version = 0
 
@@ -74,7 +72,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   // bundle that has it, alone.
   const get = (request) => {
     if (request.shallow) return moduleOutcome(builds, request, projectRoot)
-    if (request.minify && minifyRefusal !== null) return { ok: false, version, errors: [{ text: minifyRefusal, location: null }], files: new Set() }
+    if (request.minify && metro.minifyRefusal !== null) return { ok: false, version, errors: [{ text: metro.minifyRefusal, location: null }], files: new Set() }
     const entry = entryOf(config, request)
     if (entry === null) return null
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
@@ -135,12 +133,12 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
 // The entry a request names, as Metro resolves it from the project root,
 // and only there.
-function entryOf({ projectRoot, host, assetExts, resolver, blockList }, { entryFile, platform }) {
-  const resolution = metroResolverOf({ host, assetExts, resolver, blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
+function entryOf({ projectRoot, host, metro }, { entryFile, platform }) {
+  const resolution = metroResolverOf({ host, assetExts: metro.assetExts, resolver: metro.resolver, blockList: metro.blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
   return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? { path: resolution.filePath } : null
 }
 
-function open({ projectRoot, esbuild, targetOptions, host, assetExts, resolver, blockList, polyfills, runBeforeMain, assetRegistryPath, runtime, caches, ids }, { platform, dev, minify }, entry) {
+function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry) {
   const target = `${platform}\0${dev}\0${minify}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map() })
   const options = targetOptions({ platform, dev })
@@ -151,14 +149,14 @@ function open({ projectRoot, esbuild, targetOptions, host, assetExts, resolver, 
     esbuild,
     host,
     projectRoot,
-    assetExts,
     minify,
     cache: caches.get(target).files,
-    resolver,
-    blockList,
-    polyfills: typeof polyfills === 'function' ? polyfills(platform) : polyfills,
-    runBeforeMain: runBeforeMain?.(entry.path) ?? null,
-    assetRegistryPath,
+    assetExts: metro.assetExts,
+    resolver: metro.resolver,
+    blockList: metro.blockList,
+    polyfills: metro.polyfills(platform),
+    runBeforeMain: metro.runBeforeMain?.(entry.path) ?? null,
+    assetRegistryPath: metro.assetRegistryPath,
     prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
   }
   if (dev && runtime !== null) return createModuleBundler({ ...common, runtime, ids, builds: caches.get(target).modules })

@@ -11,57 +11,27 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import { locateThrough, polyfills as reactNativePolyfills } from './cli.js'
 import { defaults } from './defaults.js'
 
+const under = (section, keys) => keys.map((key) => (section === '' ? key : `${section}.${key}`))
 // The options rn-bundle and rn-serve do, whatever they are.
 const TAKEN = new Set([
-  'resolver.assetExts',
-  'resolver.sourceExts',
-  'resolver.assetResolutions',
-  'resolver.resolverMainFields',
-  'resolver.unstable_conditionNames',
-  'resolver.unstable_conditionsByPlatform',
-  'resolver.nodeModulesPaths',
-  'resolver.extraNodeModules',
-  'resolver.disableHierarchicalLookup',
-  'resolver.blockList',
-  'serializer.getPolyfills',
-  'serializer.polyfillModuleNames',
-  'serializer.getModulesRunBeforeMainModule',
-  'transformer.assetRegistryPath',
-  'transformer.enableBabelRCLookup',
+  ...under('resolver', ['assetExts', 'sourceExts', 'assetResolutions', 'resolverMainFields', 'unstable_conditionNames', 'unstable_conditionsByPlatform', 'nodeModulesPaths', 'extraNodeModules', 'disableHierarchicalLookup', 'blockList']),
+  ...under('serializer', ['getPolyfills', 'polyfillModuleNames', 'getModulesRunBeforeMainModule']),
+  ...under('transformer', ['assetRegistryPath', 'enableBabelRCLookup']),
 ])
 // Of no bearing on what is built: how Metro caches, watches, works, reports
 // and parses (hermes-parser or Babel's, of one language).
 const LEFT = new Set([
-  'watchFolders',
-  'cacheStores',
-  'cacheVersion',
-  'maxWorkers',
-  'stickyWorkers',
-  'resetCache',
-  'reporter',
-  'unstable_perfLoggerFactory',
-  'fileMapCacheDirectory',
-  'hasteMapCacheDirectory',
-  'resolver.platforms',
-  'resolver.useWatchman',
-  'resolver.requireCycleIgnorePatterns',
-  'resolver.unstable_incrementalResolution',
-  'transformer.optimizationSizeLimit',
-  'transformer.unstable_workerThreads',
-  'transformer.unstable_compactOutput',
-  'transformer.hermesParser',
+  ...under('', ['watchFolders', 'cacheStores', 'cacheVersion', 'maxWorkers', 'stickyWorkers', 'resetCache', 'reporter', 'unstable_perfLoggerFactory', 'fileMapCacheDirectory', 'hasteMapCacheDirectory']),
+  ...under('resolver', ['platforms', 'useWatchman', 'requireCycleIgnorePatterns', 'unstable_incrementalResolution']),
+  ...under('transformer', ['optimizationSizeLimit', 'unstable_workerThreads', 'unstable_compactOutput', 'hermesParser']),
 ])
 const SECTIONS = new Set(['resolver', 'serializer', 'server', 'symbolicator', 'transformer', 'watcher'])
-// What one is, other than Metro's default, where its name doesn't say.
+// What one is, where its name doesn't say.
 const WHY = {
   'transformer.babelTransformerPath': "a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it",
-  'resolver.resolveRequest': 'a resolver of its own',
-  'serializer.customSerializer': 'a serializer of its own',
   'transformer.unstable_allowRequireContext': 'require.context',
-  'transformer.getTransformOptions': 'transform options of its own',
   projectRoot: 'where the project is: it is where the command runs (and a config in another directory has that for it)',
 }
-const CONFIG_FILES = ['metro.config.js', 'metro.config.cjs', 'metro.config.mjs', 'metro.config.json', 'metro.config.ts']
 
 // Whether two values of an option are the same: functions by their source.
 function same(a, b) {
@@ -73,10 +43,10 @@ function same(a, b) {
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].every((key) => same(a[key], b[key]))
 }
 
-const at = (config, path) => path.split('.').reduce((value, key) => (value !== null && typeof value === 'object' ? value[key] : undefined), config)
+const at = (config, path) => path.split('.').reduce((value, key) => value?.[key], config)
 const has = (config, path) => {
   const [section, key] = path.split('.')
-  return key === undefined ? Object.hasOwn(config, section) : config[section] !== null && typeof config[section] === 'object' && Object.hasOwn(config[section], key)
+  return key === undefined ? Object.hasOwn(config, section) : Object.hasOwn(config[section] ?? {}, key)
 }
 
 // What of no bearing on what this command builds: a dev server's options
@@ -112,18 +82,8 @@ const patterns = (blockList) => {
 // what runs before the entry, and the asset registry, react-native's own.
 function fallback(project, fail) {
   let polyfills = null
-  return {
-    file: null,
-    assetExts: defaults.assetExts,
-    resolver: {},
-    blockList: null,
-    polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)),
-    runBeforeMain: null,
-    assetRegistryPath: null,
-    babelRCLookup: true,
-    port: null,
-    minifyRefusal: null,
-  }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, minifyRefusal: null }
+  return { ...none, file: null, assetExts: defaults.assetExts, resolver: {}, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true }
 }
 
 // Metro's defaults, and @react-native/metro-config's over them where the
@@ -150,7 +110,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   if (file !== null && !existsSync(resolve(cwd, file))) fail(`no such Metro config: ${file}`)
   const metroConfig = locateThrough(project, 'metro-config', ['@react-native/metro-config']) ?? locateThrough(project, 'metro-config', ['react-native', '@react-native/community-cli-plugin'])
   if (metroConfig === null) {
-    const found = file ?? CONFIG_FILES.find((each) => existsSync(resolve(cwd, each)))
+    const found = file ?? ['js', 'cjs', 'mjs', 'json', 'ts'].map((ext) => `metro.config.${ext}`).find((each) => existsSync(resolve(cwd, each)))
     return found === undefined ? fallback(project, fail) : fail(`loading ${found} needs metro-config, as react-native has it: npm i -D metro-config`)
   }
   const metro = project.load(metroConfig)

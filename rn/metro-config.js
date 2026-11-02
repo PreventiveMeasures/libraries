@@ -1,2 +1,2 @@
 // Typed in metro-config.d.ts.
-export { metroAssetExts, scanMetroAssetExts } from './src/metro-config.js'
+export { metroAssetExts, readMetroAssetExts, scanMetroAssetExts } from './src/metro-config.js'
