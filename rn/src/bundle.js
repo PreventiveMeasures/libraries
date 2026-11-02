@@ -93,8 +93,9 @@ async function linking({ esm, cache = null, projectRoot = process.cwd() }, build
   for (;;) {
     try {
       const result = await build()
-      return { ...result, warnings: [...warnings, ...result.warnings] }
+      return { ...result, warnings: [...warnings, ...result.warnings.map(realMessage)] }
     } catch (error) {
+      if (Array.isArray(error?.errors)) error.errors = error.errors.map(realMessage)
       const unlinked = (esm === false ? [] : (error?.errors ?? [])).filter(({ text, location }) => text.startsWith('No matching export in ') && FILE.has(location?.namespace) && !esm.has(resolve(projectRoot, location.file)))
       if (unlinked.length === 0) throw error
       for (const message of unlinked) {
@@ -105,6 +106,24 @@ async function linking({ esm, cache = null, projectRoot = process.cwd() }, build
       }
     }
   }
+}
+
+// An .mjs or .mts file, as esbuild is given it: of a name with no module
+// type of Node's, as Metro has none. esbuild takes one such for an ES module
+// whatever its code, its `exports` unbound (Babel's CommonJS of it), and
+// its default import of CommonJS the whole of `module.exports`, where
+// Babel's interop, Metro's, takes `exports.default` of one that says it is
+// an ES module. Named back as it is in messages and the map.
+const esbuildPath = (path) => path.replace(/\.m([jt])s$/u, '.m$1s.rn.$1s')
+const realPath = (path) => path.replace(/(\.m[jt]s)\.rn\.[jt]s$/u, '$1')
+const realMessage = (message) => (message.location?.file === undefined ? message : { ...message, location: { ...message.location, file: realPath(message.location.file) } })
+const encoder = new TextEncoder()
+const realSources = (file) => {
+  if (!file.path.endsWith('.map')) return file
+  const map = JSON.parse(file.text)
+  if (!map.sources.some((source) => realPath(source) !== source)) return file
+  const text = JSON.stringify({ ...map, sources: map.sources.map(realPath) })
+  return { path: file.path, text, contents: encoder.encode(text) }
 }
 
 // Where Babel's config lowers let and const, as @react-native/babel-preset
@@ -198,7 +217,7 @@ function metroGraph({
   // The files Metro resolved, which alone esbuild may load.
   const file = (path) => {
     state.resolved.add(path)
-    return { path }
+    return { path: esbuildPath(path) }
   }
   const plugin = {
     name: 'metro-graph',
@@ -210,7 +229,7 @@ function metroGraph({
         progress.loaded = 0
       })
       build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace, pluginData }) => {
-        const importer = namespace === 'file' ? from : resolve(projectRoot, from)
+        const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
         if (kind === 'entry-point') {
           // Looked for before it is found: an entry not there (deleted) is a file a watcher sees made.
           const path = resolve(projectRoot, specifier === MAIN ? entry : specifier)
@@ -229,7 +248,7 @@ function metroGraph({
         if (resolution.type === 'assetFiles') return named(projectRoot, resolution.filePaths.toSorted()[0], 'metro-asset')
         return file(resolution.filePath)
       })
-      build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => loadResolved({ state, projectRoot, load, progress }, path))
+      build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => loadResolved({ state, projectRoot, load, progress }, realPath(path)))
       build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
         const asset = resolve(projectRoot, path)
         // Each file it reads counted, though building it fails (an empty image).
@@ -242,7 +261,7 @@ function metroGraph({
     },
   }
   const result = ({ outputFiles, warnings }) => ({
-    outputFiles,
+    outputFiles: outputFiles.map(realSources),
     warnings,
     assets: [...state.assets.keys()].toSorted().map((path) => state.assets.get(path)),
     graph: state.graph,
