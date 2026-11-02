@@ -22,7 +22,8 @@ const TAKEN = new Set([
 ])
 // Of the transform options getTransformOptions gives, those rn-bundle and
 // rn-serve don't do, where not Metro's default: the rest are of how Metro
-// inlines requires, which they don't, or of nothing Metro 0.81 on reads.
+// inlines requires, which they do as it does (inlineRequiresOf()), or of
+// nothing Metro 0.81 on reads.
 const TRANSFORMS = {
   experimentalImportSupport: [Boolean, "Metro's own transform of import and export"],
   unstable_inlinePlatform: [(value) => value === false, 'Platform.OS left to run time'],
@@ -40,6 +41,37 @@ const WHY = {
   'transformer.babelTransformerPath': "a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it",
   'transformer.unstable_allowRequireContext': 'require.context',
   projectRoot: 'where the project is: it is where the command runs (and a config in another directory has that for it)',
+}
+
+// What Metro doesn't inline a require of, where the config names none
+// (nonInlinedRequires): its transformHelpers' baseIgnoredInlineRequires.
+const NOT_INLINED = ['React', 'react', 'react/jsx-dev-runtime', 'react/jsx-runtime', 'react-compiler-runtime', 'react-native']
+
+// Metro's inline requires, as getTransformOptions gives them a bundle, asked
+// as Metro asks it (`hot` as the project's Metro does), and its transform
+// worker inlines them after Babel, by its metro-transform-plugins (`plugin`,
+// its path): -> async (entryPath, { platform, dev }) => { plugin, options,
+// blockList } (the plugin's options, the files it leaves) or null.
+function inlineRequiresOf(getTransformOptions, plugin, hot) {
+  if (typeof getTransformOptions !== 'function' || plugin === null) return () => Promise.resolve(null)
+  return async (entryPath, { platform, dev }) => {
+    const { transform } = (await getTransformOptions(entryPath === null ? [] : [entryPath], { dev, hot, platform }, () => Promise.resolve([]))) ?? {}
+    if (!transform?.inlineRequires) return null
+    return {
+      plugin,
+      options: { ignoredRequires: transform.nonInlinedRequires || NOT_INLINED, memoizeCalls: transform.unstable_memoizeInlineRequires || false, nonMemoizedModules: transform.unstable_nonMemoizedInlineRequires || [] },
+      blockList: typeof transform.inlineRequires === 'object' ? Object.keys(transform.inlineRequires.blockList ?? {}) : [],
+    }
+  }
+}
+
+// Metro's metro-transform-plugins, as metro-config (at that path) has Metro's.
+function transformPluginsOf(metroConfig) {
+  try {
+    return createRequire(createRequire(metroConfig).resolve('metro')).resolve('metro-transform-plugins')
+  } catch {
+    return null
+  }
 }
 
 // Whether two values of an option are the same: functions by their source.
@@ -88,11 +120,12 @@ const patterns = (blockList) => {
 
 // Without a config: Metro's defaults as @react-native/metro-config has
 // them, its polyfills those of the project's @react-native/js-polyfills, and
-// what runs before the entry, and the asset registry, react-native's own.
-function fallback(project, fail, resolver = {}) {
+// what runs before the entry, and the asset registry, react-native's own;
+// its inline requires, where Metro is the project's (`inlineRequires`).
+function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null)) {
   let polyfills = null
   const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, minifyRefusal: null, transformRefusal: () => null }
-  return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true }
+  return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
 // Metro's defaults, and @react-native/metro-config's over them where the
@@ -112,7 +145,8 @@ async function baselinesOf(metro, project, cwd) {
 // bundle() and createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
 // assetRegistryPath or null, babelRCLookup, babelRuntime, port or null, minifyRefusal,
-// transformRefusal(entryPath, { platform, dev }) }. `name` is the command's,
+// transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
+// { platform, dev }) (inlineRequiresOf()) }. `name` is the command's,
 // `serving` whether it serves, `minify` whether it minifies; where it
 // doesn't, minifyRefusal is the error of the options it would not do if it
 // did (a minifier's), or null. transformRefusal is (a promise of) the error
@@ -132,8 +166,11 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   const hot = serving || major > 0 || minor >= 84
   const given = file === null ? undefined : resolve(cwd, file)
   const { isEmpty, filepath } = await metro.resolveConfig(given, cwd)
-  // Without one, Metro's defaults: from 0.82 on, a package's exports read.
-  if (isEmpty) return fallback(project, fail, { packageExports: Boolean((await metro.getDefaultConfig(cwd)).resolver.unstable_enablePackageExports) })
+  const plugins = transformPluginsOf(metroConfig)
+  // Without one, Metro's defaults: from 0.82 on, a package's exports read;
+  // its requires inlined as @react-native/metro-config has them, where the
+  // project has it.
+  if (isEmpty) return fallback(project, fail, { packageExports: Boolean((await metro.getDefaultConfig(cwd)).resolver.unstable_enablePackageExports) }, inlineRequiresOf((await baselinesOf(metro, project, cwd)).at(-1).transformer?.getTransformOptions, plugins, hot))
   const shown = relative(cwd, filepath)
   let config
   try {
@@ -171,6 +208,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     assetRegistryPath: transformer.assetRegistryPath === 'missing-asset-registry-path' ? null : transformer.assetRegistryPath,
     babelRCLookup: transformer.enableBabelRCLookup !== false,
     babelRuntime: transformer.enableBabelRuntime ?? true,
+    inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
     port: server?.port ?? null,
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
     transformRefusal: async (entryPath, { platform, dev }) => {

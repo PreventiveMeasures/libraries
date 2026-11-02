@@ -49,11 +49,17 @@
 // project's Metro config (metro.config.js, else --metro-config) is loaded as
 // Metro loads it, by the project's metro-config, and its resolver's options
 // (assetExts, sourceExts, blockList...), polyfills, modules run before the
-// entry and asset registry taken; any other option not as Metro's default,
-// or @react-native/metro-config's, has (a Babel transformer, a resolver or
-// serializer of its own), and of bearing on the bundle, is an error.
-// Without one, as Metro serializes a bundle as @react-native/metro-config
-// configures it: Metro's prelude, then @react-native/js-polyfills's
+// entry and asset registry taken, and the inline requires its transformer's
+// getTransformOptions gives (@react-native/metro-config's), which Babel's
+// workers inline after the Babel config's plugins, by the project's Metro,
+// as Metro's transform worker does: a module required where it is first
+// used, not before the module that imports it runs, nor at all where unused
+// (but React's, react-native, and default and namespace imports); any other
+// option not as Metro's default, or @react-native/metro-config's, has (a
+// Babel transformer, a resolver or serializer of its own), and of bearing
+// on the bundle, is an error. Without one, as Metro serializes a bundle as
+// @react-native/metro-config configures it, its requires inlined as it has
+// them: Metro's prelude, then @react-native/js-polyfills's
 // polyfills (the project's @react-native/metro-config's), then
 // react-native/setup-env (InitializeCore before 0.87), then the entry; each
 // asset registered with the project's react-native's registry
@@ -119,7 +125,7 @@ const esbuild = project.peer('esbuild', 'bundling')
 const metro = await metroOptions(cwd, project, fail, { file: values['metro-config'] ?? null, name: 'rn-bundle', minify: values.minify })
 const transformRefusal = await metro.transformRefusal(resolve(cwd, positionals[0]), { platform: values.platform, dev: values.dev })
 if (transformRefusal !== null) fail(transformRefusal)
-const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime })?.({ platform: values.platform, dev: values.dev }) ?? null
+const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, inlineRequires: metro.inlineRequires })?.({ platform: values.platform, dev: values.dev, entryPath: resolve(cwd, positionals[0]) }) ?? null
 if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
 if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
 if (values.esm && babel === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
@@ -194,7 +200,7 @@ if (values['assets-dest'] !== undefined) {
 process.stderr.write(`rn-bundle: ${positionals[0]} for ${values.platform}${values.output === undefined ? '' : ` to ${values.output}`} (esbuild ${esbuild.version}), ${result.graph.size} modules, ${result.assets.length} assets\n`)
 if (babel?.profile) process.stderr.write(profileReport(babel.profile, cwd))
 if (selfTest) {
-  const kept = projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, keepPlugins: true })({ platform: values.platform, dev: values.dev })
+  const kept = projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, inlineRequires: metro.inlineRequires, keepPlugins: true })({ platform: values.platform, dev: values.dev, entryPath: resolve(cwd, positionals[0]) })
   const theirs = new Map()
   await build({ ...options, babel: kept.babel, babelPlugins: kept.babelPlugins, keepPlugins: true, cache: theirs })
   const found = await differences(esbuild, ours, theirs)

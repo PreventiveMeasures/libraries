@@ -1190,6 +1190,40 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
   })
 })
 
+describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config has them", () => {
+  const APP_FILES = {
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
+    'index.js': "import { run } from './a'\nimport { version } from 'react'\nconsole.log('index')\nrun(version)\n",
+    'a.js': "import { b } from './b'\nimport { unused } from './c'\nconsole.log('a')\nexport const run = (version) => console.log(b, version)\n",
+    'b.js': "console.log('b')\nexport const b = 'b'\n",
+    'c.js': "console.log('c')\nexport const unused = 'c'\n",
+    'node_modules/react/package.json': { name: 'react', main: 'index.js' },
+    'node_modules/react/index.js': "console.log('react')\nexports.version = '19'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
+  }
+  const inlining = writeTree({ ...APP_FILES, ...METRO_CONFIG, 'metro.config.js': "const { getDefaultConfig } = require('@react-native/metro-config')\nmodule.exports = getDefaultConfig(__dirname)\n" })
+  // Metro's defaults alone: none inlined.
+  const eager = writeTree({ ...APP_FILES, 'node_modules/metro-config': METRO_CONFIG['node_modules/metro-config'] })
+  after(() => {
+    for (const tree of [inlining, eager]) tree.cleanup()
+  })
+  const run = (root, args = []) => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout.trim().split('\n')
+  }
+
+  it('runs a module where it is first used, as Metro does: not one of nonInlinedRequires (React), nor one never used', () => {
+    assert.deepEqual(run(inlining.root), ['react', 'index', 'a', 'b', 'b 19'])
+    assert.deepEqual(run(inlining.root, ['--dev']), ['react', 'index', 'a', 'b', 'b 19'])
+  })
+
+  it("runs each module as it is imported, where Metro's config inlines none", () => {
+    assert.deepEqual(run(eager.root), ['b', 'c', 'a', 'react', 'index', 'b 19'])
+  })
+})
+
 describe('rn-bundle --sourcemap-output', () => {
   const plain = writeTree(reactNativeApp(true))
   const babel = writeTree({

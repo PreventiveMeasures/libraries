@@ -113,15 +113,17 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup;
 // `babelRuntime`, its enableBabelRuntime, for the preset where the project
 // has no config; `keepPlugins`, each target's workers leave module-resolver
-// as it is (load.js).
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false } = {}) {
+// as it is (load.js); `inlineRequires`, metroOptions()'s, Metro's inline
+// requires of a target, as the config gives them the bundle of `entryPath`
+// that makes it, which its workers then inline after Babel.
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, inlineRequires = () => Promise.resolve(null) } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
   if (corePath === null) return config.preset ? null : fail(`${config.what} needs @babel/core installed in the project`)
   const core = project.load(corePath)
   const targets = new Map()
-  return ({ platform, dev }) => {
+  return ({ platform, dev, entryPath = null }) => {
     const key = `${platform}\0${dev}`
     if (targets.has(key)) return targets.get(key)
     // As Metro's transformer names it: Platform inlined, as Metro's bundles
@@ -141,9 +143,13 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const preset = config.preset === undefined ? null : { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
     const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
+    // Its workers, made once Metro's config has its inline requires.
+    const workers = inlineRequires(entryPath, { platform, dev }).then((inline) => babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inline !== null && { inlineRequires: inline }) }, timed))
+    // Its failure each file's, not the process's where none is transformed.
+    workers.catch(() => {})
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }) }, timed),
+      babel: async (...args) => (await workers)(...args),
       babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)

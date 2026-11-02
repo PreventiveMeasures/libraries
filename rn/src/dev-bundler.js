@@ -26,8 +26,9 @@ export const inside = (root, path) => {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
-// `targetOptions({ platform, dev })` -> the options bundle() takes for the
-// project's files: jsx, stripFlow, babel..., aliases, define. `onBuild({
+// `targetOptions({ platform, dev, entryPath })` -> the options bundle() takes
+// for the project's files: jsx, stripFlow, babel..., aliases, define (of the
+// bundle of entryPath that makes the target first). `onBuild({
 // request, outcome, ms })` after each build.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
 // defaults where not given. A minified bundle fails with its minifyRefusal;
@@ -147,7 +148,7 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform }) {
 function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry) {
   const target = `${platform}\0${dev}\0${minify}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map() })
-  const options = targetOptions({ platform, dev })
+  const options = targetOptions({ platform, dev, entryPath: entry.path })
   const common = {
     ...options,
     entry: entry.path,
