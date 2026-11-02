@@ -77,9 +77,9 @@ const devBundler = createDevBundler({
   esbuild,
   metro,
   runtime,
-  targetOptions: ({ platform, dev }) => ({
+  targetOptions: ({ platform, dev, inlineRequires }) => ({
     stripFlow,
-    ...babelFor?.({ platform, dev }),
+    ...babelFor?.({ platform, dev, inlineRequires }),
     aliases,
     define: defines(dev, values.define, fail),
   }),

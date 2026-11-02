@@ -190,6 +190,22 @@ describe('the dev bundler', () => {
       await devBundler.dispose()
     }
   })
+
+  it("makes each bundle's target of the inline requires the Metro config gives it, though of one platform and dev", async () => {
+    const given = []
+    const metro = { assetExts: [], resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: (entryPath) => Promise.resolve(entryPath.endsWith('index.js') ? { of: 'index' } : null) }
+    const targetOptions = ({ inlineRequires }) => {
+      given.push(inlineRequires)
+      return { define: {} }
+    }
+    const devBundler = createDevBundler({ projectRoot: root, esbuild, metro, targetOptions })
+    try {
+      for (const entry of ['./index', './other']) assert.equal((await devBundler.get(request(entry))).ok, true)
+      assert.deepEqual(given, [{ of: 'index' }, null])
+    } finally {
+      await devBundler.dispose()
+    }
+  })
 })
 
 describe('the dev bundler, in the module format', () => {

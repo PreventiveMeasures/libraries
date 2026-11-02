@@ -16,7 +16,7 @@ import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall } from './modules.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
-const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null })
+const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null) })
 // A build refused, for what of the Metro config it doesn't do.
 const refused = (version, text) => ({ ok: false, version, errors: [{ text, location: null }], files: new Set() })
 const decoder = new TextDecoder()
@@ -26,8 +26,9 @@ export const inside = (root, path) => {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
-// `targetOptions({ platform, dev })` -> the options bundle() takes for the
-// project's files: jsx, stripFlow, babel..., aliases, define. `onBuild({
+// `targetOptions({ platform, dev, inlineRequires })` -> the options bundle()
+// takes for the project's files: jsx, stripFlow, babel..., aliases, define;
+// inlineRequires, the bundle's, as the Metro config gives it. `onBuild({
 // request, outcome, ms })` after each build.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
 // defaults where not given. A minified bundle fails with its minifyRefusal;
@@ -79,10 +80,10 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const entry = entryOf(config, request)
     if (entry === null) return null
     // As Metro asks the config for each bundle.
-    const transformRefusal = await metro.transformRefusal(entry.path, { platform: request.platform, dev: request.dev })
+    const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal, metro.inlineRequires].map((ask) => ask(entry.path, { platform: request.platform, dev: request.dev })))
     if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry), last: null, good: null, pending: null, chain: Promise.resolve() }
+    const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve() }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
@@ -144,10 +145,12 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform }) {
   return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? { path: resolution.filePath } : null
 }
 
-function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry) {
-  const target = `${platform}\0${dev}\0${minify}`
+// Its files cached of each platform, dev, minify and inline requires, which
+// make them.
+function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry, inlineRequires = null) {
+  const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map() })
-  const options = targetOptions({ platform, dev })
+  const options = targetOptions({ platform, dev, inlineRequires })
   const common = {
     ...options,
     entry: entry.path,

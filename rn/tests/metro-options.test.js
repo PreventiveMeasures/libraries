@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { after, describe, it } from 'node:test'
 
 import { peers } from '../src/cli.js'
@@ -59,6 +60,27 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
       'its config: serializer.customSerializer is a function: rn-bundle does it as Metro\'s default alone',
       "its config: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone",
     ])
+  })
+
+  it("takes Metro's inline requires as @react-native/metro-config has them, by the project's Metro", async () => {
+    const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })
+    const { plugin, ...inline } = await options.inlineRequires(join(root, 'index.js'), { platform: 'ios', dev: false })
+    assert.match(plugin, /[/\\]metro-transform-plugins[/\\]/u)
+    assert.equal(typeof (await import(pathToFileURL(plugin).href)).default.inlineRequiresPlugin, 'function')
+    assert.deepEqual(inline, { options: { ignoredRequires: ['React', 'react', 'react/jsx-dev-runtime', 'react/jsx-runtime', 'react-compiler-runtime', 'react-native'], memoizeCalls: false, nonMemoizedModules: [] }, blockList: [] })
+  })
+
+  it('takes the inline requires getTransformOptions gives each bundle: its nonInlinedRequires, blockList and memoizing, or none', async () => {
+    const options = await load("{ transformer: { getTransformOptions: async (entries, { dev }) => ({ transform: { inlineRequires: dev && { blockList: { [entries[0]]: true } }, nonInlinedRequires: ['kept'], unstable_memoizeInlineRequires: true, unstable_nonMemoizedInlineRequires: ['fresh'] } }) } }")
+    const entry = join(root, 'index.js')
+    const { plugin: _plugin, ...inline } = await options.inlineRequires(entry, { platform: 'ios', dev: true })
+    assert.deepEqual(inline, { options: { ignoredRequires: ['kept'], memoizeCalls: true, nonMemoizedModules: ['fresh'] }, blockList: [entry] })
+    assert.equal(await options.inlineRequires(entry, { platform: 'ios', dev: false }), null)
+  })
+
+  it("refuses inline requires getTransformOptions gives of the bundle's dependencies, which it gives none", async () => {
+    const options = await load("{ transformer: { getTransformOptions: async (entries, options, getDependencies) => ({ transform: { inlineRequires: { blockList: Object.fromEntries((await getDependencies(entries[0])).map((path) => [path, true])) } } }) } }")
+    assert.equal((await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: false })).replaceAll(options.file, 'its config'), "its config: transformer.getTransformOptions gives inlineRequires of what getDependencies gives, the bundle's dependencies: rn-bundle gives it none, and doesn't inline requires of them")
   })
 
   it('takes getTransformOptions by the transform options it gives each bundle, refusing those it does not do', async () => {
@@ -132,5 +154,7 @@ describe('metroOptions, of a project with no config', () => {
     assert.deepEqual([options.file, options.runBeforeMain, options.assetRegistryPath, options.blockList, options.polyfills('ios')], [null, null, null, null, []])
     // Metro's own default, of its version: 0.87's.
     assert.equal(options.resolver.packageExports, true)
+    // Metro's own inline none.
+    assert.equal(await options.inlineRequires(join(root, 'index.js'), { platform: 'ios', dev: false }), null)
   })
 })

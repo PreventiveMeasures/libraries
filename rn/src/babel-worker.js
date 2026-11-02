@@ -13,7 +13,9 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 // left out; with options.refresh, react-refresh's Babel plugin at that path
 // for each file outside node_modules, as Metro's transformer adds it for Fast
 // Refresh; with options.keepPlugins, module-resolver as its plugin has it
-// (gateResolver()). `imports`, the specifiers of the file's import and
+// (gateResolver()); with options.inlineRequires, metroOptions()'s, each
+// file's requires inlined after its config's plugins, as Metro's transform
+// worker inlines them (inlining()). `imports`, the specifiers of the file's import and
 // export-from declarations (IMPORTS). Where profile is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
 // hooks', by its key.
@@ -99,7 +101,7 @@ export function profileReport({ files, ms, plugins, own }, root) {
 }
 
 if (workerData?.babel !== undefined) {
-  const { corePath, options: { refresh = null, keepPlugins = false, ...given }, profile } = workerData.babel
+  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, ...given }, profile } = workerData.babel
   const core = createRequire(corePath)(corePath)
   // The specifiers of the file's import and export-from declarations, but
   // types', as Metro's transformer records where each is (its
@@ -114,6 +116,18 @@ if (workerData?.babel !== undefined) {
       },
     },
   }
+  // As Metro's transform worker inlines requires, after its Babel
+  // transformer, by its metro-transform-plugins: a module required at the
+  // top, of a name (a var of its require call, or of a member of it, or
+  // destructured) each use of which can take a call, required where used, not before the
+  // module runs, and not at all where unused; not those of nonInlinedRequires
+  // (React's, react-native) or of @babel/runtime, nor an interop's (Babel's
+  // default and namespace imports), nor in a file of its blockList. After
+  // the config's plugins, its presets' too (which run after its plugins),
+  // the last, which does it all on Program's exit, after each other plugin's:
+  // as a pass of its own after Babel, but on Babel's tree.
+  const inlinePlugin = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin, inlineRequires.options]] }).plugins[0]
+  const inlining = (filename) => (inlinePlugin === null || inlineRequires.blockList.includes(filename) ? [] : [inlinePlugin])
   // As Metro's transformer has it, a file in node_modules has no component to edit.
   const optionsOf = (filename) => ({ ...given, filename, plugins: [...(given.plugins ?? []), IMPORTS, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })
   // By plugin key, the calls and own time of its visitors and hooks, in the
@@ -261,7 +275,7 @@ if (workerData?.babel !== undefined) {
     const start = performance.now()
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
-    const plugins = config.plugins.filter(({ key }) => !without.includes(key))
+    const plugins = [...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)]
     // module-resolver traverses, as its plugin does, with keepPlugins.
     if (!keepPlugins) plugins.forEach(gateResolver)
     if (!profile) return core.transformSync(source, { ...config, plugins })

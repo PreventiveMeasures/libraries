@@ -113,7 +113,9 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup;
 // `babelRuntime`, its enableBabelRuntime, for the preset where the project
 // has no config; `keepPlugins`, each target's workers leave module-resolver
-// as it is (load.js).
+// as it is (load.js). A target's `inlineRequires`, metroOptions()'s of its
+// bundle, Metro's inline requires, its workers inline after Babel: a target
+// of each, as Metro caches a file's transform of its transform options.
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
@@ -121,8 +123,8 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   if (corePath === null) return config.preset ? null : fail(`${config.what} needs @babel/core installed in the project`)
   const core = project.load(corePath)
   const targets = new Map()
-  return ({ platform, dev }) => {
-    const key = `${platform}\0${dev}`
+  return ({ platform, dev, inlineRequires = null }) => {
+    const key = `${platform}\0${dev}\0${JSON.stringify(inlineRequires)}`
     if (targets.has(key)) return targets.get(key)
     // As Metro's transformer names it: Platform inlined, as Metro's bundles
     // have it, for the transform profile, `react-native bundle`'s default
@@ -143,7 +145,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }) }, timed),
+      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }, timed),
       babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)
