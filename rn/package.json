@@ -33,6 +33,7 @@
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "app/network.js",
     "assets-dest.d.ts",
     "assets-dest.js",
     "babel-aliases.d.ts",
@@ -69,6 +70,7 @@
     "src/metro-config.js",
     "src/metro-options.js",
     "src/modules.js",
+    "src/network.js",
     "src/resolve.js",
     "src/self-test.js",
     "src/serializer.js",

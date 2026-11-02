@@ -7,8 +7,12 @@
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
 // and a source map; its assets; LogBox's symbolication; reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
-// (j). A file a bundle was built from changed, each bundle is built anew,
-// each file's transform kept in memory while its source is the same. Each
+// (j), its Network panel on: where the app's runtime reports no requests
+// (React Native before 0.83), each dev bundle in Metro's module format has
+// a reporter of rn's, which tells rn-serve of each request an XMLHttpRequest
+// makes (fetch's too), which rn-serve shows the panel (src/network.js). A
+// file a bundle was built from changed, each bundle is built anew, each
+// file's transform kept in memory while its source is the same. Each
 // file as it loads (its Flow stripped, lowered by esbuild, and the project's
 // Babel config's output) is kept on disk too, across runs, in the OS's
 // temporary directory, as Metro keeps its cache (rn-serve-cache-UID, the
@@ -52,6 +56,7 @@ import { createDevBundler } from '../src/dev-bundler.js'
 import { createGate } from '../src/gate.js'
 import { createLoadCache } from '../src/load-cache.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
+import { REPORTER } from '../src/network.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { createWatcher } from '../src/watch.js'
 
@@ -108,6 +113,7 @@ const devBundler = createDevBundler({
   esbuild,
   metro,
   runtime,
+  injected: devMiddleware === null ? [] : [REPORTER],
   targetOptions: ({ platform, dev, inlineRequires }) => {
     const babel = babelFor?.({ platform, dev, inlineRequires }) ?? null
     return { stripFlow, ...babel, aliases, esm: values.esm, define: defines(dev, values.define, fail), store: loadCache?.(babel) ?? null }
@@ -222,9 +228,19 @@ function cacheDirOf(reset) {
   return null
 }
 
+// With its Network panel, which rn-serve has show the app's requests where
+// its runtime reports none (src/network.js): of each DevTools as it connects.
 function mountDebugger(serverUrl) {
+  const { network } = devServer
   try {
-    devServer.mount(project.load(devMiddleware).createDevMiddleware({ serverBaseUrl: serverUrl, logger: { info: log, warn: log, error: log } }))
+    const mounted = project.load(devMiddleware).createDevMiddleware({
+      serverBaseUrl: serverUrl,
+      logger: { info: log, warn: log, error: log },
+      unstable_experiments: { enableNetworkInspector: true },
+      unstable_customInspectorMessageHandler: network.handler,
+    })
+    mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', network.debuggerConnected)
+    devServer.mount(mounted)
   } catch (error) {
     log(`rn-serve: @react-native/dev-middleware fails, no debugger: ${error.message}`)
   }

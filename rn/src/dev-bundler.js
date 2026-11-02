@@ -34,9 +34,11 @@ export const inside = (root, path) => {
 // finish()), or null.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
 // defaults where not given. A minified bundle fails with its minifyRefusal;
-// each, with its transformRefusal, where it has one.
-export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, metro = NO_METRO, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
-  const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, onBuild, caches: new Map(), ids: new Map() }
+// each, with its transformRefusal, where it has one. `injected`: rn's own
+// modules each dev bundle in the module format runs before the entry
+// (createModuleBundler()'s).
+export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, metro = NO_METRO, runtime = null, injected = [], maxBuilds = 8, onBuild = () => {} }) {
+  const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, injected, onBuild, caches: new Map(), ids: new Map() }
   const builds = new Map()
   let version = 0
 
@@ -153,7 +155,7 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
 // Its files cached of each platform, dev, minify and inline requires, which
 // make them; with `esm`, those left CommonJS of them too, which a file's
 // cached build is of. -> { bundler, store }, the store its options have.
-function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry, inlineRequires = null) {
+function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injected, caches, ids }, { platform, dev, minify }, entry, inlineRequires = null) {
   const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map(), commonJs: new Set() })
   const options = targetOptions({ platform, dev, inlineRequires })
@@ -176,7 +178,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, cache
     prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
   }
   const store = options.store ?? null
-  if (dev && runtime !== null) return { bundler: createModuleBundler({ ...common, runtime, ids, builds: caches.get(target).modules }), store }
+  if (dev && runtime !== null) return { bundler: createModuleBundler({ ...common, runtime, injected, ids, builds: caches.get(target).modules }), store }
   return { bundler: createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true }), store }
 }
 
