@@ -346,22 +346,29 @@ if (workerData?.babel !== undefined) {
     if (!keepPlugins) plugins.forEach(gateResolver)
     return { ...config, plugins }
   }
-  // Sync: a worker transforms one file at a time.
+  // Sync: a worker transforms one file at a time. Its AST given back too,
+  // for lowerLeft().
   const transform = (source, options) => {
-    if (!profile) return core.transformSync(source, options)
+    if (!profile) return core.transformSync(source, { ...options, ast: true })
     options.plugins.forEach(timeHooks)
     for (const { key } of options.plugins) spent.set(key, [0, 0, false])
     // Timed as the config's own visitor wrapper, if any, makes it.
     const wrap = options.wrapPluginVisitorMethod
-    return core.transformSync(source, { ...options, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
+    return core.transformSync(source, { ...options, ast: true, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
   }
   // What the config's other plugins leave of let and const after its block
   // scoping plugin, as code they insert once it has run (Reanimated's
   // worklets), that plugin lowers again: Metro's output has none there, and
-  // esbuild, told so, adds none after Babel (bundle.js).
+  // esbuild, told so, adds none after Babel (bundle.js). Only where the
+  // output declares one: the words alone, in a string, a comment or a
+  // property's name (`exports.const`), are most of those that have them, and
+  // a pass of Babel's over the file again (some 5 ms) prints it as it was,
+  // but for the layout of Babel's helpers, which esbuild prints anew.
   const LET = /\b(?:let|const)\b/u
+  const KEYS = core.types.VISITOR_KEYS
+  const declaresLet = (node) => node !== null && typeof node === 'object' && (Array.isArray(node) ? node.some(declaresLet) : (node.type === 'VariableDeclaration' && (node.kind === 'let' || node.kind === 'const')) || (KEYS[node.type] ?? []).some((key) => declaresLet(node[key])))
   const lowerLeft = (result, filename) => {
-    if (result === null || !LET.test(result.code)) return result
+    if (result === null || !LET.test(result.code) || !declaresLet(result.ast.program)) return result
     const config = core.loadOptionsSync(optionsOf(filename))
     const blockScoping = config?.plugins.find(({ key }) => key === 'transform-block-scoping')
     if (blockScoping === undefined) return result
