@@ -131,8 +131,13 @@ const realSources = (file) => {
 // esbuild adds none after Babel: its helpers have `for (let key of ...)`,
 // with a closure (__copyProps), which it then writes with var and bind;
 // and fails on any left.
-export async function lowersLetOf({ babel = null, babelPlugins = null, host = diskHost, projectRoot = process.cwd(), entry }) {
-  return babel !== null && (await babelPlugins?.(host.realpath(resolve(projectRoot, entry))))?.has('transform-block-scoping') === true
+// Kept in `store` (load-cache.js's), where given: of the entry's config,
+// which a run after then loads none of.
+export async function lowersLetOf({ babel = null, babelPlugins = null, host = diskHost, projectRoot = process.cwd(), entry, store = null }) {
+  if (babel === null) return false
+  const path = host.realpath(resolve(projectRoot, entry))
+  const lowers = async () => (await babelPlugins?.(path))?.has('transform-block-scoping') === true
+  return await (store === null ? lowers() : store.keep('lowers-let', path, lowers))
 }
 
 // With `esm`, esbuild joins the ES modules in one scope, a name two of them
@@ -202,8 +207,11 @@ function metroGraph({
   // Map<path, { contents, result }>: each file as it was last loaded, kept
   // while its contents are the same; for one set of the options above.
   cache = null,
+  // Each file as it loads, on disk, across runs, of the options above:
+  // load-cache.js's, of a target (loadCached()).
+  store = null,
 }, { reuseFirst }) {
-  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm, keepPlugins }
+  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm, keepPlugins, store }
   let state = null
   // The files loaded, of those resolved, and to whom it is told.
   const progress = { loaded: 0, on: null }
@@ -368,11 +376,20 @@ export function lookingOnce(host) {
   return { ...host, isFile: once('isFile'), isDirectory: once('isDirectory'), realpath: once('realpath') }
 }
 
+// A file as loadFile() loads it: as `cache` has it while its contents are
+// the same; else as options.store (load-cache.js's) has it, of the options
+// that make it (sourcemap, esm, keepPlugins), where it does, kept there
+// where it doesn't; but none failed, nor one of Babel's `uncacheable`.
 export async function loadCached(options, host, cache, path) {
   const contents = decoder.decode(host.readFile(path))
   const hit = cache?.get(path)
   if (hit !== undefined && hit.contents === contents) return hit.result
-  const result = await loadFile(options, path, contents)
+  const { store = null, esm = false } = options
+  const variant = [Boolean(options.sourcemap), esm === false ? null : esm.has(path), Boolean(options.keepPlugins)]
+  const key = store === null ? null : await store.keyOf(path, contents, variant)
+  const kept = key === null ? null : store.get(key)
+  const { uncacheable = false, ...result } = kept ?? (await loadFile(options, path, contents))
+  if (kept === null && key !== null && !uncacheable && result.errors === undefined) store.set(key, result)
   if (cache !== null && result.errors === undefined) cache.set(path, { contents, result })
   return result
 }

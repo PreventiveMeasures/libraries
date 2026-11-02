@@ -1,6 +1,6 @@
 // Babel's transforms, off the main thread: each worker loads the project's
-// @babel/core and its config once, and transforms what it is sent; with a
-// cache directory, keeps each output there, across runs (babel-cache.js).
+// @babel/core and its config once, and transforms what it is sent; asked,
+// gives a fingerprint of what its output is of (load-cache.js).
 
 import { once } from 'node:events'
 import { createRequire, enableCompileCache } from 'node:module'
@@ -8,7 +8,7 @@ import { availableParallelism } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
-import { cacheOf, fingerprintOf, readsOf } from './babel-cache.js'
+import { fingerprintOf, readsOf } from './load-cache.js'
 
 // How many workers Babel runs in where nothing says: 2, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
@@ -32,10 +32,14 @@ const BACKLOG = 8
 // Refresh; with options.keepPlugins, module-resolver as its plugin has it
 // (gateResolver()); with options.inlineRequires, metroOptions()'s, each
 // file's requires inlined after its config's plugins, as Metro's transform
-// worker inlines them (inlining()); with options.cacheDir, each output kept
-// there, and taken from there while what it is of is the same (babel-cache.js).
-// `imports`, the specifiers of the file's import and
-// export-from declarations (IMPORTS). Where profile is newProfile()'s, the time of each
+// worker inlines them (inlining()). `imports`, the specifiers of the file's import and
+// export-from declarations (IMPORTS); `uncacheable` where a plugin's output
+// is of files it names (its addExternalDependency), which may change. With
+// options.fingerprint, the function's fingerprint() -> (a promise of) {
+// fingerprint, options, modules, reads }: what its output is of but a
+// file's own config and its source (load-cache.js's fingerprintOf()), as
+// its workers have it once they load the config, and what it is a digest
+// of. Where profile is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
 // hooks', by its key. At most `max` workers (defaultWorkers() where null),
 // one more made only as files wait: as each has BACKLOG of them or more. One
@@ -63,7 +67,8 @@ export function babelWorkers(corePath, options, profile = null, max = null) {
   // starts, not as its first file waits for it; idle, it keeps the process
   // alive no more than one made for a file.
   pick().worker.unref()
-  return async (source, filename, without = []) => {
+  // -> a worker's answer to the message.
+  const ask = async (message) => {
     const info = pick()
     const { port1, port2 } = new MessageChannel()
     const { promise: failed, reject } = Promise.withResolvers()
@@ -71,18 +76,24 @@ export function babelWorkers(corePath, options, profile = null, max = null) {
     if (info.busy++ === 0) info.worker.ref()
     info.pending.add(reject)
     try {
-      info.worker.postMessage({ port: port1, source, filename, without }, [port1])
-      const [{ code, imports, error, loc, spent }] = await Promise.race([once(port2, 'message'), failed])
-      // Babel's error, with where in the file Babel says, if it does.
-      if (error !== undefined) throw Object.assign(new Error(error), loc === undefined ? {} : { loc })
-      if (spent !== undefined) addSpent(profile, spent)
-      return { code, imports }
+      info.worker.postMessage({ port: port1, ...message }, [port1])
+      const [answer] = await Promise.race([once(port2, 'message'), failed])
+      return answer
     } finally {
       if (--info.busy === 0) info.worker.unref()
       info.pending.delete(reject)
       port2.close()
     }
   }
+  const transform = async (source, filename, without = []) => {
+    const { code, imports, uncacheable, error, loc, spent } = await ask({ source, filename, without })
+    // Babel's error, with where in the file Babel says, if it does.
+    if (error !== undefined) throw Object.assign(new Error(error), loc === undefined ? {} : { loc })
+    if (spent !== undefined) addSpent(profile, spent)
+    return { code, imports, ...(uncacheable && { uncacheable }) }
+  }
+  let fingerprint = null
+  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)) })
 }
 
 // Babel's own work, outside its plugins, by what it is.
@@ -163,7 +174,7 @@ export function gatedInlining(plugin) {
 }
 
 if (workerData?.babel !== undefined) {
-  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, cacheDir = null, ...given }, profile } = workerData.babel
+  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, ...given }, profile } = workerData.babel
   // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
   enableCompileCache()
   const core = createRequire(corePath)(corePath)
@@ -334,12 +345,11 @@ if (workerData?.babel !== undefined) {
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
   // The options transformSync takes for the file: the config's, as Babel
-  // loads them for it (of `loaded`, its loadPartialConfig()'s options, where
-  // given), its plugins, loaded, as they are, but those of the keys in
-  // without, and the inlining one.
-  const optionsFor = (filename, without, loaded = optionsOf(filename)) => {
+  // loads them for it, its plugins, loaded, as they are, but those of the
+  // keys in without, and the inlining one.
+  const optionsFor = (filename, without) => {
     const start = performance.now()
-    const config = core.loadOptionsSync(loaded)
+    const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
     const plugins = [...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)]
     // module-resolver traverses, as its plugin does, with keepPlugins.
@@ -384,35 +394,28 @@ if (workerData?.babel !== undefined) {
       core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
     } catch {}
   }
-  // With a cache, what the config reads or looks for as it loads too, for
-  // the fingerprint, of the modules loaded by now, with the config.
-  const reads = cacheDir === null ? loadConfig() : readsOf(loadConfig)
-  const modules = createRequire(corePath).cache
-  const cache = cacheDir === null ? null : cacheOf(cacheDir, fingerprintOf(Object.keys(modules), { refresh, keepPlugins, inlineRequires, ...given }, given.cwd ?? process.cwd(), reads), modules)
-  // -> { code, imports }: Babel's output, kept where cached, but where a
-  // plugin's is of files it names (its addExternalDependency), which may
-  // change.
-  const output = (source, filename, options, key) => {
-    const result = transform(source, options)
-    const { code } = lowerLeft(result, filename)
-    const entry = { code, imports: [...imports] }
-    if (key !== null && !(result.externalDependencies?.size > 0)) cache.set(key, entry)
-    return entry
-  }
-  parentPort.on('message', ({ port, source, filename, without }) => {
+  // With options.fingerprint, what the config reads or looks for as it
+  // loads too, for the fingerprint, of the modules loaded by now, with the
+  // config: before any file, which a plugin may require more for. Asked, its
+  // inputs too, which a run after may make it of again (load-cache.js).
+  const reads = fingerprinted ? readsOf(loadConfig) : loadConfig()
+  const inputs = fingerprinted ? { options: { refresh, keepPlugins, inlineRequires, ...given }, modules: Object.keys(createRequire(corePath).cache), reads: [...reads] } : null
+  const fingerprint = fingerprinted ? fingerprintOf(inputs.modules, inputs.options, reads) : null
+  parentPort.on('message', ({ port, source, filename, without, fingerprint: asked = false }) => {
+    if (asked) {
+      port.postMessage({ fingerprint, ...inputs })
+      port.close()
+      return
+    }
     const start = performance.now()
     spent = new Map()
     own = new Map()
     imports = new Set()
     try {
-      // With a cache, the config's files and the plugins and presets they
-      // name, for the file's key: its options of them, as Babel loads them.
-      const partial = cache === null ? null : core.loadPartialConfigSync(optionsOf(filename))
-      const options = optionsFor(filename, without, partial?.options)
-      const cacheKey = cache?.keyOf(options, source, partial) ?? null
-      const { code, imports: found } = (cacheKey === null ? null : cache.get(cacheKey)) ?? output(source, filename, options, cacheKey)
+      const result = transform(source, optionsFor(filename, without))
+      const { code } = lowerLeft(result, filename)
       const entries = (map) => [...map].map(([key, [calls, ms, worked]]) => [key, calls, ms, worked])
-      port.postMessage({ code, imports: found, ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
+      port.postMessage({ code, imports: [...imports], ...(result.externalDependencies?.size > 0 && { uncacheable: true }), ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
     } catch (error) {
       port.postMessage({ error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) })
     }

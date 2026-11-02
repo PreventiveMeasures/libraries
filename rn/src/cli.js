@@ -9,6 +9,7 @@ import { resolve } from 'node:path'
 
 import { createAliases } from './babel-aliases.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
+import { configKeyOf } from './load-cache.js'
 
 const BABEL_CONFIGS = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json']
 
@@ -119,11 +120,12 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // runs in at most, rn's default (defaultWorkers()) where null. A
 // target's `inlineRequires`, metroOptions()'s of its bundle, Metro's inline
 // requires, its workers inline after Babel: a target of each, as Metro
-// caches a file's transform of its transform options. `cacheDir`, each
-// target's workers keep each file's output there, across runs, while what it
-// is of is the same: the options the config gives it, the code of Babel and
-// of what the config loads, and its source (babelWorkers()).
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, cacheDir = null } = {}) {
+// caches a file's transform of its transform options. With `fingerprint`,
+// for a cache of each file as it loads (load-cache.js), each target has
+// fingerprint(), its workers' (babelWorkers()), of `workerOptions`, the
+// options they have, and configKey(filename), a key of the config Babel
+// loads for the file (configKeyOf()).
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -152,10 +154,18 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const preset = config.preset === undefined ? null : { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
     const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
+    const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
+    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }) }, timed, maxWorkers)
+    let configKey = null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }), ...(cacheDir !== null && { cacheDir }) }, timed, maxWorkers),
+      babel,
       babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
+      ...(fingerprint && {
+        workerOptions,
+        fingerprint: babel.fingerprint,
+        configKey: (filename) => (configKey ??= configKeyOf((core ??= project.load(corePath)), options, createRequire(corePath).cache))(filename),
+      }),
     }
     targets.set(key, target)
     return target
