@@ -30,8 +30,8 @@ export const inside = (root, path) => {
 // takes for the project's files: jsx, stripFlow, babel..., aliases, define,
 // store (load-cache.js's); inlineRequires, the bundle's, as the Metro config
 // gives it. `onBuild({ request, outcome, ms, cached })` after each build:
-// `cached`, its store's tally() of the files it loaded (load-cache.js's), or
-// null.
+// `cached`, its store's tally of the files it loaded (load-cache.js's
+// finish()), or null.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
 // defaults where not given. A minified bundle fails with its minifyRefusal;
 // each, with its transformRefusal, where it has one.
@@ -184,7 +184,7 @@ async function run({ projectRoot, onBuild }, build, at) {
   if (build.last?.version === at) return build.last
   const bundler = await build.bundler
   const start = performance.now()
-  build.store?.tally()
+  build.store?.start()
   try {
     const result = await bundler.rebuild((done, total) => {
       for (const onProgress of build.waiting) onProgress?.(done, total)
@@ -198,7 +198,7 @@ async function run({ projectRoot, onBuild }, build, at) {
     if (!Array.isArray(error?.errors)) throw error
     build.last = { ok: false, version: at, errors: error.errors, files: new Set(error.files ?? []) }
   }
-  onBuild({ request: build.request, outcome: build.last, ms: Math.round(performance.now() - start), cached: build.store?.tally() ?? null })
+  onBuild({ request: build.request, outcome: build.last, ms: Math.round(performance.now() - start), cached: build.store?.finish().tally ?? null })
   return build.last
 }
 

@@ -73,9 +73,15 @@ describe('the module format', () => {
   it("keeps each module's build in a store, which a run after takes, building none, to the same bundle", async () => {
     let built = 0
     const counting = { ...esbuild, build: (...args) => (built++, esbuild.build(...args)) }
-    const store = createLoadCache(join(root, 'store'), { esbuild, cwd: root })
     // A run of its own: its own module ids, builds and files in memory.
-    const runOf = () => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild: counting, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids: new Map(), builds: new Map(), cache: new Map(), store: store(null) }).rebuild()
+    // A build of it, its store's pack written as it ends.
+    const runOf = async () => {
+      const each = createLoadCache(join(root, 'store'), { esbuild, cwd: root })(null)
+      each.start()
+      const result = await createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild: counting, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids: new Map(), builds: new Map(), cache: new Map(), store: each }).rebuild()
+      await each.finish().written
+      return result
+    }
     try {
       const first = await runOf()
       const made = built
