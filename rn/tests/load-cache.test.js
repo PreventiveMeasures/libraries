@@ -13,6 +13,7 @@ import { writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
 const modules = createRequire(import.meta.url).cache
+const BABEL_CORE = `${sep}@babel${sep}core${sep}`
 const fail = (message) => assert.fail(message)
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
 // A plugin of an output of its own each time it runs: one the same is kept.
@@ -26,8 +27,9 @@ function projectOf(tree) {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/@babel/core': linked('@babel/core'), ...tree })
   const cacheDir = join(root, 'cache')
   const run = ({ platform = 'ios', dir = cacheDir, babel = true } = {}) => {
-    // The project's own modules loaded anew, as by a run of its own.
-    for (const path of Object.keys(modules)) if (path.startsWith(`${root}${sep}`)) delete modules[path]
+    // The project's own modules loaded anew, as by a run of its own, and
+    // @babel/core, of what it has loaded of them, which transforms in band.
+    for (const path of Object.keys(modules)) if (path.startsWith(`${root}${sep}`) || path.includes(BABEL_CORE)) delete modules[path]
     const target = babel ? projectBabel(root, peers(root, fail), fail, { fingerprint: true, maxWorkers: 1 })({ platform, dev: true }) : null
     const store = createLoadCache(dir, { esbuild, cwd: root })(target)
     const load = (name, contents, options = {}) => {

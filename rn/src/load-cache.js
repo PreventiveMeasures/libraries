@@ -239,10 +239,11 @@ function writeEntry(dir, key, value) {
 // config (configKeyOf()); the file's path, its contents, and `variant`, what
 // of loadFile()'s options make it (its sourcemap, esm, keepPlugins). A
 // target's fingerprint is kept with what it is a digest of: a run after,
-// where those are the same, it is that, at once, before its workers load
-// Babel and the config. -> (babel) => { keyOf(path, contents, variant)
-// (async: { key }, or { key: null, why } where none is kept: `fingerprint`,
-// its workers have none; `config`, the file's config has no key), get(key)
+// where those are the same, it is that, at once, with no worker made for it
+// (babelWorkers()), nor one at all where its files are kept. -> (babel) =>
+// { keyOf(path, contents, variant) (async: { key }, or { key: null, why }
+// where none is kept: `fingerprint`, its workers have none; `config`, the
+// file's config has no key), get(key)
 // (loadFile()'s result, or null where none), set(key, result), keep(kind,
 // path, compute) (async: what compute() gives, of the file's config, kept
 // as `kind`, JSON), note(what, why), tally() }, of a target. note() counts

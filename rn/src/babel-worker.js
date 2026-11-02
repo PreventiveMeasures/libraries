@@ -1,7 +1,8 @@
 // Babel's transforms, off the main thread but for a build's first files:
 // each worker loads the project's @babel/core and its config once, and
 // transforms what it is sent (babel-transformer.js); asked, gives a
-// fingerprint of what its output is of (load-cache.js).
+// fingerprint of what its output is of (load-cache.js), which the main
+// thread's is of too.
 
 import { once } from 'node:events'
 import { enableCompileCache } from 'node:module'
@@ -54,7 +55,10 @@ const IN_BAND = 16
 // starting costs some 300 ms of CPU, loading Babel and the config, which a
 // few files, done by one in less, don't make up for: the first IN_BAND files,
 // and those till a worker is ready, are transformed in band, on the main
-// thread, as a worker would (but with options.fingerprint or keepPlugins).
+// thread, as a worker would (but with keepPlugins). The fingerprint is a
+// worker's alone, one made for it where none is: what the main thread has
+// loaded is the process's, not Babel's alone, and the config it has loaded
+// (in band, configKeyOf(), babelPlugins()) reads nothing anew.
 export function babelWorkers(corePath, options, profile = null, max = null) {
   const most = max ?? defaultWorkers()
   const workers = []
@@ -78,18 +82,21 @@ export function babelWorkers(corePath, options, profile = null, max = null) {
   // has @babel/core and the config loaded (cli.js's babelPlugins()): a
   // worker loads them anew, which a build of a few files doesn't make up
   // for. Then a worker's made, the main thread transforming until one is
-  // ready. But for a cache's fingerprint, of what a worker has loaded, and
-  // with keepPlugins (--self-test's build after another, in band of plugins
-  // the first's gated: babel-transformer.js's resolverGate()): then one made
-  // at once, which loads Babel and the config as the build starts; idle, it
-  // keeps the process alive no more than one made for a file.
-  let inBand = options.fingerprint || options.keepPlugins ? null : undefined
+  // ready. With a cache's fingerprint too (rn-serve's), which a worker gives
+  // where the one kept is no longer (load-cache.js): a run whose files the
+  // cache has makes none. But with keepPlugins (--self-test's build after
+  // another, in band of plugins the first's gated: babel-transformer.js's
+  // resolverGate()): then one made at once, which loads Babel and the
+  // config as the build starts; idle, it keeps the process alive no more
+  // than one made for a file.
+  let inBand = options.keepPlugins ? null : undefined
   let handled = 0
   if (inBand === null) pick().worker.unref()
   const inBandOf = () => {
     if (inBand === undefined) {
       try {
-        inBand = transformerOf({ corePath, options, profile: profile !== null })
+        // Of no fingerprint: the main thread's is not a worker's.
+        inBand = transformerOf({ corePath, options: { ...options, fingerprint: false }, profile: profile !== null })
       } catch (error) {
         inBand = () => {
           throw error
@@ -98,9 +105,9 @@ export function babelWorkers(corePath, options, profile = null, max = null) {
     }
     return inBand
   }
-  // -> a worker's answer to the message, or the main thread's.
-  const ask = async (message) => {
-    if (inBand !== null && (handled < IN_BAND || !workers.some(({ ready }) => ready))) {
+  // -> a worker's answer to the message, or the main thread's, but `ofWorker`.
+  const ask = async (message, ofWorker = false) => {
+    if (!ofWorker && inBand !== null && (handled < IN_BAND || !workers.some(({ ready }) => ready))) {
       // One made, past IN_BAND, where none is (or one died).
       if (++handled >= IN_BAND && workers.length === 0) pick().worker.unref()
       return inBandOf()(message)
@@ -129,7 +136,7 @@ export function babelWorkers(corePath, options, profile = null, max = null) {
     return { code, imports, ...(uncacheable && { uncacheable }) }
   }
   let fingerprint = null
-  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)) })
+  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)) })
 }
 
 // Babel's own work, outside its plugins, by what it is.
