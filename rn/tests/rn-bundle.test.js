@@ -815,10 +815,13 @@ describe('rn-bundle, of a project with no Babel config', () => {
   })
 
   it('takes --profile, --esm and --unstable-transform-profile only where Babel runs', () => {
-    assert.deepEqual([run(['--profile']).status, run(['--profile']).stderr], [1, "rn-bundle: --profile times the plugins of the project's Babel config, and it has none\n"])
-    assert.deepEqual([run(['--esm']).status, run(['--esm']).stderr], [1, "rn-bundle: --esm keeps ES modules through the project's Babel config, and it has none\n"])
-    const profile = run(['--unstable-transform-profile=hermes-stable'])
-    assert.deepEqual([profile.status, profile.stderr], [1, "rn-bundle: --unstable-transform-profile is the profile the project's Babel config builds for, and it has none\n"])
+    const refused = (args) => {
+      const { status, stderr } = run(args)
+      return [status, stderr]
+    }
+    assert.deepEqual(refused(['--profile']), [1, "rn-bundle: --profile times the plugins of the project's Babel config, and it has none\n"])
+    assert.deepEqual(refused(['--esm']), [1, "rn-bundle: --esm keeps ES modules through the project's Babel config, and it has none\n"])
+    assert.deepEqual(refused(['--unstable-transform-profile=hermes-stable']), [1, "rn-bundle: --unstable-transform-profile is the profile the project's Babel config builds for, and it has none\n"])
   })
 })
 
