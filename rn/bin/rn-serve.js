@@ -52,7 +52,10 @@
 // workers each bundle's Babel runs in at most, as rn-bundle's), and an
 // option of its server or symbolicator not as Metro's default an error too.
 // It answers the app and its tools, never another webpage (src/gate.js), on
-// 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
+// 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi, which names
+// it by the machine's own name too (a Host it takes on no loopback --host).
+// On any but loopback, anyone on the network can fetch the app and its
+// source, and with dev-middleware, debug the app: it warns of that.
 // The project's rn.config.json (src/rn-config.js) has the defaults of
 // --esm (its esm), --dev-tools (its devTools), --max-workers (its
 // maxWorkers, over the Metro config's) and of the Metro config (its
@@ -83,7 +86,7 @@ import { parseArgs, format as printf, styleText } from 'node:util'
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createDevToolsOpener } from '../src/devtools.js'
-import { createGate } from '../src/gate.js'
+import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
 import { launchIos } from '../src/launch-ios.js'
 import { createLoadCache } from '../src/load-cache.js'
 import { prune } from '../src/load-prune.js'
@@ -152,8 +155,7 @@ const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['r
 
 const { host } = values
 const wildcard = host === '0.0.0.0' || host === '::'
-const machine = hostname().toLowerCase()
-const gate = createGate({ hostnames: [machine, `${machine.replace(/\.local$/u, '')}.local`, ...(isIP(host) === 0 ? [host] : [])] })
+const gate = createGate({ hostnames: hostnamesOf(host, hostname()) })
 
 let watcher = null
 const devBundler = createDevBundler({
@@ -235,7 +237,7 @@ server.on('error', async (error) => {
 server.listen(port, host, () => {
   const serverUrl = `http://${urlHost}:${server.address().port}`
   log(`rn-serve: ${serverUrl} for ${projectRoot} (esbuild ${esbuild.version})`)
-  if (wildcard) log('rn-serve: on every network interface: anyone on the network can fetch the app and its source')
+  if (!isLoopback(host)) log(`rn-serve: ${wildcard ? 'on every network interface' : `on ${host}`}: anyone on the network can fetch the app and its source${devMiddleware === null ? '' : ', and debug the app: run code in it, and have the server fetch a URL'}`)
   if (metro.file === null && metro.polyfills(null).length === 0) log("rn-serve: no @react-native/js-polyfills, as @react-native/metro-config has it: bundles have Metro's prelude but no polyfills")
   if (devMiddleware === null) log('rn-serve: no @react-native/dev-middleware, as react-native has it: no debugger')
   else mountDebugger(serverUrl)
