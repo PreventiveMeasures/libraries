@@ -47,16 +47,29 @@ const WHY = {
 // (nonInlinedRequires): its transformHelpers' baseIgnoredInlineRequires.
 const NOT_INLINED = ['React', 'react', 'react/jsx-dev-runtime', 'react/jsx-runtime', 'react-compiler-runtime', 'react-native']
 
-// Metro's inline requires, as getTransformOptions gives them a bundle, asked
-// as Metro asks it (`hot` as the project's Metro does), and its transform
+// What getTransformOptions gives a bundle, asked as Metro asks it (`hot` as
+// the project's Metro does), its getDependencies giving none, of the
+// bundle's dependencies, which neither command knows before it builds:
+// -> { transform, dependencies } (whether it asked them).
+async function transformOf(getTransformOptions, entryPath, { platform, dev }, hot) {
+  let dependencies = false
+  const given = await getTransformOptions(entryPath === null ? [] : [entryPath], { dev, hot, platform }, () => {
+    dependencies = true
+    return Promise.resolve([])
+  })
+  return { transform: given?.transform ?? {}, dependencies }
+}
+
+// Metro's inline requires, as getTransformOptions gives them a bundle (but
+// of its dependencies, which transformRefusal refuses), and its transform
 // worker inlines them after Babel, by its metro-transform-plugins (`plugin`,
 // its path): -> async (entryPath, { platform, dev }) => { plugin, options,
 // blockList } (the plugin's options, the files it leaves) or null.
 function inlineRequiresOf(getTransformOptions, plugin, hot) {
   if (typeof getTransformOptions !== 'function' || plugin === null) return () => Promise.resolve(null)
-  return async (entryPath, { platform, dev }) => {
-    const { transform } = (await getTransformOptions(entryPath === null ? [] : [entryPath], { dev, hot, platform }, () => Promise.resolve([]))) ?? {}
-    if (!transform?.inlineRequires) return null
+  return async (entryPath, target) => {
+    const { transform } = await transformOf(getTransformOptions, entryPath, target, hot)
+    if (!transform.inlineRequires) return null
     return {
       plugin,
       options: { ignoredRequires: transform.nonInlinedRequires || NOT_INLINED, memoizeCalls: transform.unstable_memoizeInlineRequires || false, nonMemoizedModules: transform.unstable_nonMemoizedInlineRequires || [] },
@@ -211,11 +224,14 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
     port: server?.port ?? null,
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
-    transformRefusal: async (entryPath, { platform, dev }) => {
-      // Its getDependencies, of what preloads, of no bearing here.
-      const transform = (await transformer.getTransformOptions([entryPath], { dev, hot, platform }, () => Promise.resolve([])))?.transform ?? {}
+    transformRefusal: async (entryPath, target) => {
+      // Its getDependencies, of what preloads, of no bearing here; but of
+      // the requires it inlines, which it would have of none.
+      const { transform, dependencies } = await transformOf(transformer.getTransformOptions, entryPath, target, hot)
       const refused = Object.entries(TRANSFORMS).filter(([key, [isRefused]]) => isRefused(transform[key]))
-      return refused.length === 0 ? null : refused.map(([key, [, what]]) => `${shown}: transformer.getTransformOptions gives ${key} ${show(transform[key], cwd)}, ${what}: ${name} does it as Metro's default alone`).join(`\n${name}: `)
+      const errors = refused.map(([key, [, what]]) => `${shown}: transformer.getTransformOptions gives ${key} ${show(transform[key], cwd)}, ${what}: ${name} does it as Metro's default alone`)
+      if (dependencies && transform.inlineRequires) errors.push(`${shown}: transformer.getTransformOptions gives inlineRequires of what getDependencies gives, the bundle's dependencies: ${name} gives it none, and doesn't inline requires of them`)
+      return errors.length === 0 ? null : errors.join(`\n${name}: `)
     },
   }
 }

@@ -78,6 +78,11 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal(await options.inlineRequires(entry, { platform: 'ios', dev: false }), null)
   })
 
+  it("refuses inline requires getTransformOptions gives of the bundle's dependencies, which it gives none", async () => {
+    const options = await load("{ transformer: { getTransformOptions: async (entries, options, getDependencies) => ({ transform: { inlineRequires: { blockList: Object.fromEntries((await getDependencies(entries[0])).map((path) => [path, true])) } } }) } }")
+    assert.equal((await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: false })).replaceAll(options.file, 'its config'), "its config: transformer.getTransformOptions gives inlineRequires of what getDependencies gives, the bundle's dependencies: rn-bundle gives it none, and doesn't inline requires of them")
+  })
+
   it('takes getTransformOptions by the transform options it gives each bundle, refusing those it does not do', async () => {
     const options = await load("{ transformer: { getTransformOptions: async (entries, { dev, hot, platform }, getDependencies) => ({ transform: { inlineRequires: false, nonInlinedRequires: ['React'], unstable_disableES6Transforms: true, experimentalImportSupport: platform === 'android' && hot && (await getDependencies(entries[0])).length === 0, unstable_inlinePlatform: !dev } }) } }")
     const entry = join(root, 'index.js')
