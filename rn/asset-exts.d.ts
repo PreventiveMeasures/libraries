@@ -7,5 +7,5 @@
 // where `file` isn't there, or where only a parser reads it and there's none,
 // or where rn.config.json is not one rn-bundle takes. Where rn.config.json
 // has assetExts, Metro's defaults and them, reading no Metro config (as
-// rn-bundle refuses one that sets them too).
+// rn-bundle refuses one that sets them otherwise).
 export function readMetroAssetExts(projectRoot: string, options?: { file?: string | null; oxc?: { parseSync(filename: string, source: string, options?: object): { program: object } } | null }): string[]

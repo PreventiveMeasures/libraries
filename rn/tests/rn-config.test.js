@@ -101,11 +101,22 @@ describe('extendedMetro', () => {
     assert.equal(maxWorkersOf(undefined, extendedMetro(loaded, { assetExts: ['riv'] }, fail), fail), 4)
   })
 
-  it('refuses a list the Metro config sets too: the project has one of either', () => {
-    const own = { ...loaded, ownLists: ['assetExts', 'assetResolutions'] }
-    assert.throws(() => extendedMetro(own, { esm: true, sourceExts: ['mjs'], assetExts: ['lottie'] }, fail), { message: "rn.config.json: assetExts adds to Metro's defaults, and metro.config.js sets resolver.assetExts too: set it in one of them" })
-    assert.throws(() => extendedMetro(own, { assetResolutions: [] }, fail), { message: /^rn\.config\.json: assetResolutions adds to Metro's defaults, and metro\.config\.js sets resolver\.assetResolutions too/u })
+  it("takes a list the Metro config loaded sets alike, Metro's defaults and the same, refusing one it sets otherwise", () => {
+    // Of Metro's defaults, and @react-native/metro-config's over them; the config's assetExts its own (riv), its sourceExts and assetResolutions the second's.
+    const defaultLists = [{ assetExts: ['png'], sourceExts: ['js'], assetResolutions: ['1'] }, { assetExts: ['png'], sourceExts: ['js', 'cjs'], assetResolutions: ['1', '2'] }]
+    const own = { ...loaded, defaultLists }
+    // Alike: assetExts as a set, scales of numbers too.
+    assert.deepEqual(extendedMetro(own, { assetExts: ['riv'] }, fail).assetExts, ['png', 'riv'])
+    assert.deepEqual(extendedMetro({ ...own, assetExts: ['riv', 'png'] }, { assetExts: ['riv'] }, fail).assetExts, ['riv', 'png'])
+    assert.deepEqual(extendedMetro({ ...own, resolver: { ...own.resolver, assetResolutions: ['1', '2', '0.75'] } }, { assetResolutions: [0.75] }, fail).resolver.assetResolutions, ['1', '2', '0.75'])
+    // Of a list the Metro config sets as a default has it, the config's added.
     assert.deepEqual(extendedMetro(own, { sourceExts: ['mjs'] }, fail).resolver.sourceExts, ['js', 'cjs', 'mjs'])
+    assert.throws(() => extendedMetro(own, { esm: true, assetExts: ['lottie'] }, fail), { message: "rn.config.json: assetExts is Metro's defaults and lottie, and metro.config.js's resolver.assetExts has riv and lacks lottie: set it in one of them, or alike in both" })
+    assert.throws(() => extendedMetro({ ...own, resolver: { ...own.resolver, assetResolutions: ['1', '3'] } }, { assetResolutions: [] }, fail), { message: "rn.config.json: assetResolutions is Metro's defaults, and metro.config.js's resolver.assetResolutions has 3 and lacks 2: set it in one of them, or alike in both" })
+    // sourceExts in order, which an import tries them in.
+    assert.throws(() => extendedMetro({ ...own, resolver: { ...own.resolver, sourceExts: ['cjs', 'js'] } }, { sourceExts: ['cjs'] }, fail), { message: "rn.config.json: sourceExts is Metro's defaults and cjs, and metro.config.js's resolver.sourceExts has them in another order: set it in one of them, or alike in both" })
+    // Of no Metro config loaded (metroConfig false), none to compare.
+    assert.deepEqual(extendedMetro(none, { assetExts: ['lottie'] }, fail).assetExts, [...defaults.assetExts, 'lottie'])
   })
 
   it('refuses an extension it adds to one of assetExts and sourceExts the other has, as it removes none', () => {

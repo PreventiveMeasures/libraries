@@ -4,14 +4,19 @@
 //   metroConfig: whether the project's Metro config is loaded: true (the
 //     default), the one Metro finds; false, none, as of a project with no
 //     metro.config.js (Metro's defaults as @react-native/metro-config has
-//     them); a path, from the root, that file. --metro-config over it.
+//     them), but a package's exports read (unstable_enablePackageExports),
+//     whatever Metro's default (on from 0.82); a path, from the root, that
+//     file. --metro-config over it.
 //   assetExts, sourceExts, assetResolutions: what it adds to Metro's
 //     defaults of the resolver's lists, after them: the extensions of assets
 //     (["riv"]) and of code (["mjs"]), and the scales an asset's files are
 //     of (["0.75"], or [0.75]). Each list it has is the project's: a Metro
-//     config that sets it too is an error, so that what reads assetExts off
-//     the project without running its Metro config (asset-exts.js) need
-//     not read the config where this has them. It removes none: an
+//     config loaded (but of metroConfig false, none is) that sets it
+//     otherwise is an error, so that what reads assetExts off the project
+//     without running its Metro config (asset-exts.js) need not read the
+//     config where this has them; one that sets it alike (Metro's defaults
+//     and the same, as sets, but sourceExts in order, which an import tries
+//     them in) is none. It removes none: an
 //     extension it adds to one of assetExts and sourceExts the other has is
 //     an error (Metro takes a file of it for an asset).
 //   maxWorkers: --max-workers' default, over the Metro config's.
@@ -73,15 +78,44 @@ export function readRnConfig(projectRoot, fail) {
 // none; else that file.
 export const metroConfigOf = (flag, { metroConfig = true }) => flag ?? (metroConfig === true ? null : metroConfig)
 
+const LISTS = ['assetExts', 'sourceExts', 'assetResolutions']
+// `base`, and what of `more` it has none of, after it, each once.
+const added = (base, more) => [...base, ...more.filter((each, i) => !base.includes(each) && more.indexOf(each) === i)]
+// Whether two of a list build alike: sourceExts in order, which an import
+// tries them in; the others as sets.
+function alike(key, a, b) {
+  const [ours, theirs] = [[...new Set(a.map(String))], [...new Set(b.map(String))]]
+  return ours.length === theirs.length && (key === 'sourceExts' ? ours.every((each, i) => each === theirs[i]) : ours.every((each) => theirs.includes(each)))
+}
+const shown = (list) => (list.length > 5 ? `${list.slice(0, 5).join(', ')} and ${list.length - 5} more` : list.join(', '))
+
+// The error of a list the config has that the Metro config loaded
+// (`metro`'s) sets otherwise than Metro's defaults and it, or null: of
+// how it differs from @react-native/metro-config's defaults and it.
+function listConflict(metro, config) {
+  for (const key of LISTS) {
+    if (config[key] === undefined || metro.defaultLists == null) continue
+    const additions = config[key].map(String)
+    const current = (key === 'assetExts' ? metro.assetExts : metro.resolver[key]).map(String)
+    if (metro.defaultLists.some((base) => alike(key, current, base[key]) || alike(key, current, added(base[key], additions)))) continue
+    const expected = added(metro.defaultLists.at(-1)[key], additions)
+    const extra = current.filter((each) => !expected.includes(each))
+    const missing = expected.filter((each) => !current.includes(each))
+    const how = [extra.length > 0 && `has ${shown(extra)}`, missing.length > 0 && `lacks ${shown(missing)}`].filter(Boolean).join(' and ') || 'has them in another order'
+    return `${RN_CONFIG}: ${key} is Metro's defaults${additions.length === 0 ? '' : ` and ${shown(additions)}`}, and ${metro.file}'s resolver.${key} ${how}: set it in one of them, or alike in both`
+  }
+  return null
+}
+
 // metroOptions()'s `metro`, of what the config adds to its lists, after
-// theirs (Metro's defaults: a list its Metro config sets too, an error),
-// each once, and of its maxWorkers; `metro` itself where it has none of them.
+// theirs (Metro's defaults: a list its Metro config sets otherwise, an
+// error), each once, and of its maxWorkers; `metro` itself where it has
+// none of them.
 export function extendedMetro(metro, config, fail) {
   const { assetExts = [], sourceExts = [], assetResolutions = [], maxWorkers } = config
-  const set = (metro.ownLists ?? []).find((key) => config[key] !== undefined)
-  if (set !== undefined) return fail(`${RN_CONFIG}: ${set} adds to Metro's defaults, and ${metro.file} sets resolver.${set} too: set it in one of them`)
+  const conflict = listConflict(metro, config)
+  if (conflict !== null) return fail(conflict)
   if (assetExts.length + sourceExts.length + assetResolutions.length === 0 && maxWorkers === undefined) return metro
-  const added = (base, more) => [...base, ...more.filter((each, i) => !base.includes(each) && more.indexOf(each) === i)]
   const assets = added(metro.assetExts, assetExts)
   const sources = added(metro.resolver.sourceExts ?? defaults.sourceExts, sourceExts)
   for (const [key, list, other, otherKey] of [['assetExts', assetExts, sources, 'sourceExts'], ['sourceExts', sourceExts, assets, 'assetExts']]) {

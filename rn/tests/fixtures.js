@@ -92,6 +92,23 @@ export const METRO_CONFIG = {
   ].join('\n'),
 }
 
+// A project's metro-config as before 0.82 (React Native's before 0.79),
+// which reads no package's exports by default: the real one, its defaults'
+// unstable_enablePackageExports false.
+export const METRO_0_81 = {
+  'node_modules/metro-config/package.json': { name: 'metro-config', version: '0.81.5', main: 'index.js', exports: { '.': './index.js', './package.json': './package.json' } },
+  'node_modules/metro-config/index.js': [
+    `const real = require(${JSON.stringify(METRO_CONFIG['node_modules/metro-config'].link)})`,
+    'const getDefaultConfig = async (projectRoot) => {',
+    '  const config = await real.getDefaultConfig(projectRoot)',
+    '  return { ...config, resolver: { ...config.resolver, unstable_enablePackageExports: false } }',
+    '}',
+    'getDefaultConfig.getDefaultValues = real.getDefaultConfig.getDefaultValues',
+    'module.exports = { ...real, getDefaultConfig }',
+    '',
+  ].join('\n'),
+}
+
 // The records of a pack's segment (load-pack.js's), its frames unpacked,
 // each [key, its JSON], of those whole.
 export function packedRecords(buffer) {
