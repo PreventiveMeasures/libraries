@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { workletsGate } from '../src/worklets.js'
@@ -55,5 +57,21 @@ describe("workletsGate, of Reanimated's Babel plugin", () => {
 
   it("keeps it where the plugin's code can't be read", () => {
     assert.equal(workletsGate({ cwd: '/nowhere', envName: 'production' })(worklets, 'export const a = 1\n'), false)
+  })
+
+  it("reads the plugin's code Babel loaded, from wherever, though the project resolves none", () => {
+    // As a preset's own, or that of a config elsewhere.
+    const elsewhere = writeTree({ 'node_modules/react-native-worklets/plugin/index.js': "const hooks = ['useOtherHook']\nmodule.exports = () => ({ name: 'worklets', visitor: {} })\n" })
+    const modules = createRequire(import.meta.url).cache
+    const before = new Set(Object.keys(modules))
+    try {
+      createRequire(join(elsewhere.root, 'package.json'))('react-native-worklets/plugin')
+      const loaded = workletsGate({ cwd: '/nowhere', envName: 'production' })
+      assert.equal(loaded(worklets, 'export const a = 1\n'), true)
+      assert.equal(loaded(worklets, 'useOtherHook(() => 1)\n'), false)
+    } finally {
+      for (const path of Object.keys(modules)) if (!before.has(path)) delete modules[path]
+      elsewhere.cleanup()
+    }
   })
 })
