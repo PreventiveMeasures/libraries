@@ -65,8 +65,10 @@ export async function createBundler(options) {
   // Through the main module always, as what runs before the entry may change.
   const context = await options.esbuild.context(buildOptions(options, graph, { main: true, lowersLet: await lowersLetOf(options).catch(() => false) }))
   return {
-    // Throws as esbuild does, the error's `files` those the build read and looked for.
-    rebuild: async () => {
+    // Throws as esbuild does, the error's `files` those the build read and
+    // looked for. onProgress(done, total), as each file Metro resolved loads.
+    rebuild: async (onProgress = null) => {
+      graph.progress.on = onProgress
       try {
         return await linking({ ...options, esm }, async () => graph.result(await context.rebuild()))
       } catch (error) {
@@ -182,6 +184,8 @@ function metroGraph({
 }, { reuseFirst }) {
   const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm, keepPlugins }
   let state = null
+  // The files loaded, of those resolved, and to whom it is told.
+  const progress = { loaded: 0, on: null }
   const fresh = () => newState({ host, assetExts, resolver, blockList, projectRoot, entry, platform }, (made) => {
     state = made
   })
@@ -201,6 +205,7 @@ function metroGraph({
       build.onStart(() => {
         if (!reuse) fresh()
         reuse = false
+        progress.loaded = 0
       })
       build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace, pluginData }) => {
         const importer = namespace === 'file' ? from : resolve(projectRoot, from)
@@ -222,10 +227,7 @@ function metroGraph({
         if (resolution.type === 'assetFiles') return named(projectRoot, resolution.filePaths.toSorted()[0], 'metro-asset')
         return file(resolution.filePath)
       })
-      build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => {
-        if (!state.resolved.has(path)) return { errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }
-        return load(path)
-      })
+      build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => loadResolved({ state, projectRoot, load, progress }, path))
       build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
         const asset = resolve(projectRoot, path)
         // Each file it reads counted, though building it fails (an empty image).
@@ -244,7 +246,18 @@ function metroGraph({
     graph: state.graph,
     files: [...state.read],
   })
-  return { plugin, result, before, files: () => [...(state?.read ?? [])] }
+  return { plugin, result, before, files: () => [...(state?.read ?? [])], progress }
+}
+
+// A file Metro resolved, loaded; the progress of those loaded, of those
+// resolved, told.
+async function loadResolved({ state, projectRoot, load, progress }, path) {
+  if (!state.resolved.has(path)) return { errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }
+  try {
+    return await load(path)
+  } finally {
+    progress.on?.(++progress.loaded, state.resolved.size)
+  }
 }
 
 // The main module, and each polyfill, which is loaded as any file and run as

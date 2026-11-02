@@ -49,15 +49,6 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return promise
   }
 
-  // Disposed once its builds asked for are done.
-  const drop = async (build) => {
-    await build.chain
-    try {
-      await (await build.bundler).dispose()
-    } catch {
-      // Never opened.
-    }
-  }
   // The least recently asked for, out at once, disposed after.
   const evict = (limit) => {
     const dropped = []
@@ -69,12 +60,11 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return Promise.all(dropped)
   }
 
-  // -> an outcome: { ok: true, js, map, assets, files, index() }, and in
-  // the module format `modules` and `entryId`; { ok: false, errors, files };
-  // null where the request names no entry here. A `shallow` request, a
-  // module's, as an update names it: its module of the last build of a
-  // bundle that has it, alone.
-  const get = async (request) => {
+  // -> an outcome: { ok: true, js, map, assets, files, index() }, and in the
+  // module format `modules` and `entryId`; { ok: false, errors, files }; null
+  // where the request names no entry here; `onProgress(done, total)` as it
+  // builds. A `shallow` request, a module's: its module of the last build.
+  const get = async (request, { onProgress = null } = {}) => {
     if (request.shallow) return moduleOutcome(builds, request, projectRoot)
     if (request.minify && metro.minifyRefusal !== null) return refused(version, metro.minifyRefusal)
     const entry = entryOf(config, request)
@@ -83,11 +73,12 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal, metro.inlineRequires].map((ask) => ask(entry.path, { platform: request.platform, dev: request.dev })))
     if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve() }
+    const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve(), waiting: new Set() }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
-    const outcome = outcomeOf(build)
+    build.waiting.add(onProgress)
+    const outcome = Promise.resolve(outcomeOf(build)).finally(() => build.waiting.delete(onProgress))
     void evict(maxBuilds)
     return outcome
   }
@@ -138,6 +129,16 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   }
 }
 
+// A build, disposed once those asked for are done.
+async function drop(build) {
+  await build.chain
+  try {
+    await (await build.bundler).dispose()
+  } catch {
+    // Never opened.
+  }
+}
+
 // The entry a request names, as Metro resolves it from the project root,
 // and only there.
 function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
@@ -177,7 +178,9 @@ async function run({ projectRoot, onBuild }, build, at) {
   const bundler = await build.bundler
   const start = performance.now()
   try {
-    const result = await bundler.rebuild()
+    const result = await bundler.rebuild((done, total) => {
+      for (const onProgress of build.waiting) onProgress?.(done, total)
+    })
     const { outputFiles, assets, files } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text
     const built = result.modules === undefined ? { js: text('.js'), map: text('.map') } : { js: result.js, map: result.map, modules: result.modules, entryId: result.entryId, scripts: result.scripts }

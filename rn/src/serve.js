@@ -5,7 +5,9 @@
 //   /status                    packager-status:running
 //   /<entry>.bundle?platform=  the bundle, its sourceMappingURL and sourceURL;
 //                              with &shallow=true, a module of one, as an
-//                              update names it
+//                              update names it; to a client that takes
+//                              multipart/mixed (the app's), its progress
+//                              first, as Metro's
 //   /<entry>.map?platform=     its source map
 //   /assets/<path>?platform=   an asset of a bundle served
 //   POST /symbolicate          LogBox's stack frames, at their sources
@@ -173,13 +175,57 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
   return { server, broadcast, hotError, hotUpdate: (request, before, after, options) => sendUpdate(hotClients, request, before, after, options), mount, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
 }
 
+// Metro's multipart response (its MultipartResponse), to a client that takes
+// one, as the app's loader does: each part's headers, then its body. A part
+// of progress as the build goes ({ done, total, percent }, percent as Metro
+// eases it, a part where it grows), which the app shows as it loads, and
+// again while the build goes quiet, for the app's request not to time out
+// (iOS's after 60 s of nothing); then the bundle, or its error with its
+// status in X-Http-Status, the last. -> null where the client takes none.
+const BOUNDARY = '3beqjf3apnqeu3h5jqorms4i'
+const QUIET = 10_000
+function multipart(request, response) {
+  if (request.method !== 'GET' || !/\bmultipart\/mixed\b/iu.test(request.headers.accept ?? '')) return null
+  response.writeHead(200, { 'Content-Type': `multipart/mixed; boundary="${BOUNDARY}"` })
+  response.write('If you are seeing this, your client does not support multipart response')
+  const part = (headers, body) => {
+    if (response.writableEnded || response.destroyed) return
+    response.write(`\r\n--${BOUNDARY}\r\n${Object.entries(headers).map(([name, value]) => `${name}: ${value}`).join('\r\n')}\r\n\r\n`)
+    response.write(body)
+  }
+  let ratio = -1
+  let last = null
+  const progressed = () => part({ 'Content-Type': 'application/json' }, JSON.stringify(last))
+  const quiet = setInterval(() => last !== null && progressed(), QUIET)
+  return {
+    progress: (done, total) => {
+      const eased = Math.min(Math.max((done / Math.max(total, 10)) ** 2, ratio), 0.999)
+      last = { done, total, percent: Math.floor(eased * 100) }
+      if (Math.floor(eased * 100) > Math.floor(ratio * 100)) progressed()
+      ratio = eased
+    },
+    end: (status, body, headers) => {
+      const data = Buffer.from(body)
+      part({ ...(status !== 200 && { 'X-Http-Status': status }), ...headers, 'Content-Length': data.length }, data)
+      if (!response.writableEnded && !response.destroyed) response.end(`\r\n--${BOUNDARY}--\r\n`)
+    },
+    close: () => clearInterval(quiet),
+  }
+}
+
 async function serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot }) {
-  const outcome = await devBundler.get(bundle)
-  if (outcome === null) return replyJson(request, response, 404, { type: 'NotFoundError', message: `rn-serve: the project has no entry ${bundle.entryFile}`, errors: [] })
-  if (!outcome.ok) return replyJson(request, response, 500, await bundlingError(esbuild, outcome.errors, projectRoot))
-  // Chrome DevTools may need the source map.
-  if (bundle.kind === 'map') return reply(request, response, 200, outcome.map, { 'Content-Type': JSON_TYPE, 'Access-Control-Allow-Origin': 'devtools://devtools' })
-  return reply(request, response, 200, `${outcome.js}//# sourceMappingURL=${bundle.sourceMapUrl}\n//# sourceURL=${bundle.sourceUrl}\n`, { 'Content-Type': JS })
+  const parts = bundle.kind === 'bundle' ? multipart(request, response) : null
+  const send = (status, body, headers) => (parts === null ? reply(request, response, status, body, headers) : parts.end(status, body, headers))
+  try {
+    const outcome = await devBundler.get(bundle, { onProgress: parts?.progress ?? null })
+    if (outcome === null) return send(404, JSON.stringify({ type: 'NotFoundError', message: `rn-serve: the project has no entry ${bundle.entryFile}`, errors: [] }), { 'Content-Type': JSON_TYPE })
+    if (!outcome.ok) return send(500, JSON.stringify(await bundlingError(esbuild, outcome.errors, projectRoot)), { 'Content-Type': JSON_TYPE })
+    // Chrome DevTools may need the source map.
+    if (bundle.kind === 'map') return reply(request, response, 200, outcome.map, { 'Content-Type': JSON_TYPE, 'Access-Control-Allow-Origin': 'devtools://devtools' })
+    return send(200, `${outcome.js}//# sourceMappingURL=${bundle.sourceMapUrl}\n//# sourceURL=${bundle.sourceUrl}\n`, { 'Content-Type': JS })
+  } finally {
+    parts?.close()
+  }
 }
 
 // What changed in a bundle, from the build its apps have, to each; with

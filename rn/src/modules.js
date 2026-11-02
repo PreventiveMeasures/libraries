@@ -31,7 +31,7 @@ const lineCount = (text) => {
 }
 const nameOf = (projectRoot, key) => (key === EMPTY ? EMPTY : relative(projectRoot, key).replaceAll('\\', '/'))
 
-// -> { rebuild(), dispose() }, as createBundler's; rebuild() -> { js, map,
+// -> { rebuild(onProgress), dispose() }, as createBundler's; rebuild() -> { js, map,
 // modules, entryId, scripts, assets, files }, or throws as esbuild does, the error's
 // `errors` esbuild's and `files` those read. `modules`: Map<id, { id, key,
 // name, deps, factory }>, `deps` the ids of its dependency map. `ids`:
@@ -50,8 +50,8 @@ export function createModuleBundler(options) {
     return ids.get(key)
   }
   return {
-    async rebuild() {
-      const run = { ...options, stripFlow: options.stripFlow ?? null, babel: options.babel ?? null, babelPlugins: options.babelPlugins ?? null, aliases: options.aliases ?? null, host, assetExts, supported: { ...(await supportedOf), 'dynamic-import': false }, idOf, builds }
+    async rebuild(onProgress = null) {
+      const run = { ...options, onProgress, stripFlow: options.stripFlow ?? null, babel: options.babel ?? null, babelPlugins: options.babelPlugins ?? null, aliases: options.aliases ?? null, host, assetExts, supported: { ...(await supportedOf), 'dynamic-import': false }, idOf, builds }
       let state = null
       try {
         // Its state published before what of react-native runs before the
@@ -76,14 +76,17 @@ async function graphOf(run, state, { scripts, prelude }) {
   const entryPath = resolve(projectRoot, entry)
   state.read.add(entryPath)
   const pending = new Map()
+  let done = 0
   const errors = []
   const fail = (key) => (error) => {
     errors.push(...errorsOf(error, key, projectRoot))
     return null
   }
-  // A module by its key, once: `kind` 'file', 'asset' or 'empty'.
+  // A module by its key, once: `kind` 'file', 'asset' or 'empty'. Each
+  // built, onProgress of those built and those found, as Metro's.
   const visit = ({ key, kind }) => {
-    if (!pending.has(key)) pending.set(key, moduleOf(run, state, { key, kind }, visit).catch(fail(key)))
+    if (pending.has(key)) return
+    pending.set(key, moduleOf(run, state, { key, kind }, visit).catch(fail(key)).finally(() => run.onProgress?.(++done, pending.size)))
   }
   let entryKey
   try {
@@ -164,10 +167,13 @@ async function buildOf(run, key, source, resolvable = null) {
   const { esbuild, projectRoot } = run
   // Absolute: esbuild takes stdin's file from its resolveDir.
   const sourcefile = key === EMPTY ? EMPTY : key
+  // A JSON file as Metro wraps it, `module.exports =` it: esbuild builds one
+  // as an entry point, as CommonJS, with no exports at all.
+  const wrapped = source.loader === 'json' ? { ...source, contents: (await esbuild.transform(source.contents, { loader: 'json', format: 'cjs', sourcefile, logLevel: 'silent' })).code, loader: 'js' } : source
   const common = { bundle: true, write: false, format: 'cjs', platform: 'neutral', absWorkingDir: projectRoot, outfile: resolve(projectRoot, OUTFILE), metafile: true, sourcemap: 'external', define: run.define ?? {}, minify: run.minify ?? false, supported: run.supported, logLevel: 'silent' }
   const result = resolvable === null
-    ? await esbuild.build({ ...common, stdin: { contents: source.contents, loader: source.loader, sourcefile, resolveDir: key === EMPTY ? projectRoot : dirname(key) }, external: ['*'] })
-    : await esbuild.build({ ...common, entryPoints: [key], plugins: [checking(key, source, resolvable, projectRoot)] })
+    ? await esbuild.build({ ...common, stdin: { contents: wrapped.contents, loader: wrapped.loader, sourcefile, resolveDir: key === EMPTY ? projectRoot : dirname(key) }, external: ['*'] })
+    : await esbuild.build({ ...common, entryPoints: [key], plugins: [checking(key, wrapped, resolvable, projectRoot)] })
   const text = (ext) => result.outputFiles.find(({ path }) => path.endsWith(ext)).text
   const imports = Object.values(result.metafile.inputs).flatMap((input) => input.imports).filter((imported) => imported.external).map(({ path, kind }) => ({ specifier: path, kind }))
   const code = text('.js')

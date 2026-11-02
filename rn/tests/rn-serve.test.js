@@ -159,6 +159,32 @@ describe('rn-serve', () => {
     assert.match(server.output(), /built \.\/index for ios, dev in \d+ ms/u)
   })
 
+  it('streams a bundle to a client that takes multipart/mixed (the app), as Metro does: its progress, then it, or its error and status', async () => {
+    const BOUNDARY = '3beqjf3apnqeu3h5jqorms4i'
+    const parts = async (url) => {
+      const { status, headers, body } = await fetchRaw(url, { headers: { Accept: 'multipart/mixed' } })
+      assert.deepEqual([status, headers['content-type']], [200, `multipart/mixed; boundary="${BOUNDARY}"`])
+      const text = String(body)
+      assert.ok(text.endsWith(`\r\n--${BOUNDARY}--\r\n`))
+      return text.slice(0, -`\r\n--${BOUNDARY}--\r\n`.length).split(`\r\n--${BOUNDARY}\r\n`).slice(1).map((part) => {
+        const at = part.indexOf('\r\n\r\n')
+        return { headers: Object.fromEntries(part.slice(0, at).split('\r\n').map((line) => line.split(': '))), body: part.slice(at + 4) }
+      })
+    }
+    // Bundles not built yet: in the module format, and minified, by esbuild.
+    for (const query of ['platform=android', 'platform=android&minify=true']) {
+      const built = await parts(bundleUrl(query))
+      const progress = built.slice(0, -1).map(({ headers, body }) => [headers['Content-Type'], JSON.parse(body)])
+      assert.ok(progress.length > 0, query)
+      for (const [type, { done, total, percent }] of progress) assert.ok(type === 'application/json' && done <= total && percent >= 0 && percent < 100, query)
+      const { headers, body } = built.at(-1)
+      assert.deepEqual([headers['Content-Type'], Number(headers['Content-Length']), headers['X-Http-Status']], ['application/javascript; charset=UTF-8', Buffer.byteLength(body), undefined])
+      assert.equal(run(body).result.where, 'android')
+    }
+    const [missing] = await parts(`${server.url}/missing.bundle?platform=ios`)
+    assert.deepEqual([missing.headers['X-Http-Status'], JSON.parse(missing.body).type], ['404', 'NotFoundError'])
+  })
+
   it('serves its source map', async () => {
     const r = await fetchRaw(`${server.url}/index.map?platform=ios`)
     assert.equal(r.status, 200)
