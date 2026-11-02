@@ -119,7 +119,7 @@ const devBundler = createDevBundler({
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
   },
 })
-const devServer = createDevServer({ projectRoot, esbuild, devBundler, gate, log, clientLogs: values['client-logs'] })
+const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler, gate, log, clientLogs: values['client-logs'] })
 
 // A change: each bundle built anew; the apps of one in the module format get
 // what changed from the build they have (once a build no longer fails, though

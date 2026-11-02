@@ -5,7 +5,7 @@
 // what they build (how Metro caches, watches or reports). What can't run the
 // config reads its assetExts off it instead (metro-config.js).
 
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, relative, resolve } from 'node:path'
 
@@ -138,6 +138,14 @@ export function maxWorkersOf(given, metro, fail) {
   return /^\d+$/u.test(given) ? workersOf(Number(given)) : fail(`--max-workers takes a number of workers, not ${given}`)
 }
 
+const realPathOf = (path) => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
 // Metro's blockList, one RegExp or several, as RegExps that keep no state.
 const patterns = (blockList) => {
   const list = blockList == null ? [] : Array.isArray(blockList) ? blockList : [blockList]
@@ -150,7 +158,7 @@ const patterns = (blockList) => {
 // its inline requires, where Metro is the project's (`inlineRequires`).
 function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null)) {
   let polyfills = null
-  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, maxWorkers: null, minifyRefusal: null, transformRefusal: () => null }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, watchFolders: null, maxWorkers: null, minifyRefusal: null, transformRefusal: () => null }
   return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
@@ -180,7 +188,8 @@ async function baselinesOf(metro, project, cwd) {
 // bundle() and createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
 // assetRegistryPath or null, babelRCLookup, babelRuntime, port or null,
-// maxWorkers (workersOf()) or null where the config's is Metro's default
+// watchFolders (Metro's, the project root the first; their real paths) or
+// null, maxWorkers (workersOf()) or null where the config's is Metro's default
 // (its getMaxWorkers() of the CPUs, too many for rn: defaultWorkers()),
 // minifyRefusal, transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
 // { platform, dev }) (inlineRequiresOf()) }. `name` is the command's,
@@ -248,6 +257,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     babelRuntime: transformer.enableBabelRuntime ?? true,
     inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
     port: server?.port ?? null,
+    watchFolders: config.watchFolders.map((folder) => realPathOf(resolve(cwd, folder))),
     maxWorkers: baselines.some((baseline) => baseline.maxWorkers === config.maxWorkers) ? null : workersOf(config.maxWorkers),
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
     transformRefusal: async (entryPath, target) => {

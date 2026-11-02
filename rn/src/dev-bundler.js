@@ -123,6 +123,8 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
       }
       return null
     },
+    // A file a bundle was built from, its bytes, else null.
+    sourceFile: (path) => (files().has(path) ? host.readFile(path) : null),
     // A source a bundle was built from, else null.
     readSource(path) {
       return files().has(path) ? decoder.decode(host.readFile(path)) : null
