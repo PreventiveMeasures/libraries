@@ -56,8 +56,9 @@
 // --esm (its esm), --dev-tools (its devTools), --max-workers (its
 // maxWorkers, over the Metro config's) and of the Metro config (its
 // metroConfig: false, none, as of a project with none; a path, that file),
-// the flags over it; and what it adds to the Metro config's assetExts,
-// sourceExts and assetResolutions.
+// the flags over it; and what it adds to Metro's defaults of assetExts,
+// sourceExts and assetResolutions (a Metro config that sets one of them
+// too, an error).
 
 import { realpathSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'

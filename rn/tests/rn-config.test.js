@@ -86,7 +86,7 @@ describe('extendedMetro', () => {
     assert.equal(extendedMetro(loaded, { esm: true, metroConfig: true }, fail), loaded)
   })
 
-  it("adds the config's to each list, after the Metro config's, else after Metro's defaults, each once", () => {
+  it("adds the config's to each list, after Metro's defaults (the Metro config's, which sets none of them), each once", () => {
     const config = { assetExts: ['lottie', 'riv', 'lottie'], sourceExts: ['mjs'], assetResolutions: [0.75, '2', '1.25'] }
     const extended = extendedMetro(loaded, config, fail)
     assert.deepEqual([extended.assetExts, extended.resolver], [['png', 'riv', 'lottie'], { sourceExts: ['js', 'cjs', 'mjs'], assetResolutions: ['1', '2', '0.75', '1.25'], mainFields: ['main'] }])
@@ -99,6 +99,13 @@ describe('extendedMetro', () => {
     assert.deepEqual([undefined, '3'].map((given) => maxWorkersOf(given, extendedMetro(loaded, { maxWorkers: 2 }, fail), fail)), [2, 3])
     assert.equal(maxWorkersOf(undefined, extendedMetro(none, { maxWorkers: 1 }, fail), fail), 1)
     assert.equal(maxWorkersOf(undefined, extendedMetro(loaded, { assetExts: ['riv'] }, fail), fail), 4)
+  })
+
+  it('refuses a list the Metro config sets too: the project has one of either', () => {
+    const own = { ...loaded, ownLists: ['assetExts', 'assetResolutions'] }
+    assert.throws(() => extendedMetro(own, { esm: true, sourceExts: ['mjs'], assetExts: ['lottie'] }, fail), { message: "rn.config.json: assetExts adds to Metro's defaults, and metro.config.js sets resolver.assetExts too: set it in one of them" })
+    assert.throws(() => extendedMetro(own, { assetResolutions: [] }, fail), { message: /^rn\.config\.json: assetResolutions adds to Metro's defaults, and metro\.config\.js sets resolver\.assetResolutions too/u })
+    assert.deepEqual(extendedMetro(own, { sourceExts: ['mjs'] }, fail).resolver.sourceExts, ['js', 'cjs', 'mjs'])
   })
 
   it('refuses an extension it adds to one of assetExts and sourceExts the other has, as it removes none', () => {

@@ -45,6 +45,13 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal(typeof options.runBeforeMain, 'function')
     assert.equal(options.babelRuntime, true)
     assert.equal(await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true }), null)
+    assert.deepEqual(options.ownLists, [])
+  })
+
+  it("tells which of the resolver's lists it sets as neither default has them, for rn.config.json's", async () => {
+    assert.deepEqual((await load("{ resolver: { assetExts: ['png', 'riv'], sourceExts: ['js', 'mjs'] } }")).ownLists, ['assetExts', 'sourceExts'])
+    // Its default, set as it is: not its own.
+    assert.deepEqual((await load("{ resolver: { assetResolutions: ['1', '2'], assetExts: require('@react-native/metro-config').getDefaultConfig(__dirname).resolver.assetExts } }")).ownLists, ['assetResolutions'])
   })
 
   it('takes the options it does, whatever they are', async () => {

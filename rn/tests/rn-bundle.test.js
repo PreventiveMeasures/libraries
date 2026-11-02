@@ -340,6 +340,8 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     'metro.config.js': templateConfig("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') } }"),
     'svg-transformer.js': 'module.exports = {}\n',
     'glow.config.js': templateConfig("{ resolver: { assetExts: ['glow'] } }"),
+    // A config that sets none of the resolver's lists.
+    'plain.config.js': templateConfig('{}'),
     'halo.glow': 'GLOW',
     'glow.js': "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify(getAssetByID(require('./halo.glow')).type))\n",
     'spin.riv': 'RIVE',
@@ -387,13 +389,15 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     assert.equal(over.status, 0, over.stderr)
   })
 
-  it("adds its assetExts to the Metro config's, else to Metro's defaults", async () => {
+  it("adds its assetExts to Metro's defaults, of a Metro config or none, refusing one that sets them too", async () => {
     const r = await bundleWith({ metroConfig: false, assetExts: ['glow'] }, [], 'glow.js')
     assert.equal(r.status, 0, r.stderr)
     assert.equal(outputOf(), 'glow')
-    const both = await bundleWith({ metroConfig: 'glow.config.js', assetExts: ['riv'] }, [], 'both.js')
+    const both = await bundleWith({ metroConfig: 'plain.config.js', assetExts: ['glow', 'riv'] }, [], 'both.js')
     assert.equal(both.status, 0, both.stderr)
     assert.deepEqual(outputOf(), ['glow', 'riv'])
+    const refused = await bundleWith({ metroConfig: 'glow.config.js', assetExts: ['riv'] }, [], 'both.js')
+    assert.deepEqual([refused.status, refused.stderr], [1, "rn-bundle: rn.config.json: assetExts adds to Metro's defaults, and glow.config.js sets resolver.assetExts too: set it in one of them\n"])
     // Of neither, no asset: the file a module.
     assert.equal((await bundleWith({ metroConfig: false }, [], 'glow.js')).status, 0)
     assert.doesNotMatch(readFileSync(join(root, 'out.js'), 'utf8'), /metro-asset:halo\.glow/u)

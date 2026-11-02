@@ -16,6 +16,10 @@
       "types": "./assets-dest.d.ts",
       "default": "./assets-dest.js"
     },
+    "./asset-exts.js": {
+      "types": "./asset-exts.d.ts",
+      "default": "./asset-exts.js"
+    },
     "./metro-config.js": {
       "types": "./metro-config.d.ts",
       "default": "./metro-config.js"
@@ -34,6 +38,8 @@
     "LICENSE-APACHE",
     "LICENSE-MIT",
     "app/network.js",
+    "asset-exts.d.ts",
+    "asset-exts.js",
     "assets-dest.d.ts",
     "assets-dest.js",
     "babel-aliases.d.ts",
@@ -47,6 +53,7 @@
     "metro-config.js",
     "metro-resolver.d.ts",
     "metro-resolver.js",
+    "src/asset-exts.js",
     "src/assets-dest.js",
     "src/assets.js",
     "src/babel-aliases.js",
