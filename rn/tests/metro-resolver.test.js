@@ -82,6 +82,20 @@ describe('createMetroResolver', () => {
     assert.throws(() => createMetroResolver({ host: broken, metroResolver })('/x.js', './a'), /gone/u)
   })
 
+  it("resolves an import of each directory once, as Metro's DependencyGraph caches it: a resolveRequest asked once of each", () => {
+    const vfs = vfsOf({ 'src/a.js': '', 'src/x.js': '', 'src/y.js': '', 'other/z.js': '', 'node_modules/c/index.js': '' })
+    const asked = []
+    const resolveRequest = (context, moduleName, platform) => {
+      asked.push([context.originModulePath, moduleName, platform, context.isESMImport])
+      return context.resolveRequest(context, moduleName, platform)
+    }
+    const resolve = createMetroResolver({ host: vfs, metroResolver, resolveRequest })
+    for (const origin of ['/src/x.js', '/src/y.js']) assert.deepEqual(resolve(origin, './a'), { type: 'sourceFile', filePath: '/src/a.js' })
+    for (const [origin, options] of [['/other/z.js', {}], ['/src/x.js', {}], ['/src/y.js', {}], ['/src/y.js', { platform: 'ios' }], ['/src/x.js', { isESMImport: true }]]) assert.deepEqual(resolve(origin, 'c', options), { type: 'sourceFile', filePath: '/node_modules/c/index.js' })
+    // Of another directory, platform, or an ESM import, asked again.
+    assert.deepEqual(asked, [['/src/x.js', './a', null, false], ['/other/z.js', 'c', null, false], ['/src/x.js', 'c', null, false], ['/src/y.js', 'c', 'ios', false], ['/src/x.js', 'c', null, true]])
+  })
+
   it("runs a Metro config's resolveRequest through metro-resolver, which gives it its own resolve, and Metro's context", () => {
     const vfs = vfsOf({ 'package.json': { browser: { gone: false, kept: 'other', './src/old.js': './src/b.js' } }, 'src/a.ts': '', 'src/b.js': '', 'node_modules/c/index.js': '' })
     const seen = []

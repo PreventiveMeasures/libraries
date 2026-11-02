@@ -280,7 +280,7 @@ export function resolveImport(state, { importer, specifier, kind, aliases, platf
 // it (no JSON) is among the build's files.
 export function newState({ host, assetExts, resolver = {}, blockList = null, projectRoot, entry, platform }, publish) {
   const read = new Set()
-  const resolveModule = metroResolverOf({ host: reading(host, read), assetExts, resolver, blockList })
+  const resolveModule = metroResolverOf({ host: lookingOnce(reading(host, read)), assetExts, resolver, blockList })
   const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
   publish(made)
   publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
@@ -317,6 +317,22 @@ export const reading = (host, read) => ({
     return host.readFile(path)
   },
 })
+
+// The host, each path's isFile, isDirectory and realpath looked up once:
+// Metro's resolver (metro-resolver's own too, as its fileSystemLookup) looks
+// up each spelling of a module (each platform and extension), and each
+// directory up to its package.json, of each import, as a build's files,
+// which it reads anew, don't change in it; as Metro's file map has them,
+// not from the disk at each import.
+export function lookingOnce(host) {
+  const known = { isFile: new Map(), isDirectory: new Map(), realpath: new Map() }
+  const once = (name) => (path) => {
+    const map = known[name]
+    if (!map.has(path)) map.set(path, host[name](path))
+    return map.get(path)
+  }
+  return { ...host, isFile: once('isFile'), isDirectory: once('isDirectory'), realpath: once('realpath') }
+}
 
 export async function loadCached(options, host, cache, path) {
   const contents = decoder.decode(host.readFile(path))
