@@ -759,6 +759,9 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     // An alias spelled with escapes: of a code point, and of a character that is itself.
     'escaped.js': "export { a as e } from '\\u0023lib/a'\n",
     'identity.js': "export { a as i } from '\\#lib/a'\n",
+    // A string spelled across lines, by a line continuation.
+    'continued.js': "import { a } from '#lib/\\\na'\nconsole.log(JSON.stringify(a))\n",
+    'backreference.js': "import { a } from 'lib-lib'\nconsole.log(JSON.stringify(a))\n",
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
@@ -789,6 +792,18 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     assert.equal(r.status, 0, r.stderr)
     // In the three files with a string of #lib, its pre and post hooks and its traversal on enter.
     assert.deepEqual(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}module-resolver$/mu.exec(r.stderr)?.slice(1).map(Number), [3, 3 * 2 + 3])
+  })
+
+  it('keeps it where a string an alias matches is spelled across lines, or matched by a RegExp of a backreference', () => {
+    const build = (alias, entry) => {
+      writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}]] }\n`)
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+    }
+    assert.equal(build({ '#lib': './lib' }, 'continued.js'), 'a')
+    // A group before its own: the second alias's \\1 is of its own group.
+    assert.equal(build({ '^unused/(.+)$': './nowhere/\\1', '^([a-z]+)-\\1$': './\\1/a' }, 'backreference.js'), 'a')
   })
 
   it('keeps it where it may rewrite what names none: with a root', () => {

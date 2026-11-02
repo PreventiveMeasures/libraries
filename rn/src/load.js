@@ -76,9 +76,10 @@ const MODULE = /^(?:import(?!\s*\()|export)\b/mu
 // matches, and leaves the rest: Babel is without it in a file that has no
 // string any of them matches (unaliased()).
 const RESOLVER = 'module-resolver'
-// By module-resolver's options, a RegExp of a string any of its aliases
-// matches, as its normalizeAlias has each: a key that starts with `^` or ends
-// with `$` a RegExp, any other the specifier it is and those under it.
+// By module-resolver's options, the RegExps of a string its aliases match,
+// as its normalizeAlias has each: a key that starts with `^` or ends with `$`
+// a RegExp, each apart (its groups, of its backreferences, its own); the
+// others the specifier each is and those under it, in one.
 const ALIASES = new WeakMap()
 // Appended to TSX with JSX so that esbuild keeps React's import, which JSX,
 // left to Babel, uses (the classic runtime), as Babel's TS plugin keeps it.
@@ -240,24 +241,28 @@ function unaliased(options, contents) {
   if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
   const aliases = aliasesOf(options)
   if (aliases === null) return false
-  const text = contents.replaceAll('\\', '')
+  // A line continuation is nothing of a string's value.
+  const text = contents.replaceAll(/\\(?:\r\n|[\n\r\u2028\u2029])/gu, '').replaceAll('\\', '')
   // From each quote to the next like it: of each kind, the file once over.
   for (const { index, 0: quote } of text.matchAll(/['"]/gu)) {
     const end = text.indexOf(quote, index + 1)
     const value = end === -1 ? '' : text.slice(index + 1, end)
-    if (!value.includes('\n') && aliases.test(value)) return false
+    if (!value.includes('\n') && aliases.some((alias) => alias.test(value))) return false
   }
   return true
 }
 
-// -> ALIASES' RegExp of the options, null where one of its aliases is no RegExp.
+// -> ALIASES' RegExps of the options, null where one of its aliases is no RegExp.
 function aliasesOf(options) {
   if (!ALIASES.has(options)) {
     const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
     const escape = (key) => key.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    const patterns = keys.filter((key) => key.startsWith('^') || key.endsWith('$'))
+    const specifiers = keys.filter((key) => !patterns.includes(key))
     try {
       // eslint-disable-next-line require-unicode-regexp -- as module-resolver compiles a key: no flags
-      ALIASES.set(options, new RegExp(keys.map((key) => `(?:${key.startsWith('^') || key.endsWith('$') ? key : `^${escape(key)}(?:/.*|)$`})`).join('|') || '(?!)'))
+      const compiled = patterns.map((key) => new RegExp(key))
+      ALIASES.set(options, specifiers.length === 0 ? compiled : [...compiled, new RegExp(`^(?:${specifiers.map(escape).join('|')})(?:/|$)`, 'su')])
     } catch {
       ALIASES.set(options, null)
     }
