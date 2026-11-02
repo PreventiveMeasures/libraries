@@ -10,6 +10,7 @@ import { createContext, runInContext } from 'node:vm'
 import { babelWorkers } from '../src/babel-worker.js'
 import { bundleRequest } from '../src/bundle-url.js'
 import { hotUpdate, moduleName, moduleUrls } from '../src/hot.js'
+import { createLoadCache } from '../src/load-cache.js'
 import { createModuleBundler } from '../src/modules.js'
 import { prelude } from '../src/serializer.js'
 import { png, writeTree } from './fixtures.js'
@@ -68,6 +69,32 @@ describe('the module format', () => {
     rmSync(join(root, 'extra.js'), { force: true })
   }
   const CLIENT = 'http://localhost:8081/index.bundle?platform=ios&dev=true'
+
+  it("keeps each module's build in a store, which a run after takes, building none, to the same bundle", async () => {
+    let built = 0
+    const counting = { ...esbuild, build: (...args) => (built++, esbuild.build(...args)) }
+    const store = createLoadCache(join(root, 'store'), { esbuild, cwd: root })
+    // A run of its own: its own module ids, builds and files in memory.
+    const runOf = () => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild: counting, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids: new Map(), builds: new Map(), cache: new Map(), store: store(null) }).rebuild()
+    try {
+      const first = await runOf()
+      const made = built
+      assert.ok(made > 0)
+      const second = await runOf()
+      assert.equal(built, made)
+      // Each module the same, by its name, though of other ids, which a
+      // run gives as it reaches each.
+      const shape = ({ modules }) => [...modules.values()].map(({ name, factory }) => [name, factory]).toSorted(([a], [b]) => (a < b ? -1 : 1))
+      assert.deepEqual(shape(second), shape(first))
+      assert.deepEqual(JSON.stringify(run(second.js).context.app), JSON.stringify(run(first.js).context.app))
+      edit('label.js', `${APP['label.js']}// Edited.\n`)
+      await runOf()
+      assert.equal(built, made + 1)
+    } finally {
+      restore()
+      rmSync(join(root, 'store'), { recursive: true, force: true })
+    }
+  })
 
   it("runs as Metro's: the prelude, metro-runtime's require and the polyfills, what runs before the entry, then the entry", async () => {
     const { js, modules, entryId } = await bundler().rebuild()
