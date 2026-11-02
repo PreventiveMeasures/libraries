@@ -783,6 +783,14 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 3)
   })
 
+  it("leaves it out of Babel where no string names an alias, though the file's text names one: no hook of it runs there", () => {
+    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib', export: './nowhere', '^~(.+)$': './lib/\\\\1' } }]] }\n")
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    // In the three files with a string of #lib, its pre and post hooks and its traversal on enter.
+    assert.deepEqual(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}module-resolver$/mu.exec(r.stderr)?.slice(1).map(Number), [3, 3 * 2 + 3])
+  })
+
   it('keeps it where it may rewrite what names none: with a root', () => {
     assert.equal(ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 5)
   })
