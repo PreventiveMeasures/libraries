@@ -61,10 +61,11 @@ const requestOf = (kept) => {
 // run's, kept as an app first makes it, the last run's then gone. warm()
 // -> a promise of the last run's built, one after another, in the order
 // an app first asked for them; of none kept, the project's one bundle
-// (native-bundles.js's oneBundleOf()), for iOS on a Mac (`system`,
-// process.platform's), else for Android, where it has one. A cache's, at
-// best: what fails to read or write is none.
-export function lastBuilds(dir, projectRoot, { system = process.platform } = {}) {
+// (native-bundles.js's oneBundleOf()), for `launched` (the platform of the
+// app rn-serve launches), else for iOS on a Mac (`system`, process.platform's), else for
+// Android, where it has one. A cache's, at best: what fails to read or write
+// is none.
+export function lastBuilds(dir, projectRoot, { system = process.platform, launched = null } = {}) {
   const path = join(dir, 'builds', `${createHash('sha256').update(projectRoot).digest('hex')}.json`)
   let last = []
   try {
@@ -105,7 +106,7 @@ export function lastBuilds(dir, projectRoot, { system = process.platform } = {})
       let requests = last
       if (requests.length > 0) log(`rn-serve: building ${requests.map(bundleName).join('; ')} ahead of the app, as its last run did`)
       else {
-        const { request, several } = oneBundleOf(projectRoot, system === 'darwin' ? 'ios' : 'android')
+        const { request, several } = oneBundleOf(projectRoot, launched ?? (system === 'darwin' ? 'ios' : 'android'))
         if (request !== null) log(`rn-serve: building ${bundleName(request)} ahead of the app, the project's one bundle`)
         if (several.length > 0) log(`rn-serve: building none ahead of the app, of the project's bundles: ${several.join(', ')}`)
         requests = request === null ? [] : [request]

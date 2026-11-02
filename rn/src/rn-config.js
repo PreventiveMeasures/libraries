@@ -24,6 +24,15 @@
 //   devTools: rn-serve's --dev-tools' default (false): React Native DevTools
 //     opened for each app as it connects (devtools.js); --dev-tools and
 //     --no-dev-tools over it. rn-bundle leaves it.
+//   launch: rn-serve's --launch' default: "ios", the app launched on a
+//     simulator as rn-serve starts (launch-ios.js), and its bundle the one
+//     built ahead of it; false (the default), none. --launch and
+//     --no-launch over it. Where Xcode's simctl isn't, it is warned of and
+//     left (a project's config is of each machine its team has).
+//   ios: of the launch on iOS: { simulator, binaryPath }, the defaults of
+//     --simulator (its name, as `react-native run-ios --simulator` takes
+//     it, or its UDID) and --binary-path (a simulator's build of the app,
+//     an .app, from the root). rn-bundle leaves them.
 // An option it doesn't know, or of a value of another type, is an error.
 
 import { readFileSync } from 'node:fs'
@@ -48,7 +57,17 @@ const OPTIONS = {
   maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
   devTools: boolean,
+  launch: [(value) => value === false || value === 'ios', '"ios", or false'],
 }
+const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]
+// Sections, each an object of options of its own.
+const SECTIONS = {
+  ios: {
+    simulator: nonEmpty("a simulator's name, or its UDID"),
+    binaryPath: nonEmpty("the path of a simulator's build of the app, an .app"),
+  },
+}
+const NAMES = [...Object.keys(OPTIONS), ...Object.keys(SECTIONS)]
 
 // The project's rn.config.json, as it has its options: {} where it has none.
 export function readRnConfig(projectRoot, fail) {
@@ -66,7 +85,17 @@ export function readRnConfig(projectRoot, fail) {
   }
   if (config === null || typeof config !== 'object' || Array.isArray(config)) return fail(`${RN_CONFIG}: not an object of options`)
   for (const [key, value] of Object.entries(config)) {
-    if (!Object.hasOwn(OPTIONS, key)) return fail(`${RN_CONFIG}: no such option ${key}: it has ${Object.keys(OPTIONS).join(', ')}`)
+    if (Object.hasOwn(SECTIONS, key)) {
+      const options = SECTIONS[key]
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail(`${RN_CONFIG}: ${key} is an object of options (${Object.keys(options).join(', ')}), not ${JSON.stringify(value)}`)
+      for (const [inner, each] of Object.entries(value)) {
+        if (!Object.hasOwn(options, inner)) return fail(`${RN_CONFIG}: no such option ${key}.${inner}: it has ${Object.keys(options).join(', ')}`)
+        const [valid, what] = options[inner]
+        if (!valid(each)) return fail(`${RN_CONFIG}: ${key}.${inner} is ${what}, not ${JSON.stringify(each)}`)
+      }
+      continue
+    }
+    if (!Object.hasOwn(OPTIONS, key)) return fail(`${RN_CONFIG}: no such option ${key}: it has ${NAMES.join(', ')}`)
     const [valid, what] = OPTIONS[key]
     if (!valid(value)) return fail(`${RN_CONFIG}: ${key} is ${what}, not ${JSON.stringify(value)}`)
   }

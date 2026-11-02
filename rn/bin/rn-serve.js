@@ -3,6 +3,7 @@
 //   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE]
 //   [--esm | --no-esm] [--dev-tools | --no-dev-tools] [--reset-cache]
 //   [--no-warm] [--no-client-logs]
+//   [--launch=ios [--simulator=NAME] [--binary-path=APP] | --no-launch]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
@@ -59,11 +60,23 @@
 // exports read of any Metro; a path, that file), the flags over it; and
 // what it adds to Metro's defaults of assetExts, sourceExts and
 // assetResolutions (a Metro config that sets one of them otherwise, an error).
+// --launch=ios launches the app on an iOS simulator as rn-serve starts, as
+// `react-native run-ios --no-packager --simulator NAME --binary-path APP`
+// does, but of no Xcode project (src/launch-ios.js): APP, a simulator's
+// build of it (--binary-path, else rn.config.json's ios.binaryPath),
+// installed on the simulator NAME (--simulator, else its ios.simulator: a
+// name, "iPhone 17 (26.0)", or a UDID; of none, the one booted), told
+// where rn-serve is; and the bundle built ahead of the app is iOS's. Each
+// command found on PATH, as run-ios runs them, a shim there takes its call
+// (`open` of Simulator.app). It needs Xcode's simctl: rn.config.json's
+// launch, where there's none, is warned of and left.
 
-import { realpathSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, realpathSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
+import { join, resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
 import { parseArgs, format as printf, styleText } from 'node:util'
 
@@ -71,6 +84,7 @@ import { babelAliases, defines, failer, flowStripper, locateThrough, peers, proj
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createDevToolsOpener } from '../src/devtools.js'
 import { createGate } from '../src/gate.js'
+import { launchIos } from '../src/launch-ios.js'
 import { createLoadCache } from '../src/load-cache.js'
 import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
@@ -98,6 +112,11 @@ const { values } = parseArgs({
     'reset-cache': { type: 'boolean', default: false },
     warm: { type: 'boolean', default: true },
     'client-logs': { type: 'boolean', default: true },
+    launch: { type: 'string' },
+    // --no-launch, as parseArgs takes it of a string option.
+    'no-launch': { type: 'boolean' },
+    simulator: { type: 'string' },
+    'binary-path': { type: 'string' },
   },
   allowNegative: true,
 })
@@ -111,6 +130,7 @@ const projectRoot = realpathSync(process.cwd())
 const rnConfig = readRnConfig(projectRoot, fail)
 const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
 const devTools = flagOf(values['dev-tools'], rnConfig, 'devTools', 'dev-tools').on
+const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
 const metro = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
@@ -120,7 +140,7 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const cacheDir = cacheDirOf(values['reset-cache'], log)
-const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot)
+const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch?.platform ?? null })
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
 if (esm.on && babelFor === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
@@ -223,7 +243,41 @@ server.listen(port, host, () => {
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
   if (values.warm) void last?.warm(devBundler, log)
+  if (launch !== null) void launchApp(`${urlHost}:${server.address().port}`)
 })
+
+// The app rn-serve launches (--launch, rn.config.json's launch): null, or {
+// platform, appPath, simulator }; failing of what it can't launch, but of
+// rn.config.json's launch where there's no Xcode's simctl, which is warned of.
+function launchOf() {
+  const flag = values['no-launch'] === true || values.launch === false ? false : values.launch
+  if (typeof flag === 'string' && flag !== 'ios') fail(`--launch takes ios, not ${flag}`)
+  const platform = (flag ?? rnConfig.launch ?? false) || null
+  if (platform === null) {
+    if (values.simulator !== undefined || values['binary-path'] !== undefined) fail('--simulator and --binary-path are of --launch=ios')
+    return null
+  }
+  if (spawnSync('xcrun', ['--find', 'simctl'], { stdio: 'ignore' }).status !== 0) {
+    if (flag !== undefined) fail("--launch=ios needs Xcode's simctl (xcrun --find simctl)")
+    log("rn-serve: no Xcode's simctl (xcrun --find simctl): rn.config.json's launch launches nothing here")
+    return null
+  }
+  const given = values['binary-path'] ?? rnConfig.ios?.binaryPath
+  const by = values['binary-path'] === undefined ? "rn.config.json's ios.binaryPath" : '--binary-path'
+  if (given === undefined) fail("--launch=ios installs the app of --binary-path, else of rn.config.json's ios.binaryPath: give one, a simulator's build of it (an .app)")
+  const appPath = resolve(projectRoot, given)
+  if (!existsSync(join(appPath, 'Info.plist'))) fail(`${by}: no app at ${given}, an .app of its Info.plist`)
+  return { platform, appPath, simulator: values.simulator ?? rnConfig.ios?.simulator ?? null }
+}
+
+async function launchApp(location) {
+  try {
+    const { bundleId, simulator } = await launchIos({ appPath: launch.appPath, simulator: launch.simulator, location, log })
+    log(`rn-serve: launched ${bundleId} on ${simulator.name}`)
+  } catch (error) {
+    log(`rn-serve: can't launch the app: ${error.message}`)
+  }
+}
 
 // Why a file loaded anew was kept none of (loadCached()'s).
 const UNKEPT = { fingerprint: "without a fingerprint of Babel's config", config: 'of a Babel config with no key', external: "of a plugin's files of its own", failed: 'failed' }

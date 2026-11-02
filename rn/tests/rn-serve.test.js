@@ -31,9 +31,10 @@ const until = async (get, what, ms = 15_000) => {
 }
 
 // rn-serve on a free port, in `cwd`, of the temporary directory `tmp`, of
-// no bundle built ahead of the app but where `warm`. -> { url, output(), stop() }
-async function serve(cwd, args = [], tmp = TMP, { warm = false } = {}) {
-  const child = spawn(process.execPath, [BIN, '--port=0', ...(warm ? [] : ['--no-warm']), ...args], { cwd, env: envOf(tmp), stdio: ['ignore', 'pipe', 'pipe'] })
+// no bundle built ahead of the app but where `warm`, of `env` over the
+// environment. -> { url, output(), stop() }
+async function serve(cwd, args = [], tmp = TMP, { warm = false, env = {} } = {}) {
+  const child = spawn(process.execPath, [BIN, '--port=0', ...(warm ? [] : ['--no-warm']), ...args], { cwd, env: { ...envOf(tmp), ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   const collect = (data) => {
     out += data
@@ -904,6 +905,88 @@ describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
     } finally {
       await server.stop()
     }
+  })
+})
+
+describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
+  // Xcode's commands, on PATH alone, as a shim there would be: each logs
+  // its arguments, and answers as Xcode's would.
+  const LIST = { devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [{ udid: 'UDID-17', name: 'iPhone 17', state: 'Shutdown', isAvailable: true }] } }
+  const fake = (name, body = '') => `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.FAKE_LOG, JSON.stringify([${JSON.stringify(name)}, ...process.argv.slice(2)]) + '\\n')\nconst args = process.argv.slice(2)\n${body}\n`
+  const FAKES = {
+    'xcode/bin/xcrun': fake('xcrun', `if (args.join(' ') === '--find simctl') console.log('/xcode/simctl')\nelse if (args.join(' ') === 'simctl list devices available --json') console.log(${JSON.stringify(JSON.stringify(LIST))})`),
+    'xcode/bin/xcode-select': fake('xcode-select', 'console.log(process.env.FAKE_DEVELOPER)'),
+    'xcode/bin/open': fake('open'),
+    'xcode/bin/plutil': fake('plutil', "console.log(JSON.stringify(args[1] === 'CFBundleIdentifier' ? 'com.example.app' : ['iPhoneSimulator']))"),
+    'xcode/Developer/Applications/Simulator.app/Contents/Info.plist': '',
+  }
+  const { root, cleanup } = writeTree({
+    ...APP,
+    ...FAKES,
+    'rn.config.json': { launch: 'ios', ios: { simulator: 'iPhone 17', binaryPath: 'build/App.app' } },
+    'build/App.app/Info.plist': '',
+  })
+  for (const name of ['xcrun', 'xcode-select', 'open', 'plutil']) chmodSync(join(root, 'xcode/bin', name), 0o755)
+  const log = join(root, 'commands.log')
+  const env = { PATH: join(root, 'xcode/bin'), FAKE_LOG: log, FAKE_DEVELOPER: join(root, 'xcode/Developer') }
+  // PATH of none of Xcode's commands.
+  const bare = { ...env, PATH: join(root, 'build') }
+  const commands = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : [])
+  const refused = (args, given = env) => {
+    const r = spawnSync(process.execPath, [BIN, '--port=0', '--no-warm', ...args], { cwd: root, encoding: 'utf8', env: { ...envOf(TMP), ...given } })
+    return [r.status, r.stderr]
+  }
+  after(cleanup)
+
+  it("launches the app of its ios as it starts, as run-ios, by PATH, and builds iOS's bundle ahead of it", async () => {
+    rmSync(log, { force: true })
+    const server = await serve(root, [], TMP, { warm: true, env })
+    try {
+      await until(() => server.output().includes('rn-serve: launched com.example.app on iPhone 17'), 'the app launched')
+      const app = join(root, 'build/App.app')
+      assert.deepEqual(commands(), [
+        ['xcrun', '--find', 'simctl'],
+        ['plutil', '-extract', 'CFBundleIdentifier', 'json', '-o', '-', join(app, 'Info.plist')],
+        ['plutil', '-extract', 'CFBundleSupportedPlatforms', 'json', '-o', '-', join(app, 'Info.plist')],
+        ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'],
+        ['xcode-select', '-p'],
+        ['open', join(root, 'xcode/Developer/Applications/Simulator.app'), '--args', '-CurrentDeviceUDID', 'UDID-17'],
+        ['xcrun', 'simctl', 'bootstatus', 'UDID-17', '-b'],
+        ['xcrun', 'simctl', 'install', 'UDID-17', app],
+        ['xcrun', 'simctl', 'launch', '--terminate-running-process', 'UDID-17', 'com.example.app', '-RCT_jsLocation', new URL(server.url).host],
+      ])
+      // Of no run before, iOS's, of any system.
+      assert.match(server.output(), /rn-serve: building \.\/index for ios, dev ahead of the app, the project's one bundle/u)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it('launches none of --no-launch', async () => {
+    rmSync(log, { force: true })
+    const server = await serve(root, ['--no-launch'], TMP, { env })
+    try {
+      await sleep(200)
+      assert.deepEqual([commands(), server.output().includes('launch')], [[], false])
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it("leaves its launch, saying so, where Xcode's simctl isn't; refuses --launch=ios there", async () => {
+    const server = await serve(root, [], TMP, { env: bare })
+    try {
+      assert.match(server.output(), /rn-serve: no Xcode's simctl \(xcrun --find simctl\): rn\.config\.json's launch launches nothing here/u)
+    } finally {
+      await server.stop()
+    }
+    assert.deepEqual(refused(['--launch=ios'], bare), [1, "rn-serve: --launch=ios needs Xcode's simctl (xcrun --find simctl)\n"])
+  })
+
+  it('refuses a launch of another platform, of no app, and --simulator or --binary-path with none', () => {
+    assert.deepEqual(refused(['--launch=android']), [1, 'rn-serve: --launch takes ios, not android\n'])
+    assert.deepEqual(refused(['--binary-path=build/None.app']), [1, 'rn-serve: --binary-path: no app at build/None.app, an .app of its Info.plist\n'])
+    assert.deepEqual(refused(['--no-launch', '--simulator=iPhone 17']), [1, 'rn-serve: --simulator and --binary-path are of --launch=ios\n'])
   })
 })
 

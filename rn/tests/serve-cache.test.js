@@ -76,6 +76,10 @@ describe('lastBuilds', () => {
       }
       assert.deepEqual(await warm('darwin'), [[kept(request('./index', 'ios'))], ["rn-serve: building ./index for ios, dev ahead of the app, the project's one bundle"]])
       assert.deepEqual(await warm('linux'), [[kept(request('./index', 'android'))], ["rn-serve: building ./index for android, dev ahead of the app, the project's one bundle"]])
+      // For the platform of the app it launches, of any system.
+      const bundler = bundlerOf()
+      await lastBuilds(join(root, 'c-launch'), project, { system: 'linux', launched: 'ios' }).warm(bundler, () => {})
+      assert.deepEqual(bundler.asked, [kept(request('./index', 'ios'))])
       writeFileSync(join(project, 'share.js'), '')
       writeFileSync(join(project, 'ios', 'App', 'AppDelegate.swift'), 'jsBundleURL(forBundleRoot: "index")\njsBundleURL(forBundleRoot: "share")\n')
       assert.deepEqual(await warm('darwin'), [[], ["rn-serve: building none ahead of the app, of the project's bundles: ./index, ./share"]])

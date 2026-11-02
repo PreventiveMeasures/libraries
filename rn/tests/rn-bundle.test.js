@@ -431,7 +431,7 @@ describe("rn-bundle, of a project's rn.config.json", () => {
 
   it('refuses an option it does not know, and takes devTools, which is of rn-serve', async () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools\n'])
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools, launch, ios\n'])
     assert.equal((await bundleWith({ metroConfig: false, devTools: true })).status, 0)
   })
 })
