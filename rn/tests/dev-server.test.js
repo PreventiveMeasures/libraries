@@ -234,6 +234,9 @@ describe('the dev bundler, in the module format', () => {
       const context = createContext({})
       runInContext(outcome.js, context)
       assert.deepEqual(JSON.parse(JSON.stringify(context.result)), ['shared', { of: 'json' }, 'json', 'js', 'def', 'def'])
+      // Each mapped to its file, as it is named.
+      const { sources } = outcome.index()
+      assert.ok(sources.includes(join(projectRoot, 'esm.mjs')) && !sources.some((source) => source.endsWith('.mjs.js')), String(sources))
     } finally {
       await devBundler.dispose()
     }

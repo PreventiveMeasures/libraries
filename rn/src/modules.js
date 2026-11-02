@@ -189,7 +189,11 @@ async function buildOf(run, key, source, resolvable = null) {
   const text = (ext) => result.outputFiles.find(({ path }) => path.endsWith(ext)).text
   const imports = Object.values(result.metafile.inputs).flatMap((input) => input.imports).filter((imported) => imported.external).map(({ path, kind }) => ({ specifier: path, kind }))
   const code = text('.js')
-  const built = { code, piece: pieceOf(JSON.parse(text('.map'))), lines: lineCount(code), imports, optional: new Set(resolvable === null ? [] : imports.map(({ specifier }) => specifier).filter((specifier) => !resolvable.has(specifier))) }
+  // Its map of the file as it is named, where esbuild named it after the
+  // name it was given (with no map of the file's before it).
+  const map = JSON.parse(text('.map'))
+  if (sourcefile !== key) map.sources = map.sources.map((each) => (resolve(projectRoot, each) === sourcefile ? each.slice(0, key.length - sourcefile.length) : each))
+  const built = { code, piece: pieceOf(map), lines: lineCount(code), imports, optional: new Set(resolvable === null ? [] : imports.map(({ specifier }) => specifier).filter((specifier) => !resolvable.has(specifier))) }
   run.builds.set(key, { contents: source.contents, loader: source.loader, built })
   return built
 }
