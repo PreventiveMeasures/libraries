@@ -5,62 +5,62 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { memoized, printed, writeTree } from './fixtures.js'
-import { BABEL_APP, BIN, MODERN, babelConfig, linked, lowered, md5, notInstalled } from './rn-bundle-app.js'
+import { BABEL_APP, BIN, MODERN, babelConfig, linked, lowered, md5, notInstalled, runBundle } from './rn-bundle-app.js'
 
 describe('rn-bundle, with a Babel config', () => {
   const { root, cleanup } = writeTree(BABEL_APP)
   after(cleanup)
   // Without the shell's BABEL_ENV and NODE_ENV, which Babel would read: only those a test sets.
   const ENV = Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'BABEL_ENV' && name !== 'NODE_ENV'))
-  const run = (args, env = {}) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env: { ...ENV, ...env } })
+  const run = (args, env = {}) => runBundle(args, { cwd: root, env: { ...ENV, ...env } })
   // The output of index.js, as built of these args and env: Babel's env and NODE_ENV, as its plugins read them.
-  const envBuild = memoized((args, env) => {
-    const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
+  const envBuild = memoized(async (args, env) => {
+    const r = await run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(printed(join(root, 'env.js')))
   })
 
-  it('builds each file as the project\'s Babel config makes it, for the platform', () => {
-    const r = run(['--platform=ios', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
+  it('builds each file as the project\'s Babel config makes it, for the platform', async () => {
+    const r = await run(['--platform=ios', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(printed(join(root, 'ios.js')))
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
 
-  it("gives Babel's plugins what of the build Metro's transformer gives them: Platform inlined, the transform profile, default where not given", () => {
-    const caller = (...args) => {
-      const r = run(['--platform=ios', ...args, '--output=caller.out.js', 'caller.js'])
+  it("gives Babel's plugins what of the build Metro's transformer gives them: Platform inlined, the transform profile, default where not given", async () => {
+    const caller = async (...args) => {
+      const r = await run(['--platform=ios', ...args, '--output=caller.out.js', 'caller.js'])
       assert.equal(r.status, 0, r.stderr)
       return printed(join(root, 'caller.out.js'))
     }
-    assert.equal(caller(), '[true,"default"]\n')
-    assert.equal(caller('--unstable-transform-profile=hermes-stable'), '[true,"hermes-stable"]\n')
-    assert.equal(caller('--max-workers=1'), '[true,"default"]\n')
-    const workers = run(['--platform=ios', '--max-workers=many', '--output=caller.out.js', 'caller.js'])
+    assert.equal(await caller(), '[true,"default"]\n')
+    assert.equal(await caller('--unstable-transform-profile=hermes-stable'), '[true,"hermes-stable"]\n')
+    assert.equal(await caller('--max-workers=1'), '[true,"default"]\n')
+    const workers = await run(['--platform=ios', '--max-workers=many', '--output=caller.out.js', 'caller.js'])
     assert.deepEqual([workers.status, workers.stderr], [1, 'rn-bundle: --max-workers takes a number of workers, not many\n'])
-    const unknown = run(['--platform=ios', '--unstable-transform-profile=hermes', '--output=caller.out.js', 'caller.js'])
+    const unknown = await run(['--platform=ios', '--unstable-transform-profile=hermes', '--output=caller.out.js', 'caller.js'])
     assert.deepEqual([unknown.status, unknown.stderr], [1, 'rn-bundle: --unstable-transform-profile is one of default, hermes-stable, hermes-canary\n'])
   })
 
-  it('runs Babel in the env Metro\'s transformer names: production, else BABEL_ENV, unless --dev', () => {
-    const babelEnv = (args, env) => envBuild(args, env).babelEnv
-    assert.equal(babelEnv([]), 'production')
-    assert.equal(babelEnv([], { NODE_ENV: 'development' }), 'production')
-    assert.equal(babelEnv([], { BABEL_ENV: 'staging' }), 'staging')
-    assert.equal(babelEnv(['--dev']), 'development')
-    assert.equal(babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
+  it('runs Babel in the env Metro\'s transformer names: production, else BABEL_ENV, unless --dev', async () => {
+    const babelEnv = async (args, env) => (await envBuild(args, env)).babelEnv
+    assert.equal(await babelEnv([]), 'production')
+    assert.equal(await babelEnv([], { NODE_ENV: 'development' }), 'production')
+    assert.equal(await babelEnv([], { BABEL_ENV: 'staging' }), 'staging')
+    assert.equal(await babelEnv(['--dev']), 'development')
+    assert.equal(await babelEnv(['--dev'], { BABEL_ENV: 'production' }), 'development')
   })
 
-  it('sets NODE_ENV for Babel\'s plugins as `react-native bundle` does: production, unless --dev', () => {
-    const nodeEnv = (args, env) => envBuild(args, env).nodeEnv
-    assert.equal(nodeEnv([]), 'production')
-    assert.equal(nodeEnv([], { NODE_ENV: 'development' }), 'production')
-    assert.equal(nodeEnv(['--dev'], { NODE_ENV: 'production' }), 'development')
+  it('sets NODE_ENV for Babel\'s plugins as `react-native bundle` does: production, unless --dev', async () => {
+    const nodeEnv = async (args, env) => (await envBuild(args, env)).nodeEnv
+    assert.equal(await nodeEnv([]), 'production')
+    assert.equal(await nodeEnv([], { NODE_ENV: 'development' }), 'production')
+    assert.equal(await nodeEnv(['--dev'], { NODE_ENV: 'production' }), 'development')
   })
 
-  it('makes each TS file JS by esbuild before Babel, lowering the rest after it', () => {
-    const r = run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
+  it('makes each TS file JS by esbuild before Babel, lowering the rest after it', async () => {
+    const r = await run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'modern.out.js'))), MODERN)
     assert.ok(lowered(readFileSync(join(root, 'modern.out.js'), 'utf8')))
@@ -72,20 +72,20 @@ describe('rn-bundle, with a Babel config', () => {
     assert.deepEqual(JSON.parse(printed(join(root, 'modern.out.js'))), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty', 'StaticBlock'] } })
   })
 
-  it('takes a file with no import or export for a script, as Metro does: sloppy', () => {
-    const r = run(['--platform=ios', '--output=sloppy.out.js', 'sloppy.js'])
+  it('takes a file with no import or export for a script, as Metro does: sloppy', async () => {
+    const r = await run(['--platform=ios', '--output=sloppy.out.js', 'sloppy.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.equal(printed(join(root, 'sloppy.out.js')), '"with"\n')
   })
 
-  it('fails on a TS file esbuild cannot parse', () => {
-    const r = run(['--platform=ios', '--output=out.js', 'bad-ts.js'])
+  it('fails on a TS file esbuild cannot parse', async () => {
+    const r = await run(['--platform=ios', '--output=out.js', 'bad-ts.js'])
     assert.equal(r.status, 1)
     assert.match(r.stderr, /Unexpected "="[\s\S]*lib\/bad\.ts:1:9/u)
   })
 
-  it('takes no --babel-aliases where Babel runs', () => {
-    const r = run(['--platform=ios', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
+  it('takes no --babel-aliases where Babel runs', async () => {
+    const r = await run(['--platform=ios', '--babel-aliases=aliases.json', '--output=out.js', 'index.js'])
     assert.equal(r.status, 1)
     assert.match(r.stderr, /--babel-aliases maps the imports where no Babel runs/u)
   })
@@ -94,18 +94,18 @@ describe('rn-bundle, with a Babel config', () => {
 describe('rn-bundle, with Babel, with a Babel config that takes no Flow', () => {
   const { root, cleanup } = writeTree({ ...BABEL_APP, 'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-react-jsx']) })
   after(cleanup)
-  const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
+  const run = (args) => runBundle(args, { cwd: root })
   const output = (file) => JSON.parse(printed(join(root, file)))
 
-  it('strips the Flow types of each file that has them before Babel', () => {
-    const r = run(['--platform=ios', '--output=ios.js', 'index.js'])
+  it('strips the Flow types of each file that has them before Babel', async () => {
+    const r = await run(['--platform=ios', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
     const out = output('ios.js')
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.platform], ['ios', 'hi', 'flow', 'generic', 'ios'])
   })
 
-  it('lowers a static block before Babel once Flow types are stripped', () => {
-    const r = run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
+  it('lowers a static block before Babel once Flow types are stripped', async () => {
+    const r = await run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(output('modern.out.js'), MODERN)
   })
@@ -134,14 +134,14 @@ describe('rn-bundle, with Babel, with Flow that is code', () => {
   })
   after(cleanup)
 
-  it("leaves a file with Flow flow-remove-types doesn't strip to Babel as it is, its @flow pragma kept", () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+  it("leaves a file with Flow flow-remove-types doesn't strip to Babel as it is, its @flow pragma kept", async () => {
+    const r = await runBundle(['--platform=ios', '--output=out.js', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['hello world', 'typed'])
   })
 
-  it('reports with --profile the time flow-remove-types took, of each file of Flow, on the main thread', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+  it('reports with --profile the time flow-remove-types took, of each file of Flow, on the main thread', async () => {
+    const r = await runBundle(['--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /^ {6}ms {12}files {13}before Babel, on the main thread\n +\d+ {16}2 {13}flow-remove-types$/mu)
   })
@@ -159,15 +159,15 @@ describe('rn-bundle, with Babel, of a file with a source map of its own', () => 
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
-  const read = (...args) => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
+  const read = async (...args) => {
+    const r = await runBundle(['--platform=ios', '--output=out.js', ...args, 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     return printed(join(root, 'out.js'))
   }
 
-  it('reads it only where the bundle has a source map', () => {
-    assert.equal(read(), 'false\n')
-    assert.equal(read('--sourcemap-output=out.map'), 'true\n')
+  it('reads it only where the bundle has a source map', async () => {
+    assert.equal(await read(), 'false\n')
+    assert.equal(await read('--sourcemap-output=out.map'), 'true\n')
   })
 })
 
@@ -184,8 +184,8 @@ describe("rn-bundle, with Babel, with a sourceRoot in the Babel config", () => {
   })
   after(cleanup)
 
-  it('names each source by its own path, as Metro does, the sourceRoot taken of none', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', '--sourcemap-output=out.map', 'index.js'], { cwd: root, encoding: 'utf8' })
+  it('names each source by its own path, as Metro does, the sourceRoot taken of none', async () => {
+    const r = await runBundle(['--platform=ios', '--output=out.js', '--sourcemap-output=out.map', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     const { sources } = JSON.parse(readFileSync(join(root, 'out.map'), 'utf8'))
     assert.deepEqual(['index.js', 'lib/a.js', 'lib/b.ts'].map((file) => sources.includes(join(root, file))), [true, true, true], String(sources))
@@ -205,8 +205,8 @@ describe('rn-bundle, with Babel, with a .babelrc of a directory of its own', () 
   })
   after(cleanup)
 
-  it('takes it for the files beneath it alone', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+  it('takes it for the files beneath it alone', async () => {
+    const r = await runBundle(['--platform=ios', '--output=out.js', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['sub', null])
   })
@@ -224,13 +224,13 @@ describe("rn-bundle, with Babel, with Reanimated's plugin", () => {
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
-  const run = (args) => spawnSync(process.execPath, [BIN, '--platform=ios', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
+  const run = (args) => runBundle(['--platform=ios', ...args, 'index.js'], { cwd: root })
 
-  it('runs it in the files that name what it acts on alone; --self-test, which builds again with it in each, finds where that changes one', () => {
-    const r = run(['--output=out.js'])
+  it('runs it in the files that name what it acts on alone; --self-test, which builds again with it in each, finds where that changes one', async () => {
+    const r = await run(['--output=out.js'])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['animated.js'])
-    const selfTest = run(['--self-test'])
+    const selfTest = await run(['--self-test'])
     assert.equal(selfTest.status, 1)
     assert.match(selfTest.stderr, /index\.js|plain\.js/u)
   })

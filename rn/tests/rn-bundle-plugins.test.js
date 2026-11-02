@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { printed, writeTree } from './fixtures.js'
-import { BIN, linked } from './rn-bundle-app.js'
+import { linked, runBundle } from './rn-bundle-app.js'
 
 describe('rn-bundle, with Babel, with plugins after babel-plugin-module-resolver', () => {
   // As a project's plugin that inlines a *.plugin.json it reads at the path
@@ -39,20 +38,20 @@ describe('rn-bundle, with Babel, with plugins after babel-plugin-module-resolver
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
   after(cleanup)
-  const run = (entry) => spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+  const run = (entry) => runBundle(['--platform=ios', '--output=out.js', entry], { cwd: root })
 
-  it('keeps module-resolver in Babel, before the plugins that read what it rewrote', () => {
-    const r = run('index.js')
+  it('keeps module-resolver in Babel, before the plugins that read what it rewrote', async () => {
+    const r = await run('index.js')
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), { name: 'a' })
   })
 
-  it("reports Babel's error in the file it failed on, at its line where Babel says one", () => {
-    const failing = run('failing.js')
+  it("reports Babel's error in the file it failed on, at its line where Babel says one", async () => {
+    const failing = await run('failing.js')
     assert.equal(failing.status, 1)
     assert.match(failing.stderr, /Babel: fails here[\s\S]*\n {4}lib\/fails\.js:/u)
     assert.ok(!failing.stderr.includes(join(root, 'lib/fails.js')), 'no absolute path in the message')
-    const broken = run('broken.js')
+    const broken = await run('broken.js')
     assert.equal(broken.status, 1)
     assert.match(broken.stderr, /\n {4}lib\/pragma\.js:3:\d+:\n {6}3 │ const b = \(c: \) => 1/u)
   })
@@ -96,37 +95,37 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
   after(cleanup)
   // -> the files module-resolver runs in, of the bundle's five, of these
   // options and the config's other plugins; the bundle as it is written.
-  const ran = (options, plugins = [], args = []) => {
+  const ran = async (options, plugins = [], args = []) => {
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}], ${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}] }\n`)
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', ...args, 'index.js'], { cwd: root, encoding: 'utf8', timeout: 30_000 })
+    const r = await runBundle(['--platform=ios', '--profile', '--output=out.js', ...args, 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)
   }
 
-  it("leaves it out of Babel, its aliases mapped as the bundle resolves each import, but in a file of an escape of a code point (`\\u0023`)", () => {
-    assert.equal(ran({ alias: { '#lib': './lib' } }), 1)
+  it("leaves it out of Babel, its aliases mapped as the bundle resolves each import, but in a file of an escape of a code point (`\\u0023`)", async () => {
+    assert.equal(await ran({ alias: { '#lib': './lib' } }), 1)
     // `export`, in each file's text, of no string.
-    assert.equal(ran({ alias: { '#lib': './lib', export: './nowhere' } }), 1)
-    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 1)
+    assert.equal(await ran({ alias: { '#lib': './lib', export: './nowhere' } }), 1)
+    assert.equal(await ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 1)
   })
 
-  it('makes the bundle module-resolver in Babel makes, as a plugin of the config it knows not keeps it', () => {
+  it('makes the bundle module-resolver in Babel makes, as a plugin of the config it knows not keeps it', async () => {
     for (const args of [[], ['--esm']]) {
-      assert.equal(ran({ alias: { '#lib': './lib' } }, [], args), 1)
+      assert.equal(await ran({ alias: { '#lib': './lib' } }, [], args), 1)
       const mapped = readFileSync(join(root, 'out.js'), 'utf8')
-      assert.equal(ran({ alias: { '#lib': './lib' } }, ['./noop-plugin.js'], args), 3)
+      assert.equal(await ran({ alias: { '#lib': './lib' } }, ['./noop-plugin.js'], args), 3)
       assert.equal(readFileSync(join(root, 'out.js'), 'utf8'), mapped)
     }
   })
 
-  it('keeps it in Babel where an alias is of more than one object, or maps to a package, or the file calls jest.mock', () => {
-    assert.equal(ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 3)
-    assert.equal(ran({ alias: { '#lib': 'lib-package' } }), 3)
+  it('keeps it in Babel where an alias is of more than one object, or maps to a package, or the file calls jest.mock', async () => {
+    assert.equal(await ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 3)
+    assert.equal(await ran({ alias: { '#lib': 'lib-package' } }), 3)
     writeFileSync(join(root, 'mocked.js'), "if (typeof jest !== 'undefined') jest.mock('#lib/a')\nexport { a as m } from '#lib/a'\n")
     try {
       writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib' } }]] }\n")
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'mocked.js'], { cwd: root, encoding: 'utf8' })
+      const r = await runBundle(['--platform=ios', '--profile', '--output=out.js', 'mocked.js'], { cwd: root })
       assert.equal(r.status, 0, r.stderr)
       assert.equal(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1], '1')
     } finally {
@@ -134,46 +133,46 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
     }
   })
 
-  it('keeps it where a string an alias matches is spelled across lines, or matched by a RegExp of a backreference', () => {
-    const build = (alias, entry) => {
+  it('keeps it where a string an alias matches is spelled across lines, or matched by a RegExp of a backreference', async () => {
+    const build = async (alias, entry) => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}]] }\n`)
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      const r = await runBundle(['--platform=ios', '--output=out.js', entry], { cwd: root })
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(printed(join(root, 'out.js')))
     }
-    assert.equal(build({ '#lib': './lib' }, 'continued.js'), 'a')
+    assert.equal(await build({ '#lib': './lib' }, 'continued.js'), 'a')
     // A group before its own: the second alias's \\1 is of its own group.
-    assert.equal(build({ '^unused/(.+)$': './nowhere/\\1', '^([a-z]+)-\\1$': './\\1/a' }, 'backreference.js'), 'a')
-    assert.equal(build({ "^foo'bar$": './lib/a' }, 'quoted.js'), 'a')
-    assert.equal(build({ '^foo\\tbar$': './lib/a' }, 'tab.js'), 'a')
+    assert.equal(await build({ '^unused/(.+)$': './nowhere/\\1', '^([a-z]+)-\\1$': './\\1/a' }, 'backreference.js'), 'a')
+    assert.equal(await build({ "^foo'bar$": './lib/a' }, 'quoted.js'), 'a')
+    assert.equal(await build({ '^foo\\tbar$': './lib/a' }, 'tab.js'), 'a')
   })
 
-  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's, a template's string", () => {
-    const bundled = (alias, plugin, entry) => {
+  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's, a template's string", async () => {
+    const bundled = async (alias, plugin, entry) => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}], ${JSON.stringify(plugin)}] }\n`)
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      const r = await runBundle(['--platform=ios', '--output=out.js', entry], { cwd: root })
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(printed(join(root, 'out.js')))
     }
     const jsx = ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]
-    assert.equal(bundled({ '^react/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'jsx.js'), 'b')
-    assert.equal(bundled({ '^custom/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'pragma.js'), 'b')
-    assert.equal(bundled({ '^@babel/runtime/helpers/classCallCheck$': './lib/classCallCheck' }, './helper-plugin.js', 'helper.js'), 'classCallCheck')
+    assert.equal(await bundled({ '^react/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'jsx.js'), 'b')
+    assert.equal(await bundled({ '^custom/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'pragma.js'), 'b')
+    assert.equal(await bundled({ '^@babel/runtime/helpers/classCallCheck$': './lib/classCallCheck' }, './helper-plugin.js', 'helper.js'), 'classCallCheck')
     // Of core-js, @babel/runtime-corejs3's.
     const corejs = ['./helper-plugin.js', { corejs: 3, specifier: '@babel/runtime-corejs3/helpers/classCallCheck' }]
-    assert.equal(bundled({ '^@babel/runtime-corejs3/helpers/classCallCheck$': './lib/classCallCheck' }, corejs, 'helper.js'), 'classCallCheck')
-    assert.equal(bundled({ '^#lib/(.+)$': './lib/\\1' }, './template-plugin.js', 'template.js'), 'a')
+    assert.equal(await bundled({ '^@babel/runtime-corejs3/helpers/classCallCheck$': './lib/classCallCheck' }, corejs, 'helper.js'), 'classCallCheck')
+    assert.equal(await bundled({ '^#lib/(.+)$': './lib/\\1' }, './template-plugin.js', 'template.js'), 'a')
   })
 
-  it('builds each module alike with --self-test, which keeps it in each and lets it traverse', () => {
+  it('builds each module alike with --self-test, which keeps it in each and lets it traverse', async () => {
     writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib', export: './nowhere' } }]] }\n")
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--self-test', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = await runBundle(['--platform=ios', '--self-test', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /--self-test: each of 5 modules is as Babel makes it/u)
   })
 
-  it('keeps it where it may rewrite what names none: with a root', () => {
-    assert.equal(ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 5)
+  it('keeps it where it may rewrite what names none: with a root', async () => {
+    assert.equal(await ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 5)
   })
 })
 
@@ -194,8 +193,8 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
   })
   after(cleanup)
 
-  it('leaves modules and block scoping out of Babel in a file that gives them nothing to do', () => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+  it('leaves modules and block scoping out of Babel in a file that gives them nothing to do', async () => {
+    const r = await runBundle(['--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['a', 'b', 'c'])
     const files = (key) => Number(new RegExp(`^ +\\d+ +[\\d.]+ +(\\d+) +\\d+ {2}${key}$`, 'mu').exec(r.stderr)?.[1] ?? 0)
@@ -205,12 +204,12 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
     assert.deepEqual(['transform-classes', 'transform-modules-commonjs', 'transform-block-scoping'].map(files), [2, 4, 2])
   })
 
-  it('keeps classes in Babel in a file of no class, where another plugin writes one', () => {
+  it('keeps classes in Babel in a file of no class, where another plugin writes one', async () => {
     const config = readFileSync(join(root, 'babel.config.js'), 'utf8')
     // Of classes' key, one that makes each class a string.
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: ['./class-plugin.js', ${plugin('transform-classes', "Class(path) { path.replaceWith({ type: 'StringLiteral', value: 'lowered' }) }")}] }\n`)
     try {
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'made.js'], { cwd: root, encoding: 'utf8' })
+      const r = await runBundle(['--platform=ios', '--output=out.js', 'made.js'], { cwd: root })
       assert.equal(r.status, 0, r.stderr)
       assert.equal(printed(join(root, 'out.js')), '"lowered"\n')
     } finally {
@@ -218,21 +217,21 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
     }
   })
 
-  const selfTest = (...args) => spawnSync(process.execPath, [BIN, '--platform=ios', '--self-test', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
+  const selfTest = (...args) => runBundle(['--platform=ios', '--self-test', ...args, 'index.js'], { cwd: root })
 
-  it('with --self-test, builds again with each plugin, finds each module the same, and writes nothing without --output', () => {
-    const r = selfTest()
+  it('with --self-test, builds again with each plugin, finds each module the same, and writes nothing without --output', async () => {
+    const r = await selfTest()
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /rn-bundle: --self-test: each of 4 modules is as Babel makes it with each of the config's plugins\n$/u)
     assert.ok(!readdirSync(root).includes('rn-bundle.js'))
   })
 
-  it('with --self-test, fails where Babel leaves out a plugin that has something to do', () => {
+  it('with --self-test, fails where Babel leaves out a plugin that has something to do', async () => {
     // Of block scoping's key, one that marks each `export default`, in a module with no let, const or class too.
     const config = readFileSync(join(root, 'babel.config.js'), 'utf8')
     writeFileSync(join(root, 'babel.config.js'), config.replace("name: 'transform-block-scoping', visitor: { Program() {}", "name: 'transform-block-scoping', visitor: { Program() {}, ExportDefaultDeclaration(path) { path.insertAfter({ type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'marked' } }) }"))
     try {
-      const r = selfTest()
+      const r = await selfTest()
       assert.equal(r.status, 1)
       assert.match(r.stderr, /rn-bundle: --self-test: 1 of 4 modules differ from Babel's output with each of the config's plugins:\n {2}a\.js:\d+\n {4}- [^\n]*\n {4}\+ "marked";\n$/u)
     } finally {
@@ -240,8 +239,8 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
     }
   })
 
-  it('takes --sourcemap-output with --output alone', () => {
-    const map = selfTest('--sourcemap-output=out.map')
+  it('takes --sourcemap-output with --output alone', async () => {
+    const map = await selfTest('--sourcemap-output=out.map')
     assert.deepEqual([map.status, map.stderr], [1, 'rn-bundle: --sourcemap-output maps the bundle of --output: pass it\n'])
   })
 })

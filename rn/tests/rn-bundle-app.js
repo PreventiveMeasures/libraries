@@ -4,11 +4,47 @@ import { createRequire } from 'node:module'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { rnBundle } from '../src/rn-bundle.js'
 import { png } from './fixtures.js'
 
 // The apps and helpers of rn-bundle's tests, which their files share.
 export const esbuild = createRequire(import.meta.url)('esbuild')
 export const BIN = fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url))
+
+// The modules this process has loaded: of a run's project (its configs, its
+// plugins), and @babel/core's, which keeps each config it has loaded.
+const modules = createRequire(import.meta.url).cache
+const BABEL_CORE = /[\\/]@babel[\\/]core[\\/]/u
+
+// rn-bundle of `args`, in `cwd`, as its bin runs it (rnBundle()), but in
+// this process, not one of its own each, which loads Node, Babel and
+// esbuild anew: those modules of the project's and @babel/core's loaded
+// anew, as a process would, a test having changed a file of them; in `env`
+// where given, NODE_ENV as rn-bundle sets it; then cwd and the environment
+// as they were. -> { status, stderr }, as spawnSync's. A test of what Node
+// itself is given (--import) spawns the bin still.
+export async function runBundle(args, { cwd, env = null }) {
+  for (const path of Object.keys(modules)) if (path.startsWith(`${cwd}${sep}`) || BABEL_CORE.test(path)) delete modules[path]
+  const saved = { ...process.env }
+  if (env !== null) {
+    for (const name of Object.keys(process.env)) if (!Object.hasOwn(env, name)) delete process.env[name]
+    Object.assign(process.env, env)
+  }
+  const was = process.cwd()
+  process.chdir(cwd)
+  let stderr = ''
+  const write = (text) => {
+    stderr += text
+    return true
+  }
+  try {
+    return { status: await rnBundle(args, { cwd, stderr: { write } }), stderr }
+  } finally {
+    process.chdir(was)
+    for (const name of Object.keys(process.env)) if (!Object.hasOwn(saved, name)) delete process.env[name]
+    Object.assign(process.env, saved)
+  }
+}
 
 export const APP = {
   'index.js': [
