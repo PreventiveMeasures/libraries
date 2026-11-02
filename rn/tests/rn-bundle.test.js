@@ -14,22 +14,26 @@ describe('rn-bundle', () => {
   after(cleanup)
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
   const output = (file) => JSON.parse(printed(join(root, file)))
+  // The bundle for iOS, its assets in ios-assets, which --minify's is of
+  // too: { code, out }.
+  const ios = memoized(() => {
+    const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
+    assert.equal(r.status, 0, r.stderr)
+    return { code: readFileSync(join(root, 'ios.js'), 'utf8'), out: output('ios.js') }
+  })
 
   it('minifies with --minify, to a bundle that does the same', () => {
-    for (const [file, args] of [['plain.js', []], ['min.js', ['--minify']]]) {
-      const r = run(['--platform=ios', ...OPTIONS, ...args, `--output=${file}`, 'index.js'])
-      assert.equal(r.status, 0, r.stderr)
-    }
-    assert.deepEqual(output('min.js'), output('plain.js'))
-    const [plain, min] = ['plain.js', 'min.js'].map((file) => readFileSync(join(root, file), 'utf8'))
-    assert.ok(min.length < plain.length * 0.6, `${min.length} of ${plain.length}`)
-    assert.ok(min.split('\n').length < plain.split('\n').length / 10, `${min.split('\n').length} lines of ${plain.split('\n').length}`)
+    const r = run(['--platform=ios', ...OPTIONS, '--minify', '--output=min.js', 'index.js'])
+    assert.equal(r.status, 0, r.stderr)
+    const plain = ios()
+    assert.deepEqual(output('min.js'), plain.out)
+    const min = readFileSync(join(root, 'min.js'), 'utf8')
+    assert.ok(min.length < plain.code.length * 0.6, `${min.length} of ${plain.code.length}`)
+    assert.ok(min.split('\n').length < plain.code.split('\n').length / 10, `${min.split('\n').length} lines of ${plain.code.split('\n').length}`)
   })
 
   it('bundles for iOS: its files, the aliases, Flow, the defines, and each asset as Metro builds it', () => {
-    const r = run(['--platform=ios', ...OPTIONS, '--assets-dest=ios-assets', '--output=ios.js', 'index.js'])
-    assert.equal(r.status, 0, r.stderr)
-    const out = output('ios.js')
+    const { out } = ios()
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', false, 'production'])
     assert.deepEqual(out.ids.toSorted(), [1, 2, 3])
     const [logo, icon, font] = out.assets
