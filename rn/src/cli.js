@@ -160,7 +160,11 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const preset = config.preset === undefined ? null : { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
     const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
-    const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
+    // Of each file's map, inline, which esbuild reads: no sourceRoot, which
+    // the config may have (or moduleRoot), as Metro takes none of it, its
+    // maps of each file's own path: esbuild would put it before each source,
+    // of its absolute path, of no more use than a file's of its own.
+    const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
     const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers, { warm })
     let configKey = null
     const target = {
