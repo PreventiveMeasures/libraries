@@ -2,11 +2,12 @@
 // --no-packager --simulator NAME --binary-path APP` launches it
 // (@react-native-community/cli-platform-apple's runOnSimulator() and
 // installApp()), but of no Xcode project, of which run-ios asks xcodebuild
-// its build settings even so: Simulator.app opened on the simulator (where
-// `xcode-select -p` has it, as run-ios opens it), the simulator booted, the
-// app installed, and launched, told where rn-serve is. Each command is
-// found on PATH, as run-ios runs them: a command of the same name earlier on
-// it (a shim of `open`) takes its calls.
+// its build settings even so: the simulator's window opened, the simulator
+// booted, the app installed, and launched, told where rn-serve is. The
+// window is Xcode's Simulator.app, else, from Xcode 27, its DeviceHub.app,
+// whichever Xcode has (`xcode-select -p`'s): run-ios before 20.2 opens
+// Simulator.app where Xcode has none, which a shim of `open` on PATH then
+// takes to DeviceHub; none is needed here.
 
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -73,7 +74,7 @@ async function infoOf(run, appPath, key) {
 // Native's RCTBundleURLProvider reads of its user defaults, given it as an
 // argument, of this launch alone. `run(file, args)` runs a command, `exists`
 // tells whether a path is. -> a promise of { bundleId, simulator }; rejects
-// of a step that fails, but opening Simulator.app, which is logged.
+// of a step that fails, but opening the simulator's window, which is logged.
 export async function launchIos({ appPath, simulator: wanted = null, location, log = () => {}, run = exec, exists = existsSync }) {
   const bundleId = await infoOf(run, appPath, 'CFBundleIdentifier')
   if (typeof bundleId !== 'string') throw new Error(`${appPath} has no CFBundleIdentifier in its Info.plist: it is no app`)
@@ -82,7 +83,8 @@ export async function launchIos({ appPath, simulator: wanted = null, location, l
   const simulator = chooseSimulator(simulatorsOf(await run('xcrun', ['simctl', 'list', 'devices', 'available', '--json'])), wanted)
   const { udid } = simulator
   log(`rn-serve: launching ${bundleId} (${basename(appPath)}) on ${simulator.name} (iOS ${simulator.version})`)
-  // As run-ios opens it: Simulator.app, else Xcode 27's DeviceHub.
+  // Simulator.app, else Xcode 27's DeviceHub.app (in the Xcode app's
+  // Applications, not its Developer's), which opens the simulator by URL.
   try {
     const developer = (await run('xcode-select', ['-p'])).trim()
     const simulatorApp = join(developer, 'Applications', 'Simulator.app')

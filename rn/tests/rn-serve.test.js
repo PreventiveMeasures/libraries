@@ -909,7 +909,7 @@ describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
 })
 
 describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
-  // Xcode's commands, on PATH alone, as a shim there would be: each logs
+  // Xcode's commands, on PATH alone: each logs
   // its arguments, and answers as Xcode's would.
   const LIST = { devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [{ udid: 'UDID-17', name: 'iPhone 17', state: 'Shutdown', isAvailable: true }] } }
   const fake = (name, body = '') => `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.FAKE_LOG, JSON.stringify([${JSON.stringify(name)}, ...process.argv.slice(2)]) + '\\n')\nconst args = process.argv.slice(2)\n${body}\n`
@@ -919,6 +919,9 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
     'xcode/bin/open': fake('open'),
     'xcode/bin/plutil': fake('plutil', "console.log(JSON.stringify(args[1] === 'CFBundleIdentifier' ? 'com.example.app' : ['iPhoneSimulator']))"),
     'xcode/Developer/Applications/Simulator.app/Contents/Info.plist': '',
+    // Xcode 27's: DeviceHub.app in the Xcode app's Applications, and no Simulator.app.
+    'xcode27/Contents/Developer/usr/bin/.keep': '',
+    'xcode27/Contents/Applications/DeviceHub.app/Contents/Info.plist': '',
   }
   const { root, cleanup } = writeTree({
     ...APP,
@@ -938,7 +941,7 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
   }
   after(cleanup)
 
-  it("launches the app of its ios as it starts, as run-ios, by PATH, and builds iOS's bundle ahead of it", async () => {
+  it("launches the app of its ios as it starts, and builds iOS's bundle ahead of it", async () => {
     rmSync(log, { force: true })
     const server = await serve(root, [], TMP, { warm: true, env })
     try {
@@ -957,6 +960,17 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
       ])
       // Of no run before, iOS's, of any system.
       assert.match(server.output(), /rn-serve: building \.\/index for ios, dev ahead of the app, the project's one bundle/u)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it("opens Xcode 27's DeviceHub on the simulator, where Xcode has no Simulator.app", async () => {
+    rmSync(log, { force: true })
+    const server = await serve(root, [], TMP, { env: { ...env, FAKE_DEVELOPER: join(root, 'xcode27/Contents/Developer') } })
+    try {
+      await until(() => server.output().includes('rn-serve: launched com.example.app'), 'the app launched')
+      assert.deepEqual(commands().filter(([name]) => name === 'open'), [['open', 'devices://device/open?id=UDID-17']])
     } finally {
       await server.stop()
     }

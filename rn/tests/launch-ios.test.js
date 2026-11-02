@@ -83,7 +83,7 @@ describe('launchIos', () => {
     return { calls, logged, result }
   }
 
-  it('opens Simulator.app on it as run-ios does, by PATH, boots it, installs the app and launches it, told where rn-serve is', async () => {
+  it('opens Simulator.app on it, boots it, installs the app and launches it, told where rn-serve is', async () => {
     const { calls, logged, result } = await launched()
     assert.deepEqual(calls, [
       ['plutil', '-extract', 'CFBundleIdentifier', 'json', '-o', '-', '/app/App.app/Info.plist'],

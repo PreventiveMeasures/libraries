@@ -66,10 +66,10 @@
 // build of it (--binary-path, else rn.config.json's ios.binaryPath),
 // installed on the simulator NAME (--simulator, else its ios.simulator: a
 // name, "iPhone 17 (26.0)", or a UDID; of none, the one booted), told
-// where rn-serve is; and the bundle built ahead of the app is iOS's. Each
-// command found on PATH, as run-ios runs them, a shim there takes its call
-// (`open` of Simulator.app). It needs Xcode's simctl: rn.config.json's
-// launch, where there's none, is warned of and left.
+// where rn-serve is, its window Simulator.app, else Xcode 27's DeviceHub,
+// whichever Xcode has; and the bundle built ahead of the app is iOS's. It
+// needs Xcode's simctl: rn.config.json's launch, where there's none, is
+// warned of and left.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
