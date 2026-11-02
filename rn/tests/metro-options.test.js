@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, describe, it } from 'node:test'
 
 import { peers } from '../src/cli.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
-import { METRO_CONFIG, writeTree } from './fixtures.js'
+import { METRO_0_81, METRO_CONFIG, writeTree } from './fixtures.js'
 
 const template = (custom = '{}') => `const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')\nmodule.exports = mergeConfig(getDefaultConfig(__dirname), ${custom})\n`
 
@@ -167,6 +167,28 @@ describe('metroOptions, of a Metro before 0.84', () => {
     const refusal = async (serving) => (await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle', serving })).transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true })
     assert.equal(await refusal(false), null)
     assert.match(await refusal(true), /getTransformOptions gives experimentalImportSupport true/u)
+  })
+})
+
+describe('metroOptions, of none loaded (rn.config.json\'s metroConfig false)', () => {
+  // Of a Metro whose default reads no package's exports.
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...METRO_0_81, 'metro.config.js': "module.exports = { resolver: { unstable_enablePackageExports: false, resolveRequest: () => { throw new Error('never run') } } }\n" })
+  const bare = writeTree({ 'package.json': { name: 'bare' } })
+  after(() => {
+    cleanup()
+    bare.cleanup()
+  })
+
+  it("reads a package's exports, whatever Metro's default, of no config run", async () => {
+    const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { file: false, name: 'rn-bundle' })
+    assert.deepEqual([options.file, options.resolver.packageExports], [null, true])
+    // Without metro-config too.
+    assert.equal((await metroOptions(bare.root, peers(bare.root, assert.fail), assert.fail, { file: false, name: 'rn-bundle' })).resolver.packageExports, true)
+  })
+
+  it("is Metro's default where the project has no config: of 0.81, none", async () => {
+    rmSync(join(root, 'metro.config.js'))
+    assert.equal((await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })).resolver.packageExports, false)
   })
 })
 

@@ -4,7 +4,9 @@
 //   metroConfig: whether the project's Metro config is loaded: true (the
 //     default), the one Metro finds; false, none, as of a project with no
 //     metro.config.js (Metro's defaults as @react-native/metro-config has
-//     them); a path, from the root, that file. --metro-config over it.
+//     them), but a package's exports read (unstable_enablePackageExports),
+//     whatever Metro's default (on from 0.82); a path, from the root, that
+//     file. --metro-config over it.
 //   assetExts, sourceExts, assetResolutions: what it adds to Metro's
 //     defaults of the resolver's lists, after them: the extensions of assets
 //     (["riv"]) and of code (["mjs"]), and the scales an asset's files are

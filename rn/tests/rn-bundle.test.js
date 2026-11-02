@@ -6,7 +6,7 @@ import { SourceMap } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { METRO_CONFIG, memoized, pkg, png, printed, writeTree } from './fixtures.js'
+import { METRO_0_81, METRO_CONFIG, memoized, pkg, png, printed, writeTree } from './fixtures.js'
 import { APP, BABEL_APP, BIN, MODERN, OPTIONS, PLATFORM_PLUGIN, POLYFILLS, PRELUDE, linked, listFiles, md5, notInstalled, reactNativeApp, runBundle, templateConfig } from './rn-bundle-app.js'
 
 describe('rn-bundle', () => {
@@ -427,6 +427,29 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
     assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools\n'])
     assert.equal((await bundleWith({ metroConfig: false, devTools: true })).status, 0)
+  })
+})
+
+describe("rn-bundle, of rn.config.json's metroConfig false, of a Metro whose default reads no package's exports", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    ...METRO_0_81,
+    // A subpath its package's exports alone have.
+    'node_modules/sub/package.json': { name: 'sub', exports: { './feature': './lib/feature.js' } },
+    'node_modules/sub/lib/feature.js': "module.exports = 'feature'\n",
+    'exported.js': "console.log(JSON.stringify(require('sub/feature')))\n",
+  })
+  after(cleanup)
+  const run = () => runBundle(['--platform=ios', ...OPTIONS, '--output=out.js', 'exported.js'], { cwd: root })
+
+  it("reads a package's exports, which Metro's default, of no config, does not", async () => {
+    const before = await run()
+    assert.equal(before.status, 1)
+    assert.match(before.stderr, /esbuild resolved node_modules\/sub\/lib\/feature\.js where Metro resolves nothing/u)
+    writeFileSync(join(root, 'rn.config.json'), '{ "metroConfig": false }')
+    const r = await run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(printed(join(root, 'out.js'))), 'feature')
   })
 })
 
