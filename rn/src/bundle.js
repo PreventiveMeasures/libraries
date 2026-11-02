@@ -112,7 +112,12 @@ export async function lowersLetOf({ babel = null, babelPlugins = null, host = di
   return babel !== null && (await babelPlugins?.(host.realpath(resolve(projectRoot, entry))))?.has('transform-block-scoping') === true
 }
 
-function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}, minify = false, babel = null, prelude = null, sourcemap = false }, { plugin }, { main, lowersLet }) {
+// With `esm`, esbuild joins the ES modules in one scope, a name two of them
+// declare renamed in one (`Text3`), and with it its function's `name`, which
+// React shows (its warnings, DevTools); in CommonJS, each its own, Babel's
+// keeps it. esbuild then keeps each function's name, as Babel's does: but
+// where it minifies, which takes them away from both, as Metro's does.
+function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}, minify = false, babel = null, prelude = null, sourcemap = false, esm = false }, { plugin }, { main, lowersLet }) {
   return {
     entryPoints: [main ? MAIN : entry],
     absWorkingDir: projectRoot,
@@ -123,6 +128,7 @@ function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}
     platform: 'neutral',
     define,
     minify,
+    ...(esm === true && !minify && { keepNames: true }),
     supported: babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) },
     logLevel: 'silent',
     plugins: [plugin],

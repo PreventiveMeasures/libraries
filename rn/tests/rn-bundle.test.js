@@ -653,6 +653,10 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     'node_modules/cond/package.json': { name: 'cond', exports: { import: './esm.js', require: './cjs.js' } },
     'node_modules/cond/esm.js': "export default 'import'\n",
     'node_modules/cond/cjs.js': "module.exports = 'require'\n",
+    // A name two modules declare, which esbuild renames in one, joining them.
+    'names.js': "import { Button as A } from './lib/button-a'\nimport { Button as B } from './lib/button-b'\nconsole.log(JSON.stringify([A.name, B.name]))\n",
+    'lib/button-a.js': 'export function Button() {}\n',
+    'lib/button-b.js': 'export function Button() {}\n',
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
   })
@@ -685,6 +689,18 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     const { code, stderr } = build('--esm')
     assert.ok(/\brequire_partial\b/u.test(code) && !/\brequire_present\b/u.test(code))
     assert.match(stderr, /▲ \[WARNING\] No matching export in "lib\/present\.js" for import "absent": left CommonJS, as Metro has it, the import undefined\n\n {4}lib\/partial\.js:1:18:/u)
+  })
+
+  it("keeps a function's name where esbuild renames it, as Babel's CommonJS keeps it, but where it minifies", () => {
+    const names = (...args) => {
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'names.js'], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+    }
+    assert.deepEqual(names('--esm'), ['Button', 'Button'])
+    assert.deepEqual(names(), ['Button', 'Button'])
+    // Minified, of neither its name, as Metro's minifier has it.
+    for (const minified of [names('--esm', '--minify'), names('--minify')]) assert.ok(!minified.includes('Button'), String(minified))
   })
 
 })
