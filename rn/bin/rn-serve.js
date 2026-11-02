@@ -65,7 +65,7 @@ import { enableCompileCache } from 'node:module'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
 import { emitKeypressEvents } from 'node:readline'
-import { parseArgs, styleText } from 'node:util'
+import { parseArgs, format as printf, styleText } from 'node:util'
 
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
@@ -244,12 +244,14 @@ function status(ms, cached) {
 // With its Network panel, which rn-serve has show the app's requests where
 // its runtime reports none (src/network.js): of each DevTools as it
 // connects; with --dev-tools, DevTools opened for each app as it connects.
+// Its logger, called as console is: a format string and its arguments.
 function mountDebugger(serverUrl) {
   const { network } = devServer
+  const logged = (...args) => log(printf(...args))
   try {
     const mounted = project.load(devMiddleware).createDevMiddleware({
       serverBaseUrl: serverUrl,
-      logger: { info: log, warn: log, error: log },
+      logger: { info: logged, warn: logged, error: logged },
       unstable_experiments: { enableNetworkInspector: true },
       unstable_customInspectorMessageHandler: network.handler,
     })

@@ -886,6 +886,27 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devTo
   })
 })
 
+describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
+  // As dev-middleware calls it: a format string and its arguments.
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
+    'node_modules/@react-native/dev-middleware/index.js': "exports.createDevMiddleware = (options) => {\n  options.logger.warn('a %s b %s', 'x', 'y')\n  return { middleware: (request, response, next) => next(), websocketEndpoints: {} }\n}\n",
+  })
+  after(cleanup)
+
+  it('prints what it logs formatted, as console does', async () => {
+    const server = await serve(root)
+    try {
+      // Logged after the debugger's mounted, as rn-serve starts.
+      await until(() => server.output().includes('no metro-runtime'), 'rn-serve to start')
+      assert.match(server.output(), /^a x b y$/mu)
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
 describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Network panel', () => {
   const REACT_NATIVE = APP['node_modules/react-native/package.json']
   // A dev-middleware of its options and rn-serve's handler alone, which the
