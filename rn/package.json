@@ -64,6 +64,7 @@
     "src/metro-config.js",
     "src/modules.js",
     "src/resolve.js",
+    "src/self-test.js",
     "src/serializer.js",
     "src/serve-assets.js",
     "src/serve.js",

@@ -146,6 +146,8 @@ function metroGraph({
   // modules, which esbuild links (load.js).
   babel = null,
   esm = false,
+  // With babel: none of the config's plugins left out for having nothing to do (load.js).
+  keepPlugins = false,
   // async (path) => the plugins of the project's Babel config for a file: a
   // Map of their keys to their options, or, for a key of more than one
   // plugin, to { instances }, the options of each.
@@ -168,7 +170,7 @@ function metroGraph({
   // while its contents are the same; for one set of the options above.
   cache = null,
 }, { reuseFirst }) {
-  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm }
+  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm, keepPlugins }
   let state = null
   const fresh = () => newState({ host, assetExts, projectRoot, entry, platform }, (made) => {
     state = made

@@ -12,8 +12,9 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 // the filename) for each file, its config's plugins of the keys in without
 // left out; with options.refresh, react-refresh's Babel plugin at that path
 // for each file outside node_modules, as Metro's transformer adds it for Fast
-// Refresh. `imports`, the specifiers of the file's import and export-from
-// declarations (IMPORTS). Where profile is newProfile()'s, the time of each
+// Refresh; with options.keepPlugins, module-resolver as its plugin has it
+// (gateResolver()). `imports`, the specifiers of the file's import and
+// export-from declarations (IMPORTS). Where profile is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
 // hooks', by its key.
 export function babelWorkers(corePath, options, profile = null) {
@@ -98,7 +99,7 @@ export function profileReport({ files, ms, plugins, own }, root) {
 }
 
 if (workerData?.babel !== undefined) {
-  const { corePath, options: { refresh = null, ...given }, profile } = workerData.babel
+  const { corePath, options: { refresh = null, keepPlugins = false, ...given }, profile } = workerData.babel
   const core = createRequire(corePath)(corePath)
   // The specifiers of the file's import and export-from declarations, but
   // types', as Metro's transformer records where each is (its
@@ -261,7 +262,8 @@ if (workerData?.babel !== undefined) {
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
     const plugins = config.plugins.filter(({ key }) => !without.includes(key))
-    plugins.forEach(gateResolver)
+    // module-resolver traverses, as its plugin does, with keepPlugins.
+    if (!keepPlugins) plugins.forEach(gateResolver)
     if (!profile) return core.transformSync(source, { ...config, plugins })
     plugins.forEach(timeHooks)
     for (const { key } of plugins) spent.set(key, [0, 0, false])

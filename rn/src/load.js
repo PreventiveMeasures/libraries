@@ -81,7 +81,10 @@ const RESOLVER = 'module-resolver'
 const USE_REACT = 'typeof React;\n'
 
 // The file's contents as esbuild loads them: { contents, loader } or { errors }.
-export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap = false, esm = false }, path, contents) {
+// With `keepPlugins`, Babel is without none of the config's plugins it would
+// leave out for having nothing to do (INERT, idle(), module-resolver's), but
+// those esbuild lowers before it (LOWERS): as --self-test builds again.
+export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap = false, esm = false, keepPlugins = false }, path, contents) {
   const loader = LOADERS.get(extname(path)) ?? 'jsx'
   if (babel !== null && loader !== 'json') {
     let source = { code: contents, without: [] }
@@ -91,7 +94,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!contents.includes('codegenNativeComponent')) {
         const plugins = (await babelPlugins?.(path)) ?? new Map()
         source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
-        if (unaliased(plugins.get(RESOLVER), contents)) source = { ...source, without: [...source.without, RESOLVER] }
+        if (!keepPlugins && unaliased(plugins.get(RESOLVER), contents)) source = { ...source, without: [...source.without, RESOLVER] }
       }
     } catch (error) {
       if (!Array.isArray(error?.errors)) throw error
@@ -99,7 +102,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
     }
     const esModule = esm !== false && !esm.has(path) && !(MODULE_SYNTAX.test(source.code) && COMMONJS_NAMES.test(source.code))
     try {
-      const without = [...source.without, ...(esModule ? [COMMONJS] : []), ...idle(source.code)]
+      const without = keepPlugins ? [...source.without.filter((key) => !INERT.includes(key) && !INERT_TS.includes(key)), ...(esModule ? [COMMONJS] : [])] : [...source.without, ...(esModule ? [COMMONJS] : []), ...idle(source.code)]
       const transformed = await babel(source.code, path, without)
       const { code, imports = [] } = typeof transformed === 'string' ? { code: transformed } : transformed
       // TS, as Babel makes it JS, loaded as TS by esbuild, which then takes an
