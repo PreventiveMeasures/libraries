@@ -58,13 +58,18 @@ const IN_BAND = 16
 // thread, as a worker would (but with keepPlugins). The fingerprint is a
 // worker's alone, one made for it where none is: what the main thread has
 // loaded is the process's, not Babel's alone, and the config it has loaded
-// (in band, configKeyOf(), babelPlugins()) reads nothing anew.
-export function babelWorkers(corePath, options, profile = null, max = null) {
+// (in band, configKeyOf(), babelPlugins()) reads nothing anew. With `warm`,
+// of a build of many files (cli.js's bigBuild()), each of the `max` is made
+// at once, loading Babel and the config as the build starts, the main
+// thread transforming in band till one is ready, as it does till then.
+export function babelWorkers(corePath, options, profile = null, max = null, { warm = false } = {}) {
   const most = max ?? defaultWorkers()
   const workers = []
   const pick = () => {
     const least = workers.reduce((a, b) => (a === undefined || b.busy < a.busy ? b : a), undefined)
-    if (least !== undefined && (least.busy < BACKLOG || workers.length >= most)) return least
+    return least !== undefined && (least.busy < BACKLOG || workers.length >= most) ? least : made()
+  }
+  const made = () => {
     const info = { worker: new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } }), busy: 0, pending: new Set(), ready: false }
     info.worker.once('message', () => (info.ready = true))
     // A worker that dies leaves the pool, failing what it was given, which
@@ -92,6 +97,8 @@ export function babelWorkers(corePath, options, profile = null, max = null) {
   let inBand = options.keepPlugins ? null : undefined
   let handled = 0
   if (inBand === null) pick().worker.unref()
+  // Idle, as one made for a file is.
+  if (warm) while (workers.length < most) made().worker.unref()
   const inBandOf = () => {
     if (inBand === undefined) {
       try {

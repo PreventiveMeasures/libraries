@@ -3,9 +3,9 @@
 // config, in worker threads; @react-native/js-polyfills's polyfills;
 // --babel-aliases; --define. Its Metro config: metro-options.js.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import { createAliases } from './babel-aliases.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
@@ -128,8 +128,9 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // Babel loads for the file (configKeyOf()), and configStart(), as a build
 // starts. `oneBuild`, each target of one
 // build, whose files don't change as it runs: Babel's .babelrc lookup of
-// each file left out where it would find none.
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false } = {}) {
+// each file left out where it would find none. `warm`, each target's
+// workers made as it is (babelWorkers()), of a build of many files.
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false, warm = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -160,7 +161,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
     const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
-    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers)
+    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers, { warm })
     let configKey = null
     const target = {
       profile: timed,
@@ -179,6 +180,19 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     }
     targets.set(key, target)
     return target
+  }
+}
+
+// Whether the project's build is of many files, which its Babel workers
+// make up for: of React Native itself, its Libraries of dozens of
+// directories, as a test's fixture's are not (a stub of one or two).
+export function bigBuild({ locate }) {
+  const manifest = locate('react-native/package.json')
+  if (manifest === null) return false
+  try {
+    return readdirSync(join(dirname(manifest), 'Libraries')).length >= 20
+  } catch {
+    return false
   }
 }
 

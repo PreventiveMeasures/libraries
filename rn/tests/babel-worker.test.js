@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import { gatedInlining, memoizeHelpers } from '../src/babel-transformer.js'
 import { babelWorkers, defaultWorkers, newProfile, profileReport } from '../src/babel-worker.js'
+import { bigBuild, peers } from '../src/cli.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
@@ -75,6 +76,17 @@ describe('babelWorkers', () => {
     await readied(threadOf)
     assert.notEqual(await threadOf(), 0)
     assert.notEqual(await threader(babelWorkers(CORE, { ...options, keepPlugins: true }))(), 0)
+  })
+
+  it('makes each of its workers at once, warm, which a few files then each go to, the main thread transforming till one is ready', async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }
+    const threads = async (warm) => {
+      const threadOf = threader(babelWorkers(CORE, options, null, 2, { warm }))
+      assert.equal(await threadOf(), 0)
+      await readied(threadOf)
+      return new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size
+    }
+    assert.deepEqual([await threads(true), await threads(false)], [2, 1])
   })
 
   it("leaves out the config's plugins of the keys it is given", async () => {
@@ -276,5 +288,25 @@ describe('memoizeHelpers', () => {
   it("leaves a @babel/core of no File#availableHelper as it is", () => {
     assert.doesNotThrow(() => memoizeHelpers({}))
     assert.doesNotThrow(() => memoizeHelpers({ File: class {} }))
+  })
+})
+
+describe('bigBuild', () => {
+  const libraries = (count) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`node_modules/react-native/Libraries/L${i}/index.js`, '']))
+  const of = (tree) => {
+    const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...tree })
+    try {
+      return bigBuild(peers(root, assert.fail))
+    } finally {
+      cleanup()
+    }
+  }
+
+  it("is of React Native itself, its Libraries of dozens of directories, as a fixture's stub is not", () => {
+    const manifest = { 'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' } }
+    assert.equal(of({ ...manifest, ...libraries(24) }), true)
+    assert.equal(of({ ...manifest, ...libraries(2) }), false)
+    assert.equal(of(manifest), false)
+    assert.equal(of({}), false)
   })
 })
