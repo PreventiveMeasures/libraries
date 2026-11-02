@@ -14,8 +14,9 @@ import { fileURLToPath } from 'node:url'
 
 // A cache entry's format: another, none of the entries before.
 const CACHE_FORMAT = 2
-// rn's code of the chain: loadFile()'s, Babel's worker's, and this file's.
-const CHAIN = ['load.js', 'babel-worker.js', 'load-cache.js']
+// rn's code of the chain: loadFile()'s, Babel's worker's, a dev bundle's
+// module's build (modules.js), and this file's.
+const CHAIN = ['load.js', 'babel-worker.js', 'modules.js', 'load-cache.js']
 // A module's import or export of one of rn's, by its relative path.
 const RELATIVE = /^(?:import|export)\b[^'"]*['"](\.{1,2}\/[^'"]+)['"]/gmu
 const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'bun.lockb']
@@ -245,7 +246,10 @@ function writeEntry(dir, key, value) {
 // its workers have none; `config`, the file's config has no key), get(key)
 // (loadFile()'s result, or null where none), set(key, result), keep(kind,
 // path, compute) (async: what compute() gives, of the file's config, kept
-// as `kind`, JSON), note(what, why), tally() }, of a target. note() counts
+// as `kind`, JSON), build(parts, text, compute) (async: what compute()
+// gives, JSON, kept by a key of `parts`, JSON, and `text` alone: of no
+// Babel config, as a dev bundle's module is built of its source, which is
+// of it), note(what, why), tally() }, of a target. note() counts
 // a file `memory` (as it was in memory), `misses` (loaded anew), or
 // `unkept` (loaded anew, kept none of, `why`); get() counts `hits`.
 // tally() -> { hits, misses, memory, unkept: { [why]: count } } since it
@@ -300,6 +304,14 @@ export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
         return result
       },
       set: (key, result) => write(key, result),
+      build: async (parts, text, compute) => {
+        const key = createHash('sha256').update(salt).update('\0module\0').update(JSON.stringify(parts)).update('\0').update(text).digest('hex')
+        const kept = read(key)
+        if (kept !== null && Object.hasOwn(kept, 'value')) return kept.value
+        const value = await compute()
+        write(key, { value })
+        return value
+      },
       keep: async (kind, path, compute) => {
         const { key } = await keyOf(path, '', [kind])
         const kept = key === null ? null : read(key)

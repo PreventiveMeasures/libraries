@@ -160,12 +160,24 @@ async function moduleOf(run, state, { key, kind }, visit) {
 
 // A module's code as esbuild builds it, as CommonJS, each import left a
 // require(): { code, piece, lines, imports: [{ specifier, kind }], optional }.
-// Kept while its source is the same. With `resolvable`, the specifiers that
+// Kept while its source is the same; on disk too, in run.store
+// (load-cache.js's), across runs, by its name, its source, `resolvable`,
+// and what of the build makes it. With `resolvable`, the specifiers that
 // resolve: the rest are left to esbuild, which fails on each but in a try
 // block, which it leaves; those are `optional`.
 async function buildOf(run, key, source, resolvable = null) {
   const kept = run.builds.get(key)
   if (resolvable === null && kept !== undefined && kept.contents === source.contents && kept.loader === source.loader) return kept.built
+  const store = run.store ?? null
+  const parts = [key, source.loader, run.define ?? {}, run.minify ?? false, run.supported, run.projectRoot, resolvable === null ? null : [...resolvable].toSorted()]
+  const made = store === null ? await buildAnew(run, key, source, resolvable) : await store.build(parts, source.contents, () => buildAnew(run, key, source, resolvable))
+  const built = { ...made, optional: new Set(resolvable === null ? [] : made.imports.map(({ specifier }) => specifier).filter((specifier) => !resolvable.has(specifier))) }
+  run.builds.set(key, { contents: source.contents, loader: source.loader, built })
+  return built
+}
+
+// -> { code, piece, lines, imports }, of esbuild's build.
+async function buildAnew(run, key, source, resolvable = null) {
   const { esbuild, projectRoot } = run
   // Absolute: esbuild takes stdin's file from its resolveDir. A module here
   // is CommonJS, an ES one too, as esbuild or Babel makes it, and an import
@@ -193,9 +205,7 @@ async function buildOf(run, key, source, resolvable = null) {
   // name it was given (with no map of the file's before it).
   const map = JSON.parse(text('.map'))
   if (sourcefile !== key) map.sources = map.sources.map((each) => (resolve(projectRoot, each) === sourcefile ? each.slice(0, key.length - sourcefile.length) : each))
-  const built = { code, piece: pieceOf(map), lines: lineCount(code), imports, optional: new Set(resolvable === null ? [] : imports.map(({ specifier }) => specifier).filter((specifier) => !resolvable.has(specifier))) }
-  run.builds.set(key, { contents: source.contents, loader: source.loader, built })
-  return built
+  return { code, piece: pieceOf(map), lines: lineCount(code), imports }
 }
 
 // The module's imports: each that resolves left as it is, the rest to
