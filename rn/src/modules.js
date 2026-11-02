@@ -167,10 +167,13 @@ async function buildOf(run, key, source, resolvable = null) {
   const { esbuild, projectRoot } = run
   // Absolute: esbuild takes stdin's file from its resolveDir.
   const sourcefile = key === EMPTY ? EMPTY : key
+  // A JSON file as Metro wraps it, `module.exports =` it: esbuild builds one
+  // as an entry point, as CommonJS, with no exports at all.
+  const wrapped = source.loader === 'json' ? { ...source, contents: (await esbuild.transform(source.contents, { loader: 'json', format: 'cjs', sourcefile, logLevel: 'silent' })).code, loader: 'js' } : source
   const common = { bundle: true, write: false, format: 'cjs', platform: 'neutral', absWorkingDir: projectRoot, outfile: resolve(projectRoot, OUTFILE), metafile: true, sourcemap: 'external', define: run.define ?? {}, minify: run.minify ?? false, supported: run.supported, logLevel: 'silent' }
   const result = resolvable === null
-    ? await esbuild.build({ ...common, stdin: { contents: source.contents, loader: source.loader, sourcefile, resolveDir: key === EMPTY ? projectRoot : dirname(key) }, external: ['*'] })
-    : await esbuild.build({ ...common, entryPoints: [key], plugins: [checking(key, source, resolvable, projectRoot)] })
+    ? await esbuild.build({ ...common, stdin: { contents: wrapped.contents, loader: wrapped.loader, sourcefile, resolveDir: key === EMPTY ? projectRoot : dirname(key) }, external: ['*'] })
+    : await esbuild.build({ ...common, entryPoints: [key], plugins: [checking(key, wrapped, resolvable, projectRoot)] })
   const text = (ext) => result.outputFiles.find(({ path }) => path.endsWith(ext)).text
   const imports = Object.values(result.metafile.inputs).flatMap((input) => input.imports).filter((imported) => imported.external).map(({ path, kind }) => ({ specifier: path, kind }))
   const code = text('.js')

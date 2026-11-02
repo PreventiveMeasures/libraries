@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
+import { createContext, runInContext } from 'node:vm'
 
 import esbuild from 'esbuild'
 
@@ -211,7 +212,7 @@ describe('the dev bundler', () => {
 describe('the dev bundler, in the module format', () => {
   // The app in a workspace, a module of which is out of it.
   const { root, cleanup } = writeTree({
-    'app/index.js': "import { shared } from '../shared/Shared'\nimport config from './config.json'\nimport { setup } from './config.js'\nglobalThis.result = [shared, config, setup]\n",
+    'app/index.js': "import { shared } from '../shared/Shared'\nimport config, { of } from './config.json'\nimport { setup } from './config.js'\nglobalThis.result = [shared, config, of, setup]\n",
     'app/config.js': "export const setup = 'js'\n",
     'app/config.json': '{ "of": "json" }\n',
     'shared/Shared.js': "export const shared = 'shared'\n",
@@ -219,6 +220,18 @@ describe('the dev bundler, in the module format', () => {
   after(cleanup)
   const projectRoot = join(root, 'app')
   const runtime = createRequire(import.meta.url).resolve('metro-runtime/src/polyfills/require.js')
+
+  it("runs: each module's exports, a JSON file's too, as Metro wraps it", async () => {
+    const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
+    try {
+      const outcome = await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false })
+      const context = createContext({})
+      runInContext(outcome.js, context)
+      assert.deepEqual(JSON.parse(JSON.stringify(context.result)), ['shared', { of: 'json' }, 'json', 'js'])
+    } finally {
+      await devBundler.dispose()
+    }
+  })
 
   it('serves a module out of the project root, alone, at the URL an update names it by', async () => {
     const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
