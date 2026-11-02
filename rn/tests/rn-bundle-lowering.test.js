@@ -228,11 +228,16 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
       "import { partial } from './lib/partial'",
       "import cond from 'cond'",
       "import required from './lib/required'",
+      "import { fromMjs } from './lib/node.mjs'",
       "const esm = require('./lib/esm')",
-      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), partial, cond, required, esm: [esm.default, esm.value] }))',
+      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), partial, cond, required, esm: [esm.default, esm.value], fromMjs }))',
       '',
     ].join('\n'),
     'lib/cjs.js': "module.exports = () => 'made'\nmodule.exports.named = 'named'\n",
+    // An .mjs file, taken as any other, as Metro does: its default import
+    // of a compiled module, which says it is an ES module, its exports.default.
+    'lib/node.mjs': "import compiled from './compiled'\nexport const fromMjs = compiled\n",
+    'lib/compiled.js': "Object.defineProperty(exports, '__esModule', { value: true })\nexports.default = 'mjs'\n",
     'lib/named.js': "export const used = 'used'\nexport const unused = 'UNUSED-EXPORT'\n",
     'lib/esm.js': "export default 'default'\nexport const value = 'value'\n",
     // A type's export, as esbuild keeps it of TS it makes JS one file at a time.
@@ -262,7 +267,7 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     return { code, stderr: r.stderr, out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
   }
-  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'] }
+  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'], fromMjs: 'mjs' }
 
   it('resolves an import Babel makes a require call as an ESM import, as Metro does', () => {
     const { out } = build()
@@ -270,8 +275,10 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
   })
 
   it('leaves import and export to esbuild, which links the modules and drops what is unused of them', () => {
-    const commonjs = build()
+    const commonjs = build('--sourcemap-output=out.map')
     assert.deepEqual(commonjs.out, OUT)
+    const { sources } = JSON.parse(readFileSync(join(root, 'out.map'), 'utf8'))
+    assert.ok(sources.some((source) => source.endsWith('lib/node.mjs')) && !sources.some((source) => source.includes('.rn.')), String(sources))
     assert.ok(/\brequire_named\b/u.test(commonjs.code) && commonjs.code.includes('UNUSED-EXPORT'))
     const esm = build('--esm')
     assert.deepEqual(esm.out, OUT)
