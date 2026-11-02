@@ -191,11 +191,24 @@ describe('rn-serve', () => {
     assert.deepEqual([missing.headers['X-Http-Status'], JSON.parse(missing.body).type], ['404', 'NotFoundError'])
   })
 
-  it('serves its source map', async () => {
+  it('serves its source map, each source named as Metro names it: by its absolute path', async () => {
     const r = await fetchRaw(`${server.url}/index.map?platform=ios`)
     assert.equal(r.status, 200)
     assert.equal(r.headers['access-control-allow-origin'], 'devtools://devtools')
-    assert.ok(JSON.parse(String(r.body)).sources.includes('index.js'))
+    const { sources, sourcesContent } = JSON.parse(String(r.body))
+    assert.ok(sources.includes(join(realpathSync(app), 'index.js')) && sourcesContent.length === sources.length, String(sources))
+  })
+
+  it('with sourcePaths=url-server and excludeSource, as the app asks where RN DevTools are on: each source at a path it serves it at, as Metro does, no contents', async () => {
+    const query = 'platform=ios&dev=true&excludeSource=true&sourcePaths=url-server'
+    await fetchRaw(bundleUrl(query))
+    const map = JSON.parse(String((await fetchRaw(`${server.url}/index.map?${query}`)).body))
+    const polyfill = '/[metro-project]/node_modules/@react-native/metro-config/node_modules/@react-native/js-polyfills/polyfill.js'
+    assert.ok(['/[metro-project]/index.js', polyfill].every((source) => map.sources.includes(source)) && !('sourcesContent' in map), String(map.sources))
+    assert.ok(map.x_google_ignoreList.includes(map.sources.indexOf(polyfill)) && !map.x_google_ignoreList.includes(map.sources.indexOf('/[metro-project]/index.js')))
+    const source = await fetchRaw(`${server.url}/[metro-project]/index.js`)
+    assert.deepEqual([source.status, source.headers['content-type'], source.headers['access-control-allow-origin'], String(source.body)], [200, 'text/plain; charset=UTF-8', 'devtools://devtools', APP['index.js']])
+    assert.equal(String((await fetchRaw(`${server.url}${polyfill}`)).body), APP['node_modules/@react-native/metro-config/node_modules/@react-native/js-polyfills/polyfill.js'])
   })
 
   it("serves an asset of a bundle it built: the scale asked for, the next up, else the largest; and a range", async () => {
@@ -210,7 +223,7 @@ describe('rn-serve', () => {
   })
 
   it('serves no other file: no asset of no bundle, nothing out of the project', async () => {
-    for (const path of ['/assets/secret.yml', '/assets/package.json', '/assets/../package.json', '/assets/img/../../outside.js', '/package.json', '/index.js', '/assets/%2e%2e/outside.js']) {
+    for (const path of ['/assets/secret.yml', '/assets/package.json', '/assets/../package.json', '/assets/img/../../outside.js', '/package.json', '/index.js', '/assets/%2e%2e/outside.js', '/[metro-project]/secret.yml', '/[metro-project]/linked.js', '/[metro-project]/../outside.js', '/[metro-project]/..%2Foutside.js', '/[metro-watchFolders]/0/secret.yml', '/[metro-watchFolders]/1/outside.js']) {
       assert.equal((await fetchRaw(`${server.url}${path}?platform=ios`)).status, 404, path)
     }
     // A request for another origin's URL is no request of ours.
@@ -518,7 +531,7 @@ describe('rn-serve, with Fast Refresh', () => {
       const moduleCode = String((await fetchRaw(sourceURL)).body)
       assert.match(moduleCode, /^__d\(function .*"ios, changed"/su)
       const map = JSON.parse(String((await fetchRaw(sourceMappingURL)).body))
-      assert.deepEqual(map.sources, ['lib/where.ios.js'])
+      assert.deepEqual(map.sources, [join(realpathSync(root), 'lib/where.ios.js')])
       // The release bundle's app reloads, as before.
       await until(() => message.messages.length > 0, "the release bundle's reload")
       assert.equal(context.result.where, 'ios')

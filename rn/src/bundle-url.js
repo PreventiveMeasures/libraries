@@ -3,7 +3,9 @@
 // Meta Platforms, Inc. and affiliates): the entry from the path, the
 // platform from `platform` or the file name, `dev` on and `minify` off
 // unless told; `shallow` and `modulesOnly`, as a module's URL in an update
-// has them (`shallow`: the module alone, not those it imports).
+// has them (`shallow`: the module alone, not those it imports); of its
+// source map, `sourcePaths` (Metro's SourcePathsMode: 'url-server', else
+// 'absolute') and `excludeSource`, as the app asks where RN DevTools are on.
 
 const TRUE = new Set(['true', '1'])
 const PLATFORMS = new Set(['ios', 'android', 'windows', 'web'])
@@ -34,7 +36,7 @@ const flag = (params, name, fallback) => (params.has(name) ? TRUE.has(params.get
 
 // `url`: a request's, its origin given. -> { kind: 'bundle' | 'map',
 // entryFile: './index', platform, dev, minify, shallow, modulesOnly,
-// sourceUrl, sourceMapUrl },
+// sourcePaths, excludeSource, sourceUrl, sourceMapUrl },
 // null where it is no bundle or source map; throws a URIError on a path
 // that doesn't decode.
 export function bundleRequest(url) {
@@ -54,6 +56,8 @@ export function bundleRequest(url) {
     minify: flag(searchParams, 'minify', false),
     shallow: flag(searchParams, 'shallow', false),
     modulesOnly: flag(searchParams, 'modulesOnly', false),
+    sourcePaths: searchParams.get('sourcePaths') === 'url-server' ? 'url-server' : 'absolute',
+    excludeSource: flag(searchParams, 'excludeSource', false),
     sourceUrl: toJscSafeUrl(`${origin}${bundlePath}${search}${hash}`),
     sourceMapUrl: `${origin}${requestPath.replace(/\.bundle$/u, '.map')}${search}${hash}`,
   }

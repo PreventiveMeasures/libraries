@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { createContext, runInContext } from 'node:vm'
 
@@ -12,6 +12,7 @@ import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { moduleUrls } from '../src/hot.js'
+import { servedSourceMap, sourceOfRequest, sourceRoutes } from '../src/source-map.js'
 import { createWatcher } from '../src/watch.js'
 import { writeTree } from './fixtures.js'
 
@@ -48,6 +49,8 @@ describe('bundle URLs', () => {
       minify: true,
       shallow: false,
       modulesOnly: false,
+      sourcePaths: 'absolute',
+      excludeSource: false,
       sourceUrl: 'http://localhost:8081/index.bundle//&platform=ios&dev=false&minify=1&lazy=true',
       sourceMapUrl: 'http://localhost:8081/index.map?platform=ios&dev=false&minify=1&lazy=true',
     })
@@ -64,6 +67,12 @@ describe('bundle URLs', () => {
     assert.throws(() => bundleRequest(new URL('http://h/%E0%A4%A.bundle')), URIError)
   })
 
+  it("reads how its map names sources as Metro does: the app's sourcePaths=url-server and excludeSource where RN DevTools are on, else absolute", () => {
+    const request = (query) => bundleRequest(new URL(`http://h/index.map?platform=ios&${query}`))
+    assert.deepEqual([request('excludeSource=true&sourcePaths=url-server')].map(({ sourcePaths, excludeSource }) => [sourcePaths, excludeSource]), [['url-server', true]])
+    for (const query of ['sourcePaths=absolute', 'sourcePaths=other', '']) assert.equal(request(query).sourcePaths, 'absolute', query)
+  })
+
   it('moves the query into the path for JSC, and back', () => {
     const url = 'http://localhost:8081/index.bundle?platform=ios&dev=true#x'
     assert.equal(toJscSafeUrl(url), 'http://localhost:8081/index.bundle//&platform=ios&dev=true#x')
@@ -71,6 +80,31 @@ describe('bundle URLs', () => {
     assert.equal(toNormalUrl('/index.bundle//&platform=ios?dev=true'), '/index.bundle?platform=ios&dev=true')
     assert.equal(toJscSafeUrl('http://h/index.bundle'), 'http://h/index.bundle')
     assert.equal(toNormalUrl('http://h/a?x=//&y'), 'http://h/a?x=//&y')
+  })
+})
+
+describe('source maps, as Metro serves them', () => {
+  const projectRoot = join(sep, 'work', 'app')
+  const routes = sourceRoutes(projectRoot, [projectRoot, join(sep, 'work')])
+  const map = JSON.stringify({ version: 3, sources: ['index.js', 'node_modules/x/a b.js', '../shared/s.js', join(sep, 'elsewhere', 'e.js'), 'metro-polyfill:node_modules/p/p.js', 'metro-main:index.js'], sourcesContent: ['1', '2', '3', '4', '5', '6'], names: [], mappings: 'AAAA' })
+
+  it('names each source by its absolute path, those under node_modules ignored', () => {
+    const served = JSON.parse(servedSourceMap(map, { projectRoot, routes }))
+    assert.deepEqual(served.sources, [join(projectRoot, 'index.js'), join(projectRoot, 'node_modules/x/a b.js'), join(sep, 'work', 'shared', 's.js'), join(sep, 'elsewhere', 'e.js'), join(projectRoot, 'node_modules/p/p.js'), 'metro-main:index.js'])
+    assert.deepEqual([served.sourcesContent, served.x_google_ignoreList], [['1', '2', '3', '4', '5', '6'], [1, 4]])
+  })
+
+  it('with sourcePaths=url-server, at a path of the server: of the project root, else of a watch folder, else absolute; with excludeSource, no contents', () => {
+    const served = JSON.parse(servedSourceMap(map, { projectRoot, routes, urlServer: true, excludeSource: true }))
+    assert.deepEqual(served.sources, ['/[metro-project]/index.js', '/[metro-project]/node_modules/x/a%20b.js', '/[metro-watchFolders]/1/shared/s.js', '/elsewhere/e.js', '/[metro-project]/node_modules/p/p.js', 'metro-main:index.js'])
+    assert.equal('sourcesContent' in served, false)
+  })
+
+  it('reads a source request back to its file, inside its route alone', () => {
+    assert.equal(sourceOfRequest('/[metro-project]/node_modules/x/a%20b.js', routes), join(projectRoot, 'node_modules/x/a b.js'))
+    assert.equal(sourceOfRequest('/[metro-watchFolders]/1/shared/s.js', routes), join(sep, 'work', 'shared', 's.js'))
+    for (const path of ['/[metro-project]/..%2Fother.js', '/[metro-project]/%2E%2E/other.js', '/[metro-project]/', '/[metro-project]/%E0%A4%A.js', '/[metro-watchFolders]/1/..%2F..%2Fetc%2Fpasswd']) assert.equal(sourceOfRequest(path, routes), null, path)
+    for (const path of ['/index.js', '/[metro-watchFolders]/2/x.js', '/assets/x.png']) assert.equal(sourceOfRequest(path, routes), undefined, path)
   })
 })
 

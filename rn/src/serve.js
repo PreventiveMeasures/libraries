@@ -8,7 +8,11 @@
 //                              update names it; to a client that takes
 //                              multipart/mixed (the app's), its progress
 //                              first, as Metro's
-//   /<entry>.map?platform=     its source map
+//   /<entry>.map?platform=     its source map, its sources as Metro names
+//                              them: absolute, else, with
+//                              sourcePaths=url-server, at
+//   /[metro-project]/<path>    a source, of a file a bundle was built from;
+//                              /[metro-watchFolders]/<n>/<path> too
 //   /assets/<path>?platform=   an asset of a bundle served
 //   POST /symbolicate          LogBox's stack frames, at their sources
 //   /reload                    reload each app
@@ -29,6 +33,7 @@ import { diskHost } from './defaults.js'
 import { SAFE_HEADERS } from './gate.js'
 import { hotUpdate } from './hot.js'
 import { assetResponse } from './serve-assets.js'
+import { servedSourceMap, sourceOfRequest, sourceRoutes } from './source-map.js'
 import { bundleUrls, stackOf, symbolicate } from './symbolicate.js'
 import { acceptWebSocket } from './websocket.js'
 
@@ -90,8 +95,10 @@ function readBody(request) {
 
 // -> { server, broadcast(method), hotError(error, requests),
 // hotUpdate(request, before, after, { recovered }), mount({ middleware,
-// websocketEndpoints }), clients() }
-export function createDevServer({ projectRoot, esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
+// websocketEndpoints }), clients() }. `watchFolders`: the Metro config's,
+// the project root the first, as Metro has them.
+export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
+  const sources = sourceRoutes(projectRoot, watchFolders)
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()
@@ -138,13 +145,19 @@ export function createDevServer({ projectRoot, esbuild, devBundler, gate, host =
       const { status, headers, body } = assetResponse(rawPath, { platform: url.searchParams.get('platform'), range: request.headers.range, find: devBundler.asset, host })
       return reply(request, response, status, body, headers)
     }
+    const source = read ? sourceOfRequest(url.pathname, sources) : undefined
+    if (source !== undefined) {
+      const data = source === null ? null : devBundler.sourceFile(source)
+      // RN DevTools may need it, as the source map.
+      return data === null ? reply(request, response, 404, 'rn-serve: not found\n') : reply(request, response, 200, data, { 'Access-Control-Allow-Origin': 'devtools://devtools' })
+    }
     let bundle
     try {
       bundle = read ? bundleRequest(url) : null
     } catch {
       return reply(request, response, 400, 'rn-serve: bad bundle path\n')
     }
-    if (bundle !== null) return serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot })
+    if (bundle !== null) return serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot, sources })
     if (middleware !== null) return middleware(request, response, () => reply(request, response, 404, 'rn-serve: not found\n'))
     return reply(request, response, 404, 'rn-serve: not found\n')
   }
@@ -213,7 +226,7 @@ function multipart(request, response) {
   }
 }
 
-async function serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot }) {
+async function serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot, sources }) {
   const parts = bundle.kind === 'bundle' ? multipart(request, response) : null
   const send = (status, body, headers) => (parts === null ? reply(request, response, status, body, headers) : parts.end(status, body, headers))
   try {
@@ -221,7 +234,10 @@ async function serveBundle(request, response, bundle, { devBundler, esbuild, pro
     if (outcome === null) return send(404, JSON.stringify({ type: 'NotFoundError', message: `rn-serve: the project has no entry ${bundle.entryFile}`, errors: [] }), { 'Content-Type': JSON_TYPE })
     if (!outcome.ok) return send(500, JSON.stringify(await bundlingError(esbuild, outcome.errors, projectRoot)), { 'Content-Type': JSON_TYPE })
     // Chrome DevTools may need the source map.
-    if (bundle.kind === 'map') return reply(request, response, 200, outcome.map, { 'Content-Type': JSON_TYPE, 'Access-Control-Allow-Origin': 'devtools://devtools' })
+    if (bundle.kind === 'map') {
+      const map = servedSourceMap(outcome.map, { projectRoot, routes: sources, urlServer: bundle.sourcePaths === 'url-server', excludeSource: bundle.excludeSource })
+      return reply(request, response, 200, map, { 'Content-Type': JSON_TYPE, 'Access-Control-Allow-Origin': 'devtools://devtools' })
+    }
     return send(200, `${outcome.js}//# sourceMappingURL=${bundle.sourceMapUrl}\n//# sourceURL=${bundle.sourceUrl}\n`, { 'Content-Type': JS })
   } finally {
     parts?.close()
