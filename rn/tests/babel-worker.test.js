@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { babelWorkers, gatedInlining, metroMaxWorkers, newProfile, profileReport } from '../src/babel-worker.js'
+import { babelWorkers, defaultWorkers, gatedInlining, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
@@ -36,8 +36,8 @@ describe('babelWorkers', () => {
     await assert.rejects(transform('const a = (b: ) => 1', join(root, 'bad.js')), /bad\.js: Unexpected token/u)
   })
 
-  it("transforms in at most as many workers as it is given, else as Metro's getMaxWorkers of the CPUs", async () => {
-    assert.deepEqual([1, 2, 4, 8, 12, 16].map((cores) => metroMaxWorkers(cores)), [1, 1, 3, 6, 8, 10])
+  it('transforms in at most as many workers as it is given, else 2 of 4 CPUs or more, 1 of fewer', async () => {
+    assert.deepEqual([1, 2, 3, 4, 8, 12, 16].map((cores) => defaultWorkers(cores)), [1, 1, 1, 2, 2, 2, 2])
     const threads = async (max) => {
       const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }, null, max)
       const files = await Promise.all(Array.from({ length: 6 }, (_, i) => transform('a()', join(root, `t${i}.js`))))

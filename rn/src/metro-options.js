@@ -127,9 +127,8 @@ const show = (value, cwd) => {
   return JSON.stringify(value) ?? String(value)
 }
 
-// Metro's maxWorkers (its getMaxWorkers() of the CPUs, by default), as its
-// WorkerFarm takes it: one, which Metro transforms in on its main thread,
-// where not more than one.
+// Metro's maxWorkers, as its WorkerFarm takes it: one, which Metro
+// transforms in on its main thread, where not more than one.
 export const workersOf = (maxWorkers) => Math.max(1, Math.trunc(maxWorkers) || 1)
 
 // --max-workers, as Metro's CLI takes it, over the config's maxWorkers
@@ -181,8 +180,9 @@ async function baselinesOf(metro, project, cwd) {
 // bundle() and createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
 // assetRegistryPath or null, babelRCLookup, babelRuntime, port or null,
-// maxWorkers (workersOf()) or null, Metro's default then, minifyRefusal,
-// transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
+// maxWorkers (workersOf()) or null where the config's is Metro's default
+// (its getMaxWorkers() of the CPUs, too many for rn: defaultWorkers()),
+// minifyRefusal, transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
 // { platform, dev }) (inlineRequiresOf()) }. `name` is the command's,
 // `serving` whether it serves, `minify` whether it minifies; where it
 // doesn't, minifyRefusal is the error of the options it would not do if it
@@ -248,7 +248,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     babelRuntime: transformer.enableBabelRuntime ?? true,
     inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
     port: server?.port ?? null,
-    maxWorkers: workersOf(config.maxWorkers),
+    maxWorkers: baselines.some((baseline) => baseline.maxWorkers === config.maxWorkers) ? null : workersOf(config.maxWorkers),
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
     transformRefusal: async (entryPath, target) => {
       // Its getDependencies, of what preloads, of no bearing here; but of

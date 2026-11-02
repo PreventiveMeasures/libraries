@@ -4,7 +4,6 @@ import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, describe, it } from 'node:test'
 
-import { metroMaxWorkers } from '../src/babel-worker.js'
 import { peers } from '../src/cli.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { METRO_CONFIG, writeTree } from './fixtures.js'
@@ -39,7 +38,8 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })
     assert.equal(options.file, 'metro.config.js')
     assert.deepEqual(options.polyfills('ios').map((path) => basename(path)), ['polyfill.js'])
-    assert.equal(options.maxWorkers, metroMaxWorkers())
+    // Metro's default, of the CPUs: rn's then.
+    assert.equal(options.maxWorkers, null)
     assert.deepEqual([options.assetRegistryPath, options.blockList.map(String), options.port, options.babelRCLookup], ['react-native/Libraries/Image/AssetRegistry', [String(/(\/__tests__\/.*)$/u).replace('/u', '/')], 8081, true])
     assert.deepEqual([options.resolver.sourceExts, options.resolver.mainFields, options.resolver.conditionNames, options.resolver.packageExports], [['js', 'jsx', 'json', 'ts', 'tsx'], ['react-native', 'browser', 'main'], ['react-native'], true])
     assert.equal(typeof options.runBeforeMain, 'function')
@@ -122,8 +122,9 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal(typeof (await load("{ transformer: { svgAssetPlugin: true }, watchFolders: ['..'], resolver: { useWatchman: false }, watcher: { additionalExts: ['cts'] } }")), 'object')
   })
 
-  it("takes maxWorkers as Metro's WorkerFarm does, one where not more, and --max-workers over it", async () => {
+  it("takes maxWorkers, where not Metro's default, as Metro's WorkerFarm does, one where not more, and --max-workers over it", async () => {
     assert.deepEqual([(await load('{ maxWorkers: 5 }')).maxWorkers, (await load('{ maxWorkers: 0 }')).maxWorkers], [5, 1])
+    assert.equal((await load("{ maxWorkers: require('metro-config').getDefaultConfig.getDefaultValues().maxWorkers }")).maxWorkers, null)
     const fail = (message) => {
       throw new Error(message)
     }

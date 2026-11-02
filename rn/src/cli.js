@@ -114,7 +114,7 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // `babelRuntime`, its enableBabelRuntime, for the preset where the project
 // has no config; `keepPlugins`, each target's workers leave module-resolver
 // as it is (load.js); `maxWorkers`, how many workers each target's Babel
-// runs in at most, Metro's default (metroMaxWorkers()) where null. A
+// runs in at most, rn's default (defaultWorkers()) where null. A
 // target's `inlineRequires`, metroOptions()'s of its bundle, Metro's inline
 // requires, its workers inline after Babel: a target of each, as Metro
 // caches a file's transform of its transform options.
