@@ -5,7 +5,7 @@ import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { png, writeTree } from './fixtures.js'
+import { png, printed, writeTree } from './fixtures.js'
 
 const BIN = fileURLToPath(new URL('../bin/rn-cli.js', import.meta.url))
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
@@ -35,7 +35,7 @@ const APP = {
 const runner = (root) => (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
 // rn-bundle's arguments, as --verbose shows them.
 const translated = ({ stderr }) => stderr.split('\n').find((line) => line.startsWith('rn-cli: rn-bundle '))?.slice('rn-cli: rn-bundle '.length).split(' ')
-const output = (file) => JSON.parse(spawnSync(process.execPath, [file], { encoding: 'utf8' }).stdout)
+const output = (file) => JSON.parse(printed(file))
 
 describe('rn-cli bundle', () => {
   const { root, cleanup } = writeTree(APP)
