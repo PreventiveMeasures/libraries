@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
@@ -168,6 +168,8 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
     'c.cjs': 'exports.a = 1\nexports.b = 2\n',
     'left.js': 'let left = 1\nconsole.log(left)\n',
     'late.js': "console.log('early')\n",
+    // The words alone, in strings: no let or const of Babel's output.
+    'words.js': "console.log('let', 'const')\n",
     // A return outside a function, which the config's parser options take.
     'returns.js': "if (globalThis.skip) return\nconsole.log('const')\n",
     'node_modules/@babel/core': linked('@babel/core'),
@@ -178,6 +180,9 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
     return spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
   }
   const blockScoping = "() => ({ name: 'transform-block-scoping', visitor: {} })"
+  // As Reanimated's worklets: a const put in once block scoping has run.
+  const late = "({ template }) => ({ post(file) { file.path.pushContainer('body', template.statements.ast('const late = 1; console.log(late)')) } })"
+  const lowers = "() => ({ name: 'transform-block-scoping', visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })"
 
   it("adds no let or const after Babel: esbuild's helpers bind each key apart", () => {
     const r = build([blockScoping])
@@ -188,9 +193,6 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
   })
 
   it("lowers again by the config's plugin what Babel's others leave of let and const after it", () => {
-    // As Reanimated's worklets: a const put in once block scoping has run.
-    const late = "({ template }) => ({ post(file) { file.path.pushContainer('body', template.statements.ast('const late = 1; console.log(late)')) } })"
-    const lowers = "() => ({ name: 'transform-block-scoping', visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })"
     const r = build([late, lowers], 'late.js')
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
@@ -199,9 +201,23 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
   })
 
   it("parses Babel's output again as its config's parser options have it", () => {
-    const r = build([blockScoping], 'returns.js', 'parserOpts: { allowReturnOutsideFunction: true }, ')
+    const r = build([late, lowers], 'returns.js', 'parserOpts: { allowReturnOutsideFunction: true }, ')
     assert.equal(r.status, 0, r.stderr)
-    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'const\n')
+    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'const\n1\n')
+  })
+
+  it('runs Babel again only over output that declares a let or const, not where the words are alone', () => {
+    const log = join(root, 'passes.log')
+    // The config's block scoping, which notes each file it runs in.
+    const noting = `() => ({ name: 'transform-block-scoping', pre(file) { require('fs').appendFileSync(${JSON.stringify(log)}, require('path').basename(file.opts.filename) + '\\n') }, visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })`
+    const passes = (plugins, entry) => {
+      rmSync(log, { force: true })
+      const r = build(plugins, entry)
+      assert.equal(r.status, 0, r.stderr)
+      return readFileSync(log, 'utf8')
+    }
+    assert.equal(passes([late, noting], 'late.js'), 'late.js\nlate.js\n')
+    assert.equal(passes([noting], 'words.js'), 'words.js\n')
   })
 
   it('fails on a let or const Babel leaves', () => {
