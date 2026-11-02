@@ -30,7 +30,8 @@ export const inside = (root, path) => {
 // takes for the project's files: jsx, stripFlow, babel..., aliases, define,
 // store (load-cache.js's); inlineRequires, the bundle's, as the Metro config
 // gives it. `onBuild({ request, outcome, ms, cached })` after each build:
-// `cached`, its store's tally(), of the files it took and kept, or null.
+// `cached`, its store's tally() of the files it loaded (load-cache.js's), or
+// null.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
 // defaults where not given. A minified bundle fails with its minifyRefusal;
 // each, with its transformRefusal, where it has one.
