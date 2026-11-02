@@ -142,3 +142,27 @@ describe('rn-bundle, with Babel, with Flow that is code', () => {
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['hello world', 'typed'])
   })
 })
+
+describe('rn-bundle, with Babel, of a file with a source map of its own', () => {
+  // The config's plugin, which has the output say whether Babel read the
+  // file's map, by its sourceMappingURL comment: for the map of its output,
+  // of no use where the bundle has none.
+  const { root, cleanup } = writeTree({
+    'babel.config.js': "module.exports = { plugins: [({ types: t }) => ({ visitor: { Program(path, state) { path.unshiftContainer('body', t.expressionStatement(t.callExpression(t.identifier('print'), [t.booleanLiteral(state.file.inputMap != null)]))) } } })] }\n",
+    // A JSX pragma, which leaves the file to Babel as it is, its comments too.
+    'index.js': '/** @jsx h */\nfunction print(read) {\n  console.log(read)\n}\n//# sourceMappingURL=index.js.map\n',
+    'index.js.map': { version: 3, sources: ['index.ts'], names: [], mappings: 'AAAA' },
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const read = (...args) => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    return spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout
+  }
+
+  it('reads it only where the bundle has a source map', () => {
+    assert.equal(read(), 'false\n')
+    assert.equal(read('--sourcemap-output=out.map'), 'true\n')
+  })
+})
