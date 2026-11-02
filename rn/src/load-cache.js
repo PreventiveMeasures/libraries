@@ -115,27 +115,67 @@ function codeOf(modules) {
   }
 }
 
-// -> (filename) => a key of the project's Babel config for the file, as
-// Babel loads it by `core` with `options` (its loadPartialConfig()): the
-// options it gives the file, each plugin and preset by its name, file and
-// options; the code of the config's files Babel loads for it (a .babelrc of
-// its directory too) and of the plugins and presets they name for it (an
-// override's too, which a worker's fingerprint, of the config of the
-// project's root, may not have), and what they require of the project's
-// own (codeOf(), `modules` require.cache). null where Babel ignores the
-// file, or its options are no JSON.
+// -> (filename, covered) => a key of the project's Babel config for the
+// file, as Babel loads it by `core` with `options` (its
+// loadPartialConfig()): the options it gives the file, each plugin and
+// preset by its name, file and options; the code of the config's files
+// Babel loads for it (a .babelrc of its directory too) and of the plugins
+// and presets they name for it (an override's too, which a worker's
+// fingerprint, of the config of the project's root, may not have), and
+// what they require of the project's own (codeOf(), `modules`
+// require.cache). Each plugin and preset of those not `covered` (a Set of
+// the modules the fingerprint is of) is made first, as Babel makes it, once
+// a run: what its factory requires (a helper of its own) is then of its
+// code too, which loadPartialConfig() calls not. null where Babel ignores
+// the file, or a plugin or preset of it fails to be made, or its options
+// are no JSON.
 export function configKeyOf(core, options, modules) {
   const code = codeOf(modules)
   const itemOf = (item) => [item.name ?? null, item.file?.resolved ?? null, item.options ?? null]
-  return (filename) => {
+  const made = new Set()
+  const make = ({ plugins, presets }, covered) => {
+    const fresh = (items) => items.filter((item) => item.file !== undefined && !covered.has(item.file.resolved) && !made.has(item.file.resolved))
+    const each = { plugins: fresh(plugins), presets: fresh(presets) }
+    if (each.plugins.length + each.presets.length === 0) return
+    core.loadOptionsSync({ cwd: options.cwd, root: options.root, caller: options.caller, envName: options.envName, babelrc: false, configFile: false, ...each })
+    for (const item of [...each.plugins, ...each.presets]) made.add(item.file.resolved)
+  }
+  return (filename, covered = new Set()) => {
     try {
       const partial = core.loadPartialConfigSync({ ...options, filename })
       if (partial === null) return null
+      make(partial.options, covered)
       const named = [...partial.options.plugins, ...partial.options.presets].map((item) => item.file?.resolved).filter((path) => path !== undefined)
       return digest(JSON.stringify([[...partial.files, ...named].map(code), { ...partial.options, plugins: partial.options.plugins.map(itemOf), presets: partial.options.presets.map(itemOf) }], shown))
     } catch {
       return null
     }
+  }
+}
+
+// What is kept in `dir` by a key: JSON, or null where none.
+const entryPath = (dir, key) => join(dir, key.slice(0, 2), key.slice(2))
+function readEntry(dir, key) {
+  try {
+    return JSON.parse(readFileSync(entryPath(dir, key), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+// Written whole, then moved in place: another rn-serve may read it.
+function writeEntry(dir, key, value) {
+  const path = entryPath(dir, key)
+  const written = `${path}.${process.pid}`
+  try {
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(written, JSON.stringify(value))
+    renameSync(written, path)
+  } catch {
+    // Nor what is left of it, where it can't be: the file is loaded still.
+    try {
+      rmSync(written, { force: true })
+    } catch {}
   }
 }
 
@@ -157,56 +197,40 @@ export function configKeyOf(core, options, modules) {
 // another rn-serve may read it. A cache, at best: what fails to read or
 // write is loaded anew.
 export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
-  const pathOf = (key) => join(dir, key.slice(0, 2), key.slice(2))
   const salt = digest(JSON.stringify([CACHE_FORMAT, OWN.map(fileDigest), esbuild.version, flow === null ? null : [flow, fileDigest(flow)], lockfilesOf(cwd).map((path) => [path, fileDigest(path)])]))
-  const read = (key) => {
-    try {
-      return JSON.parse(readFileSync(pathOf(key), 'utf8'))
-    } catch {
-      return null
-    }
-  }
-  const write = (key, value) => {
-    const path = pathOf(key)
-    const written = `${path}.${process.pid}`
-    try {
-      mkdirSync(dirname(path), { recursive: true })
-      writeFileSync(written, JSON.stringify(value))
-      renameSync(written, path)
-    } catch {
-      // Nor what is left of it, where it can't be: the file is loaded still.
-      try {
-        rmSync(written, { force: true })
-      } catch {}
-    }
-  }
-  // A target's fingerprint: the one kept, where what it is a digest of is
-  // the same; else its workers', kept. null where none.
+  const read = (key) => readEntry(dir, key)
+  const write = (key, value) => writeEntry(dir, key, value)
+  // A target's fingerprint, and what it is a digest of: the one kept, where
+  // that is the same; else its workers', kept. null where none.
   const fingerprintFor = async (babel) => {
     const key = digest(JSON.stringify([salt, 'fingerprint', babel.workerOptions]))
     const kept = read(key)
     try {
-      if (kept !== null && fingerprintOf(kept.modules, kept.options, new Map(kept.reads)) === kept.fingerprint) return kept.fingerprint
+      if (kept !== null && fingerprintOf(kept.modules, kept.options, new Map(kept.reads)) === kept.fingerprint) return kept
     } catch {}
     try {
       const made = await babel.fingerprint()
       write(key, made)
-      return made.fingerprint
+      return made
     } catch {
       return null
     }
   }
+  // -> { prefix, covered }: of a target, its keys' prefix, and the modules
+  // its fingerprint is of; null where it has none.
   const bases = new WeakMap()
   const baseOf = (babel) => {
-    if (babel === null) return Promise.resolve(salt)
-    if (!bases.has(babel)) bases.set(babel, fingerprintFor(babel).then((fingerprint) => (fingerprint === null ? null : `${salt}\0${fingerprint}`)))
+    if (babel === null) return Promise.resolve({ prefix: salt, covered: null })
+    if (!bases.has(babel)) bases.set(babel, fingerprintFor(babel).then((made) => (made === null ? null : { prefix: `${salt}\0${made.fingerprint}`, covered: new Set(made.modules) })))
     return bases.get(babel)
   }
   return (babel) => {
     const keyOf = async (path, contents, variant) => {
-      const prefix = await baseOf(babel)
-      const config = babel === null ? '' : babel.configKey(path)
-      if (prefix === null || config === null) return null
+      const base = await baseOf(babel)
+      if (base === null) return null
+      const { prefix, covered } = base
+      const config = babel === null ? '' : babel.configKey(path, covered)
+      if (config === null) return null
       return createHash('sha256').update(prefix).update('\0').update(JSON.stringify([path, variant, config])).update('\0').update(contents).digest('hex')
     }
     let tally = { taken: 0, made: 0 }

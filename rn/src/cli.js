@@ -123,8 +123,8 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // caches a file's transform of its transform options. With `fingerprint`,
 // for a cache of each file as it loads (load-cache.js), each target has
 // fingerprint(), its workers' (babelWorkers()), of `workerOptions`, the
-// options they have, and configKey(filename), a key of the config Babel
-// loads for the file (configKeyOf()).
+// options they have, and configKey(filename, covered), a key of the config
+// Babel loads for the file (configKeyOf()).
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
@@ -164,7 +164,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
       ...(fingerprint && {
         workerOptions,
         fingerprint: babel.fingerprint,
-        configKey: (filename) => (configKey ??= configKeyOf((core ??= project.load(corePath)), options, createRequire(corePath).cache))(filename),
+        configKey: (filename, covered) => (configKey ??= configKeyOf((core ??= project.load(corePath)), options, createRequire(corePath).cache))(filename, covered),
       }),
     }
     targets.set(key, target)

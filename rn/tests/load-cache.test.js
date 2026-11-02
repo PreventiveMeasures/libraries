@@ -12,6 +12,7 @@ import { createLoadCache } from '../src/load-cache.js'
 import { writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
+const modules = createRequire(import.meta.url).cache
 const fail = (message) => assert.fail(message)
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
 // A plugin of an output of its own each time it runs: one the same is kept.
@@ -25,6 +26,8 @@ function projectOf(tree) {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/@babel/core': linked('@babel/core'), ...tree })
   const cacheDir = join(root, 'cache')
   const run = ({ platform = 'ios', dir = cacheDir, babel = true } = {}) => {
+    // The project's own modules loaded anew, as by a run of its own.
+    for (const path of Object.keys(modules)) if (path.startsWith(`${root}${sep}`)) delete modules[path]
     const target = babel ? projectBabel(root, peers(root, fail), fail, { fingerprint: true, maxWorkers: 1 })({ platform, dev: true }) : null
     const store = createLoadCache(dir, { esbuild, cwd: root })(target)
     const load = (name, contents, options = {}) => {
@@ -42,9 +45,10 @@ describe('loadCached, with a store of load-cache.js', () => {
     'babel.config.json': { plugins: [['./random.cjs', { tag: 'a' }]] },
     'random.cjs': RANDOM,
     'sub/.keep': '',
-    // A plugin a .babelrc of its own directory names, of a file it requires.
+    // A plugin a .babelrc of its own directory names, of a file it requires
+    // as Babel makes it (in its factory, which Babel's partial config calls not).
     'nested/.babelrc': { plugins: ['../local.cjs'] },
-    'local.cjs': "const helper = require('./helper.cjs')\nmodule.exports = ({ types: t }) => ({ name: 'local', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(helper))) } } } })\n",
+    'local.cjs': "module.exports = ({ types: t }) => {\n  const helper = require('./helper.cjs')\n  return { name: 'local', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(helper))) } } } }\n}\n",
     'helper.cjs': "module.exports = 'helped'\n",
   })
   after(cleanup)
