@@ -356,10 +356,21 @@ if (workerData?.babel !== undefined) {
     const start = performance.now()
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
-    const plugins = [...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)]
+    const plugins = listOf([...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)])
     // module-resolver traverses, as its plugin does, with keepPlugins.
     if (!keepPlugins) plugins.forEach(gateResolver)
     return { ...config, plugins }
+  }
+  // One array of each list of plugins, the same for each file of it: as
+  // transformSync loads its options again, Babel takes the plugins of one
+  // it has had for loaded, their descriptors cached by the array.
+  const ids = new WeakMap()
+  let count = 0
+  const idOf = (plugin) => (ids.has(plugin) ? ids.get(plugin) : ids.set(plugin, count++).get(plugin))
+  const lists = new Map()
+  const listOf = (plugins) => {
+    const key = plugins.map(idOf).join()
+    return lists.get(key) ?? lists.set(key, plugins).get(key)
   }
   // Sync: a worker transforms one file at a time. Its AST given back too,
   // for lowerLeft().
