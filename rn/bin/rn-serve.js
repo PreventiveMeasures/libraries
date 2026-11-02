@@ -56,8 +56,8 @@
 // The project's rn.config.json (src/rn-config.js) has the defaults of
 // --esm (its esm), --devtools (its devtools), --max-workers (its
 // maxWorkers, over the Metro config's) and of the Metro config (its
-// metroConfig: false, none, as of a project with none, but a package's
-// exports read of any Metro; a path, that file), the flags over it; and
+// metroConfig: false, none, nor metro-config loaded: React Native's
+// defaults, as rn has them; a path, that file), the flags over it; and
 // what it adds to Metro's defaults of assetExts, sourceExts and
 // assetResolutions (a Metro config that sets one of them otherwise, an error).
 // --launch=ios launches the app on an iOS simulator as rn-serve starts, as

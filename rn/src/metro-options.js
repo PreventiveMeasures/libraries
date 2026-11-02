@@ -7,7 +7,7 @@
 
 import { existsSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 import { locateThrough, polyfills as reactNativePolyfills, tryResolve } from './cli.js'
 import { defaults } from './defaults.js'
@@ -89,6 +89,23 @@ function transformPluginsOf(metroConfig) {
   }
 }
 
+// Metro's metro-transform-plugins, of the project's Metro, as no metro-config
+// is loaded to have it: its own, else react-native's (its CLI's), else
+// @react-native/metro-config's; null where it has none. Of paths alone.
+function metroPluginsOf(project) {
+  const metro = locateThrough(project, 'metro', ['react-native', '@react-native/community-cli-plugin']) ?? locateThrough(project, 'metro', ['@react-native/metro-config', 'metro-config'])
+  return metro === null ? null : tryResolve(createRequire(metro), 'metro-transform-plugins')
+}
+
+// @react-native/metro-config's getTransformOptions, as 0.76 to 0.88 have
+// it: requires inlined (of Metro's baseIgnoredInlineRequires, NOT_INLINED),
+// import and export left to Babel.
+const reactNativeTransformOptions = () => Promise.resolve({ transform: { experimentalImportSupport: false, inlineRequires: true } })
+
+// Metro's default blockList (metro-config's exclusionList()): what is in a
+// __tests__ directory, as the system separates a path.
+const METRO_BLOCK_LIST = Object.freeze([new RegExp(`(\\${sep}__tests__\\${sep}.*)$`, 'u')])
+
 // Whether two values of an option are the same: functions by their source.
 function same(a, b) {
   if (a === b) return true
@@ -158,7 +175,7 @@ const patterns = (blockList) => {
 // its inline requires, where Metro is the project's (`inlineRequires`).
 function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null)) {
   let polyfills = null
-  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, watchFolders: null, maxWorkers: null, defaultLists: null, minifyRefusal: null, transformRefusal: () => null }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: METRO_BLOCK_LIST, port: null, watchFolders: null, maxWorkers: null, defaultLists: null, minifyRefusal: null, transformRefusal: () => null }
   return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
@@ -204,10 +221,14 @@ async function baselinesOf(metro, project, cwd) {
 // of the transform options getTransformOptions gives a bundle, as Metro asks
 // it for each, that they don't do (TRANSFORMS), or null.
 export async function metroOptions(cwd, project, fail, { file = null, name, serving = false, minify = false }) {
+  // Of none loaded (rn.config.json's metroConfig false), React Native's
+  // defaults, of no metro-config loaded, nor @react-native/metro-config:
+  // a package's exports read, whatever Metro's default; requires inlined by
+  // Metro's plugin, where the project has Metro.
+  if (file === false) return fallback(project, fail, { packageExports: true }, inlineRequiresOf(reactNativeTransformOptions, metroPluginsOf(project), serving))
   if (typeof file === 'string' && !existsSync(resolve(cwd, file))) fail(`no such Metro config: ${file}`)
   const metroConfig = locateThrough(project, 'metro-config', ['@react-native/metro-config']) ?? locateThrough(project, 'metro-config', ['react-native', '@react-native/community-cli-plugin'])
   if (metroConfig === null) {
-    if (file === false) return fallback(project, fail, { packageExports: true })
     const found = file ?? ['js', 'cjs', 'mjs', 'json', 'ts'].map((ext) => `metro.config.${ext}`).find((each) => existsSync(resolve(cwd, each)))
     return found === undefined ? fallback(project, fail) : fail(`loading ${found} needs metro-config, as react-native has it: npm i -D metro-config`)
   }
@@ -217,14 +238,12 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   const [major, minor] = createRequire(metroConfig)('metro-config/package.json').version.split('.').map(Number)
   const hot = serving || major > 0 || minor >= 84
   const given = typeof file === 'string' ? resolve(cwd, file) : undefined
-  const { isEmpty, filepath } = file === false ? { isEmpty: true } : await metro.resolveConfig(given, cwd)
+  const { isEmpty, filepath } = await metro.resolveConfig(given, cwd)
   const plugins = transformPluginsOf(metroConfig)
   // Without one, Metro's defaults: from 0.82 on, a package's exports read;
-  // of none loaded (rn.config.json's metroConfig false), read, of any Metro.
-  // Its requires inlined as @react-native/metro-config has them, where the
+  // its requires inlined as @react-native/metro-config has them, where the
   // project has it.
-  const packageExports = file === false || Boolean((await metro.getDefaultConfig(cwd)).resolver.unstable_enablePackageExports)
-  if (isEmpty) return fallback(project, fail, { packageExports }, inlineRequiresOf((await baselinesOf(metro, project, cwd)).at(-1).transformer?.getTransformOptions, plugins, hot))
+  if (isEmpty) return fallback(project, fail, { packageExports: Boolean((await metro.getDefaultConfig(cwd)).resolver.unstable_enablePackageExports) }, inlineRequiresOf((await baselinesOf(metro, project, cwd)).at(-1).transformer?.getTransformOptions, plugins, hot))
   const shown = relative(cwd, filepath)
   let config
   try {
