@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { loadCached, lowersLetOf } from '../src/bundle.js'
 import { peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
-import { createLoadCache } from '../src/load-cache.js'
+import { createLoadCache, ownModules } from '../src/load-cache.js'
 import { writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
@@ -224,5 +224,12 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
     const each = run()
     await each.load('external.js', 'e()')
     assert.deepEqual(each.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { external: 1 } })
+  })
+})
+
+describe('ownModules', () => {
+  it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
+    const src = fileURLToPath(new URL('../src/', import.meta.url))
+    assert.deepEqual(ownModules(), ['babel-worker.js', 'babelrc.js', 'load-cache.js', 'load.js', 'worklets.js'].map((name) => join(src, name)))
   })
 })

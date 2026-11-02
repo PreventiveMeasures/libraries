@@ -15,13 +15,24 @@ import { fileURLToPath } from 'node:url'
 // A cache entry's format: another, none of the entries before.
 const CACHE_FORMAT = 2
 // rn's code of the chain: loadFile()'s, Babel's worker's, and this file's.
-const OWN = ['load.js', 'babel-worker.js', 'load-cache.js'].map((name) => join(import.meta.dirname, name))
+const CHAIN = ['load.js', 'babel-worker.js', 'load-cache.js']
+// A module's import or export of one of rn's, by its relative path.
+const RELATIVE = /^(?:import|export)\b[^'"]*['"](\.{1,2}\/[^'"]+)['"]/gmu
 const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'bun.lockb']
 // node:fs's sync calls a config may read a file by, and those it may look
 // for one by, as Babel loads it: Babel loads a config sync.
 const READS = ['readFileSync', 'readdirSync']
 const LOOKS = ['existsSync', 'statSync', 'lstatSync', 'accessSync']
 const digest = (data) => createHash('sha256').update(data).digest('hex')
+
+// The paths of rn's code of the chain (CHAIN), and of each of rn's modules
+// it imports, theirs too: each of which makes what the cache keeps, as
+// Reanimated's gate (worklets.js) does Babel's output.
+export function ownModules() {
+  const paths = new Set(CHAIN.map((name) => join(import.meta.dirname, name)))
+  for (const path of paths) for (const [, specifier] of readFileSync(path, 'utf8').matchAll(RELATIVE)) paths.add(join(dirname(path), specifier))
+  return [...paths].toSorted()
+}
 const fileDigest = (path) => {
   try {
     return digest(readFileSync(path))
@@ -221,7 +232,7 @@ function writeEntry(dir, key, value) {
 }
 
 // Each file as loadFile() loads it, kept in `dir`, by a key of what it is
-// of: rn's code of the chain (OWN), esbuild's version, flow-remove-types
+// of: rn's code of the chain (ownModules()), esbuild's version, flow-remove-types
 // (`flow`, its path, or null) by its code, the project's lockfile, of the
 // versions of what they load (from `cwd`); a target's Babel (projectBabel()'s,
 // or null), its workers' fingerprint (fingerprintOf()) and the file's own
@@ -242,7 +253,7 @@ function writeEntry(dir, key, value) {
 // another rn-serve may read it. A cache, at best: what fails to read or
 // write is loaded anew.
 export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
-  const salt = digest(JSON.stringify([CACHE_FORMAT, OWN.map(fileDigest), esbuild.version, flow === null ? null : [flow, fileDigest(flow)], lockfilesOf(cwd).map((path) => [path, fileDigest(path)])]))
+  const salt = digest(JSON.stringify([CACHE_FORMAT, ownModules().map(fileDigest), esbuild.version, flow === null ? null : [flow, fileDigest(flow)], lockfilesOf(cwd).map((path) => [path, fileDigest(path)])]))
   const read = (key) => readEntry(dir, key)
   const write = (key, value) => writeEntry(dir, key, value)
   // A target's fingerprint, and what it is a digest of: the one kept, where
