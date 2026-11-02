@@ -10,26 +10,23 @@
 // --assets-dest, --asset-catalog-dest (iOS, with --assets-dest),
 // --sourcemap-output, --sourcemap-sources-root and
 // --sourcemap-use-absolute-path (with --sourcemap-output), --config (the
-// metro.config.js whose assetExts are read). Taken, of no use to rn-bundle,
+// Metro config, which rn-bundle loads as Metro does). Taken, of no use to rn-bundle,
 // which keeps no cache and runs no command: --reset-cache,
 // --read-global-cache, --max-workers, --verbose, and react-native's
 // scripts/bundle.js's --config-cmd and --load-config; --bundle-encoding,
-// utf8 alone. --unstable-transform-profile, rn-bundle's, with --babel, of
-// no use without. Refused, as rn-bundle can't do as Metro would:
-// --transformer, --resolver-option.
-// --babel [boolean], rn-bundle's: as Metro's transformer runs the project's
-// Babel config, with --babel where it has a babel.config.*, unless --babel
-// false.
+// utf8 alone; --unstable-transform-profile default. Another profile, as
+// rn-bundle takes it, for the project's Babel config. Refused, as rn-bundle can't do as Metro would:
+// --transformer, --resolver-option. rn-bundle runs the project's Babel
+// config as Metro's transformer does.
 
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { babelConfigOf, failer } from '../src/cli.js'
+import { failer } from '../src/cli.js'
 
 const RN_BUNDLE = fileURLToPath(new URL('rn-bundle.js', import.meta.url))
-const USAGE = 'usage: rn-cli bundle --entry-file FILE --bundle-output FILE [--platform ios] [--dev BOOL] [--minify BOOL] [--assets-dest DIR] [--asset-catalog-dest DIR] [--sourcemap-output FILE] [--sourcemap-sources-root DIR] [--sourcemap-use-absolute-path] [--config FILE] [--babel BOOL]\n'
+const USAGE = 'usage: rn-cli bundle --entry-file FILE --bundle-output FILE [--platform ios] [--dev BOOL] [--minify BOOL] [--assets-dest DIR] [--asset-catalog-dest DIR] [--sourcemap-output FILE] [--sourcemap-sources-root DIR] [--sourcemap-use-absolute-path] [--config FILE]\n'
 
 // How each option takes its value: `value`, the next argument where not
 // `=`; `optional`, the next where it is no option; `flag`, none.
@@ -45,7 +42,6 @@ const OPTIONS = new Map(Object.entries({
   'sourcemap-sources-root': 'value',
   'sourcemap-use-absolute-path': 'flag',
   config: 'value',
-  babel: 'optional',
   'reset-cache': 'flag',
   'read-global-cache': 'flag',
   verbose: 'flag',
@@ -57,7 +53,6 @@ const OPTIONS = new Map(Object.entries({
   transformer: 'value',
   'resolver-option': 'value',
 }))
-const BABELRCS = ['.babelrc', '.babelrc.js', '.babelrc.cjs', '.babelrc.mjs', '.babelrc.json']
 
 const fail = failer('rn-cli')
 
@@ -109,16 +104,9 @@ function translate(values, cwd) {
     if (has('sourcemap-use-absolute-path')) args.push('--sourcemap-use-absolute-path')
   }
   if (has('config')) args.push(`--metro-config=${resolve(cwd, get('config'))}`)
-  if (babel(values, cwd)) args.push('--babel', ...(has('unstable-transform-profile') ? [`--unstable-transform-profile=${get('unstable-transform-profile')}`] : []))
+  // Its default, Metro's, of no use to rn-bundle.
+  if (has('unstable-transform-profile') && get('unstable-transform-profile') !== 'default') args.push(`--unstable-transform-profile=${get('unstable-transform-profile')}`)
   return [...args, '--', get('entry-file')]
-}
-
-// Whether to run the project's Babel config: a .babelrc alone, rn-bundle doesn't.
-function babel(values, cwd) {
-  if (values.has('babel')) return bool(values.get('babel'))
-  if (babelConfigOf(cwd) !== null) return true
-  const babelrc = BABELRCS.find((name) => existsSync(resolve(cwd, name)))
-  return babelrc === undefined ? false : fail(`rn-bundle runs a babel.config.*, not ${babelrc}: rename it, or pass --babel false to build without it`)
 }
 
 const [command, ...argv] = process.argv.slice(2)

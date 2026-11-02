@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { createVfs } from '@preventive/vfs'
 
@@ -44,4 +45,22 @@ export const png = (width, height) => {
   bytes.writeUInt32BE(width, 16)
   bytes.writeUInt32BE(height, 20)
   return bytes
+}
+
+// A project's metro-config, and @react-native/metro-config, which makes its
+// defaults as React Native's does (a few of them), over Metro's.
+export const METRO_CONFIG = {
+  'node_modules/metro-config': { link: realpathSync(fileURLToPath(new URL('../node_modules/metro-config', import.meta.url))) },
+  'node_modules/@react-native/metro-config/package.json': { name: '@react-native/metro-config', main: 'index.js' },
+  'node_modules/@react-native/metro-config/polyfill.js': '',
+  'node_modules/@react-native/metro-config/index.js': [
+    "const { getDefaultConfig, mergeConfig } = require('metro-config')",
+    'exports.getDefaultConfig = (projectRoot) => mergeConfig(getDefaultConfig.getDefaultValues(projectRoot), {',
+    "  resolver: { resolverMainFields: ['react-native', 'browser', 'main'], unstable_conditionNames: ['react-native'] },",
+    "  serializer: { getPolyfills: () => [require.resolve('./polyfill.js')], getModulesRunBeforeMainModule: () => [] },",
+    "  transformer: { assetRegistryPath: 'react-native/Libraries/Image/AssetRegistry', getTransformOptions: async () => ({ transform: { experimentalImportSupport: false, inlineRequires: true } }) },",
+    '})',
+    'exports.mergeConfig = mergeConfig',
+    '',
+  ].join('\n'),
 }

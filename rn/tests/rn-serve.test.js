@@ -350,7 +350,7 @@ describe('rn-serve, of an app in a workspace', () => {
   })
 })
 
-describe('rn-serve --babel', () => {
+describe('rn-serve, with a Babel config', () => {
   const BABEL_APP = {
     'package.json': { name: 'app' },
     'babel.config.js': [
@@ -380,7 +380,7 @@ describe('rn-serve --babel', () => {
   const { root, cleanup } = writeTree(BABEL_APP)
   let server
   before(async () => {
-    server = await serve(root, ['--babel'])
+    server = await serve(root)
   })
   after(async () => {
     await server?.stop()
@@ -435,7 +435,7 @@ describe('rn-serve, with Fast Refresh', () => {
   let server
   let babel
   before(async () => {
-    ;[server, babel] = await Promise.all([serve(root), serve(root, ['--babel'])])
+    ;[server, babel] = await Promise.all([serve(root), serve(root)])
   })
   after(async () => {
     await Promise.all([server?.stop(), babel?.stop()])
@@ -530,7 +530,7 @@ describe('rn-serve, with Fast Refresh', () => {
     }
   })
 
-  it('with --babel, has each component of the project register for Fast Refresh, as react-refresh\'s plugin does', async () => {
+  it('with a Babel config, has each component of the project register for Fast Refresh, as react-refresh\'s plugin does', async () => {
     const code = String((await fetchRaw(`${babel.url}/greeting.bundle?platform=ios`)).body)
     const greeting = code.split('\n__d(').find((text) => text.includes('"Greeting.js"'))
     assert.match(greeting, /\$RefreshReg\$\(_c, "Greeting"\)/u)
@@ -558,15 +558,33 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
   })
 })
 
+describe('rn-serve, with a Metro config of a minifier of its own', () => {
+  const { root, cleanup } = writeTree({ ...APP, 'metro.config.js': 'module.exports = { transformer: { minifierConfig: { mangle: false } } }\n', 'node_modules/metro-config': linked('metro-config') })
+  after(cleanup)
+
+  it("serves a bundle, but no minified one, which esbuild would minify as the config doesn't have it", async () => {
+    const server = await serve(root)
+    try {
+      assert.equal((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).status, 200)
+      const minified = await fetchRaw(`${server.url}/index.bundle?platform=ios&minify=true`)
+      assert.equal(minified.status, 500)
+      assert.match(JSON.parse(String(minified.body)).message, /transformer\.minifierConfig is \{"mangle":false\}: rn-serve does it as Metro's default alone/u)
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
 describe('rn-serve flags', () => {
-  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'aliases.json': {} })
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'aliases.json': {}, 'babel.config.js': 'module.exports = {}\n', 'node_modules/@babel/core': linked('@babel/core') })
   after(cleanup)
   const fails = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
 
   it('fails on what it cannot take', () => {
     assert.deepEqual([fails(['--port=x']).status, fails(['--port=x']).stderr], [1, 'rn-serve: --port takes a port, not x\n'])
-    assert.match(fails(['--babel', '--babel-aliases=aliases.json']).stderr, /pass one/u)
-    assert.match(fails(['--babel']).stderr, /--babel needs a babel\.config/u)
+    assert.match(fails(['--babel-aliases=aliases.json']).stderr, /--babel-aliases maps the imports where no Babel runs/u)
     assert.match(fails(['--define=x']).stderr, /--define takes K=V, not x/u)
+    // Babel runs where the project has a config, as Metro's transformer runs it.
+    assert.match(fails(['--babel']).stderr, /Unknown option '--babel'/u)
   })
 })

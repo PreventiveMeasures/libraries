@@ -31,6 +31,7 @@ export interface MetroResolverOptions {
   preferNativePlatform?: boolean
   // Absolute paths.
   nodeModulesPaths?: readonly string[]
+  // Read by name at each lookup, as Metro reads it, so a Proxy works too.
   extraNodeModules?: Readonly<Record<string, string>> | null
   disableHierarchicalLookup?: boolean
   // The metro-resolver module to resolve with instead of the built-in (the

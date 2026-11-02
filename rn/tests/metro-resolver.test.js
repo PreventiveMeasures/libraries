@@ -88,6 +88,7 @@ describe('createMetroResolver', () => {
     assert.throws(() => resolve('/x.js', 5), TypeError)
     assert.throws(() => createMetroResolver({ nodeModulesPaths: ['node_modules'] }), TypeError)
     assert.throws(() => createMetroResolver({ extraNodeModules: { a: 'shims/a' } }), TypeError)
+    assert.throws(() => createMetroResolver({ host: vfsOf({}), extraNodeModules: new Proxy({}, { get: () => 'shims' }) })('/x.js', 'a'), /not "shims" for a/u)
     assert.throws(() => createMetroResolver({ metroResolver: {} }), TypeError)
   })
 

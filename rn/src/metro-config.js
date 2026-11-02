@@ -1,4 +1,12 @@
-// A metro.config.js's assetExts, read off it: running it needs Metro.
+// A metro.config.js's assetExts, read off it, never run, for what must not
+// run it (stasis): rn-bundle and rn-serve load it, as Metro does
+// (metro-options.js).
+
+import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { resolve } from 'node:path'
+
+import { defaults } from './defaults.js'
 
 const LIST_METHODS = new Set(['concat', 'filter', 'slice'])
 
@@ -79,4 +87,37 @@ export function scanMetroAssetExts(source) {
     return ''
   })
   return rest.includes('assetExts') ? null : [...new Set(exts)]
+}
+
+const tryResolve = (from, name) => {
+  try {
+    return from.resolve(name)
+  } catch {
+    return null
+  }
+}
+
+// oxc-parser, the project's, else the one beside rn/; null where neither is.
+function locateOxc(projectRoot) {
+  const path = tryResolve(createRequire(resolve(projectRoot, 'package.json')), 'oxc-parser') ?? tryResolve(createRequire(import.meta.url), 'oxc-parser')
+  return path === null ? null : createRequire(import.meta.url)(path)
+}
+
+// Metro's asset extensions, and those the project's metro.config.js (`file`,
+// from the project, where given) adds, read off it, never run: by its AST
+// with oxc-parser (`oxc`, its module; the project's, else the one beside rn/,
+// where not given; none where null), else in the one form a regex reads.
+// Metro's defaults alone where there's no metro.config.js; throws where
+// `file` isn't there, or only a parser reads it and there's none.
+export function readMetroAssetExts(projectRoot, { file = null, oxc } = {}) {
+  const config = resolve(projectRoot, file ?? 'metro.config.js')
+  if (!existsSync(config)) {
+    if (file === null) return [...defaults.assetExts]
+    throw new Error(`no such Metro config: ${file}`)
+  }
+  const source = readFileSync(config, 'utf8')
+  const parser = oxc === undefined ? locateOxc(projectRoot) : oxc
+  const listed = parser === null ? scanMetroAssetExts(source) : metroAssetExts(parser.parseSync(config, source, { sourceType: 'unambiguous' }).program)
+  if (listed === null) throw new Error(`reading the assetExts of ${file ?? 'metro.config.js'} needs oxc-parser: npm i -D oxc-parser`)
+  return [...defaults.assetExts, ...listed]
 }

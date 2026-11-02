@@ -2,7 +2,7 @@
 // rn-bundle --platform=ios --output=main.js [--dev] [--minify]
 //   [--assets-dest=DIR] [--asset-catalog-dest=DIR] [--sourcemap-output=FILE]
 //   [--sourcemap-sources-root=DIR] [--sourcemap-use-absolute-path]
-//   [--metro-config=FILE] [--babel] [--esm] [--profile]
+//   [--metro-config=FILE] [--esm] [--profile]
 //   [--unstable-transform-profile=PROFILE] [--define=K=V ...]
 //   [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
@@ -17,9 +17,10 @@
 // list; the bundle's sourceMappingURL the map's name, or its path with
 // --sourcemap-use-absolute-path. A release build, as
 // `react-native bundle --dev=false` makes it, unless --dev; minified by
-// esbuild with --minify, as `stasis build --minify` makes it. --babel runs the
-// project's babel.config.* over each JS and TS file first, with its own
-// @babel/core, and Metro's caller and Babel env, as Metro's transformer does,
+// esbuild with --minify, as `stasis build --minify` makes it. The project's
+// Babel config, as Metro's transformer takes it (a babel.config.*, else a
+// .babelrc, else @react-native/babel-preset), runs over each JS and TS file
+// first, with the project's @babel/core, and Metro's caller and Babel env,
 // after esbuild makes TS JS and lowers what Babel's preset throws on (static
 // blocks, `using`) and what the config's plugins lower as esbuild does
 // (async functions and generators, `export * as`), which Babel is then
@@ -36,17 +37,21 @@
 // reports the time each of the config's plugins takes, summed over Babel's
 // workers: the files its visitors ran in, their calls, and the time outside
 // the plugins. Flow
-// types are stripped first, by flow-remove-types; with --babel, where that
+// types are stripped first, by flow-remove-types; where Babel runs and that
 // isn't installed, Babel's config strips them, as it does a file with Flow
 // that is code (`component`, `hook`), which flow-remove-types leaves. The
-// extensions metro.config.js (else --metro-config) lists among `assetExts`
-// are assets too, read off it, never run: by oxc-parser where installed,
-// else in the usual form by a regex. As Metro serializes a bundle as
-// @react-native/metro-config configures it: Metro's prelude, then
-// @react-native/js-polyfills's polyfills (the project's
-// @react-native/metro-config's), then react-native/setup-env (InitializeCore
-// before 0.87), then the entry; each asset registered with the project's
-// react-native's registry (react-native/asset-registry from 0.87).
+// project's Metro config (metro.config.js, else --metro-config) is loaded as
+// Metro loads it, by the project's metro-config, and its resolver's options
+// (assetExts, sourceExts, blockList...), polyfills, modules run before the
+// entry and asset registry taken; any other option not as Metro's default,
+// or @react-native/metro-config's, has (a Babel transformer, a resolver or
+// serializer of its own), and of bearing on the bundle, is an error.
+// Without one, as Metro serializes a bundle as @react-native/metro-config
+// configures it: Metro's prelude, then @react-native/js-polyfills's
+// polyfills (the project's @react-native/metro-config's), then
+// react-native/setup-env (InitializeCore before 0.87), then the entry; each
+// asset registered with the project's react-native's registry
+// (react-native/asset-registry from 0.87).
 
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -55,8 +60,9 @@ import { parseArgs } from 'node:util'
 import { assetCatalogFiles, assetsDestFiles } from '../src/assets-dest.js'
 import { profileReport } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
-import { TRANSFORM_PROFILES, assetExts, babelAliases, defines, failer, flowStripper, peers, polyfills, projectBabel } from '../src/cli.js'
+import { TRANSFORM_PROFILES, babelAliases, defines, failer, flowStripper, peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
+import { metroOptions } from '../src/metro-options.js'
 import { prelude } from '../src/serializer.js'
 import { metroSourceMap } from '../src/source-map.js'
 
@@ -73,7 +79,6 @@ const { values, positionals } = parseArgs({
     'sourcemap-sources-root': { type: 'string' },
     'sourcemap-use-absolute-path': { type: 'boolean', default: false },
     'metro-config': { type: 'string' },
-    babel: { type: 'boolean', default: false },
     esm: { type: 'boolean', default: false },
     profile: { type: 'boolean', default: false },
     'unstable-transform-profile': { type: 'string' },
@@ -87,12 +92,8 @@ const fail = failer('rn-bundle')
 if (positionals.length !== 1) fail('one entry file is required')
 if (values.platform === undefined) fail('--platform is required, e.g. --platform=ios')
 if (values.output === undefined) fail('--output is required')
-if (values.profile && !values.babel) fail('--profile times the plugins of --babel: pass it')
-if (values.esm && !values.babel) fail('--esm keeps ES modules through --babel: pass it')
 const transformProfile = values['unstable-transform-profile'] ?? 'default'
-if (values['unstable-transform-profile'] !== undefined && !values.babel) fail("--unstable-transform-profile is the profile --babel's plugins build for: pass it")
 if (!TRANSFORM_PROFILES.includes(transformProfile)) fail(`--unstable-transform-profile is one of ${TRANSFORM_PROFILES.join(', ')}`)
-if (values.babel && values['babel-aliases'] !== undefined) fail("--babel takes the aliases of the project's Babel config; --babel-aliases takes them from a file: pass one")
 const sourcemap = values['sourcemap-output']
 if (sourcemap === undefined && (values['sourcemap-sources-root'] !== undefined || values['sourcemap-use-absolute-path'])) fail('--sourcemap-sources-root and --sourcemap-use-absolute-path shape the map of --sourcemap-output: pass it')
 if (values['asset-catalog-dest'] !== undefined && values.platform !== 'ios') fail('--asset-catalog-dest is for iOS')
@@ -105,7 +106,13 @@ process.env.NODE_ENV = values.dev ? 'development' : 'production'
 const cwd = process.cwd()
 const project = peers(cwd, fail)
 const esbuild = project.peer('esbuild', 'bundling')
-const babel = values.babel ? projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile })({ platform: values.platform, dev: values.dev }) : null
+const metro = await metroOptions(cwd, project, fail, { file: values['metro-config'] ?? null, name: 'rn-bundle', minify: values.minify })
+const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup })?.({ platform: values.platform, dev: values.dev }) ?? null
+if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
+if (values.esm && babel === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
+// The default, of no bearing on what is built, as Metro takes it.
+if (transformProfile !== 'default' && babel === null) fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
+if (babel !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 let result
 try {
   result = await bundle({
@@ -114,16 +121,20 @@ try {
     outfile: values.output,
     esbuild,
     projectRoot: cwd,
-    stripFlow: flowStripper(project, values.babel),
+    stripFlow: flowStripper(project, babel !== null),
     babel: babel?.babel ?? null,
     babelPlugins: babel?.babelPlugins ?? null,
     esm: values.esm,
-    assetExts: assetExts(cwd, project, fail, values['metro-config'] ?? null),
+    assetExts: metro.assetExts,
+    resolver: metro.resolver,
+    blockList: metro.blockList,
+    runBeforeMain: metro.runBeforeMain?.(resolve(cwd, positionals[0])) ?? null,
+    assetRegistryPath: metro.assetRegistryPath,
     define,
     minify: values.minify,
     sourcemap: sourcemap !== undefined,
     prelude: prelude(define.__DEV__, values.dev ? 'development' : 'production'),
-    polyfills: polyfills(project, fail),
+    polyfills: metro.polyfills(values.platform),
     aliases: values['babel-aliases'] === undefined ? null : babelAliases(cwd, values['babel-aliases'], fail),
   })
 } catch (error) {
