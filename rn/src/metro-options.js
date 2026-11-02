@@ -158,7 +158,7 @@ const patterns = (blockList) => {
 // its inline requires, where Metro is the project's (`inlineRequires`).
 function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null)) {
   let polyfills = null
-  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, watchFolders: null, maxWorkers: null, ownLists: [], minifyRefusal: null, transformRefusal: () => null }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, watchFolders: null, maxWorkers: null, defaultLists: null, minifyRefusal: null, transformRefusal: () => null }
   return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
@@ -193,8 +193,9 @@ async function baselinesOf(metro, project, cwd) {
 // watchFolders (Metro's, the project root the first; their real paths) or
 // null, maxWorkers (workersOf()) or null where the config's is Metro's default
 // (its getMaxWorkers() of the CPUs, too many for rn: defaultWorkers()),
-// ownLists (which of the resolver's assetExts, sourceExts and
-// assetResolutions the config sets as neither default has them),
+// defaultLists (the resolver's assetExts, sourceExts and assetResolutions of
+// each default, Metro's and @react-native/metro-config's over it; null of
+// no config loaded),
 // minifyRefusal, transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
 // { platform, dev }) (inlineRequiresOf()) }. `name` is the command's,
 // `serving` whether it serves, `minify` whether it minifies; where it
@@ -266,7 +267,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     port: server?.port ?? null,
     watchFolders: config.watchFolders.map((folder) => realPathOf(resolve(cwd, folder))),
     maxWorkers: baselines.some((baseline) => baseline.maxWorkers === config.maxWorkers) ? null : workersOf(config.maxWorkers),
-    ownLists: ['assetExts', 'sourceExts', 'assetResolutions'].filter((key) => !baselines.some((base) => same(resolver[key], base.resolver?.[key]))),
+    defaultLists: baselines.map(({ resolver: lists }) => ({ assetExts: lists.assetExts, sourceExts: lists.sourceExts, assetResolutions: lists.assetResolutions })),
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
     transformRefusal: async (entryPath, target) => {
       // Its getDependencies, of what preloads, of no bearing here; but of

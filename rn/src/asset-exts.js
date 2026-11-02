@@ -35,7 +35,7 @@ function locateOxc(projectRoot) {
 // metro.config.js; throws where `file` isn't there, or only a parser reads
 // it and there's none, or rn.config.json is not one rn-bundle takes. Where
 // rn.config.json has assetExts, Metro's defaults and them, reading no
-// Metro config: rn-bundle and rn-serve refuse one that sets them too.
+// Metro config: rn-bundle and rn-serve refuse one that sets them otherwise.
 export function readMetroAssetExts(projectRoot, { file = null, oxc } = {}) {
   const rnConfig = readRnConfig(projectRoot, (message) => {
     throw new Error(message)

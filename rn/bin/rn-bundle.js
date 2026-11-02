@@ -40,7 +40,7 @@
 // with none, but a package's exports read of any Metro; a path, that file),
 // the flags over it; and what it adds to Metro's defaults of assetExts,
 // sourceExts and assetResolutions (a Metro config that sets one of them
-// too, an error).
+// otherwise, an error).
 // --unstable-transform-profile, `react-native bundle`'s: the profile Babel's
 // caller names (default, hermes-stable, hermes-canary), which
 // @react-native/babel-preset builds for; default where not given.

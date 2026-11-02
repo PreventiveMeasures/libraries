@@ -58,7 +58,7 @@
 // metroConfig: false, none, as of a project with none, but a package's
 // exports read of any Metro; a path, that file), the flags over it; and
 // what it adds to Metro's defaults of assetExts, sourceExts and
-// assetResolutions (a Metro config that sets one of them too, an error).
+// assetResolutions (a Metro config that sets one of them otherwise, an error).
 
 import { realpathSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'

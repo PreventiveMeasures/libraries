@@ -397,7 +397,13 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     assert.equal(both.status, 0, both.stderr)
     assert.deepEqual(outputOf(), ['glow', 'riv'])
     const refused = await bundleWith({ metroConfig: 'glow.config.js', assetExts: ['riv'] }, [], 'both.js')
-    assert.deepEqual([refused.status, refused.stderr], [1, "rn-bundle: rn.config.json: assetExts adds to Metro's defaults, and glow.config.js sets resolver.assetExts too: set it in one of them\n"])
+    assert.equal(refused.status, 1)
+    assert.match(refused.stderr, /^rn-bundle: rn\.config\.json: assetExts is Metro's defaults and riv, and glow\.config\.js's resolver\.assetExts has glow and lacks bmp, gif, jpg, jpeg, png and \d+ more: set it in one of them, or alike in both\n$/u)
+    // Set alike in both: Metro's defaults and glow.
+    writeFileSync(join(root, 'alike.config.js'), templateConfig("{ resolver: { assetExts: [...defaultConfig.resolver.assetExts, 'glow'] } }"))
+    const alike = await bundleWith({ metroConfig: 'alike.config.js', assetExts: ['glow'] }, [], 'glow.js')
+    assert.equal(alike.status, 0, alike.stderr)
+    assert.equal(outputOf(), 'glow')
     // Of neither, no asset: the file a module.
     assert.equal((await bundleWith({ metroConfig: false }, [], 'glow.js')).status, 0)
     assert.doesNotMatch(readFileSync(join(root, 'out.js'), 'utf8'), /metro-asset:halo\.glow/u)
