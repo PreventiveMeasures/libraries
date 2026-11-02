@@ -235,34 +235,38 @@ function idle(code) {
 
 // Whether module-resolver, of these options, leaves the file as it is: a
 // string specifier is, in the file, a quote, its body and that quote again,
-// on one line, so each such string of the file, from each quote not escaped
-// (whatever the quotes before it), is tried, its escapes read as what they
-// escape (a line continuation as nothing); a file with an escape of a code
-// point (`\x23`), it may not leave. Nor any where an alias matches what
+// on one line, or a template of no substitution, which
+// transform-template-literals makes a string, so each such string of the
+// file, from each quote or backtick not escaped (whatever the quotes before
+// it), is tried, its escapes read as what they escape (a line continuation
+// as nothing), a template's line breaks as `\n`; a file with an escape of a
+// code point (`\x23`), it may not leave. Nor any where an alias matches what
 // Babel's plugins may write into a file (writesAliased()).
 function unaliased(options, contents, plugins, helpers) {
   if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
   const aliases = aliasesOf(options)
   if (aliases === null || writesAliased(options, aliases, plugins, contents, helpers)) return false
-  for (const { index, 0: quote } of contents.matchAll(/['"]/gu)) {
+  for (const { index, 0: quote } of contents.matchAll(/['"`]/gu)) {
     let backslashes = 0
     while (contents[index - 1 - backslashes] === '\\') backslashes++
     if (backslashes % 2 === 1) continue
     const body = BODIES[quote]
     body.lastIndex = index + 1
     const raw = body.exec(contents)?.[0]
-    const value = raw?.slice(0, -1).replaceAll(/\\(?:\r\n|[\n\r\u2028\u2029])/gu, '').replaceAll(/\\(.)/gsu, (escape, of) => ESCAPED[of] ?? of)
+    const value = raw?.slice(0, -1).replaceAll(/\\(\r\n|.)|\r\n?/gsu, (escape, of) => (of === undefined ? '\n' : (ESCAPED[of] ?? of)))
     if (value !== undefined && aliases.some((alias) => alias.test(value))) return false
   }
   return true
 }
 
-// What a string's escape of one character is, but for those of what it escapes.
-const ESCAPED = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' }
+// What a string's escape of one character is, but for those of what it
+// escapes: a line continuation nothing.
+const ESCAPED = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\n': '', '\r': '', '\r\n': '', '\u2028': '', '\u2029': '' }
 
 // Of each quote, a string's body after it, and the quote that ends it: its
-// escapes (a line continuation among them) its own, on one line.
-const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy }
+// escapes (a line continuation among them) its own, on one line; of a
+// backtick, a template's, of no `${`, across lines.
+const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy, '`': /(?:\\(?:\r\n|[^])|[^\\`$]|\$(?!\{))*`/uy }
 
 // Whether an alias of module-resolver's matches what Babel's plugins of the
 // config may write into a file that had none: the automatic JSX runtime's,
