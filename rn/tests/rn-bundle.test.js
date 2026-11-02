@@ -853,19 +853,35 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
     'b.js': "export default class { b = 'b' }\n",
     // A script, which names `import` and `export` in strings alone.
     'c.js': "module.exports = ['import', 'export'].join() && 'c'\n",
+    // A file of no class, which another plugin writes one into.
+    'made.js': 'console.log(JSON.stringify(__CLASS__))\n',
+    'class-plugin.js': "module.exports = ({ types: t }) => ({ name: 'writes-a-class', visitor: { Identifier(path) { if (path.node.name === '__CLASS__') path.replaceWith(t.classExpression(null, null, t.classBody([]), [])) } } })\n",
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
 
-  it('leaves each out of Babel in a file that gives it nothing to do', () => {
+  it('leaves modules and block scoping out of Babel in a file that gives them nothing to do', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'c'])
     const files = (key) => Number(new RegExp(`^ +\\d+ +[\\d.]+ +(\\d+) +\\d+ {2}${key}$`, 'mu').exec(r.stderr)?.[1] ?? 0)
-    // Classes, in the file with one; modules, in those with import or
-    // export, and the script whose strings name them; block scoping, in the
-    // file with a class and the script.
-    assert.deepEqual(['transform-classes', 'transform-modules-commonjs', 'transform-block-scoping'].map(files), [1, 4, 2])
+    // Classes, in each file with `export default` or a class; modules, in
+    // those with import or export, and the script whose strings name them;
+    // block scoping, in the file with a class and the script.
+    assert.deepEqual(['transform-classes', 'transform-modules-commonjs', 'transform-block-scoping'].map(files), [2, 4, 2])
+  })
+
+  it('keeps classes in Babel in a file of no class, where another plugin writes one', () => {
+    const config = readFileSync(join(root, 'babel.config.js'), 'utf8')
+    // Of classes' key, one that makes each class a string.
+    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: ['./class-plugin.js', ${plugin('transform-classes', "Class(path) { path.replaceWith({ type: 'StringLiteral', value: 'lowered' }) }")}] }\n`)
+    try {
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'made.js'], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, '"lowered"\n')
+    } finally {
+      writeFileSync(join(root, 'babel.config.js'), config)
+    }
   })
 
   const selfTest = (...args) => spawnSync(process.execPath, [BIN, '--platform=ios', '--self-test', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
@@ -878,9 +894,9 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
   })
 
   it('with --self-test, fails where Babel leaves out a plugin that has something to do', () => {
-    // Of classes' key, one that marks each `export default`, in a file with no class too.
+    // Of block scoping's key, one that marks each `export default`, in a module with no let, const or class too.
     const config = readFileSync(join(root, 'babel.config.js'), 'utf8')
-    writeFileSync(join(root, 'babel.config.js'), config.replace('ExportDefaultDeclaration() {}', "ExportDefaultDeclaration(path) { path.insertAfter({ type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'marked' } }) }"))
+    writeFileSync(join(root, 'babel.config.js'), config.replace("name: 'transform-block-scoping', visitor: { Program() {}", "name: 'transform-block-scoping', visitor: { Program() {}, ExportDefaultDeclaration(path) { path.insertAfter({ type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'marked' } }) }"))
     try {
       const r = selfTest()
       assert.equal(r.status, 1)

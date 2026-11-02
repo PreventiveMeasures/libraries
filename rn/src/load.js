@@ -60,15 +60,15 @@ const COMMONJS = 'transform-modules-commonjs'
 const MODULE_SYNTAX = /\b(?:import|export)\b/u
 const COMMONJS_NAMES = /\b(?:module|exports)\b/u
 // Left out of Babel where the file gives them nothing to do (their output
-// the same): transform-classes where it has no class, as
-// @react-native/babel-preset would leave it, were it given the source (Babel
-// gives a preset none), else it looks at each `export default`;
-// transform-modules-commonjs where it has no import or export, a script to
-// Babel; transform-block-scoping in a module (strict, so of no block function
-// to lower, as in a script) with no let, const or class (transform-classes
-// makes one a let), but where @react-native/babel-plugin-codegen writes const.
-// Its lowering of what other plugins add, Babel's worker does again.
-const CLASSES = 'transform-classes'
+// the same): transform-modules-commonjs where it has no import or export, a
+// script to Babel; transform-block-scoping in a module (strict, so of no
+// block function to lower, as in a script) with no let, const or class
+// (transform-classes makes one a let), but where
+// @react-native/babel-plugin-codegen writes const. Its lowering of what other
+// plugins add, Babel's worker does again. Not transform-classes, though a
+// file has no class: another plugin may write one (its helpers then imported
+// as the config imports them, which lowering it again would not), and in a
+// file with none it takes no time.
 const BLOCK_SCOPING = 'transform-block-scoping'
 const BLOCK_SCOPED = /\b(?:let|const|class)\b/u
 const MODULE = /^(?:import(?!\s*\()|export)\b/mu
@@ -226,11 +226,10 @@ function lowering(plugins, inert) {
   return { supported, without }
 }
 
-// The plugins the file gives nothing to do, of CLASSES, COMMONJS and BLOCK_SCOPING.
+// The plugins the file gives nothing to do, of COMMONJS and BLOCK_SCOPING.
 function idle(code) {
   const module = MODULE.test(code)
   return [
-    ...(code.includes('class') ? [] : [CLASSES]),
     ...(MODULE_SYNTAX.test(code) ? [] : [COMMONJS]),
     ...(module && !BLOCK_SCOPED.test(code) && !code.includes('codegenNativeComponent') ? [BLOCK_SCOPING] : []),
   ]
