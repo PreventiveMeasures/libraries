@@ -36,8 +36,9 @@ export function createMetroResolver({
   disableHierarchicalLookup = false,
   metroResolver = null,
 } = {}) {
-  const extra = new Map(Object.entries(extraNodeModules ?? {}))
-  if (![...nodeModulesPaths, ...extra.values()].every((path) => typeof path === 'string' && isAbsolute(path))) throw new TypeError('createMetroResolver: nodeModulesPaths and extraNodeModules take absolute paths')
+  // Read by name at each lookup, as Metro reads it: a Proxy's names too.
+  const extra = extraNodeModules ?? {}
+  if (![...nodeModulesPaths, ...Object.values(extra)].every((path) => typeof path === 'string' && isAbsolute(path))) throw new TypeError('createMetroResolver: nodeModulesPaths and extraNodeModules take absolute paths')
   if (metroResolver !== null && typeof metroResolver.resolve !== 'function') throw new TypeError('createMetroResolver: metroResolver is a metro-resolver module, with its resolve')
   const config = {
     host,
@@ -99,8 +100,10 @@ function resolveRequest(context, specifier) {
     const hit = fromTargetPath(context, `${nodeModules}${sep}${bare.replaceAll('/', sep)}`)
     if (hit !== null) return hit
   }
-  const extra = context.extra.get(name)
-  return (extra === undefined ? null : fromTargetPath(context, join(extra, subpath))) ?? FAILED
+  const extra = context.extra[name]
+  if (typeof extra !== 'string') return FAILED
+  if (!isAbsolute(extra)) throw new TypeError(`createMetroResolver: extraNodeModules takes absolute paths, not ${JSON.stringify(extra)} for ${name}`)
+  return fromTargetPath(context, join(extra, subpath)) ?? FAILED
 }
 
 // Each node_modules from the origin up, then `nodeModulesPaths` not among
@@ -267,7 +270,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
     assetExts: context.assetExts,
     disableHierarchicalLookup: context.disableHierarchicalLookup,
     doesFileExist: ours((path) => host.isFile(path)),
-    extraNodeModules: Object.fromEntries(context.extra),
+    extraNodeModules: context.extra,
     fileSystemLookup: ours((path) => {
       const type = host.isFile(path) ? 'f' : host.isDirectory(path) ? 'd' : null
       return type === null ? { exists: false } : { exists: true, type, realPath: host.realpath(path) }

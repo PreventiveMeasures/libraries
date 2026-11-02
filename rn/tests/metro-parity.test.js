@@ -37,6 +37,8 @@ describe('createMetroResolver resolves as metro-resolver does', () => {
     const options = { nodeModulesPaths: [join(root, 'vendor', 'node_modules'), join(root, 'node_modules')], extraNodeModules: { stream: join(root, 'shims', 'stream') } }
     assert.deepEqual(differences(options), [])
     assert.deepEqual(differences({ ...options, disableHierarchicalLookup: true }), [])
+    // One that names each package as it is looked up, as monorepos have it.
+    assert.deepEqual(differences({ extraNodeModules: new Proxy({}, { get: (_, name) => join(root, 'shims', String(name)) }) }), [])
   })
 
   // [label, importer, specifier, expected, request options]

@@ -45,6 +45,9 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
   it('takes the options it does, whatever they are', async () => {
     const options = await load("{ resolver: { sourceExts: ['js', 'mjs'], extraNodeModules: { shared: '../shared' }, nodeModulesPaths: ['vendor'], disableHierarchicalLookup: true }, transformer: { enableBabelRCLookup: false } }")
     assert.deepEqual([options.resolver.sourceExts, options.resolver.extraNodeModules, options.resolver.nodeModulesPaths, options.resolver.disableHierarchicalLookup, options.babelRCLookup], [['js', 'mjs'], { shared: join(root, '../shared') }, [join(root, 'vendor')], true, false])
+    // extraNodeModules by name, as Metro reads it: a Proxy's too.
+    const lazy = await load("{ resolver: { extraNodeModules: new Proxy({}, { get: (_, name) => `../${String(name)}` }) } }")
+    assert.equal(lazy.resolver.extraNodeModules.shared, join(root, '../shared'))
   })
 
   it('refuses a Babel transformer, a resolver, a serializer and transform options of its own', async () => {

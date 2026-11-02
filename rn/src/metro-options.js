@@ -142,7 +142,8 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
       conditionNames: resolver.unstable_conditionNames,
       conditionsByPlatform: resolver.unstable_conditionsByPlatform,
       nodeModulesPaths: (resolver.nodeModulesPaths ?? []).map(absolute),
-      extraNodeModules: Object.fromEntries(Object.entries(resolver.extraNodeModules ?? {}).map(([key, path]) => [key, absolute(path)])),
+      // Read by name, as Metro reads it: a Proxy's names too.
+      extraNodeModules: new Proxy(resolver.extraNodeModules ?? {}, { get: (target, key) => (typeof target[key] === 'string' ? absolute(target[key]) : target[key]) }),
       disableHierarchicalLookup: resolver.disableHierarchicalLookup,
     },
     blockList: patterns(resolver.blockList),
