@@ -21,6 +21,8 @@
 //   /message                   reload and devMenu, to each app
 //   /hot                       each app's HMRClient: Fast Refresh's updates
 //                              (hotUpdate), and build errors
+//   /network                   each app's network reporter: its requests, for
+//                              React Native DevTools' Network panel (network.js)
 // and `websocketEndpoints`, `ws` servers (dev-middleware's inspector).
 // Nothing runs a command or opens a file a request names.
 
@@ -32,6 +34,7 @@ import { bundleRequest, toNormalUrl } from './bundle-url.js'
 import { diskHost } from './defaults.js'
 import { SAFE_HEADERS } from './gate.js'
 import { hotUpdate } from './hot.js'
+import { createNetworkInspector } from './network.js'
 import { assetResponse } from './serve-assets.js'
 import { servedSourceMap, sourceOfRequest, sourceRoutes } from './source-map.js'
 import { bundleUrls, stackOf, symbolicate } from './symbolicate.js'
@@ -95,10 +98,12 @@ function readBody(request) {
 
 // -> { server, broadcast(method), hotError(error, requests),
 // hotUpdate(request, before, after, { recovered }), mount({ middleware,
-// websocketEndpoints }), clients() }. `watchFolders`: the Metro config's,
-// the project root the first, as Metro has them.
+// websocketEndpoints }), network, clients() }; `network`, the Network
+// panel's (network.js's createNetworkInspector()). `watchFolders`: the
+// Metro config's, the project root the first, as Metro has them.
 export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
   const sources = sourceRoutes(projectRoot, watchFolders)
+  const network = createNetworkInspector({ keyOf: keyOfUrl, log })
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()
@@ -179,13 +184,14 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
       return { onClose: () => messageClients.delete(client) }
     },
     '/hot': (client) => hotSocket(client, hotClients, { log, clientLogs }),
+    '/network': (client) => network.reporter(client),
   }
   server.on('upgrade', (request, socket, head) => upgrade(request, socket, head, { gate, sockets, endpoints: websocketEndpoints }))
 
   const mount = (mounted) => {
     ;({ middleware, websocketEndpoints } = mounted)
   }
-  return { server, broadcast, hotError, hotUpdate: (request, before, after, options) => sendUpdate(hotClients, request, before, after, options), mount, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
+  return { server, broadcast, hotError, hotUpdate: (request, before, after, options) => sendUpdate(hotClients, request, before, after, options), mount, network, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
 }
 
 // Metro's multipart response (its MultipartResponse), to a client that takes

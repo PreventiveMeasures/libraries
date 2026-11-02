@@ -23,7 +23,7 @@ const under = (dir, tree) => Object.fromEntries(Object.entries(tree).map(([path,
 
 const until = async (get, what, ms = 15_000) => {
   for (const end = Date.now() + ms; Date.now() < end; await sleep(20)) {
-    const value = get()
+    const value = await get()
     if (value) return value
   }
   throw new Error(`timed out waiting for ${what}`)
@@ -722,6 +722,110 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
       assert.match(server.output(), /no metro-runtime/u)
     } finally {
       await server.stop()
+    }
+  })
+})
+
+describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Network panel', () => {
+  // A dev-middleware of its options and rn-serve's handler alone, which the
+  // test drives as a DevTools and its app's runtime would: GET
+  // /test/<route>?m=<message>.
+  const DEV_MIDDLEWARE = [
+    'const sent = []',
+    'let options = null',
+    'let handler = null',
+    'exports.createDevMiddleware = (given) => {',
+    '  options = given',
+    '  const routes = {',
+    "    '/test/options': () => ({ experiments: options.unstable_experiments, handler: typeof options.unstable_customInspectorMessageHandler }),",
+    "    '/test/connect': () => {",
+    "      handler = options.unstable_customInspectorMessageHandler({ page: { id: '1' }, device: { appId: 'com.app', id: 'phone', name: 'Phone', sendMessage: () => {} }, debugger: { userAgent: null, sendMessage: (message) => sent.push(message) } })",
+    '      return null',
+    '    },',
+    "    '/test/debugger': (message) => handler.handleDebuggerMessage(message) === true,",
+    "    '/test/device': (message) => handler.handleDeviceMessage(message) === true,",
+    "    '/test/sent': () => sent,",
+    '  }',
+    '  const middleware = (request, response, next) => {',
+    "    const url = new URL(request.url, 'http://localhost')",
+    '    if (!Object.hasOwn(routes, url.pathname)) return next()',
+    "    response.end(JSON.stringify(routes[url.pathname](JSON.parse(url.searchParams.get('m') ?? 'null'))))",
+    '  }',
+    '  return { middleware, websocketEndpoints: {} }',
+    '}',
+    '',
+  ].join('\n')
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'node_modules/metro-runtime': linked('metro-runtime'),
+    'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
+    'node_modules/@react-native/dev-middleware/index.js': DEV_MIDDLEWARE,
+    // As react-native 0.88 has them: its Libraries/ exported.
+    'node_modules/react-native/package.json': { name: 'react-native', version: '0.88.1', exports: { './asset-registry': './src/asset-registry.js', './setup-env': './src/setup-env.js', './Libraries/*': './Libraries/*.js' } },
+    'node_modules/react-native/Libraries/Core/Devtools/getDevServer.js': "module.exports = () => {\n  ;(globalThis.order ??= []).push('reporter')\n  return globalThis.devServer\n}\n",
+    'node_modules/react-native/Libraries/Core/Devtools/parseErrorStack.js': 'module.exports = () => []\n',
+  })
+  let server
+  before(async () => {
+    server = await serve(root)
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+  const bundleUrl = (query = 'platform=ios') => `${server.url}/index.bundle?${query}`
+  const ask = async (route, message = null) => JSON.parse(String((await fetchRaw(`${server.url}/test/${route}?m=${encodeURIComponent(JSON.stringify(message))}`)).body))
+
+  it("has dev-middleware show the Network panel, each DevTools' messages through rn-serve's handler", async () => {
+    assert.deepEqual(await ask('options'), { experiments: { enableNetworkInspector: true }, handler: 'function' })
+  })
+
+  it("runs its reporter in each dev bundle, after setup-env, before the entry, its imports react-native's, as the entry's", async () => {
+    const code = String((await fetchRaw(bundleUrl())).body)
+    assert.match(code, /app\/network\.js"\);/u)
+    const sockets = []
+    class WebSocket {
+      constructor(url) {
+        sockets.push(url)
+      }
+      addEventListener() {}
+    }
+    class XMLHttpRequest {}
+    const context = { console: { log: () => {} }, setTimeout, WebSocket, XMLHttpRequest, devServer: { url: `${server.url}/`, fullBundleUrl: bundleUrl(), bundleLoadedFromServer: true } }
+    context.globalThis = context
+    runInNewContext(code, context)
+    assert.deepEqual(JSON.parse(JSON.stringify([context.result.order, sockets])), [['polyfill', 'setup-env', 'reporter'], [`${server.url.replace('http', 'ws')}/network`]])
+    assert.ok(Object.hasOwn(XMLHttpRequest.prototype, 'send'))
+    // Not in a bundle of no dev.
+    assert.doesNotMatch(String((await fetchRaw(bundleUrl('platform=ios&dev=false'))).body), /app\/network\.js/u)
+  })
+
+  it('shows the panel each request its app reports, where its runtime fails Network.enable', async () => {
+    await ask('connect')
+    assert.equal(await ask('device', { method: 'Debugger.scriptParsed', params: { scriptId: '3', url: bundleUrl() } }), false)
+    assert.equal(await ask('debugger', { id: 1, method: 'Network.enable', params: {} }), false)
+    assert.equal(await ask('device', { id: 1, error: { code: -32_601, message: "Unsupported method 'Network.enable'" } }), true)
+    const { ws, messages } = await socket(`${server.url}/network`)
+    try {
+      ws.send(JSON.stringify({ type: 'hello', bundle: bundleUrl() }))
+      await until(() => messages.length > 0, 'the reporter told')
+      assert.deepEqual(messages, [{ type: 'enable' }])
+      for (const message of [
+        { type: 'request', id: 1, url: 'https://api.example/user', method: 'GET', headers: {}, time: 1, wallTime: 1_700_000_000, stack: [{ methodName: 'loadUser', file: bundleUrl(), lineNumber: 3, column: 1 }] },
+        { type: 'response', id: 1, url: 'https://api.example/user', status: 200, headers: {}, mimeType: 'application/json', time: 1.1 },
+        { type: 'body', id: 1, at: 0, data: '{"id":42}', base64: false, more: false },
+        { type: 'finished', id: 1, time: 1.2, size: 9 },
+      ]) ws.send(JSON.stringify(message))
+      const sent = await until(async () => {
+        const all = await ask('sent')
+        return all.some(({ method }) => method === 'Network.loadingFinished') && all
+      }, 'the panel sent the request')
+      assert.deepEqual(sent.map(({ id, method }) => method ?? id), [1, 'Network.requestWillBeSent', 'Network.responseReceived', 'Network.loadingFinished'])
+      assert.equal(sent[1].params.initiator.stack.callFrames[0].scriptId, '3')
+      assert.equal(await ask('debugger', { id: 2, method: 'Network.getResponseBody', params: { requestId: sent[1].params.requestId } }), true)
+      assert.deepEqual((await ask('sent')).at(-1), { id: 2, result: { body: '{"id":42}', base64Encoded: false } })
+    } finally {
+      ws.close()
     }
   })
 })
