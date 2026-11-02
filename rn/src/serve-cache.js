@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { touch } from './load-pack.js'
+import { oneBundleOf } from './native-bundles.js'
 
 // A run's bundles kept, at most: a dev bundler's.
 const KEPT = 8
@@ -59,9 +60,11 @@ const requestOf = (kept) => {
 // bundler, of which each request (but a shallow one, a module's) is the
 // run's, kept as an app first makes it, the last run's then gone. warm()
 // -> a promise of the last run's built, one after another, in the order
-// an app first asked for them. A cache's, at best: what fails to read or
-// write is none.
-export function lastBuilds(dir, projectRoot) {
+// an app first asked for them; of none kept, the project's one bundle
+// (native-bundles.js's oneBundleOf()), for iOS on a Mac (`system`,
+// process.platform's), else for Android, where it has one. A cache's, at
+// best: what fails to read or write is none.
+export function lastBuilds(dir, projectRoot, { system = process.platform } = {}) {
   const path = join(dir, 'builds', `${createHash('sha256').update(projectRoot).digest('hex')}.json`)
   let last = []
   try {
@@ -99,8 +102,15 @@ export function lastBuilds(dir, projectRoot) {
       },
     }),
     warm: (devBundler, log) => {
-      if (last.length > 0) log(`rn-serve: building ${last.map(bundleName).join('; ')} ahead of the app, as its last run did`)
-      return last.reduce((done, request) => done.then(() => devBundler.get(request).catch(() => {})), Promise.resolve())
+      let requests = last
+      if (requests.length > 0) log(`rn-serve: building ${requests.map(bundleName).join('; ')} ahead of the app, as its last run did`)
+      else {
+        const { request, several } = oneBundleOf(projectRoot, system === 'darwin' ? 'ios' : 'android')
+        if (request !== null) log(`rn-serve: building ${bundleName(request)} ahead of the app, the project's one bundle`)
+        if (several.length > 0) log(`rn-serve: building none ahead of the app, of the project's bundles: ${several.join(', ')}`)
+        requests = request === null ? [] : [request]
+      }
+      return requests.reduce((done, request) => done.then(() => devBundler.get(request).catch(() => {})), Promise.resolve())
     },
   }
 }

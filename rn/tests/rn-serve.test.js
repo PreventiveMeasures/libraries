@@ -29,9 +29,10 @@ const until = async (get, what, ms = 15_000) => {
   throw new Error(`timed out waiting for ${what}`)
 }
 
-// rn-serve on a free port, in `cwd`, of the temporary directory `tmp`. -> { url, output(), stop() }
-async function serve(cwd, args = [], tmp = TMP) {
-  const child = spawn(process.execPath, [BIN, '--port=0', ...args], { cwd, env: envOf(tmp), stdio: ['ignore', 'pipe', 'pipe'] })
+// rn-serve on a free port, in `cwd`, of the temporary directory `tmp`, of
+// no bundle built ahead of the app but where `warm`. -> { url, output(), stop() }
+async function serve(cwd, args = [], tmp = TMP, { warm = false } = {}) {
+  const child = spawn(process.execPath, [BIN, '--port=0', ...(warm ? [] : ['--no-warm']), ...args], { cwd, env: envOf(tmp), stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   const collect = (data) => {
     out += data
@@ -696,7 +697,7 @@ describe('rn-serve, its cache of each file as it loads', () => {
   })
 
   it('builds, as it starts, the bundles an app asked for of its last run, ahead of the app, which then has its bundle at once', async () => {
-    const server = await serve(root, [], tmp)
+    const server = await serve(root, [], tmp, { warm: true })
     try {
       await until(() => /rn-serve: built \.\/index for ios, dev in \d+ ms, cache [^\n]*: 2 hits, 0 misses\n/u.test(server.output()), 'the bundle built ahead of the app')
       assert.match(server.output(), /rn-serve: building \.\/index for ios, dev ahead of the app, as its last run did\n/u)
@@ -704,6 +705,19 @@ describe('rn-serve, its cache of each file as it loads', () => {
       assert.equal(server.output().match(/rn-serve: built /gu).length, 1)
     } finally {
       await server.stop()
+    }
+  })
+
+  it("builds, as it starts, of no run before, the project's one bundle, for iOS on a Mac, else for Android", async () => {
+    const fresh = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
+    const platform = process.platform === 'darwin' ? 'ios' : 'android'
+    const server = await serve(root, [], fresh, { warm: true })
+    try {
+      await until(() => new RegExp(`rn-serve: built \\./index for ${platform}, dev in \\d+ ms`, 'u').test(server.output()), 'the bundle built ahead of the app')
+      assert.match(server.output(), new RegExp(`rn-serve: building \\./index for ${platform}, dev ahead of the app, the project's one bundle\n`, 'u'))
+    } finally {
+      await server.stop()
+      rmSync(fresh, { recursive: true, force: true })
     }
   })
 

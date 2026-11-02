@@ -73,6 +73,7 @@
     "src/metro-options.js",
     "src/module-resolver.js",
     "src/modules.js",
+    "src/native-bundles.js",
     "src/network.js",
     "src/resolve.js",
     "src/self-test.js",
