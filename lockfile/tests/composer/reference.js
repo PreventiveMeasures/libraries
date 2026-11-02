@@ -2,7 +2,10 @@
 // every case. COMPOSER_PHAR names the phar, or else the `composer` on PATH
 // is taken for one, as it is where installed from getcomposer.org; PHP
 // names the interpreter, php by default. undefined comes back where
-// either is missing.
+// either is missing. Xdebug, which GitHub's Ubuntu runners load and
+// enable, is turned off: it makes PHP some 10-25 times slower (Composer's
+// own command restarts PHP without it), and the case of Composer 2.10's
+// schema alone took a minute of CI's two.
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +32,7 @@ export function composer(cases) {
   if (PHAR === undefined) return undefined
   const keys = cases.map((item) => JSON.stringify(item))
   const unique = [...new Set(keys)]
-  const run = spawnSync(process.env.PHP ?? 'php', ['-d', 'memory_limit=-1', SCRIPT, PHAR], { input: `[${unique.join(',')}]`, encoding: 'utf8', maxBuffer: 1 << 28 })
+  const run = spawnSync(process.env.PHP ?? 'php', ['-d', 'memory_limit=-1', SCRIPT, PHAR], { input: `[${unique.join(',')}]`, encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, XDEBUG_MODE: 'off' } })
   if (run.error !== undefined || run.status !== 0) return undefined
   const results = new Map(JSON.parse(run.stdout).map((result, index) => [unique[index], result]))
   return keys.map((key) => results.get(key))
