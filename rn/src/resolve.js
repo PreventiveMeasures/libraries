@@ -34,6 +34,7 @@ export function createMetroResolver({
   nodeModulesPaths = [],
   extraNodeModules = null,
   disableHierarchicalLookup = false,
+  packageExports = true,
   metroResolver = null,
 } = {}) {
   // Read by name at each lookup, as Metro reads it: a Proxy's names too.
@@ -51,6 +52,7 @@ export function createMetroResolver({
     preferNativePlatform,
     nodeModulesPaths: [...nodeModulesPaths],
     disableHierarchicalLookup,
+    packageExports,
     extra,
     // Each package.json, package root and redirect map, read once.
     manifests: new Map(),
@@ -90,7 +92,7 @@ function resolveRequest(context, specifier) {
   const name = parts.slice(0, bare.startsWith('@') && parts.length > 1 ? 2 : 1).join('/')
   const subpath = `.${bare.slice(name.length)}`
   // A package importing itself by name.
-  if (own?.packageJson.exports != null && own.packageJson.name === name) {
+  if (context.packageExports && own?.packageJson.exports != null && own.packageJson.name === name) {
     const hit = packageTarget(context, own.rootPath, exportsTarget(own.packageJson.exports, subpath, context.conditions))
     if (hit !== null) return hit
   }
@@ -122,7 +124,7 @@ function fromTargetPath(context, targetPath) {
   const candidate = redirect(context, targetPath)
   if (candidate === false) return EMPTY
   const pkg = packageOf(context, candidate)
-  if (pkg?.packageJson.exports != null) {
+  if (context.packageExports && pkg?.packageJson.exports != null) {
     const subpath = pkg.packageRelativePath === '' ? '.' : `./${pkg.packageRelativePath}`
     const hit = packageTarget(context, pkg.rootPath, exportsTarget(pkg.packageJson.exports, subpath, context.conditions))
     if (hit !== null) return hit
@@ -296,7 +298,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
     sourceExts: context.sourceExts,
     unstable_conditionNames: context.conditionNames,
     unstable_conditionsByPlatform: Object.fromEntries(context.byPlatform),
-    unstable_enablePackageExports: true,
+    unstable_enablePackageExports: context.packageExports,
     unstable_logWarning: () => {},
   }
   try {

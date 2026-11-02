@@ -558,8 +558,12 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
   })
 })
 
-describe('rn-serve, with a Metro config of a minifier of its own', () => {
-  const { root, cleanup } = writeTree({ ...APP, 'metro.config.js': 'module.exports = { transformer: { minifierConfig: { mangle: false } } }\n', 'node_modules/metro-config': linked('metro-config') })
+describe('rn-serve, with a Metro config of a minifier and transform options of its own', () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'metro.config.js': "module.exports = { transformer: { minifierConfig: { mangle: false }, getTransformOptions: async (entries, { platform }) => ({ transform: { experimentalImportSupport: platform === 'android' } }) } }\n",
+    'node_modules/metro-config': linked('metro-config'),
+  })
   after(cleanup)
 
   it("serves a bundle, but no minified one, which esbuild would minify as the config doesn't have it", async () => {
@@ -569,6 +573,17 @@ describe('rn-serve, with a Metro config of a minifier of its own', () => {
       const minified = await fetchRaw(`${server.url}/index.bundle?platform=ios&minify=true`)
       assert.equal(minified.status, 500)
       assert.match(JSON.parse(String(minified.body)).message, /transformer\.minifierConfig is \{"mangle":false\}: rn-serve does it as Metro's default alone/u)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it('asks getTransformOptions of each bundle, as Metro does, failing one whose transform options it does not do', async () => {
+    const server = await serve(root)
+    try {
+      const android = await fetchRaw(`${server.url}/index.bundle?platform=android`)
+      assert.equal(android.status, 500)
+      assert.match(JSON.parse(String(android.body)).message, /transformer\.getTransformOptions gives experimentalImportSupport true, Metro's own transform of import and export: rn-serve does it as Metro's default alone/u)
     } finally {
       await server.stop()
     }

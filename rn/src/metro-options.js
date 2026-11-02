@@ -6,6 +6,7 @@
 // config reads its assetExts off it instead (metro-config.js).
 
 import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { isAbsolute, relative, resolve } from 'node:path'
 
 import { locateThrough, polyfills as reactNativePolyfills } from './cli.js'
@@ -14,10 +15,18 @@ import { defaults } from './defaults.js'
 const under = (section, keys) => keys.map((key) => (section === '' ? key : `${section}.${key}`))
 // The options rn-bundle and rn-serve do, whatever they are.
 const TAKEN = new Set([
-  ...under('resolver', ['assetExts', 'sourceExts', 'assetResolutions', 'resolverMainFields', 'unstable_conditionNames', 'unstable_conditionsByPlatform', 'nodeModulesPaths', 'extraNodeModules', 'disableHierarchicalLookup', 'blockList']),
+  ...under('resolver', ['assetExts', 'sourceExts', 'assetResolutions', 'resolverMainFields', 'unstable_conditionNames', 'unstable_conditionsByPlatform', 'nodeModulesPaths', 'extraNodeModules', 'disableHierarchicalLookup', 'blockList', 'unstable_enablePackageExports']),
   ...under('serializer', ['getPolyfills', 'polyfillModuleNames', 'getModulesRunBeforeMainModule']),
-  ...under('transformer', ['assetRegistryPath', 'enableBabelRCLookup']),
+  // getTransformOptions by what it gives (TRANSFORMS).
+  ...under('transformer', ['assetRegistryPath', 'enableBabelRCLookup', 'enableBabelRuntime', 'getTransformOptions']),
 ])
+// Of the transform options getTransformOptions gives, those rn-bundle and
+// rn-serve don't do, where not Metro's default: the rest are of how Metro
+// inlines requires, which they don't, or of nothing Metro 0.81 on reads.
+const TRANSFORMS = {
+  experimentalImportSupport: [Boolean, "Metro's own transform of import and export"],
+  unstable_inlinePlatform: [(value) => value === false, 'Platform.OS left to run time'],
+}
 // Of no bearing on what is built: how Metro caches, watches, works, reports
 // and parses (hermes-parser or Babel's, of one language).
 const LEFT = new Set([
@@ -80,10 +89,10 @@ const patterns = (blockList) => {
 // Without a config: Metro's defaults as @react-native/metro-config has
 // them, its polyfills those of the project's @react-native/js-polyfills, and
 // what runs before the entry, and the asset registry, react-native's own.
-function fallback(project, fail) {
+function fallback(project, fail, resolver = {}) {
   let polyfills = null
-  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, minifyRefusal: null }
-  return { ...none, file: null, assetExts: defaults.assetExts, resolver: {}, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, minifyRefusal: null, transformRefusal: () => null }
+  return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true }
 }
 
 // Metro's defaults, and @react-native/metro-config's over them where the
@@ -102,10 +111,13 @@ async function baselinesOf(metro, project, cwd) {
 // The project's Metro config (`file`, else the one Metro finds), as
 // bundle() and createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
-// assetRegistryPath or null, babelRCLookup, port or null, minifyRefusal }.
-// `name` is the command's, `serving` whether it serves, `minify` whether it
-// minifies; where it doesn't, minifyRefusal is the error of the options it
-// would not do if it did (a minifier's), or null.
+// assetRegistryPath or null, babelRCLookup, babelRuntime, port or null, minifyRefusal,
+// transformRefusal(entryPath, { platform, dev }) }. `name` is the command's,
+// `serving` whether it serves, `minify` whether it minifies; where it
+// doesn't, minifyRefusal is the error of the options it would not do if it
+// did (a minifier's), or null. transformRefusal is (a promise of) the error
+// of the transform options getTransformOptions gives a bundle, as Metro asks
+// it for each, that they don't do (TRANSFORMS), or null.
 export async function metroOptions(cwd, project, fail, { file = null, name, serving = false, minify = false }) {
   if (file !== null && !existsSync(resolve(cwd, file))) fail(`no such Metro config: ${file}`)
   const metroConfig = locateThrough(project, 'metro-config', ['@react-native/metro-config']) ?? locateThrough(project, 'metro-config', ['react-native', '@react-native/community-cli-plugin'])
@@ -114,9 +126,14 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     return found === undefined ? fallback(project, fail) : fail(`loading ${found} needs metro-config, as react-native has it: npm i -D metro-config`)
   }
   const metro = project.load(metroConfig)
+  // As Metro asks getTransformOptions, from 0.84 on, `hot` of each bundle;
+  // before, a served one's alone.
+  const [major, minor] = createRequire(metroConfig)('metro-config/package.json').version.split('.').map(Number)
+  const hot = serving || major > 0 || minor >= 84
   const given = file === null ? undefined : resolve(cwd, file)
   const { isEmpty, filepath } = await metro.resolveConfig(given, cwd)
-  if (isEmpty) return fallback(project, fail)
+  // Without one, Metro's defaults: from 0.82 on, a package's exports read.
+  if (isEmpty) return fallback(project, fail, { packageExports: Boolean((await metro.getDefaultConfig(cwd)).resolver.unstable_enablePackageExports) })
   const shown = relative(cwd, filepath)
   let config
   try {
@@ -145,6 +162,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
       // Read by name, as Metro reads it: a Proxy's names too.
       extraNodeModules: new Proxy(resolver.extraNodeModules ?? {}, { get: (target, key) => (typeof target[key] === 'string' ? absolute(target[key]) : target[key]) }),
       disableHierarchicalLookup: resolver.disableHierarchicalLookup,
+      packageExports: Boolean(resolver.unstable_enablePackageExports),
     },
     blockList: patterns(resolver.blockList),
     polyfills: (platform) => [...serializer.getPolyfills({ platform }), ...(serializer.polyfillModuleNames ?? [])],
@@ -152,7 +170,14 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     // Metro's own default names no registry: react-native's then.
     assetRegistryPath: transformer.assetRegistryPath === 'missing-asset-registry-path' ? null : transformer.assetRegistryPath,
     babelRCLookup: transformer.enableBabelRCLookup !== false,
+    babelRuntime: transformer.enableBabelRuntime ?? true,
     port: server?.port ?? null,
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
+    transformRefusal: async (entryPath, { platform, dev }) => {
+      // Its getDependencies, of what preloads, of no bearing here.
+      const transform = (await transformer.getTransformOptions([entryPath], { dev, hot, platform }, () => Promise.resolve([])))?.transform ?? {}
+      const refused = Object.entries(TRANSFORMS).filter(([key, [isRefused]]) => isRefused(transform[key]))
+      return refused.length === 0 ? null : refused.map(([key, [, what]]) => `${shown}: transformer.getTransformOptions gives ${key} ${show(transform[key], cwd)}, ${what}: ${name} does it as Metro's default alone`).join(`\n${name}: `)
+    },
   }
 }

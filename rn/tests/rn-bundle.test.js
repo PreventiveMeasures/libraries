@@ -927,7 +927,8 @@ describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset
   const babelrc = writeTree({ ...ENTRY, '.babelrc': { plugins: [['./platform-plugin.js', { tag: 'babelrc' }]] }, 'platform-plugin.js': PLATFORM_PLUGIN })
   const PRESET = pkg('@react-native/babel-preset', {
     'package.json': { name: '@react-native/babel-preset', main: 'index.js' },
-    'index.js': "module.exports = (api, options) => ({ plugins: [[require('./platform-plugin'), { tag: 'preset, for ' + (options.projectRoot === process.cwd() ? 'the project' : options.projectRoot) }]] })\n",
+    // With what of the bundle Metro's transformer gives it.
+    'index.js': "module.exports = (api, { projectRoot, dev, platform, unstable_transformProfile, enableBabelRuntime, disableImportExportTransform }) => ({ plugins: [[require('./platform-plugin'), { tag: ['preset, for ' + (projectRoot === process.cwd() ? 'the project' : projectRoot), dev, platform, unstable_transformProfile, enableBabelRuntime, disableImportExportTransform].join(' ') }]] })\n",
     'platform-plugin.js': PLATFORM_PLUGIN,
   })
   const preset = writeTree({ ...ENTRY, ...PRESET })
@@ -946,8 +947,8 @@ describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset
     preset.cleanup()
     nested.cleanup()
   })
-  const platform = (root) => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'platform.js'], { cwd: root, encoding: 'utf8' })
+  const platform = (root, ...args) => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'platform.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
   }
@@ -956,9 +957,9 @@ describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset
     assert.equal(platform(babelrc.root), 'babelrc')
   })
 
-  it('runs @react-native/babel-preset, for the project, where it has no config, as Metro does', () => {
-    assert.equal(platform(preset.root), 'preset, for the project')
-    assert.equal(platform(nested.root), 'preset, for the project')
+  it('runs @react-native/babel-preset, for the project, of the bundle, where it has no config, as Metro does', () => {
+    assert.equal(platform(preset.root), 'preset, for the project false ios default true false')
+    assert.equal(platform(nested.root, '--dev', '--unstable-transform-profile=hermes-stable'), 'preset, for the project true ios hermes-stable true false')
   })
 })
 
@@ -1062,6 +1063,12 @@ describe('rn-bundle with a Metro config', () => {
     writeFileSync(join(root, 'svg-transformer.js'), 'module.exports = {}\n')
     const r = bundleWith(['--metro-config=svg.config.js'], 'anim.js')
     assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: svg.config.js: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone\n"])
+  })
+
+  it("takes package exports either way, and transform options by what they are: refusing Metro's transform of import and export", () => {
+    writeFileSync(join(root, 'imports.config.js'), templateConfig("{ resolver: { unstable_enablePackageExports: true }, transformer: { getTransformOptions: async (entries, { platform }) => ({ transform: { inlineRequires: true, experimentalImportSupport: platform === 'ios' } }) } }"))
+    const r = bundleWith(['--metro-config=imports.config.js'], 'anim.js')
+    assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: imports.config.js: transformer.getTransformOptions gives experimentalImportSupport true, Metro's own transform of import and export: rn-bundle does it as Metro's default alone\n"])
   })
 })
 
