@@ -6,7 +6,8 @@
 // esbuild, which links the modules.
 
 import { Buffer } from 'node:buffer'
-import { extname, relative } from 'node:path'
+import { createRequire } from 'node:module'
+import { extname, join, relative } from 'node:path'
 
 // JS read as JSX, as @react-native/babel-preset reads it: react-native's own
 // .js files have JSX, and JSX reads plain JS as JS does.
@@ -72,10 +73,15 @@ const BLOCK_SCOPING = 'transform-block-scoping'
 const BLOCK_SCOPED = /\b(?:let|const|class)\b/u
 const MODULE = /^(?:import(?!\s*\()|export)\b/mu
 // babel-plugin-module-resolver, with aliases alone (no `root`, no
-// `resolvePath` of its own), rewrites a specifier that starts with one, and
-// leaves the rest: Babel is without it in a file that names none of them.
-// Not where an alias is a RegExp (`^...`, `...$`).
+// `resolvePath` of its own), rewrites a string specifier one of them
+// matches, and leaves the rest: Babel is without it in a file that has no
+// string any of them matches (unaliased()).
 const RESOLVER = 'module-resolver'
+// By module-resolver's options, the RegExps of a string its aliases match,
+// as its normalizeAlias has each: a key that starts with `^` or ends with `$`
+// a RegExp, each apart (its groups, of its backreferences, its own); the
+// others the specifier each is and those under it, in one.
+const ALIASES = new WeakMap()
 // Appended to TSX with JSX so that esbuild keeps React's import, which JSX,
 // left to Babel, uses (the classic runtime), as Babel's TS plugin keeps it.
 const USE_REACT = 'typeof React;\n'
@@ -91,7 +97,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!contents.includes('codegenNativeComponent')) {
         const plugins = (await babelPlugins?.(path)) ?? new Map()
         source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
-        if (unaliased(plugins.get(RESOLVER), contents)) source = { ...source, without: [...source.without, RESOLVER] }
+        if (unaliased(plugins.get(RESOLVER), contents, plugins, helpersOf(projectRoot))) source = { ...source, without: [...source.without, RESOLVER] }
       }
     } catch (error) {
       if (!Array.isArray(error?.errors)) throw error
@@ -228,14 +234,101 @@ function idle(code) {
 }
 
 // Whether module-resolver, of these options, leaves the file as it is: a
-// specifier names an alias only as the file spells it, but for escapes,
-// which it is read without; a file with one of a code point (`\x23`), it
-// may not leave.
-function unaliased(options, contents) {
+// string specifier is, in the file, a quote, its body and that quote again,
+// on one line, or a template of no substitution, which
+// transform-template-literals makes a string, so each such string of the
+// file, from each quote or backtick not escaped (whatever the quotes before
+// it), is tried, its escapes read as what they escape (a line continuation
+// as nothing), a template's line breaks as `\n`; a file with an escape of a
+// code point (`\x23`), it may not leave. Nor any where an alias matches what
+// Babel's plugins may write into a file (writesAliased()).
+function unaliased(options, contents, plugins, helpers) {
   if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
-  const text = contents.replaceAll('\\', '')
-  const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
-  return !keys.some((key) => key.startsWith('^') || key.endsWith('$') || text.includes(key))
+  const aliases = aliasesOf(options)
+  if (aliases === null || writesAliased(options, aliases, plugins, contents, helpers)) return false
+  for (const { index, 0: quote } of contents.matchAll(/['"`]/gu)) {
+    let backslashes = 0
+    while (contents[index - 1 - backslashes] === '\\') backslashes++
+    if (backslashes % 2 === 1) continue
+    const body = BODIES[quote]
+    body.lastIndex = index + 1
+    const raw = body.exec(contents)?.[0]
+    const value = raw?.slice(0, -1).replaceAll(/\\(\r\n|.)|\r\n?/gsu, (escape, of) => (of === undefined ? '\n' : (ESCAPED[of] ?? of)))
+    if (value !== undefined && aliases.some((alias) => alias.test(value))) return false
+  }
+  return true
+}
+
+// What a string's escape of one character is, but for those of what it
+// escapes: a line continuation nothing.
+const ESCAPED = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\n': '', '\r': '', '\r\n': '', '\u2028': '', '\u2029': '' }
+
+// Of each quote, a string's body after it, and the quote that ends it: its
+// escapes (a line continuation among them) its own, on one line; of a
+// backtick, a template's, of no `${`, across lines, its escape a backslash
+// and one character: an escaped CRLF is so of one way, not two, and a body
+// of many, ending at a `${`, fails in linear time.
+const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy, '`': /(?:\\[^]|[^\\`$]|\$(?!\{))*`/uy }
+
+// Whether an alias of module-resolver's matches what Babel's plugins of the
+// config may write into a file that had none: the automatic JSX runtime's,
+// of each importSource (the config's, and the file's @jsxImportSource), and
+// transform-runtime's helpers, each of @babel/helpers' (`helpers`, null where
+// not found), and regenerator, of its moduleName; with core-js or absolute
+// paths, what it writes is no list: taken for one an alias matches. The
+// config's, once.
+function writesAliased(options, aliases, plugins, contents, helpers) {
+  const each = (key) => {
+    const of = plugins.get(key)
+    return of === undefined ? [] : (of.instances ?? [of])
+  }
+  const sources = ['transform-react-jsx', 'transform-react-jsx-development'].flatMap(each).map(({ importSource = 'react' }) => importSource)
+  const runtimes = each('transform-runtime')
+  // Of core-js (its helpers of @babel/runtime-corejs3, and its polyfills) or
+  // of absolute paths, what it writes isn't known.
+  if (runtimes.some(({ corejs, absoluteRuntime }) => Boolean(corejs) || Boolean(absoluteRuntime))) return true
+  const modules = runtimes.map(({ moduleName = '@babel/runtime' }) => moduleName)
+  const jsxRuntimes = (source) => [`${source}/jsx-runtime`, `${source}/jsx-dev-runtime`]
+  const matched = (specifiers) => specifiers.some((specifier) => aliases.some((alias) => alias.test(specifier)))
+  const pragma = sources.length === 0 ? undefined : /@jsxImportSource\s+(\S+)/u.exec(contents)?.[1]
+  if (pragma !== undefined && matched(jsxRuntimes(pragma))) return true
+  const key = JSON.stringify([sources, modules])
+  const known = WRITES.get(options) ?? new Map()
+  WRITES.set(options, known)
+  if (!known.has(key)) known.set(key, (modules.length > 0 && helpers === null) || matched([...sources.flatMap(jsxRuntimes), ...modules.flatMap((module) => [`${module}/regenerator`, ...helpers.flatMap((name) => [`${module}/helpers/${name}`, `${module}/helpers/esm/${name}`])])]))
+  return known.get(key)
+}
+const WRITES = new WeakMap()
+
+// By project root, the names of Babel's helpers, as its @babel/core has them.
+const HELPERS = new Map()
+function helpersOf(projectRoot) {
+  if (!HELPERS.has(projectRoot)) {
+    try {
+      HELPERS.set(projectRoot, createRequire(createRequire(join(projectRoot, 'package.json')).resolve('@babel/core'))('@babel/helpers').list ?? null)
+    } catch {
+      HELPERS.set(projectRoot, null)
+    }
+  }
+  return HELPERS.get(projectRoot)
+}
+
+// -> ALIASES' RegExps of the options, null where one of its aliases is no RegExp.
+function aliasesOf(options) {
+  if (!ALIASES.has(options)) {
+    const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
+    const escape = (key) => key.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    const patterns = keys.filter((key) => key.startsWith('^') || key.endsWith('$'))
+    const specifiers = keys.filter((key) => !patterns.includes(key))
+    try {
+      // eslint-disable-next-line require-unicode-regexp -- as module-resolver compiles a key: no flags
+      const compiled = patterns.map((key) => new RegExp(key))
+      ALIASES.set(options, specifiers.length === 0 ? compiled : [...compiled, new RegExp(`^(?:${specifiers.map(escape).join('|')})(?:/|$)`, 'su')])
+    } catch {
+      ALIASES.set(options, null)
+    }
+  }
+  return ALIASES.get(options)
 }
 
 // esbuild brings in this helper only to lower decorators.

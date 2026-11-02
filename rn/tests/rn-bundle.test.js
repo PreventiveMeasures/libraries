@@ -755,10 +755,30 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   const { root, cleanup } = writeTree({
     'index.js': "import { a } from '#lib/a'\nimport { b } from './b'\nimport { e } from './escaped'\nimport { i } from './identity'\nconsole.log(JSON.stringify([a, b, e, i]))\n",
     'lib/a.js': "export const a = 'a'\n",
-    'b.js': "export const b = 'b'\n",
+    // A template of line continuations, CRLF, then a substitution: not a string, found so in linear time.
+    'b.js': `export const b = 'b'\nexport const t = \`${'\\\r\n'.repeat(64)}\${b}\`\n`,
     // An alias spelled with escapes: of a code point, and of a character that is itself.
     'escaped.js': "export { a as e } from '\\u0023lib/a'\n",
     'identity.js': "export { a as i } from '\\#lib/a'\n",
+    // A string spelled across lines, by a line continuation.
+    'continued.js': "import { a } from '#lib/\\\na'\nconsole.log(JSON.stringify(a))\n",
+    'backreference.js': "import { a } from 'lib-lib'\nconsole.log(JSON.stringify(a))\n",
+    'quoted.js': "import { a } from 'foo\\'bar'\nconsole.log(JSON.stringify(a))\n",
+    // JSX, whose runtime Babel's plugin imports, of no string of the file.
+    'jsx.js': 'console.log(JSON.stringify(<b />))\n',
+    'lib/jsx-runtime.js': 'export const jsx = (type) => type\n',
+    // JSX of an import source of its own.
+    'pragma.js': '/** @jsxImportSource custom */\nconsole.log(JSON.stringify(<b />))\n',
+    // As transform-runtime imports a helper, as Babel traverses the file.
+    'helper.js': 'console.log(JSON.stringify(__HELPER__))\n',
+    'helper-plugin.js': "module.exports = ({ types: t }, { specifier = '@babel/runtime/helpers/classCallCheck' }) => ({ name: 'transform-runtime', visitor: { Identifier(path) { if (path.node.name === '__HELPER__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral(specifier)])) } } })\n",
+    // A string of an escape of a control character.
+    'tab.js': "import { a } from 'foo\\tbar'\nconsole.log(JSON.stringify(a))\n",
+    'lib/classCallCheck.js': "module.exports = 'classCallCheck'\n",
+    // A template of no substitution, as transform-template-literals makes it a string.
+    'template.js': 'const { a } = require(`#lib/a`)\nconsole.log(JSON.stringify(a))\n',
+    'template-plugin.js': "module.exports = ({ types: t }) => ({ name: 'transform-template-literals', visitor: { TemplateLiteral(path) { if (path.node.expressions.length === 0) path.replaceWith(t.stringLiteral(path.node.quasis[0].value.cooked)) } } })\n",
+    'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
@@ -766,7 +786,7 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   // -> the files module-resolver runs in, of the bundle's five.
   const ran = (options) => {
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8', timeout: 30_000 })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)
@@ -781,6 +801,45 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     // `export`, in each file's text, of no string.
     assert.equal(ran({ alias: { '#lib': './lib', export: './nowhere' } }), 3)
     assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 3)
+  })
+
+  it("leaves it out of Babel where no string names an alias, though the file's text names one: no hook of it runs there", () => {
+    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib', export: './nowhere', '^~(.+)$': './lib/\\\\1' } }]] }\n")
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    // In the three files with a string of #lib, its pre and post hooks and its traversal on enter.
+    assert.deepEqual(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}module-resolver$/mu.exec(r.stderr)?.slice(1).map(Number), [3, 3 * 2 + 3])
+  })
+
+  it('keeps it where a string an alias matches is spelled across lines, or matched by a RegExp of a backreference', () => {
+    const build = (alias, entry) => {
+      writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}]] }\n`)
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+    }
+    assert.equal(build({ '#lib': './lib' }, 'continued.js'), 'a')
+    // A group before its own: the second alias's \\1 is of its own group.
+    assert.equal(build({ '^unused/(.+)$': './nowhere/\\1', '^([a-z]+)-\\1$': './\\1/a' }, 'backreference.js'), 'a')
+    assert.equal(build({ "^foo'bar$": './lib/a' }, 'quoted.js'), 'a')
+    assert.equal(build({ '^foo\\tbar$': './lib/a' }, 'tab.js'), 'a')
+  })
+
+  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's, a template's string", () => {
+    const bundled = (alias, plugin, entry) => {
+      writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}], ${JSON.stringify(plugin)}] }\n`)
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+    }
+    const jsx = ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]
+    assert.equal(bundled({ '^react/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'jsx.js'), 'b')
+    assert.equal(bundled({ '^custom/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'pragma.js'), 'b')
+    assert.equal(bundled({ '^@babel/runtime/helpers/classCallCheck$': './lib/classCallCheck' }, './helper-plugin.js', 'helper.js'), 'classCallCheck')
+    // Of core-js, @babel/runtime-corejs3's.
+    const corejs = ['./helper-plugin.js', { corejs: 3, specifier: '@babel/runtime-corejs3/helpers/classCallCheck' }]
+    assert.equal(bundled({ '^@babel/runtime-corejs3/helpers/classCallCheck$': './lib/classCallCheck' }, corejs, 'helper.js'), 'classCallCheck')
+    assert.equal(bundled({ '^#lib/(.+)$': './lib/\\1' }, './template-plugin.js', 'template.js'), 'a')
   })
 
   it('keeps it where it may rewrite what names none: with a root', () => {
