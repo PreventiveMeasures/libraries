@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +9,7 @@ import { babelWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
+const core = createRequire(import.meta.url)('@babel/core')
 const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))
 
 describe('babelWorkers', () => {
@@ -14,6 +17,8 @@ describe('babelWorkers', () => {
     'broken.cjs': "throw new Error('broken core')\n",
     // A pre hook, run in each file, and a visitor of classes, in a file with one.
     'classy.cjs': "module.exports = () => ({ name: 'classy', pre() {}, visitor: { ClassDeclaration() {} } })\n",
+    // module-resolver, as the project installs it: its module's own resolvePath maps its specifiers.
+    'node_modules/babel-plugin-module-resolver': { link: realpathSync(fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')).replace(/[\\/]lib[\\/]index\.js$/u, '')) },
     // A require of an alias, put in as Babel traverses the file.
     'inject.cjs': "module.exports = ({ types: t }) => ({ name: 'inject', visitor: { Identifier(path) { if (path.node.name === '__DEP__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('#lib/b')])) } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
@@ -77,6 +82,27 @@ describe('babelWorkers', () => {
     // exit, of the third. Its pre and post hooks, of each.
     const { files, calls } = profile.plugins.get('module-resolver')
     assert.deepEqual([files, calls], [3, 3 + 4 * 2])
+  })
+
+  it('maps the specifiers module-resolver maps, as its traversals map them', async () => {
+    const plugins = [[fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')), { cwd: root, alias: { '#lib': './lib', '^~(.+)$': './lib/\\1' } }]]
+    const options = { babelrc: false, configFile: false, cwd: root, compact: false, plugins }
+    const source = [
+      "import a from '#lib/a'",
+      "export { b } from '~b'",
+      "export * from './c'",
+      "import * as d from 'd'",
+      "const e = require('#lib/e')",
+      "require.resolve('#lib/f')",
+      "jest.mock('#lib/g', () => ({}))",
+      "import('#lib/h')",
+      "other('#lib/i')",
+      "const j = require(/* j */ '#lib/j')",
+      'const k = require(`#lib/k`)',
+      '',
+    ].join('\n')
+    const filename = join(root, 'src/all.js')
+    assert.equal((await babelWorkers(CORE, options)(source, filename)).code, (await core.transformAsync(source, { ...options, filename })).code)
   })
 
   it("checks each module-resolver's aliases, where the config has more than one", async () => {
