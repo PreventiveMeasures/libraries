@@ -54,6 +54,7 @@
     "src/babel-worker.js",
     "src/babelrc.js",
     "src/bundle-url.js",
+    "src/build-host.js",
     "src/bundle.js",
     "src/cli.js",
     "src/defaults.js",

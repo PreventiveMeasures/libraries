@@ -5,9 +5,10 @@ import { basename, join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-import { bundle, createBundler, lookingOnce } from '../src/bundle.js'
+import { bundle, createBundler, newState } from '../src/bundle.js'
+import { listing, lookingOnce } from '../src/build-host.js'
 import { diskHost } from '../src/defaults.js'
-import { png, writeTree } from './fixtures.js'
+import { png, vfsOf, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
 const esbuild = require('esbuild')
@@ -209,5 +210,51 @@ describe("lookingOnce, a build's host", () => {
     const once = lookingOnce(host)
     for (let i = 0; i < 2; i++) assert.deepEqual([once.isFile('/a.js'), once.isFile('/b'), once.isDirectory('/b'), once.realpath('/a.js')], [true, false, true, '/a.js'])
     assert.deepEqual(asked, [['isFile', '/a.js'], ['isFile', '/b'], ['isDirectory', '/b'], ['realpath', '/a.js']])
+  })
+})
+
+describe("listing, a build's host", () => {
+  const { root, cleanup } = writeTree({
+    'src/a.js': '',
+    'src/b.ios.js': '',
+    'src/dir/index.js': '',
+    'linked.js': { link: 'src/a.js' },
+    'linked-dir': { link: 'src/dir' },
+  })
+  after(cleanup)
+
+  it("answers whether a path is a file or a directory as its directory lists it, a link as the host has it", () => {
+    const host = listing(diskHost)
+    const paths = ['src/a.js', 'src/b.ios.js', 'src/b.js', 'src/dir', 'src/dir/index.js', 'src/nothing/a.js', 'linked.js', 'linked-dir', 'linked-dir/index.js', 'src/a.js/x', 'src']
+    for (const path of paths.map((name) => join(root, name))) {
+      assert.deepEqual([host.isFile(path), host.isDirectory(path)], [diskHost.isFile(path), diskHost.isDirectory(path)], path)
+    }
+    // Of its names as they are, as Metro's file map has them.
+    assert.equal(host.isFile(join(root, 'src/A.js')), false)
+    assert.equal(host.isDirectory('/'), true)
+  })
+
+  it('lists each directory once, and leaves a host that lists none as it is', () => {
+    const listed = []
+    const host = listing({ ...diskHost, dirents: (dir) => listed.push(dir) && diskHost.dirents(dir) })
+    for (const name of ['a.js', 'b.ios.js', 'b.native.js', 'b.js', 'dir']) host.isFile(join(root, 'src', name))
+    assert.deepEqual(listed, [join(root, 'src')])
+    const plain = { isFile: () => true, isDirectory: () => false }
+    assert.equal(listing(plain), plain)
+    // A directory not to be listed, but searched (EACCES, of mode 0111):
+    // each path in it as the host has it. One not there: nothing in it.
+    const asked = []
+    const failing = (code) => () => {
+      throw Object.assign(new Error(code), { code })
+    }
+    const locked = listing({ isFile: (path) => asked.push(path) > 0 && path === '/locked/a.js', isDirectory: () => false, dirents: failing('EACCES') })
+    assert.deepEqual([locked.isFile('/locked/a.js'), locked.isFile('/locked/b.js'), asked], [true, false, ['/locked/a.js', '/locked/b.js']])
+    for (const code of ['ENOENT', 'ENOTDIR']) assert.equal(listing({ isFile: () => true, isDirectory: () => true, dirents: failing(code) }).isFile('/gone/a.js'), false, code)
+    // @preventive/vfs's, whose `entries` are an archive's, not a directory's.
+    const vfs = vfsOf({ 'index.js': '', 'lib/a.js': '' })
+    assert.equal(listing(vfs), vfs)
+    let state = null
+    newState({ host: vfs, assetExts: [], projectRoot: '/', entry: 'index.js', platform: 'ios' }, (made) => (state = made))
+    assert.deepEqual(state.resolveModule('/index.js', './lib/a', { platform: 'ios' }), { type: 'sourceFile', filePath: '/lib/a.js' })
   })
 })

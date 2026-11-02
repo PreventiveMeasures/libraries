@@ -13,7 +13,8 @@
 import { dirname, relative, resolve } from 'node:path'
 
 import { assetData, assetModule } from './assets.js'
-import { LOWERED, loadCached, lowersLetOf, newState, reading, resolveImport } from './bundle.js'
+import { LOWERED, loadCached, lowersLetOf, newState, resolveImport } from './bundle.js'
+import { reading } from './build-host.js'
 import { defaults, diskHost } from './defaults.js'
 import { concatMaps, pieceOf } from './mappings.js'
 
