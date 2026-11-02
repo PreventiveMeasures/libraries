@@ -32,6 +32,8 @@ export async function differences(esbuild, ours, kept) {
   return found.toSorted((x, y) => (x.path < y.path ? -1 : 1))
 }
 
+// Output of esbuild's and Babel's, of UTF-8 alone.
+const utf8 = new TextDecoder('utf-8', { fatal: true })
 const MAP = /\/\/# sourceMappingURL=data:[^\n]*\n?$/u
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
@@ -39,7 +41,7 @@ const ANY = /.*/
 // As printed(), each import of the module, as esbuild finds it, mapped by
 // `map` where given, as the bundle maps it.
 async function withImports(esbuild, contents, path, map) {
-  const code = (typeof contents === 'string' ? contents : new TextDecoder().decode(contents)).replace(MAP, '')
+  const code = (typeof contents === 'string' ? contents : utf8.decode(contents)).replace(MAP, '')
   const specifiers = { name: 'specifiers', setup: (build) => build.onResolve({ filter: ANY }, ({ path: specifier }) => ({ path: map?.(path, specifier) ?? specifier, external: true })) }
   try {
     const { outputFiles } = await esbuild.build({ stdin: { contents: code, loader: 'js' }, bundle: true, write: false, format: 'esm', platform: 'neutral', logLevel: 'silent', plugins: [specifiers] })
@@ -50,7 +52,7 @@ async function withImports(esbuild, contents, path, map) {
 }
 
 async function printed(esbuild, contents) {
-  const code = typeof contents === 'string' ? contents : new TextDecoder().decode(contents)
+  const code = typeof contents === 'string' ? contents : utf8.decode(contents)
   try {
     return (await esbuild.transform(code.replace(MAP, ''), { loader: 'js', logLevel: 'silent' })).code
   } catch {
