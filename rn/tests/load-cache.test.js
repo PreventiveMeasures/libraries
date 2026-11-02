@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -340,7 +340,55 @@ describe('withDependencies, of pnpm\'s layout', () => {
     })
     try {
       const found = withDependencies([join(root, `${store}/plugin@1/node_modules/plugin/index.js`)])
-      assert.deepEqual(found.slice(1).map((path) => path.slice(root.length + 1)).toSorted(), [`${store}/deep@1/node_modules/deep/package.json`, `${store}/helper@1/node_modules/helper/package.json`, `${store}/plugin@1/node_modules/plugin/package.json`])
+      // Each by its real path, and by the link it was found of.
+      assert.deepEqual(found.slice(1).map((path) => path.slice(root.length + 1)).toSorted(), [`${store}/deep@1/node_modules/deep/package.json`, `${store}/helper@1/node_modules/deep/package.json`, `${store}/helper@1/node_modules/helper/package.json`, `${store}/plugin@1/node_modules/helper/package.json`, `${store}/plugin@1/node_modules/plugin/package.json`])
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('createLoadCache, of a fingerprint of pnpm\'s layout', () => {
+  it('keys each file anew where a link to a package, of a dependency or of the project, is to another version, the one before kept', async () => {
+    const store = 'node_modules/.pnpm'
+    const version = (name, at, more = {}) => ({ [`${store}/${name}@${at}/node_modules/${name}/package.json`]: { name, version: `${at}.0.0`, ...more } })
+    const { root, cleanup } = writeTree({
+      ...version('plugin', 1, { dependencies: { helper: '*' } }),
+      ...version('plugin', 2, { dependencies: { helper: '*' } }),
+      [`${store}/plugin@1/node_modules/plugin/index.js`]: '',
+      [`${store}/plugin@2/node_modules/plugin/index.js`]: '',
+      [`${store}/plugin@1/node_modules/helper`]: { link: '../../helper@1/node_modules/helper' },
+      [`${store}/plugin@2/node_modules/helper`]: { link: '../../helper@2/node_modules/helper' },
+      ...version('helper', 1),
+      ...version('helper', 2),
+      'node_modules/plugin': { link: '.pnpm/plugin@1/node_modules/plugin' },
+      'a.js': '',
+    })
+    try {
+      // A target of the plugin the project links to, its workers' fingerprint as they make it.
+      const options = { cwd: root }
+      let made = 0
+      const babel = {
+        workerOptions: options,
+        fingerprint: () => {
+          made++
+          const loaded = withDependencies([realpathSync(join(root, 'node_modules/plugin/index.js'))], root)
+          return Promise.resolve({ fingerprint: fingerprintOf(loaded, options), options, modules: loaded, reads: [] })
+        },
+        configKey: () => '',
+      }
+      const key = async () => (await createLoadCache(join(root, 'cache'), { esbuild })(babel).keyOf(join(root, 'a.js'), '', [false, null, false])).key
+      const relink = (path, target) => {
+        unlinkSync(join(root, path))
+        symlinkSync(target, join(root, path))
+      }
+      const first = await key()
+      assert.deepEqual([await key(), made], [first, 1])
+      relink(`${store}/plugin@1/node_modules/helper`, '../../helper@2/node_modules/helper')
+      const second = await key()
+      assert.notEqual(second, first)
+      relink('node_modules/plugin', '.pnpm/plugin@2/node_modules/plugin')
+      assert.ok(![first, second].includes(await key()))
     } finally {
       cleanup()
     }

@@ -119,37 +119,48 @@ const dependencyOf = (dir, name) => {
 
 // `modules`, and the package.json of each package one of them is of, of
 // node_modules, and of each package those depend on (their dependencies,
-// optional and peer too), as Node finds it, theirs too, each by its real
-// path, as Node finds a package's of it (pnpm's, of a link to the package
-// in its store, has its dependencies beside it there): what Babel and the
+// optional and peer too), as Node finds it, theirs too: what Babel and the
 // plugins it has loaded may load as they transform, which they have not as
 // the config loads (@babel/core's @babel/helpers, as it first adds a
 // helper), whose version a change to them makes another. Of the project's
 // lockfile, all else (the app's own packages, its tools) are of no output
-// of the cache's: each file of a package the app loads is kept by its contents.
-export function withDependencies(modules) {
-  const manifests = new Set()
-  const seen = new Set()
+// of the cache's: each file of a package the app loads is kept by its
+// contents. Each package.json by the path Node finds it of (a link's,
+// pnpm's), which a stat or read of follows, and by its real path: a
+// package's dependencies are found from it (pnpm's, beside it in its
+// store), and a link to another version of it, the one before kept (of
+// another package's dependency on it), makes those of the path found
+// another. Of each package of `modules`, the path too of the one Node
+// finds of its name from `from` (the project's root, of a plugin of its
+// config), a link of the project's own to it, of pnpm's.
+export function withDependencies(modules, from = null) {
+  // Each path found, and the real path of each, of which each is read once.
+  const found = new Set()
+  const real = new Set()
   const add = (path) => {
-    if (path === null || seen.has(path)) return
-    seen.add(path)
+    if (path === null || found.has(path)) return
+    found.add(path)
     try {
-      manifests.add(realpathSync(path))
+      const resolved = realpathSync(path)
+      found.add(resolved)
+      real.add(resolved)
     } catch {
       // None there.
     }
   }
   for (const path of modules) add(manifestOf(path))
-  for (const path of manifests) {
+  const loaded = new Set(real)
+  for (const path of real) {
     let manifest = null
     try {
       manifest = JSON.parse(readFileSync(path, 'utf8'))
     } catch {
       continue
     }
+    if (from !== null && loaded.has(path) && typeof manifest?.name === 'string') add(dependencyOf(from, manifest.name))
     for (const name of Object.keys({ ...manifest?.dependencies, ...manifest?.optionalDependencies, ...manifest?.peerDependencies })) add(dependencyOf(dirname(path), name))
   }
-  return [...new Set([...modules, ...manifests])]
+  return [...new Set([...modules, ...found])]
 }
 
 // What a Babel worker's output is of, but a file's own config (configKeyOf())
