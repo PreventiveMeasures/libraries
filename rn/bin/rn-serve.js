@@ -55,6 +55,7 @@ import { babelAliases, defines, failer, flowStripper, locateThrough, peers, proj
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createGate } from '../src/gate.js'
 import { createLoadCache } from '../src/load-cache.js'
+import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { REPORTER } from '../src/network.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
@@ -98,6 +99,7 @@ const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, re
 if (values.esm && babelFor === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
+let pruned = null
 const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types'), cwd: projectRoot })
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
@@ -120,6 +122,9 @@ const devBundler = createDevBundler({
   },
   onBuild: ({ request, outcome, ms, cached }) => {
     watcher?.update(devBundler.files())
+    // Once a run, its first build's packs read: of what no run uses, and
+    // the cache of Babel's output alone, of before.
+    if (cacheDir !== null) pruned ??= prune(cacheDir, { before: [usersOwn('rn-serve-babel')] })
     const what = `${request.entryFile} for ${request.platform ?? 'no platform'}${request.dev ? ', dev' : ''}${request.minify ? ', minified' : ''} ${status(ms, cached)}`
     if (outcome.ok) return log(`rn-serve: built ${what}`)
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
@@ -209,13 +214,19 @@ function status(ms, cached) {
   return `in ${ms} ms, cache ${Math.round(taken)} ms (${of}): ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
 }
 
+// A directory of the OS's temporary directory, of the user's by its name.
+function usersOwn(name) {
+  const uid = process.getuid?.() ?? null
+  return join(tmpdir(), uid === null ? name : `${name}-${uid}`)
+}
+
 // The directory each file as it loads is kept in across runs: the user's
 // own, in the OS's temporary directory, as Metro keeps its cache; emptied
 // first with --reset-cache. null, none kept, where it is another user's, or
 // another may write in it: the bundles would run what they put there.
 function cacheDirOf(reset) {
   const uid = process.getuid?.() ?? null
-  const dir = join(tmpdir(), uid === null ? 'rn-serve-cache' : `rn-serve-cache-${uid}`)
+  const dir = usersOwn('rn-serve-cache')
   try {
     if (reset) rmSync(dir, { recursive: true, force: true })
     mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -249,12 +260,13 @@ function mountDebugger(serverUrl) {
 // At once, a build in progress though: what it would make is kept in
 // memory alone, and esbuild and Babel's workers end with the process; but
 // a pack of the cache being written (load-cache.js's), written first, of
-// which a run after would have none else. Asked again, at once.
+// which a run after would have none else, and the cache pruned. Asked
+// again, at once.
 let quitting = false
 function quit() {
   if (quitting) process.exit(0)
   quitting = true
-  void Promise.resolve(loadCache?.settled()).finally(() => process.exit(0))
+  void Promise.all([loadCache?.settled(), pruned]).finally(() => process.exit(0))
 }
 process.on('SIGINT', quit)
 process.on('SIGTERM', quit)

@@ -64,6 +64,7 @@
     "src/image-size.js",
     "src/load-cache.js",
     "src/load-pack.js",
+    "src/load-prune.js",
     "src/load-store.js",
     "src/load.js",
     "src/mappings.js",
