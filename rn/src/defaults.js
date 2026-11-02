@@ -31,12 +31,15 @@ const stat = (path) => {
 }
 
 // `readFileAsync`, a file read off the main thread, as a build reads ahead
-// each file it resolves (bundle.js's metroGraph()).
+// each file it resolves (bundle.js's metroGraph()); `dirents`, a
+// directory's entries of their types (fs.Dirent), as listing() takes them,
+// which throws where none is; realpath the system's, of one call.
 export const diskHost = freeze({
   isFile: (path) => stat(path)?.isFile() ?? false,
   isDirectory: (path) => stat(path)?.isDirectory() ?? false,
-  realpath: realpathSync,
+  realpath: realpathSync.native,
   readFile: readFileSync,
   readFileAsync: readFile,
   readdir: readdirSync,
+  dirents: (dir) => readdirSync(dir, { withFileTypes: true }),
 })

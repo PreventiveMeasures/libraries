@@ -10,6 +10,7 @@ import { dirname, relative, resolve } from 'node:path'
 import { assetData, assetModule } from './assets.js'
 import { defaults, diskHost } from './defaults.js'
 import { aliasing } from './babel-aliases.js'
+import { listing, lookingOnce, reading } from './build-host.js'
 import { loadFile } from './load.js'
 import { createMetroResolver } from './resolve.js'
 import { reactNativeOf } from './serializer.js'
@@ -329,7 +330,7 @@ export function resolveImport(state, { importer, specifier, kind, aliases, platf
 // it (no JSON) is among the build's files.
 export function newState({ host, assetExts, resolver = {}, blockList = null, projectRoot, entry, platform }, publish) {
   const read = new Set()
-  const resolveModule = metroResolverOf({ host: lookingOnce(reading(host, read)), assetExts, resolver, blockList })
+  const resolveModule = metroResolverOf({ host: lookingOnce(reading(listing(host), read)), assetExts, resolver, blockList })
   const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
   publish(made)
   publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
@@ -374,40 +375,6 @@ function aheadHost(host, state, path) {
 // esbuild prints a file's, so that the bundle doesn't depend on where the
 // project is; absolute, it is the path itself.
 const named = (projectRoot, path, namespace) => ({ path: relative(projectRoot, path).replaceAll('\\', '/'), namespace })
-
-// The host, each file read or looked for through it added to `read`: a
-// file not there yet (an import written before its module) is a file a
-// watcher sees made.
-const look = (read, path, found) => {
-  read.add(path)
-  return found
-}
-export const reading = (host, read) => ({
-  isFile: (path) => look(read, path, host.isFile(path)),
-  isDirectory: (path) => look(read, path, host.isDirectory(path)),
-  realpath: (path) => host.realpath(path),
-  readdir: (path) => host.readdir(path),
-  readFile: (path) => {
-    read.add(path)
-    return host.readFile(path)
-  },
-})
-
-// The host, each path's isFile, isDirectory and realpath looked up once:
-// Metro's resolver (metro-resolver's own too, as its fileSystemLookup) looks
-// up each spelling of a module (each platform and extension), and each
-// directory up to its package.json, of each import, as a build's files,
-// which it reads anew, don't change in it; as Metro's file map has them,
-// not from the disk at each import.
-export function lookingOnce(host) {
-  const known = { isFile: new Map(), isDirectory: new Map(), realpath: new Map() }
-  const once = (name) => (path) => {
-    const map = known[name]
-    if (!map.has(path)) map.set(path, host[name](path))
-    return map.get(path)
-  }
-  return { ...host, isFile: once('isFile'), isDirectory: once('isDirectory'), realpath: once('realpath') }
-}
 
 // A file as loadFile() loads it: as `cache` has it while its contents are
 // the same; else as options.store (load-cache.js's) has it, of the options
