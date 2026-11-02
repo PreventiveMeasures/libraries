@@ -242,12 +242,13 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
       "import { used } from './lib/named'",
       "import { area } from './lib/shapes'",
       "import { viaExports } from './lib/bound'",
+    "import { mentions } from './lib/mentions'",
       "import { partial } from './lib/partial'",
       "import cond from 'cond'",
       "import required from './lib/required'",
       "import { fromMjs } from './lib/node.mjs'",
       "const esm = require('./lib/esm')",
-      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), partial, cond, required, esm: [esm.default, esm.value], fromMjs }))',
+      'console.log(JSON.stringify({ made: make(), named, used, area: area(3), viaExports: viaExports(), mentions, partial, cond, required, esm: [esm.default, esm.value], fromMjs }))',
       '',
     ].join('\n'),
     'lib/cjs.js': "module.exports = () => 'made'\nmodule.exports.named = 'named'\n",
@@ -262,6 +263,8 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     'lib/shape.ts': 'export type Shape = { side: number }\nexport const area = (side: number): number => side * side\n',
     // A module that names `exports`: Babel's CommonJS binds it to the module's.
     'lib/bound.js': "export const own = 'own'\nexport const viaExports = () => exports.own\n",
+    // One that names them but bound: in a string, as a property's name, as a binding of its own.
+    'lib/mentions.js': "const of = (module) => module.exports\nexport const mentions = ['module', of({ exports: 'exports' })].join()\n",
     // An import of what a module doesn't export, undefined in Metro's bundle.
     'lib/partial.js': "import { present, absent } from './present'\nexport const partial = [present, absent ?? null]\n",
     'lib/present.js': "export const present = 'present'\n",
@@ -284,7 +287,7 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     return { code, stderr: r.stderr, out: JSON.parse(printed(join(root, 'out.js'))) }
   })
-  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'], fromMjs: 'mjs' }
+  const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', mentions: 'module,exports', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'], fromMjs: 'mjs' }
 
   it('resolves an import Babel makes a require call as an ESM import, as Metro does', () => {
     const { out } = build()
@@ -300,8 +303,8 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     const esm = build('--esm')
     assert.deepEqual(esm.out, OUT)
     assert.ok(!/\brequire_(?:named|shapes|shape|index)\b/u.test(esm.code) && !esm.code.includes('UNUSED-EXPORT'))
-    // CommonJS: a file that is, and a module that names `exports`, as Babel makes it.
-    assert.ok(/\brequire_cjs\b/u.test(esm.code) && /\brequire_bound\b/u.test(esm.code))
+    // CommonJS: a file that is, and a module that names `exports` unbound, as Babel makes it; not one that names it bound.
+    assert.ok(/\brequire_cjs\b/u.test(esm.code) && /\brequire_bound\b/u.test(esm.code) && !/\brequire_mentions\b/u.test(esm.code))
   })
 
   it('leaves CommonJS a file in which esbuild finds an import of what a module does not export, warning of it', () => {

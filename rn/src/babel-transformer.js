@@ -9,6 +9,9 @@ import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
+// The key of the config's plugin that makes modules CommonJS.
+const COMMONJS = 'transform-modules-commonjs'
+
 // ({ corePath, options, profile }) -> (message) => its answer, of the
 // @babel/core at corePath and the config, which it loads as it is called:
 // of { source, filename, without }, { code, imports, uncacheable?, spent? }
@@ -64,7 +67,14 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
     const start = profiler?.start()
     imports.clear()
     try {
-      const result = transform(source, optionsFor(filename, source, without))
+      let result = transform(source, optionsFor(filename, source, without))
+      // An ES module without the config's CommonJS plugin (load.js's, of
+      // --esm) that names `module` or `exports` unbound: made CommonJS
+      // after all, which binds them.
+      if (without.includes(COMMONJS) && imports.namesCommonJs()) {
+        imports.clear()
+        result = transform(source, optionsFor(filename, source, without.filter((key) => key !== COMMONJS)))
+      }
       const { code } = lowerLeft(result, filename)
       return { code, imports: imports.list(), ...(result.externalDependencies?.size > 0 && { uncacheable: true }), ...(profiler && { spent: profiler.spent(start) }) }
     } catch (error) {
@@ -97,18 +107,31 @@ const MEMOIZED = new WeakSet()
 // The specifiers of the file's import and export-from declarations, but
 // types', as Metro's transformer records where each is (its
 // importLocationsPlugin): the require call Babel's CommonJS makes of one,
-// Metro resolves as an ESM import (bundle.js). -> { plugin, clear(), list() }.
+// Metro resolves as an ESM import (bundle.js); and whether the file is an
+// ES module that names `module` or `exports` unbound, as its scope has
+// them as Babel parsed it (not in a comment, a string, a property's name,
+// nor of a binding of its own), which Babel's CommonJS binds to its own and
+// esbuild, linking ES modules, leaves unbound. -> { plugin, clear(), list(),
+// namesCommonJs() }.
 function importsOf() {
   let imports = new Set()
+  let namesCommonJs = false
   const plugin = {
     name: 'rn-bundle-imports',
     visitor: {
+      Program(path) {
+        namesCommonJs = path.node.sourceType === 'module' && (path.scope.hasGlobal('module') || path.scope.hasGlobal('exports'))
+      },
       'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'({ node }) {
         if (node.source != null && node.loc != null && (node.importKind ?? node.exportKind) !== 'type') imports.add(node.source.value)
       },
     },
   }
-  return { plugin, clear: () => (imports = new Set()), list: () => [...imports] }
+  const clear = () => {
+    imports = new Set()
+    namesCommonJs = false
+  }
+  return { plugin, clear, list: () => [...imports], namesCommonJs: () => namesCommonJs }
 }
 
 // As Metro's transform worker inlines requires, after its Babel

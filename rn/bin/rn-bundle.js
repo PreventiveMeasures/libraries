@@ -27,10 +27,11 @@
 // without; esbuild lowers the rest in the bundle, after Babel. --esm leaves
 // import and export to esbuild, which links the modules as it does without
 // Babel, dropping what of them is unused: the config is without its plugin
-// that makes them CommonJS, but in a file that names `module` or `exports`
-// with them, or in which esbuild finds an import of what an ES module doesn't
-// export, which it warns of (Metro's is undefined). A function keeps its
-// name, which esbuild, joining the modules in one scope, renames where two
+// that makes them CommonJS, but in one that names `module` or `exports`
+// unbound (not in a comment, a string or a property's name), which Babel's
+// CommonJS binds, or in which esbuild finds an import of what an ES module
+// doesn't export, which it warns of (Metro's is undefined). A function keeps
+// its name, which esbuild, joining the modules in one scope, renames where two
 // declare it (`Text3`), but where it minifies. An import resolves for
 // ESM, as Metro resolves it: by exports' `import` condition.
 // --unstable-transform-profile, `react-native bundle`'s: the profile Babel's
