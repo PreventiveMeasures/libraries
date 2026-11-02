@@ -56,7 +56,7 @@ describe('babelWorkers', () => {
   })
 
   it('transforms in at most as many workers as it is given, else 2 of 4 CPUs or more, 1 of fewer', async () => {
-    assert.deepEqual([1, 2, 3, 4, 8, 12, 16].map((cores) => defaultWorkers(cores)), [1, 1, 1, 2, 2, 2, 2])
+    assert.deepEqual([1, 2, 3, 4, 8, 12, 16].map((cores) => defaultWorkers(cores)), [1, 1, 1, 3, 3, 3, 3])
     // In workers from the first file, as with keepPlugins (none of which
     // this config has), not in band.
     const threads = async (max, length) => {

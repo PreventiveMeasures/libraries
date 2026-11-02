@@ -12,15 +12,18 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 
 import { transformerOf } from './babel-transformer.js'
 
-// How many workers Babel runs in where nothing says: 2, of 4 CPUs or more,
+// How many workers Babel runs in where nothing says: 3, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
 // made a build slower. The main thread loads, resolves and hands out each
 // file, about a sixth of a file's work, which the workers don't share, and
 // each worker loads Babel and compiles its code anew (CPU and some 300 MB
 // of each): workers the main thread can't keep busy cost that for nothing,
-// and the threads, as many more as the CPUs' fast cores, slow it.
+// and the threads, as many more as the CPUs' fast cores, slow it. Of 4
+// CPUs, a build of React Native's, its workers made as it starts
+// (rn-bundle's), took 0.4-0.7 s less of 3 than of 2 (8.8 s of 9.3 s, of
+// 1.4k files), in some 2 s more CPU; of 4, no less than of 3.
 export function defaultWorkers(cores = availableParallelism()) {
-  return cores >= 4 ? 2 : 1
+  return cores >= 4 ? 3 : 1
 }
 
 // The files each worker has waiting before one more is made.

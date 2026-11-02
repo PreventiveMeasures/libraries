@@ -38,7 +38,7 @@
 // @react-native/babel-preset builds for; default where not given.
 // --max-workers, `react-native bundle`'s: how many workers Babel runs in at
 // most, over the Metro config's maxWorkers; where neither sets one (the
-// config's Metro's default), 2 (1 of fewer than 4 CPUs): more, which the main
+// config's Metro's default), 3 (1 of fewer than 4 CPUs): more, which the main
 // thread can't keep busy, cost CPU and memory and slow it; a build's first
 // files the main thread transforms itself, before any. --profile reports
 // the time each of the config's plugins takes, summed over Babel's
