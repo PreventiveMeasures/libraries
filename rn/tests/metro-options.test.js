@@ -53,10 +53,9 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal(lazy.resolver.extraNodeModules.shared, join(root, '../shared'))
   })
 
-  it('refuses a Babel transformer, a resolver and a serializer of its own', async () => {
-    const message = await load("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') }, resolver: { resolveRequest: () => null }, serializer: { customSerializer: () => '' } }")
+  it('refuses a Babel transformer and a serializer of its own', async () => {
+    const message = await load("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') }, serializer: { customSerializer: () => '' } }")
     assert.deepEqual(message.split('\nrn-bundle: '), [
-      'its config: resolver.resolveRequest is a function: rn-bundle does it as Metro\'s default alone',
       'its config: serializer.customSerializer is a function: rn-bundle does it as Metro\'s default alone',
       "its config: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone",
     ])
@@ -81,6 +80,13 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
   it("refuses inline requires getTransformOptions gives of the bundle's dependencies, which it gives none", async () => {
     const options = await load("{ transformer: { getTransformOptions: async (entries, options, getDependencies) => ({ transform: { inlineRequires: { blockList: Object.fromEntries((await getDependencies(entries[0])).map((path) => [path, true])) } } }) } }")
     assert.equal((await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: false })).replaceAll(options.file, 'its config'), "its config: transformer.getTransformOptions gives inlineRequires of what getDependencies gives, the bundle's dependencies: rn-bundle gives it none, and doesn't inline requires of them")
+  })
+
+  it("takes a resolveRequest, to run through the metro-resolver of the project's Metro", async () => {
+    const options = await load('{ resolver: { resolveRequest: (context, moduleName, platform) => context.resolveRequest(context, moduleName, platform) } }')
+    assert.equal(typeof options.resolver.resolveRequest, 'function')
+    assert.equal(typeof options.resolver.metroResolver.resolve, 'function')
+    assert.equal((await load('{}')).resolver.metroResolver, undefined)
   })
 
   it('takes getTransformOptions by the transform options it gives each bundle, refusing those it does not do', async () => {

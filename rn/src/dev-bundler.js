@@ -140,8 +140,8 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
 // The entry a request names, as Metro resolves it from the project root,
 // and only there.
-function entryOf({ projectRoot, host, metro }, { entryFile, platform }) {
-  const resolution = metroResolverOf({ host, assetExts: metro.assetExts, resolver: metro.resolver, blockList: metro.blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
+function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
+  const resolution = metroResolverOf({ host, assetExts: metro.assetExts, resolver: { ...metro.resolver, dev }, blockList: metro.blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
   return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? { path: resolution.filePath } : null
 }
 
@@ -161,7 +161,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, cache
     minify,
     cache: caches.get(target).files,
     assetExts: metro.assetExts,
-    resolver: metro.resolver,
+    resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,
     polyfills: metro.polyfills(platform),
     runBeforeMain: metro.runBeforeMain?.(entry.path) ?? null,

@@ -36,11 +36,14 @@ export function createMetroResolver({
   disableHierarchicalLookup = false,
   packageExports = true,
   metroResolver = null,
+  resolveRequest: custom = null,
+  dev = false,
 } = {}) {
   // Read by name at each lookup, as Metro reads it: a Proxy's names too.
   const extra = extraNodeModules ?? {}
   if (![...nodeModulesPaths, ...Object.values(extra)].every((path) => typeof path === 'string' && isAbsolute(path))) throw new TypeError('createMetroResolver: nodeModulesPaths and extraNodeModules take absolute paths')
   if (metroResolver !== null && typeof metroResolver.resolve !== 'function') throw new TypeError('createMetroResolver: metroResolver is a metro-resolver module, with its resolve')
+  if (custom !== null && (typeof custom !== 'function' || metroResolver === null)) throw new TypeError('createMetroResolver: resolveRequest is a function, which metroResolver runs')
   const config = {
     host,
     sourceExts: [...sourceExts],
@@ -53,6 +56,8 @@ export function createMetroResolver({
     nodeModulesPaths: [...nodeModulesPaths],
     disableHierarchicalLookup,
     packageExports,
+    custom,
+    dev,
     extra,
     // Each package.json, package root and redirect map, read once.
     manifests: new Map(),
@@ -255,8 +260,15 @@ function entryPoint(context, pkg) {
   return typeof to === 'string' ? to : main
 }
 
-// metro-resolver's resolve, given what of Metro's context 0.81 to 0.87 read.
-// Its failures are null; the host's errors, and a bad package.json's, throw.
+// metro-resolver's own failures to resolve, by name, of whichever copy.
+const FAILURES = new Set(['FailedToResolveNameError', 'FailedToResolvePathError', 'FailedToResolveUnsupportedError', 'InvalidPackageError', 'InvalidPackageConfigurationError', 'PackageImportNotResolvedError', 'PackagePathNotExportedError'])
+
+// metro-resolver's resolve, given Metro's context, 0.81's to 0.87's, as its
+// DependencyGraph makes it: with the config's resolveRequest, which resolve
+// calls in its place, given its own as the context's. Its failures are null
+// (of a bug of its own too: a string `exports` throws a TypeError from 0.87),
+// the host's errors and a bad package.json's throw; with a resolveRequest,
+// any other error, as Metro's build fails with it.
 function viaMetroResolver(metroResolver, context, specifier) {
   const { host } = context
   let thrown
@@ -269,7 +281,12 @@ function viaMetroResolver(metroResolver, context, specifier) {
     }
   }
   const metroContext = {
+    allowHaste: false,
     assetExts: context.assetExts,
+    customResolverOptions: {},
+    // As Metro has an import, of what of it the resolver reads.
+    dependency: { name: specifier, data: { key: specifier, asyncType: null, isESMImport: context.isESMImport, locs: [] } },
+    dev: context.dev,
     disableHierarchicalLookup: context.disableHierarchicalLookup,
     doesFileExist: ours((path) => host.isFile(path)),
     extraNodeModules: context.extra,
@@ -294,7 +311,12 @@ function viaMetroResolver(metroResolver, context, specifier) {
     nodeModulesPaths: context.nodeModulesPaths,
     originModulePath: context.origin,
     preferNativePlatform: context.preferNativePlatform,
+    redirectModulePath: ours((path) => redirect(context, path)),
+    resolveHasteModule: () => null,
+    resolveHastePackage: () => null,
+    ...(context.custom !== null && { resolveRequest: context.custom }),
     resolveAsset: ours((dirPath, assetName, extension) => assetFiles(host, join(dirPath, `${assetName}${extension}`), context.assetResolutions)),
+    schemeResolvers: {},
     sourceExts: context.sourceExts,
     unstable_conditionNames: context.conditionNames,
     unstable_conditionsByPlatform: Object.fromEntries(context.byPlatform),
@@ -304,7 +326,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
   try {
     return metroResolver.resolve(metroContext, specifier, context.platform)
   } catch (error) {
-    if (error === thrown) throw error
+    if (error === thrown || (context.custom !== null && !FAILURES.has(error?.constructor?.name))) throw error
     return null
   }
 }

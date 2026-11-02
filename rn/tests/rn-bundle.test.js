@@ -1097,6 +1097,23 @@ describe('rn-bundle with a Metro config', () => {
     assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: svg.config.js: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone\n"])
   })
 
+  it("runs its resolveRequest, as Metro does, wrapping Metro's own resolve", () => {
+    writeFileSync(join(root, 'resolve.config.js'), templateConfig([
+      '{ resolver: { resolveRequest: (...args) => {',
+      '  const [context, moduleName] = args',
+      "  if (moduleName === 'stub') return { type: 'empty' }",
+      "  const modulePath = require('path').resolve(require('path').dirname(context.originModulePath), moduleName)",
+      "  if (moduleName.endsWith('.js') && !require('fs').existsSync(modulePath)) return context.resolveRequest(context, moduleName.replace(/\\.js$/, '.ts'), ...args.slice(2))",
+      '  return context.resolveRequest(...args)',
+      '} } }',
+    ].join('\n')))
+    writeFileSync(join(root, 'resolved.js'), "console.log(JSON.stringify([require('./lib/esm.js').esm, require('stub')]))\n")
+    writeFileSync(join(root, 'lib/esm.ts'), "export const esm: string = 'ts'\n")
+    const r = bundleWith(['--metro-config=resolve.config.js'], 'resolved.js')
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(outputOf(), ['ts', {}])
+  })
+
   it("takes package exports either way, and transform options by what they are: refusing Metro's transform of import and export", () => {
     writeFileSync(join(root, 'imports.config.js'), templateConfig("{ resolver: { unstable_enablePackageExports: true }, transformer: { getTransformOptions: async (entries, { platform }) => ({ transform: { inlineRequires: true, experimentalImportSupport: platform === 'ios' } }) } }"))
     const r = bundleWith(['--metro-config=imports.config.js'], 'anim.js')

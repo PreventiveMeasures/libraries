@@ -18,7 +18,7 @@ export const failer = (name) => (message) => {
   process.exit(1)
 }
 
-const tryResolve = (from, name) => {
+export const tryResolve = (from, name) => {
   try {
     return from.resolve(name)
   } catch {
