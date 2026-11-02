@@ -7,9 +7,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  # The packages' tests in two jobs side by side, each of about half the
+  # CPU of them all, which one runner no longer does in its two minutes:
+  # rn's, and the others'.
+  packages:
+    name: test (${{ matrix.part }})
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: rn
+            filter: ./rn
+          - part: others
+            filter: '!./rn'
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -23,4 +35,14 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm i --frozen-lockfile
-      - run: node --run test
+      - run: pnpm -r --no-sort --filter '${{ matrix.filter }}' run test
+
+  # The check of all the tests, as before: passed where both jobs did, and
+  # failed where either failed or was cancelled.
+  test:
+    needs: packages
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: test '${{ needs.packages.result }}' = success
