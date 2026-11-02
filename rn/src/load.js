@@ -251,11 +251,14 @@ function unaliased(options, contents, plugins, helpers) {
     const body = BODIES[quote]
     body.lastIndex = index + 1
     const raw = body.exec(contents)?.[0]
-    const value = raw?.slice(0, -1).replaceAll(/\\(?:\r\n|[\n\r\u2028\u2029])/gu, '').replaceAll(/\\(.)/gsu, '$1')
+    const value = raw?.slice(0, -1).replaceAll(/\\(?:\r\n|[\n\r\u2028\u2029])/gu, '').replaceAll(/\\(.)/gsu, (escape, of) => ESCAPED[of] ?? of)
     if (value !== undefined && aliases.some((alias) => alias.test(value))) return false
   }
   return true
 }
+
+// What a string's escape of one character is, but for those of what it escapes.
+const ESCAPED = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' }
 
 // Of each quote, a string's body after it, and the quote that ends it: its
 // escapes (a line continuation among them) its own, on one line.
@@ -265,22 +268,28 @@ const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^
 // config may write into a file that had none: the automatic JSX runtime's,
 // of each importSource (the config's, and the file's @jsxImportSource), and
 // transform-runtime's helpers, each of @babel/helpers' (`helpers`, null where
-// not found), and regenerator, of its moduleName. The config's, once.
+// not found), and regenerator, of its moduleName; with core-js or absolute
+// paths, what it writes is no list: taken for one an alias matches. The
+// config's, once.
 function writesAliased(options, aliases, plugins, contents, helpers) {
   const each = (key) => {
     const of = plugins.get(key)
     return of === undefined ? [] : (of.instances ?? [of])
   }
   const sources = ['transform-react-jsx', 'transform-react-jsx-development'].flatMap(each).map(({ importSource = 'react' }) => importSource)
-  const modules = each('transform-runtime').map(({ moduleName = '@babel/runtime' }) => moduleName)
-  const runtimes = (source) => [`${source}/jsx-runtime`, `${source}/jsx-dev-runtime`]
+  const runtimes = each('transform-runtime')
+  // Of core-js (its helpers of @babel/runtime-corejs3, and its polyfills) or
+  // of absolute paths, what it writes isn't known.
+  if (runtimes.some(({ corejs, absoluteRuntime }) => Boolean(corejs) || Boolean(absoluteRuntime))) return true
+  const modules = runtimes.map(({ moduleName = '@babel/runtime' }) => moduleName)
+  const jsxRuntimes = (source) => [`${source}/jsx-runtime`, `${source}/jsx-dev-runtime`]
   const matched = (specifiers) => specifiers.some((specifier) => aliases.some((alias) => alias.test(specifier)))
   const pragma = sources.length === 0 ? undefined : /@jsxImportSource\s+(\S+)/u.exec(contents)?.[1]
-  if (pragma !== undefined && matched(runtimes(pragma))) return true
+  if (pragma !== undefined && matched(jsxRuntimes(pragma))) return true
   const key = JSON.stringify([sources, modules])
   const known = WRITES.get(options) ?? new Map()
   WRITES.set(options, known)
-  if (!known.has(key)) known.set(key, (modules.length > 0 && helpers === null) || matched([...sources.flatMap(runtimes), ...modules.flatMap((module) => [`${module}/regenerator`, ...helpers.flatMap((name) => [`${module}/helpers/${name}`, `${module}/helpers/esm/${name}`])])]))
+  if (!known.has(key)) known.set(key, (modules.length > 0 && helpers === null) || matched([...sources.flatMap(jsxRuntimes), ...modules.flatMap((module) => [`${module}/regenerator`, ...helpers.flatMap((name) => [`${module}/helpers/${name}`, `${module}/helpers/esm/${name}`])])]))
   return known.get(key)
 }
 const WRITES = new WeakMap()
