@@ -291,6 +291,26 @@ describe("the module format, of the project's Babel output, its imports require 
   })
 })
 
+describe("the module format, of babel-plugin-module-resolver's aliases", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'index.js': "import { a } from '#lib/a'\nglobalThis.app = { a, b: require('#lib/b') }\n",
+    'lib/a.js': "export const a = 'a'\n",
+    'lib/b.js': "module.exports = 'b'\n",
+  })
+  after(cleanup)
+
+  it('maps each import Babel leaves of an alias as module-resolver maps it, as it resolves it', async () => {
+    const resolver = [fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')), { alias: { '#lib': './lib' }, cwd: root }]
+    const babel = babelWorkers(fileURLToPath(import.meta.resolve('@babel/core')), { babelrc: false, configFile: false, compact: false, plugins: [fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs')), resolver] })
+    const babelPlugins = () => Promise.resolve(new Map([['transform-modules-commonjs', {}], ['module-resolver', resolver[1]]]))
+    const { js } = await createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, babel, babelPlugins }).rebuild()
+    assert.deepEqual(value(run(js).context, 'app'), { a: 'a', b: 'b' })
+    // Its require calls of the specifiers as written: Babel left them.
+    assert.match(js, /"#lib\/a":0/u)
+  })
+})
+
 describe('moduleUrls', () => {
   it('names a module out of the project root by `[..]`, which a URL keeps, and moduleName() reads back', () => {
     const { sourceMappingURL } = moduleUrls('http://h:1/index.bundle?platform=ios', '../../ui/Component.tsx')

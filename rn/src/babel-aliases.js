@@ -4,13 +4,18 @@
 import { dirname, relative, resolve } from 'node:path'
 
 const isRelativePath = (path) => /^\.?\.\//u.test(path)
-const escapeRegExp = (string) => string.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 
-// Unflagged, as the plugin builds them: `u` would refuse some patterns it takes.
+// Unflagged, as the plugin builds them: `u` would refuse some patterns it
+// takes. A key of no pattern matched as its `^key(/.*|)$` matches, by its
+// string: `.` of no line terminator.
 function matcher(key, value) {
   if (!key.startsWith('^') && !key.endsWith('$')) {
-    // eslint-disable-next-line require-unicode-regexp
-    return [new RegExp(`^${escapeRegExp(key)}(/.*|)$`), ([, rest]) => `${value}${rest}`]
+    const exec = (specifier) => {
+      if (!specifier.startsWith(key)) return null
+      const rest = specifier.slice(key.length)
+      return rest === '' || (rest.startsWith('/') && !/[\n\r\u2028\u2029]/u.test(rest)) ? [specifier, rest] : null
+    }
+    return [{ exec }, ([, rest]) => `${value}${rest}`]
   }
   let regExp
   try {
@@ -29,7 +34,7 @@ export function createAliases(alias, cwd) {
   }
   const matchers = Object.entries(alias).map(([key, value]) => matcher(key, value))
   return (file, specifier) => {
-    if (isRelativePath(specifier)) return null
+    if (isRelativePath(specifier) || specifier === '.') return null
     for (const [regExp, substitute] of matchers) {
       const groups = regExp.exec(specifier)
       if (groups === null) continue
@@ -42,3 +47,23 @@ export function createAliases(alias, cwd) {
     return null
   }
 }
+
+// ({ alias, cwd }) -> createAliases()'s mapping of them, made once of each,
+// as a file's load has them (load.js's module-resolver's, JSON, which a
+// cache keeps): null where it takes them not.
+export function aliasing(of) {
+  if (!OF.has(of)) {
+    const key = JSON.stringify([of.alias, of.cwd])
+    if (!MADE.has(key)) {
+      try {
+        MADE.set(key, createAliases(of.alias, of.cwd))
+      } catch {
+        MADE.set(key, null)
+      }
+    }
+    OF.set(of, MADE.get(key))
+  }
+  return OF.get(of)
+}
+const MADE = new Map()
+const OF = new WeakMap()

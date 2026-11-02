@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
@@ -88,34 +88,50 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
+    // A plugin rn knows not, which may read a specifier, so keeps module-resolver in Babel.
+    'noop-plugin.js': "module.exports = () => ({ name: 'noop', visitor: {} })\n",
+    // A package an alias maps '#lib' to.
+    'node_modules/lib-package/a.js': "export const a = 'a'\n",
   })
   after(cleanup)
-  // -> the files module-resolver runs in, of the bundle's five.
-  const ran = (options) => {
-    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8', timeout: 30_000 })
+  // -> the files module-resolver runs in, of the bundle's five, of these
+  // options and the config's other plugins; the bundle as it is written.
+  const ran = (options, plugins = [], args = []) => {
+    writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}], ${plugins.map((plugin) => JSON.stringify(plugin)).join(', ')}] }\n`)
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', ...args, 'index.js'], { cwd: root, encoding: 'utf8', timeout: 30_000 })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)
   }
 
-  it('leaves it out of Babel in a file that names none of its aliases, though with escapes', () => {
-    assert.equal(ran({ alias: { '#lib': './lib' } }), 3)
-    assert.equal(ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 3)
-  })
-
-  it("runs it where a string names an alias, as its RegExp has it, though the file's text names one where none does", () => {
+  it("leaves it out of Babel, its aliases mapped as the bundle resolves each import, but in a file of an escape of a code point (`\\u0023`)", () => {
+    assert.equal(ran({ alias: { '#lib': './lib' } }), 1)
     // `export`, in each file's text, of no string.
-    assert.equal(ran({ alias: { '#lib': './lib', export: './nowhere' } }), 3)
-    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 3)
+    assert.equal(ran({ alias: { '#lib': './lib', export: './nowhere' } }), 1)
+    assert.equal(ran({ alias: { '^#lib/(.+)$': './lib/\\1' } }), 1)
   })
 
-  it("leaves it out of Babel where no string names an alias, though the file's text names one: no hook of it runs there", () => {
-    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib', export: './nowhere', '^~(.+)$': './lib/\\\\1' } }]] }\n")
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
-    assert.equal(r.status, 0, r.stderr)
-    // In the three files with a string of #lib, its pre and post hooks and its traversal on enter.
-    assert.deepEqual(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}module-resolver$/mu.exec(r.stderr)?.slice(1).map(Number), [3, 3 * 2 + 3])
+  it('makes the bundle module-resolver in Babel makes, as a plugin of the config it knows not keeps it', () => {
+    for (const args of [[], ['--esm']]) {
+      assert.equal(ran({ alias: { '#lib': './lib' } }, [], args), 1)
+      const mapped = readFileSync(join(root, 'out.js'), 'utf8')
+      assert.equal(ran({ alias: { '#lib': './lib' } }, ['./noop-plugin.js'], args), 3)
+      assert.equal(readFileSync(join(root, 'out.js'), 'utf8'), mapped)
+    }
+  })
+
+  it('keeps it in Babel where an alias is of more than one object, or maps to a package, or the file calls jest.mock', () => {
+    assert.equal(ran({ alias: [{ '#nothing': './nothing' }, { '#lib': './lib' }] }), 3)
+    assert.equal(ran({ alias: { '#lib': 'lib-package' } }), 3)
+    writeFileSync(join(root, 'mocked.js'), "if (typeof jest !== 'undefined') jest.mock('#lib/a')\nexport { a as m } from '#lib/a'\n")
+    try {
+      writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib' } }]] }\n")
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'mocked.js'], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      assert.equal(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1], '1')
+    } finally {
+      rmSync(join(root, 'mocked.js'))
+    }
   })
 
   it('keeps it where a string an alias matches is spelled across lines, or matched by a RegExp of a backreference', () => {
