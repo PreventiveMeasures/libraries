@@ -96,7 +96,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!contents.includes('codegenNativeComponent')) {
         const plugins = (await babelPlugins?.(path)) ?? new Map()
         source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
-        if (unaliased(plugins.get(RESOLVER), contents)) source = { ...source, without: [...source.without, RESOLVER] }
+        if (unaliased(plugins.get(RESOLVER), contents, generatedOf(plugins))) source = { ...source, without: [...source.without, RESOLVER] }
       }
     } catch (error) {
       if (!Array.isArray(error?.errors)) throw error
@@ -233,23 +233,45 @@ function idle(code) {
 }
 
 // Whether module-resolver, of these options, leaves the file as it is: a
-// string specifier is, in the file, a quote, its value and that quote again,
-// on one line, so each such span of the file (from each quote, whatever the
-// quotes before it) is tried, but for escapes, which the value is read
-// without; a file with one of a code point (`\x23`), it may not leave.
-function unaliased(options, contents) {
+// string specifier is, in the file, a quote, its body and that quote again,
+// on one line, so each such string of the file, from each quote not escaped
+// (whatever the quotes before it), is tried, its escapes read as what they
+// escape (a line continuation as nothing); a file with an escape of a code
+// point (`\x23`), it may not leave. Nor any where an alias matches what
+// Babel's plugins may write into a file (`generated`).
+function unaliased(options, contents, generated) {
   if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
   const aliases = aliasesOf(options)
-  if (aliases === null) return false
-  // A line continuation is nothing of a string's value.
-  const text = contents.replaceAll(/\\(?:\r\n|[\n\r\u2028\u2029])/gu, '').replaceAll('\\', '')
-  // From each quote to the next like it: of each kind, the file once over.
-  for (const { index, 0: quote } of text.matchAll(/['"]/gu)) {
-    const end = text.indexOf(quote, index + 1)
-    const value = end === -1 ? '' : text.slice(index + 1, end)
-    if (!value.includes('\n') && aliases.some((alias) => alias.test(value))) return false
+  if (aliases === null || generated.some((specifier) => aliases.some((alias) => alias.test(specifier)))) return false
+  for (const { index, 0: quote } of contents.matchAll(/['"]/gu)) {
+    let backslashes = 0
+    while (contents[index - 1 - backslashes] === '\\') backslashes++
+    if (backslashes % 2 === 1) continue
+    const body = BODIES[quote]
+    body.lastIndex = index + 1
+    const raw = body.exec(contents)?.[0]
+    const value = raw?.slice(0, -1).replaceAll(/\\(?:\r\n|[\n\r\u2028\u2029])/gu, '').replaceAll(/\\(.)/gsu, '$1')
+    if (value !== undefined && aliases.some((alias) => alias.test(value))) return false
   }
   return true
+}
+
+// Of each quote, a string's body after it, and the quote that ends it: its
+// escapes (a line continuation among them) its own, on one line.
+const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy }
+
+// The specifiers Babel's plugins of the config may write into a file that
+// had none: the automatic JSX runtime's, of its importSource, and the helpers
+// of transform-runtime, of its moduleName.
+function generatedOf(plugins) {
+  const each = (key) => {
+    const options = plugins.get(key)
+    return options === undefined ? [] : (options.instances ?? [options])
+  }
+  return [
+    ...['transform-react-jsx', 'transform-react-jsx-development'].flatMap(each).flatMap(({ importSource = 'react' }) => [`${importSource}/jsx-runtime`, `${importSource}/jsx-dev-runtime`]),
+    ...each('transform-runtime').flatMap(({ moduleName = '@babel/runtime' }) => [`${moduleName}/helpers/helper`, `${moduleName}/helpers/esm/helper`, `${moduleName}/regenerator`]),
+  ]
 }
 
 // -> ALIASES' RegExps of the options, null where one of its aliases is no RegExp.
