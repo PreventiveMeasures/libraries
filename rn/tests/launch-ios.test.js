@@ -146,7 +146,9 @@ describe('launchIos', () => {
       writeFileSync(join(app, 'Info.plist'), plist)
       execFileSync('plutil', ['-convert', 'binary1', join(app, 'Info.plist')])
       const { calls, run: fake } = runner()
-      const real = (file, args) => (file === 'plutil' ? new Promise((done, failed) => execFile(file, args, { encoding: 'utf8' }, (error, stdout) => (error === null ? done(stdout) : failed(error)))) : fake(file, args))
+      const real = (file, args) => (file === 'plutil' ? new Promise((done, failed) => {
+        execFile(file, args, { encoding: 'utf8' }, (error, stdout) => (error === null ? done(stdout) : failed(error)))
+      }) : fake(file, args))
       const { bundleId } = await launchIos({ appPath: app, simulator: 'iPhone 17', location: '127.0.0.1:8081', run: real, exists: () => false })
       assert.equal(bundleId, 'com.example.real')
       assert.deepEqual(calls.at(-1).slice(-3), ['com.example.real', '-RCT_jsLocation', '127.0.0.1:8081'])
