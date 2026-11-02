@@ -12,7 +12,8 @@ import { Module } from 'node:module'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createPack, pause, readEntry, writeEntry } from './load-pack.js'
+import { createPack, readEntry, writeEntry } from './load-pack.js'
+import { storeOf } from './load-store.js'
 
 // A cache entry's format: another, none of the entries before.
 const CACHE_FORMAT = 3
@@ -169,8 +170,18 @@ function requiresOf(run) {
 // to be made, or its options are no JSON. Its start(), as a build starts.
 export function configKeyOf(core, options, modules) {
   const code = codeOf(modules)
-  const itemOf = (item) => [item.name ?? null, item.file?.resolved ?? null, item.options ?? null]
-  const instanceOf = (item) => JSON.stringify(itemOf(item), shown)
+  // An item's options by a digest of their JSON, of each object once a run,
+  // as Babel gives each file's item of a config the same: a plugin's of
+  // many entries (an alias map's) made each file's key 1 ms, as it was
+  // JSON again, three times, of each file.
+  const digests = new WeakMap()
+  const optionsOf = (given) => {
+    if (typeof given !== 'object' || given === null) return [given ?? null]
+    if (!digests.has(given)) digests.set(given, digest(JSON.stringify(given, shown)))
+    return digests.get(given)
+  }
+  const itemOf = (item) => [item.name ?? null, item.file?.resolved ?? null, optionsOf(item.options)]
+  const instanceOf = (item) => JSON.stringify(itemOf(item))
   const itemsOf = ({ plugins, presets }) => [...plugins.map((item) => [item, 'plugin']), ...presets.map((item) => [item, 'preset'])]
   const fresh = core.createConfigItemSync ?? core.createConfigItem
   let rooted = null
@@ -281,8 +292,11 @@ const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept)
 // a file `memory` (as it was in memory), `misses` (loaded anew), or
 // `unkept` (loaded anew, kept none of, `why`); get() counts `hits`. A
 // build's start() and finish() -> { tally: { hits, misses, memory, unkept:
-// { [why]: count }, ms }, written }: what was counted of it, `ms` the time
-// the cache took, and a promise of its pack written. A file's load and a
+// { [why]: count }, ms, parts: { config, hashing, records, pack }, pack:
+// { bytes, segments } or null, gc }, written }: what was counted of it, `ms`
+// the time the cache took, by part (its files' configs' keys, its hashing,
+// its records, its pack read), what of its pack it read, the time V8 took
+// collecting garbage, and a promise of its pack written. A file's load and a
 // module's build are kept in the target's pack (load-pack.js), read whole;
 // the rest, each in a file of its own, written whole, then moved in place:
 // another rn-serve may read it. A cache, at best: what fails to read or
@@ -339,81 +353,4 @@ export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
     return written
   }
   return Object.assign((babel) => storeOf(babel, { salt, packed: () => baseOf(babel).then((base) => packOf(babel, base?.prefix ?? null)), base: () => baseOf(babel), read, write, track }), { settled: () => Promise.all(writing) })
-
-}
-
-// The store of a target (createLoadCache()'s), its pack and its keys' base.
-function storeOf(babel, { salt, packed, base: baseOf, read, write, track }) {
-  // Its pack, once its keys' prefix is known, as each key is of it: asked
-  // for as its first build starts.
-  let pack = null
-  let packing = null
-  const settled = () => (packing ??= packed().then((made) => (pack = made)))
-  const fresh = () => ({ hits: 0, misses: 0, memory: 0, unkept: {}, ms: 0 })
-  let tally = fresh()
-  // The time the cache takes of `run`, as the build's.
-  const timed = (run) => {
-    const start = performance.now()
-    try {
-      return run()
-    } finally {
-      tally.ms += performance.now() - start
-    }
-  }
-  const keyOf = async (path, contents, variant) => {
-    const base = await baseOf()
-    if (base === null) return { key: null, why: 'fingerprint' }
-    const { prefix, covered } = base
-    return timed(() => {
-      const config = babel === null ? '' : babel.configKey(path, covered)
-      if (config === null) return { key: null, why: 'config' }
-      return { key: createHash('sha256').update(prefix).update('\0').update(JSON.stringify([path, variant, config])).update('\0').update(contents).digest('hex') }
-    })
-  }
-  return {
-    keyOf,
-    get: async (key) => {
-      await settled()
-      const result = timed(() => pack.get(key))
-      if (typeof result?.contents !== 'string' || typeof result.loader !== 'string') return null
-      tally.hits++
-      await pause()
-      return result
-    },
-    set: (key, result) => timed(() => pack?.set(key, result)),
-    build: async (parts, text, compute) => {
-      await settled()
-      const key = timed(() => createHash('sha256').update(salt).update('\0module\0').update(JSON.stringify(parts)).update('\0').update(text).digest('hex'))
-      const kept = timed(() => pack.get(key))
-      if (kept !== null) {
-        await pause()
-        return kept
-      }
-      const value = await compute()
-      timed(() => pack.set(key, value))
-      return value
-    },
-    keep: async (kind, path, compute) => {
-      const { key } = await keyOf(path, '', [kind])
-      const kept = key === null ? null : read(key)
-      if (kept !== null && Object.hasOwn(kept, 'value')) return kept.value
-      const value = await compute()
-      if (key !== null) write(key, { value })
-      return value
-    },
-    note: (what, why = null) => {
-      if (what === 'unkept') tally.unkept[why] = (tally.unkept[why] ?? 0) + 1
-      else tally[what]++
-    },
-    start: () => {
-      tally = fresh()
-      babel?.configStart?.()
-      void settled().then(() => pack.start())
-    },
-    finish: () => {
-      const was = tally
-      tally = fresh()
-      return { tally: was, written: track(settled().then(() => pack.finish())) }
-    },
-  }
 }
