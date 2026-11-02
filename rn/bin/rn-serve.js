@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
 //   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE]
-//   [--esm | --no-esm] [--dev-tools | --no-dev-tools] [--reset-cache]
+//   [--esm | --no-esm] [--devtools | --no-devtools] [--reset-cache]
 //   [--no-warm] [--no-client-logs]
 //   [--launch=ios [--simulator=NAME] [--binary-path=APP] | --no-launch]
 // A dev server for a React Native app, where Metro's would be: each bundle
@@ -11,7 +11,7 @@
 // as Metro's terminal prints it, each line labelled ` LOG `, ` WARN `, ...
 // (but --no-client-logs); reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
-// (j; with --dev-tools, opened for each app as it connects, unless DevTools
+// (j; with --devtools, opened for each app as it connects, unless DevTools
 // are connected to its device already: src/devtools.js), its Network panel
 // on: where the app's runtime reports no requests
 // (React Native before 0.83), each dev bundle in Metro's module format has
@@ -54,7 +54,7 @@
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 // The project's rn.config.json (src/rn-config.js) has the defaults of
-// --esm (its esm), --dev-tools (its devTools), --max-workers (its
+// --esm (its esm), --devtools (its devtools), --max-workers (its
 // maxWorkers, over the Metro config's) and of the Metro config (its
 // metroConfig: false, none, as of a project with none, but a package's
 // exports read of any Metro; a path, that file), the flags over it; and
@@ -108,7 +108,7 @@ const { values } = parseArgs({
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
     esm: { type: 'boolean' },
-    'dev-tools': { type: 'boolean' },
+    devtools: { type: 'boolean' },
     'reset-cache': { type: 'boolean', default: false },
     warm: { type: 'boolean', default: true },
     'client-logs': { type: 'boolean', default: true },
@@ -129,7 +129,7 @@ defines(true, values.define, fail)
 const projectRoot = realpathSync(process.cwd())
 const rnConfig = readRnConfig(projectRoot, fail)
 const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
-const devTools = flagOf(values['dev-tools'], rnConfig, 'devTools', 'dev-tools').on
+const devtools = flagOf(values.devtools, rnConfig, 'devtools', 'devtools').on
 const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
@@ -297,7 +297,7 @@ function status(ms, cached) {
 
 // With its Network panel, which rn-serve has show the app's requests where
 // its runtime reports none (src/network.js): of each DevTools as it
-// connects; with --dev-tools, DevTools opened for each app as it connects.
+// connects; with --devtools, DevTools opened for each app as it connects.
 // Its logger, called as console is: a format string and its arguments.
 function mountDebugger(serverUrl) {
   const { network } = devServer
@@ -310,7 +310,7 @@ function mountDebugger(serverUrl) {
       unstable_customInspectorMessageHandler: network.handler,
     })
     mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', network.debuggerConnected)
-    if (devTools) {
+    if (devtools) {
       const opener = createDevToolsOpener((device) => void openDebugger(serverUrl, device))
       mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', opener.debuggerConnected)
       mounted.websocketEndpoints?.['/inspector/device']?.prependListener?.('connection', opener.deviceConnected)

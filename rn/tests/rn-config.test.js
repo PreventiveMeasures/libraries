@@ -30,7 +30,7 @@ describe('readRnConfig', () => {
   })
 
   it('takes each of its options, as they are', () => {
-    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devTools: true, launch: 'ios', ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' } }
+    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, launch: 'ios', ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' } }
     assert.deepEqual(read('{ "launch": false, "ios": {} }'), { launch: false, ios: {} })
     assert.deepEqual(read(JSON.stringify(options)), options)
     assert.deepEqual(read('{ "metroConfig": "metro.rn.config.js" }'), { metroConfig: 'metro.rn.config.js' })
@@ -38,7 +38,8 @@ describe('readRnConfig', () => {
   })
 
   it('refuses an option it does not know, a value of another type, and a file not an object of JSON', () => {
-    assert.throws(() => read('{ "devtools": true }'), { message: 'rn.config.json: no such option devtools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools, launch, ios' })
+    // devTools, its name before: none now.
+    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devtools, launch, ios' })
     assert.throws(() => read('{ "launch": "android" }'), { message: 'rn.config.json: launch is "ios", or false, not "android"' })
     assert.throws(() => read('{ "ios": [] }'), { message: 'rn.config.json: ios is an object of options (simulator, binaryPath), not []' })
     assert.throws(() => read('{ "ios": { "udid": "X" } }'), { message: 'rn.config.json: no such option ios.udid: it has simulator, binaryPath' })
@@ -54,7 +55,7 @@ describe('readRnConfig', () => {
       assert.throws(() => read(JSON.stringify({ maxWorkers: workers })), { message: `rn.config.json: maxWorkers is a number of workers, 1 or more, not ${JSON.stringify(workers)}` })
     }
     assert.throws(() => read('{ "esm": "yes" }'), { message: 'rn.config.json: esm is true or false, not "yes"' })
-    assert.throws(() => read('{ "devTools": 1 }'), { message: 'rn.config.json: devTools is true or false, not 1' })
+    assert.throws(() => read('{ "devtools": 1 }'), { message: 'rn.config.json: devtools is true or false, not 1' })
     assert.throws(() => read('{ "metroConfig": "" }'), { message: 'rn.config.json: metroConfig is true, false or the path of a Metro config, not ""' })
     assert.throws(() => read('[]'), { message: 'rn.config.json: not an object of options' })
     assert.throws(() => read('null'), { message: 'rn.config.json: not an object of options' })
@@ -136,6 +137,6 @@ describe('flagOf', () => {
     assert.deepEqual(flagOf(undefined, {}, 'esm', 'esm'), { on: false, by: "rn.config.json's esm" })
     assert.deepEqual(flagOf(undefined, { esm: true }, 'esm', 'esm'), { on: true, by: "rn.config.json's esm" })
     assert.deepEqual(flagOf(false, { esm: true }, 'esm', 'esm'), { on: false, by: '--esm' })
-    assert.deepEqual(flagOf(true, {}, 'devTools', 'dev-tools'), { on: true, by: '--dev-tools' })
+    assert.deepEqual(flagOf(true, {}, 'devtools', 'devtools'), { on: true, by: '--devtools' })
   })
 })

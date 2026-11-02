@@ -806,7 +806,7 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
   })
 })
 
-describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devTools", () => {
+describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devtools", () => {
   // A dev-middleware of its inspector's sockets, `ws`'s as rn-serve has them,
   // and of each /open-debugger asked (GET /test/opened).
   const DEV_MIDDLEWARE = [
@@ -834,7 +834,7 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devTo
   ].join('\n')
   const { root, cleanup } = writeTree({
     ...APP,
-    'rn.config.json': { devTools: true },
+    'rn.config.json': { devtools: true },
     'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
     'node_modules/@react-native/dev-middleware/index.js': DEV_MIDDLEWARE,
   })
@@ -875,8 +875,8 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devTo
     }
   })
 
-  it('opens none with --no-dev-tools', async () => {
-    const server = await serve(root, ['--no-dev-tools'])
+  it('opens none with --no-devtools', async () => {
+    const server = await serve(root, ['--no-devtools'])
     try {
       ;(await launch(server)).close()
       await sleep(300)
@@ -884,6 +884,24 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devTo
     } finally {
       await server.stop()
     }
+  })
+
+  it("opens DevTools with --devtools, over rn.config.json's devtools false", async () => {
+    writeFileSync(join(root, 'rn.config.json'), '{ "devtools": false }')
+    const server = await serve(root, ['--devtools'])
+    try {
+      ;(await launch(server)).close()
+      assert.deepEqual(await until(async () => (await opened(server)).length > 0 && opened(server), 'DevTools opened'), ['/open-debugger?device=phone'])
+    } finally {
+      await server.stop()
+      writeFileSync(join(root, 'rn.config.json'), '{ "devtools": true }')
+    }
+  })
+
+  it('takes --dev-tools no longer: --devtools is its name', () => {
+    const r = spawnSync(process.execPath, [BIN, '--dev-tools'], { cwd: root, encoding: 'utf8', env: envOf(TMP) })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /Unknown option '--dev-tools'/u)
   })
 })
 
