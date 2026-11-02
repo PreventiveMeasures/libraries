@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { request } from 'node:http'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
@@ -679,6 +679,20 @@ describe('rn-serve, its cache of each file as it loads', () => {
     assert.deepEqual(await served(), ['other', 2, '0 hits, 2 misses'])
     assert.deepEqual(await served(['--reset-cache']), ['other', 2, '0 hits, 2 misses'])
     assert.deepEqual(await served(), ['other', 0, '2 hits, 0 misses'])
+  })
+
+  it('removes, once it has built, the packs no run has used for a week, and the entries of the layout before', async () => {
+    const cache = join(tmp, `rn-serve-cache-${process.getuid()}`)
+    const stale = join(cache, 'packs', 'stale')
+    mkdirSync(stale, { recursive: true })
+    writeFileSync(join(stale, 'a.pack'), '')
+    const week = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    utimesSync(stale, week, week)
+    mkdirSync(join(cache, 'ab'))
+    writeFileSync(join(cache, 'ab', 'cd'), '{}')
+    const kept = readdirSync(join(cache, 'packs')).filter((name) => name !== 'stale').toSorted()
+    assert.deepEqual(await served(), ['other', 0, '2 hits, 0 misses'])
+    assert.deepEqual([existsSync(stale), existsSync(join(cache, 'ab')), readdirSync(join(cache, 'packs')).toSorted(), readdirSync(join(cache, 'entries')).length], [false, false, kept, 1])
   })
 
   it('keeps none in a directory another may write in', async () => {

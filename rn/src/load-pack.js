@@ -7,7 +7,7 @@
 // its JSON, parsed as it is asked for.
 
 import { Buffer } from 'node:buffer'
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
@@ -32,6 +32,17 @@ export const pause = () => {
       done()
     })
   })
+}
+
+// A pack's directory, or a run's entries', stamped as a run uses it (its
+// mtime now), as load-prune.js has it: what no run uses, a run after removes.
+export function touch(dir) {
+  try {
+    const now = new Date()
+    utimesSync(dir, now, now)
+  } catch {
+    // None there yet: what is written makes it, of its mtime then.
+  }
 }
 
 // -> { index: Map<key, its value's JSON>, read: the segments' names, bytes }:
@@ -118,6 +129,7 @@ export function createPack(dir) {
   // -> { bytes, segments } of what it read, at its first load(); else null.
   const load = () => {
     if (index !== null || done) return null
+    touch(dir)
     let bytes
     ;({ index, read, bytes } = segmentsOf(dir))
     return { bytes, segments: read.length }
@@ -143,6 +155,7 @@ export function createPack(dir) {
     },
     finish: () => {
       if (--building > 0) return Promise.resolve()
+      touch(dir)
       let records = fresh.splice(0)
       let gone = []
       if (index !== null && read.length >= SEGMENTS) {

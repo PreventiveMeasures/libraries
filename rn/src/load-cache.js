@@ -12,7 +12,7 @@ import { Module } from 'node:module'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createPack, readEntry, writeEntry } from './load-pack.js'
+import { createPack, readEntry, touch, writeEntry } from './load-pack.js'
 import { storeOf } from './load-store.js'
 
 // A cache entry's format: another, none of the entries before.
@@ -298,14 +298,18 @@ const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept)
 // its records, its pack read), what of its pack it read, the time V8 took
 // collecting garbage, and a promise of its pack written. A file's load and a
 // module's build are kept in the target's pack (load-pack.js), read whole;
-// the rest, each in a file of its own, written whole, then moved in place:
-// another rn-serve may read it. A cache, at best: what fails to read or
+// the rest, each in a file of its own, of the salt's entries, written whole,
+// then moved in place: another rn-serve may read it. A cache, at best: what fails to read or
 // write is loaded anew. Its settled() -> a promise of each pack's write
 // under way done, for a run to end once they are.
 export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
   const salt = digest(JSON.stringify([CACHE_FORMAT, ownModules().map(fileDigest), esbuild.version, flow === null ? null : [flow, fileDigest(flow)], lockfilesOf(cwd).map((path) => [path, fileDigest(path)])]))
-  const read = (key) => readEntry(dir, key)
-  const write = (key, value) => writeEntry(dir, key, value)
+  // Its entries, of the salt's: of another, none read again, as a run
+  // after removes them once none uses them (load-prune.js's prune()).
+  const entries = join(dir, 'entries', salt)
+  touch(entries)
+  const read = (key) => readEntry(entries, key)
+  const write = (key, value) => writeEntry(entries, key, value)
   // A target's fingerprint, and what it is a digest of: the one kept, where
   // that is the same; else its workers', kept. null where none.
   const fingerprintFor = async (babel) => {
