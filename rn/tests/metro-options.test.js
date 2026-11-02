@@ -40,12 +40,13 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.deepEqual([options.assetRegistryPath, options.blockList.map(String), options.port, options.babelRCLookup], ['react-native/Libraries/Image/AssetRegistry', [String(/(\/__tests__\/.*)$/u).replace('/u', '/')], 8081, true])
     assert.deepEqual([options.resolver.sourceExts, options.resolver.mainFields, options.resolver.conditionNames, options.resolver.packageExports], [['js', 'jsx', 'json', 'ts', 'tsx'], ['react-native', 'browser', 'main'], ['react-native'], true])
     assert.equal(typeof options.runBeforeMain, 'function')
+    assert.equal(options.babelRuntime, true)
     assert.equal(await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true }), null)
   })
 
   it('takes the options it does, whatever they are', async () => {
-    const options = await load("{ resolver: { sourceExts: ['js', 'mjs'], extraNodeModules: { shared: '../shared' }, nodeModulesPaths: ['vendor'], disableHierarchicalLookup: true, unstable_enablePackageExports: false }, transformer: { enableBabelRCLookup: false } }")
-    assert.deepEqual([options.resolver.sourceExts, options.resolver.extraNodeModules, options.resolver.nodeModulesPaths, options.resolver.disableHierarchicalLookup, options.resolver.packageExports, options.babelRCLookup], [['js', 'mjs'], { shared: join(root, '../shared') }, [join(root, 'vendor')], true, false, false])
+    const options = await load("{ resolver: { sourceExts: ['js', 'mjs'], extraNodeModules: { shared: '../shared' }, nodeModulesPaths: ['vendor'], disableHierarchicalLookup: true, unstable_enablePackageExports: false }, transformer: { enableBabelRCLookup: false, enableBabelRuntime: false } }")
+    assert.deepEqual([options.resolver.sourceExts, options.resolver.extraNodeModules, options.resolver.nodeModulesPaths, options.resolver.disableHierarchicalLookup, options.resolver.packageExports, options.babelRCLookup, options.babelRuntime], [['js', 'mjs'], { shared: join(root, '../shared') }, [join(root, 'vendor')], true, false, false, false])
     // extraNodeModules by name, as Metro reads it: a Proxy's too.
     const lazy = await load("{ resolver: { extraNodeModules: new Proxy({}, { get: (_, name) => `../${String(name)}` }) } }")
     assert.equal(lazy.resolver.extraNodeModules.shared, join(root, '../shared'))
@@ -61,7 +62,7 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
   })
 
   it('takes getTransformOptions by the transform options it gives each bundle, refusing those it does not do', async () => {
-    const options = await load("{ transformer: { getTransformOptions: async (entries, { dev, hot, platform }, getDependencies) => ({ transform: { inlineRequires: false, nonInlinedRequires: ['React'], unstable_disableES6Transforms: true, experimentalImportSupport: platform === 'android' && !hot && (await getDependencies(entries[0])).length === 0, unstable_inlinePlatform: !dev } }) } }")
+    const options = await load("{ transformer: { getTransformOptions: async (entries, { dev, hot, platform }, getDependencies) => ({ transform: { inlineRequires: false, nonInlinedRequires: ['React'], unstable_disableES6Transforms: true, experimentalImportSupport: platform === 'android' && hot && (await getDependencies(entries[0])).length === 0, unstable_inlinePlatform: !dev } }) } }")
     const entry = join(root, 'index.js')
     assert.equal(await options.transformRefusal(entry, { platform: 'ios', dev: false }), null)
     assert.deepEqual((await options.transformRefusal(entry, { platform: 'android', dev: true })).replaceAll(options.file, 'its config').split('\nrn-bundle: '), [
@@ -101,6 +102,24 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
 
   it('refuses require.context', async () => {
     assert.match(await load('{ transformer: { unstable_allowRequireContext: true } }'), /transformer\.unstable_allowRequireContext is true, require\.context/u)
+  })
+})
+
+// Metro before 0.84 asks getTransformOptions `hot` of a served bundle alone.
+describe('metroOptions, of a Metro before 0.84', () => {
+  const { 'node_modules/metro-config': { link: real }, ...rest } = METRO_CONFIG
+  const { root, cleanup } = writeTree({
+    ...rest,
+    'node_modules/metro-config/package.json': { name: 'metro-config', version: '0.83.3', main: 'index.js', exports: { '.': './index.js', './package.json': './package.json' } },
+    'node_modules/metro-config/index.js': `module.exports = require(${JSON.stringify(real)})\n`,
+    'metro.config.js': 'module.exports = { transformer: { getTransformOptions: async (entries, { hot }) => ({ transform: { experimentalImportSupport: hot } }) } }\n',
+  })
+  after(cleanup)
+
+  it('asks it `hot` true where it serves alone', async () => {
+    const refusal = async (serving) => (await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle', serving })).transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true })
+    assert.equal(await refusal(false), null)
+    assert.match(await refusal(true), /getTransformOptions gives experimentalImportSupport true/u)
   })
 })
 

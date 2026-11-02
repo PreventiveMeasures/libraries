@@ -95,7 +95,7 @@ export function babelConfigOf(cwd, project) {
   const babelrc = ['.babelrc', '.babelrc.js'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
   if (babelrc !== undefined) return { options: { configFile: false, extends: babelrc }, what: babelrc }
   const preset = ofTransformer(project, '@react-native/babel-preset')
-  return preset === null ? null : { options: { configFile: false, presets: [[preset, { projectRoot: cwd }]] }, what: '@react-native/babel-preset', preset: true }
+  return preset === null ? null : { options: { configFile: false }, what: '@react-native/babel-preset', preset }
 }
 
 // Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
@@ -111,8 +111,10 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // run it over each file outside node_modules, for Fast Refresh;
 // `transformProfile`, one of TRANSFORM_PROFILES, the caller's, for the
 // config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup;
-// `keepPlugins`, each target's workers leave module-resolver as it is (load.js).
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, keepPlugins = false } = {}) {
+// `babelRuntime`, its enableBabelRuntime, for the preset where the project
+// has no config; `keepPlugins`, each target's workers leave module-resolver
+// as it is (load.js).
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -133,7 +135,11 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     // A file with no import or export a script, as Metro's transformer has
     // it, which Babel takes for an ES module else: parsed as strict, its
     // helpers imported, then made CommonJS.
-    const options = { cwd, root: cwd, ...config.options, babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
+    // The preset, where the project has no config, given what of the bundle
+    // Metro's transformer gives it: 0.78's reads the transform profile of
+    // these alone, not of Babel's caller.
+    const preset = config.preset === undefined ? null : { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
+    const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,

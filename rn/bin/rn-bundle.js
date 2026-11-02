@@ -117,7 +117,7 @@ const esbuild = project.peer('esbuild', 'bundling')
 const metro = await metroOptions(cwd, project, fail, { file: values['metro-config'] ?? null, name: 'rn-bundle', minify: values.minify })
 const transformRefusal = await metro.transformRefusal(resolve(cwd, positionals[0]), { platform: values.platform, dev: values.dev })
 if (transformRefusal !== null) fail(transformRefusal)
-const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup })?.({ platform: values.platform, dev: values.dev }) ?? null
+const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime })?.({ platform: values.platform, dev: values.dev }) ?? null
 if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
 if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
 if (values.esm && babel === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
@@ -192,7 +192,7 @@ if (values['assets-dest'] !== undefined) {
 process.stderr.write(`rn-bundle: ${positionals[0]} for ${values.platform}${values.output === undefined ? '' : ` to ${values.output}`} (esbuild ${esbuild.version}), ${result.graph.size} modules, ${result.assets.length} assets\n`)
 if (babel?.profile) process.stderr.write(profileReport(babel.profile, cwd))
 if (selfTest) {
-  const kept = projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, keepPlugins: true })({ platform: values.platform, dev: values.dev })
+  const kept = projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, keepPlugins: true })({ platform: values.platform, dev: values.dev })
   const theirs = new Map()
   await build({ ...options, babel: kept.babel, babelPlugins: kept.babelPlugins, keepPlugins: true, cache: theirs })
   const found = await differences(esbuild, ours, theirs)

@@ -60,7 +60,7 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup })
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime })
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
