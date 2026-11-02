@@ -26,6 +26,8 @@
 //   devtools: rn-serve's --devtools' default (false): React Native DevTools
 //     opened for each app as it connects (devtools.js); --devtools and
 //     --no-devtools over it. rn-bundle leaves it.
+//   port: rn-serve's --port' default, over the Metro config's server.port
+//     (else 8081). rn-bundle leaves it.
 //   launch: rn-serve's --launch' default: "ios", the app launched on a
 //     simulator as rn-serve starts (launch-ios.js), and its bundle the one
 //     built ahead of it; false (the default), none. --launch and
@@ -59,6 +61,7 @@ const OPTIONS = {
   maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
   devtools: boolean,
+  port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
   launch: [(value) => value === false || value === 'ios', '"ios", or false'],
 }
 const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]

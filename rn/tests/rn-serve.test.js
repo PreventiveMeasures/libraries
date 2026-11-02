@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { request } from 'node:http'
+import { createServer, request } from 'node:http'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,9 +32,9 @@ const until = async (get, what, ms = 15_000) => {
 
 // rn-serve on a free port, in `cwd`, of the temporary directory `tmp`, of
 // no bundle built ahead of the app but where `warm`, of `env` over the
-// environment. -> { url, output(), stop() }
-async function serve(cwd, args = [], tmp = TMP, { warm = false, env = {} } = {}) {
-  const child = spawn(process.execPath, [BIN, '--port=0', ...(warm ? [] : ['--no-warm']), ...args], { cwd, env: { ...envOf(tmp), ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+// environment, of no --port where `port` is null. -> { url, output(), stop() }
+async function serve(cwd, args = [], tmp = TMP, { warm = false, env = {}, port = 0 } = {}) {
+  const child = spawn(process.execPath, [BIN, ...(port === null ? [] : [`--port=${port}`]), ...(warm ? [] : ['--no-warm']), ...args], { cwd, env: { ...envOf(tmp), ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   const collect = (data) => {
     out += data
@@ -922,6 +922,35 @@ describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
       assert.match(server.output(), /^a x b y$/mu)
     } finally {
       await server.stop()
+    }
+  })
+})
+
+describe("rn-serve, of rn.config.json's port", () => {
+  const { root, cleanup } = writeTree({ ...APP })
+  after(cleanup)
+  // A port none listens on, as the system has it.
+  const freePort = () => new Promise((done) => {
+    const probe = createServer().listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => done(port))
+    })
+  })
+
+  it('listens on it, of no --port; --port over it', async () => {
+    const port = await freePort()
+    writeFileSync(join(root, 'rn.config.json'), JSON.stringify({ port }))
+    const server = await serve(root, [], TMP, { port: null })
+    try {
+      assert.equal(new URL(server.url).port, String(port))
+    } finally {
+      await server.stop()
+    }
+    const over = await serve(root)
+    try {
+      assert.notEqual(new URL(over.url).port, String(port))
+    } finally {
+      await over.stop()
     }
   })
 })
