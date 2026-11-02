@@ -139,6 +139,12 @@ describe('rn-bundle, with Babel, with Flow that is code', () => {
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['hello world', 'typed'])
   })
+
+  it('reports with --profile the time flow-remove-types took, of each file of Flow, on the main thread', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stderr, /^ {6}ms {12}files {13}before Babel, on the main thread\n +\d+ {16}2 {13}flow-remove-types$/mu)
+  })
 })
 
 describe('rn-bundle, with Babel, of a file with a source map of its own', () => {

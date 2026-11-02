@@ -152,11 +152,31 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
 // Babel's own work, outside its plugins, by what it is.
 const OWN = ['config', 'parsing', 'scopes', 'printing']
 
-// { files, ms, plugins, own }, which babelWorkers adds to: plugins a
+// { files, ms, plugins, own, before }, which babelWorkers adds to: plugins a
 // Map<key, { files, calls, ms }>, `files` those a plugin's visitors (or its
-// parser or printer) ran in, not all it is in; own one by each of OWN.
+// parser or printer) ran in, not all it is in; own one by each of OWN;
+// before, the main thread's work before Babel, by name: { files, ms }
+// (timedBefore()'s).
 export function newProfile() {
-  return { files: 0, ms: 0, plugins: new Map(), own: new Map() }
+  return { files: 0, ms: 0, plugins: new Map(), own: new Map(), before: new Map() }
+}
+
+// fn, each call of it, of a file, timed in the profile's `before`, by name:
+// work of the main thread's before Babel, as flow-remove-types' stripping
+// of a file's Flow. fn as it is where the profile or fn is null.
+export function timedBefore(profile, name, fn) {
+  if (profile === null || fn === null) return fn
+  profile.before.set(name, { files: 0, ms: 0 })
+  return (...args) => {
+    const start = performance.now()
+    try {
+      return fn(...args)
+    } finally {
+      const sum = profile.before.get(name)
+      sum.files++
+      sum.ms += performance.now() - start
+    }
+  }
 }
 
 function addSpent(profile, { ms, plugins, own }) {
@@ -171,9 +191,10 @@ function addSpent(profile, { ms, plugins, own }) {
 }
 
 // A table of the time each plugin took, most first, then Babel's own, by
-// what it is, and the rest. Keys that are paths, of plugins with no name,
-// are made relative to root.
-export function profileReport({ files, ms, plugins, own }, root) {
+// what it is, and the rest; then the main thread's before Babel, of no
+// share of Babel's. Keys that are paths, of plugins with no name, are made
+// relative to root.
+export function profileReport({ files, ms, plugins, own, before = new Map() }, root) {
   const line = (...cells) => cells.map((cell, i) => String(cell).padStart([8, 6, 7, 9, 0][i])).join('  ')
   const row = (time, ...cells) => line(Math.round(time), ms > 0 ? ((100 * time) / ms).toFixed(1) : '0.0', ...cells)
   const sorted = [...plugins].toSorted(([, a], [, b]) => b.ms - a.ms)
@@ -186,6 +207,7 @@ export function profileReport({ files, ms, plugins, own }, root) {
     line('ms', '%', 'files', 'calls', 'Babel, outside plugins'),
     ...owned.map(([name, entry]) => row(entry.ms, entry.files, entry.calls, name)),
     row(rest, '', '', 'traversal, and the rest'),
+    ...(before.size === 0 ? [] : [line('ms', '', 'files', '', 'before Babel, on the main thread'), ...[...before].map(([name, entry]) => line(Math.round(entry.ms), '', entry.files, '', name))]),
     '',
   ].join('\n')
 }
