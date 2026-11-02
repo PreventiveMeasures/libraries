@@ -165,6 +165,27 @@ describe('rn-bundle, with Babel, of a file with a source map of its own', () => 
   })
 })
 
+describe("rn-bundle, with Babel, with a sourceRoot in the Babel config", () => {
+  // Which Babel puts in each file's map, and esbuild before each of its
+  // sources: of a file Babel names by its own name (a.js), and of one
+  // esbuild lowers first, of its absolute path (b.ts).
+  const { root, cleanup } = writeTree({
+    'babel.config.js': "module.exports = { sourceRoot: __dirname + '/' }\n",
+    'index.js': "import { a } from './lib/a'\nimport { b } from './lib/b'\nconsole.log(a + b)\n",
+    'lib/a.js': 'export const a = 1\n',
+    'lib/b.ts': 'export const b: number = 2\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+
+  it('names each source by its own path, as Metro does, the sourceRoot taken of none', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', '--sourcemap-output=out.map', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    const { sources } = JSON.parse(readFileSync(join(root, 'out.map'), 'utf8'))
+    assert.deepEqual(['index.js', 'lib/a.js', 'lib/b.ts'].map((file) => sources.includes(join(root, file))), [true, true, true], String(sources))
+  })
+})
+
 describe('rn-bundle, with Babel, with a .babelrc of a directory of its own', () => {
   // Each directory read once for a .babelrc: the one beneath, in the files
   // beneath it, as Babel finds it, and none above it.
