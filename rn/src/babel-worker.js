@@ -334,11 +334,12 @@ if (workerData?.babel !== undefined) {
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
   // The options transformSync takes for the file: the config's, as Babel
-  // loads them for it, its plugins, loaded, as they are, but those of the
-  // keys in without, and the inlining one.
-  const optionsFor = (filename, without) => {
+  // loads them for it (of `loaded`, its loadPartialConfig()'s options, where
+  // given), its plugins, loaded, as they are, but those of the keys in
+  // without, and the inlining one.
+  const optionsFor = (filename, without, loaded = optionsOf(filename)) => {
     const start = performance.now()
-    const config = core.loadOptionsSync(optionsOf(filename))
+    const config = core.loadOptionsSync(loaded)
     if (profile) time('config', start)
     const plugins = [...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)]
     // module-resolver traverses, as its plugin does, with keepPlugins.
@@ -375,7 +376,8 @@ if (workerData?.babel !== undefined) {
     core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
   } catch {}
   // Its fingerprint of the modules loaded by now, with the config.
-  const cache = cacheDir === null ? null : cacheOf(cacheDir, fingerprintOf(Object.keys(createRequire(corePath).cache), { refresh, keepPlugins, inlineRequires, ...given }, given.cwd ?? process.cwd()))
+  const modules = createRequire(corePath).cache
+  const cache = cacheDir === null ? null : cacheOf(cacheDir, fingerprintOf(Object.keys(modules), { refresh, keepPlugins, inlineRequires, ...given }, given.cwd ?? process.cwd()), modules)
   // -> { code, imports }: Babel's output, kept where cached, but where a
   // plugin's is of files it names (its addExternalDependency), which may
   // change.
@@ -392,8 +394,11 @@ if (workerData?.babel !== undefined) {
     own = new Map()
     imports = new Set()
     try {
-      const options = optionsFor(filename, without)
-      const cacheKey = cache?.keyOf(options, source) ?? null
+      // With a cache, the config's files and the plugins and presets they
+      // name, for the file's key: its options of them, as Babel loads them.
+      const partial = cache === null ? null : core.loadPartialConfigSync(optionsOf(filename))
+      const options = optionsFor(filename, without, partial?.options)
+      const cacheKey = cache?.keyOf(options, source, partial) ?? null
       const { code, imports: found } = (cacheKey === null ? null : cache.get(cacheKey)) ?? output(source, filename, options, cacheKey)
       const entries = (map) => [...map].map(([key, [calls, ms, worked]]) => [key, calls, ms, worked])
       port.postMessage({ code, imports: found, ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })

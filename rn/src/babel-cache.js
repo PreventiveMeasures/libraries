@@ -5,7 +5,7 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { threadId } from 'node:worker_threads'
 
 // A cache entry's format: another, none of the entries before.
@@ -48,24 +48,50 @@ export function fingerprintOf(modules, options, cwd) {
   ]))
 }
 
+// -> (path) => the code of the module at `path`, and of what it requires
+// of the project's own (outside node_modules), as `modules` (require.cache)
+// has them, by each one's path and digest: once a run, as Babel first loads
+// it for a file, so that a later transform's requires don't make it another.
+function codeOf(modules) {
+  const known = new Map()
+  const inPackage = (path) => path.includes(`${sep}node_modules${sep}`)
+  return (path) => {
+    if (!known.has(path)) {
+      const reached = new Set([path])
+      for (const each of reached) if (!inPackage(each)) for (const child of modules[each]?.children ?? []) reached.add(child.filename)
+      known.set(path, digest(JSON.stringify([...reached].toSorted().map((each) => [each, fileDigest(each)]))))
+    }
+    return known.get(path)
+  }
+}
+
 // Babel's output kept in `dir`, each { code, imports } by a key of what it
-// is of: the fingerprint (fingerprintOf()), the options transformSync takes
+// is of: the fingerprint (fingerprintOf()); the options transformSync takes
 // for the file (the config's, as Babel loads them for it, the file's name
 // among them, but the plugins left out of them, and those added), each
-// plugin by its key and options, and the source. Of a change to the config,
-// to what it requires or reads, or to the plugins it leaves out (--esm's),
-// another key. -> { keyOf(options, source) (null where its options are no
-// JSON), get(key) (null where none), set(key, entry) }. Each entry is
-// written whole, then moved in place: another rn-serve may read it. A
-// cache, at best: what fails to read or write is a transform.
-export function cacheOf(dir, fingerprint) {
+// plugin by its key and options; the code of the config's files Babel loads
+// for the file (a .babelrc of its directory too) and of the plugins and
+// presets they name for it (an override's too, which the fingerprint, of
+// the config of the project's root, may not have), as `partial`, Babel's
+// loadPartialConfig() of the file, has them, and what they require of the
+// project's own (codeOf(), `modules` require.cache); and the source. Of a
+// change to the config, to what it requires or reads, or to the plugins it
+// leaves out (--esm's), another key. -> { keyOf(options, source, partial)
+// (null where Babel ignores the file, or its options are no JSON), get(key)
+// (null where none), set(key, entry) }. Each entry is written whole, then
+// moved in place: another rn-serve may read it. A cache, at best: what
+// fails to read or write is a transform.
+export function cacheOf(dir, fingerprint, modules) {
   const pathOf = (key) => join(dir, key.slice(0, 2), key.slice(2))
+  const code = codeOf(modules)
   // A function and a RegExp by their code, which JSON leaves out.
   const shown = (_, value) => (typeof value === 'function' || value instanceof RegExp ? String(value) : value)
   return {
-    keyOf: (options, source) => {
+    keyOf: (options, source, partial) => {
+      if (partial === null) return null
       try {
-        const config = JSON.stringify({ ...options, plugins: options.plugins.map(({ key, options: of }) => [key, of ?? null]) }, shown)
+        const named = [...partial.options.plugins, ...partial.options.presets].map((item) => item.file?.resolved).filter((path) => path !== undefined)
+        const config = JSON.stringify([[...partial.files, ...named].map(code), { ...options, plugins: options.plugins.map(({ key, options: of }) => [key, of ?? null]) }], shown)
         return createHash('sha256').update(fingerprint).update('\0').update(config).update('\0').update(source).digest('hex')
       } catch {
         return null

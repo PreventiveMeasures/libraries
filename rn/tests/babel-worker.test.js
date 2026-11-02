@@ -162,6 +162,10 @@ describe('babelWorkers, with a cache directory', () => {
     '.babelrc': { plugins: [['./random.cjs', { tag: 'a' }]] },
     'random.cjs': RANDOM,
     'sub/b.js': 'b()\n',
+    // A plugin a .babelrc of its own directory names, of a file it requires.
+    'nested/.babelrc': { plugins: ['../local.cjs'] },
+    'local.cjs': "const helper = require('./helper.cjs')\nmodule.exports = ({ types: t }) => ({ name: 'local', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(helper))) } } } })\n",
+    'helper.cjs': "module.exports = 'helped'\n",
     // As random, but its output of a file it names, which may change.
     'external.cjs': "module.exports = (api) => { api.cache.never(); api.addExternalDependency(__dirname + '/dep.txt'); return { name: 'external', visitor: { Program: { exit(path) { path.pushContainer('body', api.types.expressionStatement(api.types.stringLiteral(String(Math.random())))) } } } } }\n",
   })
@@ -200,6 +204,12 @@ describe('babelWorkers, with a cache directory', () => {
     const kept = await code('c()', 'c.js')
     assert.equal(await code('c()', 'c.js'), kept)
     assert.notEqual(await code('c()', 'c.js', [], { caller: { name: 'metro', platform: 'android' } }), kept)
+  })
+
+  it("transforms anew where a plugin the file's own config names changes, or what it requires", async () => {
+    assert.equal(await code('g()', 'nested/g.js'), 'g();\n"helped";')
+    writeFileSync(join(root, 'helper.cjs'), "module.exports = 'changed'\n")
+    assert.equal(await code('g()', 'nested/g.js'), 'g();\n"changed";')
   })
 
   it('keeps the output of each set of plugins left out apart, as --esm leaves one', async () => {
