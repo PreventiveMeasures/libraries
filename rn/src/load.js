@@ -6,7 +6,8 @@
 // esbuild, which links the modules.
 
 import { Buffer } from 'node:buffer'
-import { extname, relative } from 'node:path'
+import { createRequire } from 'node:module'
+import { extname, join, relative } from 'node:path'
 
 // JS read as JSX, as @react-native/babel-preset reads it: react-native's own
 // .js files have JSX, and JSX reads plain JS as JS does.
@@ -96,7 +97,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!contents.includes('codegenNativeComponent')) {
         const plugins = (await babelPlugins?.(path)) ?? new Map()
         source = (loader === 'ts' || loader === 'tsx' ? await typescript(esbuild, plugins, contents, loader, path, sourcemap) : await javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path)) ?? source
-        if (unaliased(plugins.get(RESOLVER), contents, generatedOf(plugins))) source = { ...source, without: [...source.without, RESOLVER] }
+        if (unaliased(plugins.get(RESOLVER), contents, plugins, helpersOf(projectRoot))) source = { ...source, without: [...source.without, RESOLVER] }
       }
     } catch (error) {
       if (!Array.isArray(error?.errors)) throw error
@@ -238,11 +239,11 @@ function idle(code) {
 // (whatever the quotes before it), is tried, its escapes read as what they
 // escape (a line continuation as nothing); a file with an escape of a code
 // point (`\x23`), it may not leave. Nor any where an alias matches what
-// Babel's plugins may write into a file (`generated`).
-function unaliased(options, contents, generated) {
+// Babel's plugins may write into a file (writesAliased()).
+function unaliased(options, contents, plugins, helpers) {
   if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
   const aliases = aliasesOf(options)
-  if (aliases === null || generated.some((specifier) => aliases.some((alias) => alias.test(specifier)))) return false
+  if (aliases === null || writesAliased(options, aliases, plugins, contents, helpers)) return false
   for (const { index, 0: quote } of contents.matchAll(/['"]/gu)) {
     let backslashes = 0
     while (contents[index - 1 - backslashes] === '\\') backslashes++
@@ -260,18 +261,41 @@ function unaliased(options, contents, generated) {
 // escapes (a line continuation among them) its own, on one line.
 const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy }
 
-// The specifiers Babel's plugins of the config may write into a file that
-// had none: the automatic JSX runtime's, of its importSource, and the helpers
-// of transform-runtime, of its moduleName.
-function generatedOf(plugins) {
+// Whether an alias of module-resolver's matches what Babel's plugins of the
+// config may write into a file that had none: the automatic JSX runtime's,
+// of each importSource (the config's, and the file's @jsxImportSource), and
+// transform-runtime's helpers, each of @babel/helpers' (`helpers`, null where
+// not found), and regenerator, of its moduleName. The config's, once.
+function writesAliased(options, aliases, plugins, contents, helpers) {
   const each = (key) => {
-    const options = plugins.get(key)
-    return options === undefined ? [] : (options.instances ?? [options])
+    const of = plugins.get(key)
+    return of === undefined ? [] : (of.instances ?? [of])
   }
-  return [
-    ...['transform-react-jsx', 'transform-react-jsx-development'].flatMap(each).flatMap(({ importSource = 'react' }) => [`${importSource}/jsx-runtime`, `${importSource}/jsx-dev-runtime`]),
-    ...each('transform-runtime').flatMap(({ moduleName = '@babel/runtime' }) => [`${moduleName}/helpers/helper`, `${moduleName}/helpers/esm/helper`, `${moduleName}/regenerator`]),
-  ]
+  const sources = ['transform-react-jsx', 'transform-react-jsx-development'].flatMap(each).map(({ importSource = 'react' }) => importSource)
+  const modules = each('transform-runtime').map(({ moduleName = '@babel/runtime' }) => moduleName)
+  const runtimes = (source) => [`${source}/jsx-runtime`, `${source}/jsx-dev-runtime`]
+  const matched = (specifiers) => specifiers.some((specifier) => aliases.some((alias) => alias.test(specifier)))
+  const pragma = sources.length === 0 ? undefined : /@jsxImportSource\s+(\S+)/u.exec(contents)?.[1]
+  if (pragma !== undefined && matched(runtimes(pragma))) return true
+  const key = JSON.stringify([sources, modules])
+  const known = WRITES.get(options) ?? new Map()
+  WRITES.set(options, known)
+  if (!known.has(key)) known.set(key, (modules.length > 0 && helpers === null) || matched([...sources.flatMap(runtimes), ...modules.flatMap((module) => [`${module}/regenerator`, ...helpers.flatMap((name) => [`${module}/helpers/${name}`, `${module}/helpers/esm/${name}`])])]))
+  return known.get(key)
+}
+const WRITES = new WeakMap()
+
+// By project root, the names of Babel's helpers, as its @babel/core has them.
+const HELPERS = new Map()
+function helpersOf(projectRoot) {
+  if (!HELPERS.has(projectRoot)) {
+    try {
+      HELPERS.set(projectRoot, createRequire(createRequire(join(projectRoot, 'package.json')).resolve('@babel/core'))('@babel/helpers').list ?? null)
+    } catch {
+      HELPERS.set(projectRoot, null)
+    }
+  }
+  return HELPERS.get(projectRoot)
 }
 
 // -> ALIASES' RegExps of the options, null where one of its aliases is no RegExp.

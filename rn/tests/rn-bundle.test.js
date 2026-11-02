@@ -766,6 +766,12 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     // JSX, whose runtime Babel's plugin imports, of no string of the file.
     'jsx.js': 'console.log(JSON.stringify(<b />))\n',
     'lib/jsx-runtime.js': 'export const jsx = (type) => type\n',
+    // JSX of an import source of its own.
+    'pragma.js': '/** @jsxImportSource custom */\nconsole.log(JSON.stringify(<b />))\n',
+    // As transform-runtime imports a helper, as Babel traverses the file.
+    'helper.js': 'console.log(JSON.stringify(__HELPER__))\n',
+    'helper-plugin.js': "module.exports = ({ types: t }) => ({ name: 'transform-runtime', visitor: { Identifier(path) { if (path.node.name === '__HELPER__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('@babel/runtime/helpers/classCallCheck')])) } } })\n",
+    'lib/classCallCheck.js': "module.exports = 'classCallCheck'\n",
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
@@ -812,11 +818,17 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     assert.equal(build({ "^foo'bar$": './lib/a' }, 'quoted.js'), 'a')
   })
 
-  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import", () => {
-    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '^react/jsx-runtime$': './lib/jsx-runtime' } }], ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]] }\n")
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'jsx.js'], { cwd: root, encoding: 'utf8' })
-    assert.equal(r.status, 0, r.stderr)
-    assert.equal(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), 'b')
+  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's", () => {
+    const bundled = (alias, plugin, entry) => {
+      writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}], ${JSON.stringify(plugin)}] }\n`)
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+    }
+    const jsx = ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]
+    assert.equal(bundled({ '^react/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'jsx.js'), 'b')
+    assert.equal(bundled({ '^custom/jsx-runtime$': './lib/jsx-runtime' }, jsx, 'pragma.js'), 'b')
+    assert.equal(bundled({ '^@babel/runtime/helpers/classCallCheck$': './lib/classCallCheck' }, './helper-plugin.js', 'helper.js'), 'classCallCheck')
   })
 
   it('keeps it where it may rewrite what names none: with a root', () => {
