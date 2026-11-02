@@ -10,6 +10,7 @@ import { resolve } from 'node:path'
 import { createAliases } from './babel-aliases.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
 import { configKeyOf } from './load-cache.js'
+import { babelrcFinder } from './babelrc.js'
 
 const BABEL_CONFIGS = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json']
 
@@ -124,8 +125,10 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // for a cache of each file as it loads (load-cache.js), each target has
 // fingerprint(), its workers' (babelWorkers()), of `workerOptions`, the
 // options they have, and configKey(filename, covered), a key of the config
-// Babel loads for the file (configKeyOf()).
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false } = {}) {
+// Babel loads for the file (configKeyOf()). `oneBuild`, each target of one
+// build, whose files don't change as it runs: Babel's .babelrc lookup of
+// each file left out where it would find none.
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -134,6 +137,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   // load their own: not before them.
   let core = null
   const targets = new Map()
+  const finds = oneBuild && babelRCLookup ? babelrcFinder() : null
   return ({ platform, dev, inlineRequires = null }) => {
     const key = `${platform}\0${dev}\0${JSON.stringify(inlineRequires)}`
     if (targets.has(key)) return targets.get(key)
@@ -155,12 +159,12 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
     const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
-    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }) }, timed, maxWorkers)
+    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers)
     let configKey = null
     const target = {
       profile: timed,
       babel,
-      babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
+      babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? []),
       ...(fingerprint && {
         workerOptions,
         fingerprint: babel.fingerprint,

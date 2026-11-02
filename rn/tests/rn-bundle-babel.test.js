@@ -166,3 +166,23 @@ describe('rn-bundle, with Babel, of a file with a source map of its own', () => 
     assert.equal(read('--sourcemap-output=out.map'), 'true\n')
   })
 })
+
+describe('rn-bundle, with Babel, with a .babelrc of a directory of its own', () => {
+  // Each directory read once for a .babelrc: the one beneath, in the files
+  // beneath it, as Babel finds it, and none above it.
+  const { root, cleanup } = writeTree({
+    'babel.config.js': 'module.exports = {}\n',
+    'index.js': "import { inner } from './sub/deep/inner'\nconsole.log(JSON.stringify([inner, typeof __BABELRC__ === 'undefined' ? null : __BABELRC__]))\n",
+    'sub/.babelrc': { plugins: ['../babelrc-plugin.js'] },
+    'sub/deep/inner.js': 'export const inner = __BABELRC__\n',
+    'babelrc-plugin.js': "module.exports = ({ types: t }) => ({ visitor: { Identifier(path) { if (path.node.name === '__BABELRC__') path.replaceWith(t.stringLiteral('sub')) } } })\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+
+  it('takes it for the files beneath it alone', () => {
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['sub', null])
+  })
+})
