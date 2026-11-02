@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { createPack, pause } from '../src/load-pack.js'
-import { writeTree } from './fixtures.js'
+import { packedRecords, writeTree } from './fixtures.js'
 
 const key = (n) => String(n).padStart(64, '0')
 
@@ -16,6 +16,7 @@ describe('createPack', () => {
   const build = async (dir, { ask = [], set = [] } = {}) => {
     const pack = createPack(dir)
     pack.start()
+    await pack.load()
     const got = ask.map((each) => pack.get(key(each)))
     for (const [each, value] of set) pack.set(key(each), value)
     await pack.finish()
@@ -37,9 +38,12 @@ describe('createPack', () => {
     await build(dir, { set: [[1, 'one']] })
     const pack = createPack(dir)
     pack.start()
+    assert.equal(pack.get(key(1)), null, 'none before it is read')
+    assert.deepEqual(Object.keys(await pack.load()), ['bytes', 'unpacked', 'segments'])
     assert.equal(pack.get(key(1)), 'one')
     await pack.finish()
     pack.start()
+    await pack.load()
     assert.equal(pack.get(key(1)), null)
     await pack.finish()
   })
@@ -60,19 +64,24 @@ describe('createPack', () => {
     for (let n = 0; n < 8; n++) await build(dir, { set: Array.from({ length: each }, (_, i) => [n * each + i, i]) })
     await build(dir, { ask: Array.from({ length: 8 * each }, (_, i) => i) })
     const [name] = segments(dir)
-    const buffer = readFileSync(join(dir, name))
-    let records = 0
-    for (let at = 0; at < buffer.length; at += 68 + buffer.readUInt32LE(at + 64)) records++
-    assert.deepEqual([segments(dir).length, records], [1, 8 * each])
+    assert.deepEqual([segments(dir).length, packedRecords(readFileSync(join(dir, name))).length], [1, 8 * each])
   })
 
-  it('reads what is whole of a segment cut short', async () => {
+  it('writes its records packed, a fifth or so of their size, and reads the frames whole of a segment cut short, or none of one corrupt', async () => {
     const dir = join(root, 'd')
-    await build(dir, { set: [[1, 'one'], [2, 'two']] })
+    // Of more than a frame, of 8 MB or so: a record of 9 MB, then one of its own.
+    const large = 'console.log("a line of code")\n'.repeat(300_000)
+    await build(dir, { set: [[1, large], [2, 'two']] })
     const [name] = segments(dir)
     const buffer = readFileSync(join(dir, name))
+    assert.ok(buffer.length < large.length / 5)
+    assert.deepEqual(packedRecords(buffer).map(([each]) => each), [key(1), key(2)])
     writeFileSync(join(dir, name), buffer.subarray(0, buffer.length - 2))
-    assert.deepEqual(await build(dir, { ask: [1, 2] }), ['one', null])
+    assert.deepEqual(await build(dir, { ask: [1, 2] }), [large, null])
+    // Its first frame's last byte, of its checksum, another.
+    buffer[8 + buffer.readUInt32LE(0) - 1] ^= 1
+    writeFileSync(join(dir, name), buffer)
+    assert.deepEqual(await build(dir, { ask: [1, 2] }), [null, 'two'])
   })
 })
 

@@ -201,7 +201,7 @@ const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`
 
 // A build's status, on its line: its time, the time of it the cache took,
 // by part (its files' configs' keys, its hashing, its records, its pack
-// read, of so many MB), the time V8 took of it collecting garbage, and of
+// read, of so many MB, so many unpacked), the time V8 took of it collecting garbage, and of
 // the files it loaded, those the cache had, those loaded anew, those as
 // they were in memory, and why one loaded anew was kept none of; `cached`,
 // the store's tally, null where there is none.
@@ -209,7 +209,7 @@ function status(ms, cached) {
   if (cached === null) return `in ${ms} ms, cache: off`
   const { hits, misses, memory, unkept, ms: taken, parts, pack, gc } = cached
   const why = Object.entries(unkept).map(([reason, count]) => `${count} ${UNKEPT[reason] ?? reason}`).join(', ')
-  const read = pack === null ? '' : ` of ${(pack.bytes / 1e6).toFixed(0)} MB`
+  const read = pack === null ? '' : ` of ${(pack.bytes / 1e6).toFixed(0)} MB, ${(pack.unpacked / 1e6).toFixed(0)} MB unpacked`
   const of = `config ${Math.round(parts.config)}, hashing ${Math.round(parts.hashing)}, records ${Math.round(parts.records)}, pack ${Math.round(parts.pack)}${read}; gc ${Math.round(gc)} ms`
   return `in ${ms} ms, cache ${Math.round(taken)} ms (${of}): ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
 }

@@ -99,6 +99,7 @@ describe("a pack's use", () => {
     utimesSync(dir, old, old)
     const read = createPack(dir)
     read.start()
+    await read.load()
     assert.equal(read.get('0'.repeat(64)), 'zero')
     assert.ok(Date.now() - statSync(dir).mtimeMs < HOUR)
     utimesSync(dir, old, old)

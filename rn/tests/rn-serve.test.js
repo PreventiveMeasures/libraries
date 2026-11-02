@@ -660,7 +660,7 @@ describe('rn-serve, its cache of each file as it loads', () => {
     const server = await serve(root, args, tmp)
     try {
       const code = String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)
-      const logged = await until(() => /rn-serve: built \S+ for ios, dev in \d+ ms, cache \d+ ms \(config \d+, hashing \d+, records \d+, pack \d+(?: of \d+ MB)?; gc \d+ ms\): ([^\n]*)\n/u.exec(server.output()), 'the build logged')
+      const logged = await until(() => /rn-serve: built \S+ for ios, dev in \d+ ms, cache \d+ ms \(config \d+, hashing \d+, records \d+, pack \d+(?: of \d+ MB, \d+ MB unpacked)?; gc \d+ ms\): ([^\n]*)\n/u.exec(server.output()), 'the build logged')
       return [run(code).result, transformed() - count, logged[1]]
     } finally {
       await server.stop()
