@@ -23,6 +23,7 @@
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 
 import { realpathSync } from 'node:fs'
+import { enableCompileCache } from 'node:module'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
 import { emitKeypressEvents } from 'node:readline'
@@ -34,6 +35,11 @@ import { createGate } from '../src/gate.js'
 import { metroOptions } from '../src/metro-options.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { createWatcher } from '../src/watch.js'
+
+// Node's cache of the code it compiles, on disk, as tsc has it: the
+// project's @babel/core, esbuild's API and Metro's config, loaded below,
+// compiled once of each version (NODE_DISABLE_COMPILE_CACHE=1 leaves it off).
+enableCompileCache()
 
 const { values } = parseArgs({
   options: {

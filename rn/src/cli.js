@@ -121,7 +121,9 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
   if (corePath === null) return config.preset ? null : fail(`${config.what} needs @babel/core installed in the project`)
-  const core = project.load(corePath)
+  // Loaded as the first file's plugins are asked, once a target's workers
+  // load their own: not before them.
+  let core = null
   const targets = new Map()
   return ({ platform, dev, inlineRequires = null }) => {
     const key = `${platform}\0${dev}\0${JSON.stringify(inlineRequires)}`
@@ -146,7 +148,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const target = {
       profile: timed,
       babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }, timed),
-      babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
+      babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)
     return target

@@ -66,6 +66,7 @@
 // (react-native/asset-registry from 0.87).
 
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { enableCompileCache } from 'node:module'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -78,6 +79,11 @@ import { metroOptions } from '../src/metro-options.js'
 import { prelude } from '../src/serializer.js'
 import { differences } from '../src/self-test.js'
 import { metroSourceMap } from '../src/source-map.js'
+
+// Node's cache of the code it compiles, on disk, as tsc has it: the
+// project's @babel/core, esbuild's API and Metro's config, loaded below,
+// compiled once of each version (NODE_DISABLE_COMPILE_CACHE=1 leaves it off).
+enableCompileCache()
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,

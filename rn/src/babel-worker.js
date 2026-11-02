@@ -2,7 +2,7 @@
 // @babel/core and its config once, and transforms what it is sent.
 
 import { once } from 'node:events'
-import { createRequire } from 'node:module'
+import { createRequire, enableCompileCache } from 'node:module'
 import { availableParallelism } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
@@ -37,6 +37,10 @@ export function babelWorkers(corePath, options, profile = null) {
     workers.push(info)
     return info
   }
+  // One made at once, which loads @babel/core and the config as the build
+  // starts, not as its first file waits for it; idle, it keeps the process
+  // alive no more than one made for a file.
+  pick().worker.unref()
   return async (source, filename, without = []) => {
     const info = pick()
     const { port1, port2 } = new MessageChannel()
@@ -102,6 +106,8 @@ export function profileReport({ files, ms, plugins, own }, root) {
 
 if (workerData?.babel !== undefined) {
   const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, ...given }, profile } = workerData.babel
+  // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
+  enableCompileCache()
   const core = createRequire(corePath)(corePath)
   // The specifiers of the file's import and export-from declarations, but
   // types', as Metro's transformer records where each is (its
@@ -299,6 +305,12 @@ if (workerData?.babel !== undefined) {
     const parsing = { sourceType: config.sourceType ?? 'unambiguous', ...(config.parserOpts && { parserOpts: config.parserOpts }) }
     return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: given.cwd, filename, compact: false, ...parsing, plugins: [blockScoping], ...(given.sourceMaps && { sourceMaps: given.sourceMaps, inputSourceMap: true }) })
   }
+  // The config loaded at once, as a file at the project's root has it,
+  // before the first file is sent: its plugins and presets loaded, which
+  // Babel then has of each file. Its errors are each file's, as it fails.
+  try {
+    core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
+  } catch {}
   parentPort.on('message', ({ port, source, filename, without }) => {
     const start = performance.now()
     spent = new Map()
