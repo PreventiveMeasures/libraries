@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { printed, writeTree } from './fixtures.js'
+import { memoized, printed, writeTree } from './fixtures.js'
 import { BABEL_APP, BIN, MODERN, babelConfig, linked, lowered, md5, notInstalled } from './rn-bundle-app.js'
 
 describe('rn-bundle, with a Babel config', () => {
@@ -13,6 +13,12 @@ describe('rn-bundle, with a Babel config', () => {
   // Without the shell's BABEL_ENV and NODE_ENV, which Babel would read: only those a test sets.
   const ENV = Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'BABEL_ENV' && name !== 'NODE_ENV'))
   const run = (args, env = {}) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env: { ...ENV, ...env } })
+  // The output of index.js, as built of these args and env: Babel's env and NODE_ENV, as its plugins read them.
+  const envBuild = memoized((args, env) => {
+    const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
+    assert.equal(r.status, 0, r.stderr)
+    return JSON.parse(printed(join(root, 'env.js')))
+  })
 
   it('builds each file as the project\'s Babel config makes it, for the platform', () => {
     const r = run(['--platform=ios', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
@@ -38,11 +44,7 @@ describe('rn-bundle, with a Babel config', () => {
   })
 
   it('runs Babel in the env Metro\'s transformer names: production, else BABEL_ENV, unless --dev', () => {
-    const babelEnv = (args, env) => {
-      const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
-      assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(printed(join(root, 'env.js'))).babelEnv
-    }
+    const babelEnv = (args, env) => envBuild(args, env).babelEnv
     assert.equal(babelEnv([]), 'production')
     assert.equal(babelEnv([], { NODE_ENV: 'development' }), 'production')
     assert.equal(babelEnv([], { BABEL_ENV: 'staging' }), 'staging')
@@ -51,11 +53,7 @@ describe('rn-bundle, with a Babel config', () => {
   })
 
   it('sets NODE_ENV for Babel\'s plugins as `react-native bundle` does: production, unless --dev', () => {
-    const nodeEnv = (args, env) => {
-      const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
-      assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(printed(join(root, 'env.js'))).nodeEnv
-    }
+    const nodeEnv = (args, env) => envBuild(args, env).nodeEnv
     assert.equal(nodeEnv([]), 'production')
     assert.equal(nodeEnv([], { NODE_ENV: 'development' }), 'production')
     assert.equal(nodeEnv(['--dev'], { NODE_ENV: 'production' }), 'development')

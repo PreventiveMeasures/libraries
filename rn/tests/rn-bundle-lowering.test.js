@@ -4,7 +4,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { printed, writeTree } from './fixtures.js'
+import { memoized, printed, writeTree } from './fixtures.js'
 import { BIN, linked } from './rn-bundle-app.js'
 
 describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
@@ -69,12 +69,12 @@ describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
     'node_modules/@react-native/babel-plugin-codegen': linked('@react-native/babel-plugin-codegen'),
   })
   after(cleanup)
-  const build = (options, entry = 'main.ts', ...args) => {
+  const build = memoized((options, entry = 'main.ts', ...args) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(printed(join(root, 'main.out.js')))
-  }
+  })
 
   it('makes TS JS by esbuild as the plugin would by default; a file with a JSX pragma or a native component spec, Babel takes as it is', () => {
     assert.deepEqual(build({}), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
@@ -278,12 +278,12 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
   })
   after(cleanup)
-  const build = (...args) => {
+  const build = memoized((...args) => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     return { code, stderr: r.stderr, out: JSON.parse(printed(join(root, 'out.js'))) }
-  }
+  })
   const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'], fromMjs: 'mjs' }
 
   it('resolves an import Babel makes a require call as an ESM import, as Metro does', () => {

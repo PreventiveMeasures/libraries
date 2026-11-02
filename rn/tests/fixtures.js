@@ -37,6 +37,17 @@ export function printed(path) {
   return out
 }
 
+// `fn`, its result of the same arguments (as JSON) kept: a build tests share,
+// of a fixture none of them changes.
+export function memoized(fn) {
+  const results = new Map()
+  return (...args) => {
+    const key = JSON.stringify(args)
+    if (!results.has(key)) results.set(key, fn(...args))
+    return results.get(key)
+  }
+}
+
 // The tree as a Vfs holds it, from `/`.
 export const vfsOf = (tree) => createVfs(Object.fromEntries(Object.entries(tree).map(([rel, content]) => [rel, isLink(content) ? { type: 'symlink', target: content.link } : dataOf(content)])))
 

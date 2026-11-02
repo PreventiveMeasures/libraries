@@ -6,7 +6,7 @@ import { SourceMap } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { METRO_CONFIG, pkg, printed, writeTree } from './fixtures.js'
+import { METRO_CONFIG, memoized, pkg, printed, writeTree } from './fixtures.js'
 import { APP, BABEL_APP, BIN, MODERN, OPTIONS, PLATFORM_PLUGIN, POLYFILLS, PRELUDE, linked, listFiles, md5, notInstalled, reactNativeApp, templateConfig } from './rn-bundle-app.js'
 
 describe('rn-bundle', () => {
@@ -340,11 +340,11 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
   after(() => {
     for (const tree of [modern, older, babel]) tree.cleanup()
   })
-  const build = (root, args = [], node = []) => {
+  const build = memoized((root, args = [], node = []) => {
     const r = spawnSync(process.execPath, [...node, BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     return { code: readFileSync(join(root, 'out.js'), 'utf8'), out: JSON.parse(printed(join(root, 'out.js'))) }
-  }
+  })
 
   it("from react-native 0.87 on: Metro's prelude, the polyfills, react-native/setup-env, then the entry; assets registered with react-native/asset-registry", () => {
     const { code, out } = build(modern.root)
