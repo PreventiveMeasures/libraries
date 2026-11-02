@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
 //   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--esm]
-//   [--reset-cache] [--no-warm] [--client-logs]
+//   [--reset-cache] [--no-warm] [--no-client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
-// and a source map; its assets; LogBox's symbolication; reload and the dev
+// and a source map; its assets; LogBox's symbolication; each app's console,
+// as Metro's terminal prints it, each line labelled ` LOG `, ` WARN `, ...
+// (but --no-client-logs); reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
 // (j), its Network panel on: where the app's runtime reports no requests
 // (React Native before 0.83), each dev bundle in Metro's module format has
@@ -51,7 +53,7 @@ import { enableCompileCache } from 'node:module'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
 import { emitKeypressEvents } from 'node:readline'
-import { parseArgs } from 'node:util'
+import { parseArgs, styleText } from 'node:util'
 
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
@@ -80,7 +82,7 @@ const { values } = parseArgs({
     esm: { type: 'boolean', default: false },
     'reset-cache': { type: 'boolean', default: false },
     warm: { type: 'boolean', default: true },
-    'client-logs': { type: 'boolean', default: false },
+    'client-logs': { type: 'boolean', default: true },
   },
   allowNegative: true,
 })
@@ -136,7 +138,10 @@ const devBundler = createDevBundler({
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
   },
 })
-const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler: last?.served(devBundler) ?? devBundler, gate, log, clientLogs: values['client-logs'] })
+// Each app's console, as Metro's terminal prints it, its labels colored
+// where stdout is a terminal that takes them: but --no-client-logs.
+const style = (format, text) => styleText(format, text, { stream: process.stdout })
+const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler: last?.served(devBundler) ?? devBundler, gate, log, clientLogs: values['client-logs'], style })
 
 // A change: each bundle built anew; the apps of one in the module format get
 // what changed from the build they have (once a build no longer fails, though

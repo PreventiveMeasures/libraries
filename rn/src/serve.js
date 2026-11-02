@@ -31,6 +31,7 @@ import { createServer } from 'node:http'
 import { resolve } from 'node:path'
 
 import { bundleRequest, toNormalUrl } from './bundle-url.js'
+import { createClientLog } from './client-log.js'
 import { diskHost } from './defaults.js'
 import { SAFE_HEADERS } from './gate.js'
 import { hotUpdate } from './hot.js'
@@ -100,9 +101,13 @@ function readBody(request) {
 // hotUpdate(request, before, after, { recovered }), mount({ middleware,
 // websocketEndpoints }), network, clients() }; `network`, the Network
 // panel's (network.js's createNetworkInspector()). `watchFolders`: the
-// Metro config's, the project root the first, as Metro has them.
-export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
+// Metro config's, the project root the first, as Metro has them. With
+// `clientLogs`, each app's console logged as Metro's terminal prints it
+// (client-log.js), its labels styled by `style` (util.styleText's).
+export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = true, style }) {
   const sources = sourceRoutes(projectRoot, watchFolders)
+  // Of each app's, as Metro has one, its groups the apps'.
+  const clientLog = clientLogs ? createClientLog(log, style) : null
   const network = createNetworkInspector({ log })
   let middleware = null
   let websocketEndpoints = {}
@@ -183,7 +188,7 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
       messageClients.add(client)
       return { onClose: () => messageClients.delete(client) }
     },
-    '/hot': (client) => hotSocket(client, hotClients, { log, clientLogs }),
+    '/hot': (client) => hotSocket(client, hotClients, { clientLog }),
     '/network': (client) => network.reporter(client),
   }
   server.on('upgrade', (request, socket, head) => upgrade(request, socket, head, { gate, sockets, endpoints: websocketEndpoints }))
@@ -286,7 +291,7 @@ function upgrade(request, socket, head, { gate, sockets, endpoints }) {
 
 // An HMRClient, for the bundle its URL names (`?bundleEntry=index.bundle&platform=ios`),
 // on the host it asked, and each it registers.
-function hotSocket(client, hotClients, { log, clientLogs }) {
+function hotSocket(client, hotClients, { clientLog }) {
   const bundles = new Map()
   const register = (url) => {
     const key = typeof url === 'string' ? keyOfUrl(url) : null
@@ -295,13 +300,13 @@ function hotSocket(client, hotClients, { log, clientLogs }) {
   const query = new URL(client.request.url, 'http://localhost').searchParams
   register(`http://${client.request.headers.host}/${query.get('bundleEntry') ?? ''}?platform=${encodeURIComponent(query.get('platform') ?? '')}`)
   hotClients.set(client, bundles)
-  return { onMessage: (text) => onHotMessage(client, text, { log, clientLogs, register }), onClose: () => hotClients.delete(client) }
+  return { onMessage: (text) => onHotMessage(client, text, { clientLog, register }), onClose: () => hotClients.delete(client) }
 }
 
 // HMRClient's messages, as Metro's HmrServer answers them: an initial update
 // of nothing, as the app's bundle is the latest build, which tells it it's
-// connected.
-function onHotMessage(client, text, { log, clientLogs, register }) {
+// connected; its console, logged (`clientLog`, where not null).
+function onHotMessage(client, text, { clientLog, register }) {
   let data
   try {
     data = JSON.parse(text)
@@ -313,8 +318,8 @@ function onHotMessage(client, text, { log, clientLogs, register }) {
     for (const message of [{ type: 'update-start', body: { isInitialUpdate: true } }, { type: 'update-done', body: {} }, { type: 'bundle-registered' }]) client.send(JSON.stringify(message))
   } else if (data?.type === 'heartbeat') {
     client.send(text)
-  } else if (data?.type === 'log' && clientLogs && Array.isArray(data.data)) {
-    log(`${String(data.level).toUpperCase()} ${data.data.map(String).join(' ')}`)
+  } else if (data?.type === 'log' && clientLog !== null) {
+    clientLog(data.level, data.mode, data.data)
   }
 }
 

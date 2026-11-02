@@ -7,6 +7,7 @@ import { createContext, runInContext } from 'node:vm'
 import esbuild from 'esbuild'
 
 import { bundleRequest, toJscSafeUrl, toNormalUrl } from '../src/bundle-url.js'
+import { createClientLog } from '../src/client-log.js'
 import { createGate } from '../src/gate.js'
 import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
@@ -80,6 +81,42 @@ describe('bundle URLs', () => {
     assert.equal(toNormalUrl('/index.bundle//&platform=ios?dev=true'), '/index.bundle?platform=ios&dev=true')
     assert.equal(toJscSafeUrl('http://h/index.bundle'), 'http://h/index.bundle')
     assert.equal(toNormalUrl('http://h/a?x=//&y'), 'http://h/a?x=//&y')
+  })
+})
+
+describe("an app's console, as Metro's terminal prints it", () => {
+  it('labels each line by its level, inverse, colored by it; of its mode where not the bridge; its data as console.log formats it', () => {
+    const lines = []
+    const log = createClientLog((line) => lines.push(line), (format, text) => `<${format.join(',')}>${text}</>`)
+    log('log', 'BRIDGE', ['a', 1, { b: 2 }])
+    log('warn', undefined, ['%s!', 'careful'])
+    log('error', 'NOBRIDGE', ['bad  \n'])
+    log('debug', 'BRIDGE', ['d'])
+    log('trace', 'BRIDGE', ['t'])
+    log('nonsense', 'BRIDGE', ['n'])
+    log(1, 'BRIDGE', ['ignored'])
+    log('log', 'BRIDGE', 'ignored')
+    assert.deepEqual(lines, [
+      '<inverse,white,bold> LOG </> a 1 { b: 2 }',
+      '<inverse,yellow,bold> WARN </> careful!',
+      '<inverse,red,bold> (NOBRIDGE) ERROR </> bad',
+      '<inverse,white,bold> DEBUG </> d',
+      '<inverse,white,bold> LOG </> t',
+      '<inverse,white,bold> LOG </> n',
+    ])
+  })
+
+  it("indents a group's lines, its own too, and prints none of a collapsed one's", () => {
+    const lines = []
+    const log = createClientLog((line) => lines.push(line))
+    log('group', 'BRIDGE', ['outer'])
+    log('log', 'BRIDGE', ['in'])
+    log('groupCollapsed', 'BRIDGE', ['hidden'])
+    log('log', 'BRIDGE', ['hidden too'])
+    log('groupEnd', 'BRIDGE', [])
+    log('groupEnd', 'BRIDGE', [])
+    log('log', 'BRIDGE', ['out'])
+    assert.deepEqual(lines, [' GROUP    outer', ' LOG    in', ' LOG  out'])
   })
 })
 
