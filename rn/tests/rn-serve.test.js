@@ -614,7 +614,7 @@ describe('rn-serve --esm', () => {
   })
 })
 
-describe("rn-serve, its cache of Babel's output", () => {
+describe('rn-serve, its cache of each file as it loads', () => {
   const config = (comment) => [
     `// ${comment}`,
     "const { appendFileSync } = require('node:fs')",
@@ -640,40 +640,42 @@ describe("rn-serve, its cache of Babel's output", () => {
     rmSync(tmp, { recursive: true, force: true })
   })
   const transformed = () => (existsSync(join(root, 'transformed.log')) ? readFileSync(join(root, 'transformed.log'), 'utf8').trim().split('\n').length : 0)
-  // A run of rn-serve, of a bundle: -> its result, and how many files Babel transformed.
+  // A run of rn-serve, of a bundle: -> its result, how many files Babel
+  // transformed, and how many it logs it loaded from the cache.
   const served = async (args = []) => {
     const count = transformed()
     const server = await serve(root, args, tmp)
     try {
       const code = String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)
-      return [run(code).result, transformed() - count]
+      const logged = await until(() => /rn-serve: built .*?(?:, (\d+) of (\d+) files loaded from the cache)?\n/u.exec(server.output()), 'the build logged')
+      return [run(code).result, transformed() - count, `${logged[1]} of ${logged[2]}`]
     } finally {
       await server.stop()
     }
   }
 
-  it("keeps each file's output in the OS's temporary directory, across runs, while the Babel config and the plugins left out of it are the same", async () => {
-    assert.deepEqual(await served(), ['other', 2])
-    assert.deepEqual(readdirSync(tmp).filter((name) => name.startsWith('rn-serve-babel')), [`rn-serve-babel-${process.getuid()}`])
-    assert.deepEqual(await served(), ['other', 0])
+  it('keeps each file as it loads in the OS\'s temporary directory, across runs, while the Babel config and the plugins left out of it are the same, and logs how many it took', async () => {
+    assert.deepEqual(await served(), ['other', 2, '0 of 2'])
+    assert.deepEqual(readdirSync(tmp).filter((name) => name.startsWith('rn-serve-cache')), [`rn-serve-cache-${process.getuid()}`])
+    assert.deepEqual(await served(), ['other', 0, '2 of 2'])
     // Without the config's CommonJS plugin, which esbuild does for it.
-    assert.deepEqual(await served(['--esm']), ['other', 2])
-    assert.deepEqual(await served(['--esm']), ['other', 0])
-    assert.deepEqual(await served(), ['other', 0])
+    assert.deepEqual(await served(['--esm']), ['other', 2, '0 of 2'])
+    assert.deepEqual(await served(['--esm']), ['other', 0, '2 of 2'])
+    assert.deepEqual(await served(), ['other', 0, '2 of 2'])
     writeFileSync(join(root, 'babel.config.js'), config('A config, changed.'))
-    assert.deepEqual(await served(), ['other', 2])
-    assert.deepEqual(await served(['--reset-cache']), ['other', 2])
-    assert.deepEqual(await served(), ['other', 0])
+    assert.deepEqual(await served(), ['other', 2, '0 of 2'])
+    assert.deepEqual(await served(['--reset-cache']), ['other', 2, '0 of 2'])
+    assert.deepEqual(await served(), ['other', 0, '2 of 2'])
   })
 
   it('keeps none in a directory another may write in', async () => {
     const shared = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
     try {
-      mkdirSync(join(shared, `rn-serve-babel-${process.getuid()}`), { mode: 0o777 })
-      chmodSync(join(shared, `rn-serve-babel-${process.getuid()}`), 0o777)
+      mkdirSync(join(shared, `rn-serve-cache-${process.getuid()}`), { mode: 0o777 })
+      chmodSync(join(shared, `rn-serve-cache-${process.getuid()}`), 0o777)
       const server = await serve(root, [], shared)
       await server.stop()
-      assert.match(server.output(), /rn-serve: keeping no Babel output across runs: \S+ is not this user's alone/u)
+      assert.match(server.output(), /rn-serve: keeping no files across runs: \S+ is not this user's alone/u)
     } finally {
       rmSync(shared, { recursive: true, force: true })
     }
@@ -684,7 +686,7 @@ describe("rn-serve, its cache of Babel's output", () => {
     try {
       const bundled = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url)), '--platform=ios', `--output=${join(fresh, 'out.js')}`, 'index.js'], { cwd: root, env: envOf(fresh), encoding: 'utf8' })
       assert.equal(bundled.status, 0, bundled.stderr)
-      assert.deepEqual(readdirSync(fresh).filter((name) => name.startsWith('rn-serve-babel')), [])
+      assert.deepEqual(readdirSync(fresh).filter((name) => name.startsWith('rn-serve-cache')), [])
     } finally {
       rmSync(fresh, { recursive: true, force: true })
     }

@@ -8,14 +8,16 @@
 // and a source map; its assets; LogBox's symbolication; reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
 // (j). A file a bundle was built from changed, each bundle is built anew,
-// each file's transform kept in memory while its source is the same. Babel's
-// output for each file is kept on disk too, across runs, in the OS's
-// temporary directory, as Metro keeps its cache (rn-serve-babel-UID, the
-// user's alone; rn-bundle keeps none): while the source Babel is given,
-// the options the project's Babel config gives the file (the plugins left
-// out of them, as --esm leaves one, among them), the code of @babel/core
-// and of the config and what it loads, the lockfile, NODE_ENV and BABEL_ENV
-// are the same; --reset-cache empties it first, as Metro's does its own. A dev
+// each file's transform kept in memory while its source is the same. Each
+// file as it loads (its Flow stripped, lowered by esbuild, and the project's
+// Babel config's output) is kept on disk too, across runs, in the OS's
+// temporary directory, as Metro keeps its cache (rn-serve-cache-UID, the
+// user's alone; rn-bundle keeps none): while the file, rn, esbuild,
+// flow-remove-types, the lockfile, the Babel config the file has (the
+// plugins left out of it, as --esm leaves one, among it), the code of
+// @babel/core and of what the config loads or reads, NODE_ENV and BABEL_ENV
+// are the same; each build logs how many of the files it loaded it took
+// from there. --reset-cache empties it first, as Metro's does its own. A dev
 // bundle is in Metro's module format, with metro-runtime's require (that
 // react-native has): each app of one gets what changed, as Metro's Fast
 // Refresh sends it, where the project's Babel config runs each component of
@@ -46,6 +48,7 @@ import { parseArgs } from 'node:util'
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createGate } from '../src/gate.js'
+import { createLoadCache } from '../src/load-cache.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { createWatcher } from '../src/watch.js'
@@ -83,10 +86,12 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), cacheDir: babelCacheDir(values['reset-cache']) })
+const cacheDir = cacheDirOf(values['reset-cache'])
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
 if (values.esm && babelFor === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
+const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types'), cwd: projectRoot })
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
 
@@ -101,17 +106,15 @@ const devBundler = createDevBundler({
   esbuild,
   metro,
   runtime,
-  targetOptions: ({ platform, dev, inlineRequires }) => ({
-    stripFlow,
-    ...babelFor?.({ platform, dev, inlineRequires }),
-    aliases,
-    esm: values.esm,
-    define: defines(dev, values.define, fail),
-  }),
-  onBuild: ({ request, outcome, ms }) => {
+  targetOptions: ({ platform, dev, inlineRequires }) => {
+    const babel = babelFor?.({ platform, dev, inlineRequires }) ?? null
+    return { stripFlow, ...babel, aliases, esm: values.esm, define: defines(dev, values.define, fail), store: loadCache?.(babel) ?? null }
+  },
+  onBuild: ({ request, outcome, ms, cached }) => {
     watcher?.update(devBundler.files())
     const what = `${request.entryFile} for ${request.platform ?? 'no platform'}${request.dev ? ', dev' : ''}${request.minify ? ', minified' : ''}`
-    if (outcome.ok) return log(`rn-serve: built ${what} in ${ms} ms`)
+    const loaded = cached === null ? 0 : cached.taken + cached.made
+    if (outcome.ok) return log(`rn-serve: built ${what} in ${ms} ms${loaded === 0 ? '' : `, ${cached.taken} of ${loaded} files loaded from the cache`}`)
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
   },
 })
@@ -180,13 +183,13 @@ server.listen(port, host, () => {
   if (process.stdin.isTTY) keys(serverUrl)
 })
 
-// The directory Babel's output is kept in across runs: the user's own, in
-// the OS's temporary directory, as Metro keeps its cache; emptied first with
-// --reset-cache. null, none kept, where it is another user's, or another may
-// write in it: the bundles would run what they put there.
-function babelCacheDir(reset) {
+// The directory each file as it loads is kept in across runs: the user's
+// own, in the OS's temporary directory, as Metro keeps its cache; emptied
+// first with --reset-cache. null, none kept, where it is another user's, or
+// another may write in it: the bundles would run what they put there.
+function cacheDirOf(reset) {
   const uid = process.getuid?.() ?? null
-  const dir = join(tmpdir(), uid === null ? 'rn-serve-babel' : `rn-serve-babel-${uid}`)
+  const dir = join(tmpdir(), uid === null ? 'rn-serve-cache' : `rn-serve-cache-${uid}`)
   try {
     if (reset) rmSync(dir, { recursive: true, force: true })
     mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -195,7 +198,7 @@ function babelCacheDir(reset) {
   } catch {
     // Not there, and can't be made.
   }
-  log(`rn-serve: keeping no Babel output across runs: ${dir} is not this user's alone`)
+  log(`rn-serve: keeping no files across runs: ${dir} is not this user's alone`)
   return null
 }
 

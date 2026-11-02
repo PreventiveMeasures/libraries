@@ -110,11 +110,12 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
     try {
       const without = keepPlugins ? [...source.without.filter((key) => !INERT.includes(key) && !INERT_TS.includes(key)), ...(esModule ? [COMMONJS] : [])] : [...source.without, ...(esModule ? [COMMONJS] : []), ...idle(source.code)]
       const transformed = await babel(source.code, path, without)
-      const { code, imports = [] } = typeof transformed === 'string' ? { code: transformed } : transformed
+      const { code, imports = [], uncacheable = false } = typeof transformed === 'string' ? { code: transformed } : transformed
       // TS, as Babel makes it JS, loaded as TS by esbuild, which then takes an
       // export of what it finds no export of for a type's, as it takes TS.
       // The specifiers of its imports, for the require calls made of them.
-      return { contents: code, loader: loader === 'ts' || loader === 'tsx' ? 'ts' : 'js', ...(imports.length > 0 && { pluginData: { imports } }) }
+      // `uncacheable`, Babel's, for loadCached(), which esbuild takes none of.
+      return { contents: code, loader: loader === 'ts' || loader === 'tsx' ? 'ts' : 'js', ...(imports.length > 0 && { pluginData: { imports } }), ...(uncacheable && { uncacheable }) }
     } catch (error) {
       // In the file Babel failed on, not at the import esbuild loaded it by;
       // at Babel's line where it had the file as it is, not esbuild's output.

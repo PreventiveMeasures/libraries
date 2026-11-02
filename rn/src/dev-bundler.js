@@ -27,9 +27,10 @@ export const inside = (root, path) => {
 }
 
 // `targetOptions({ platform, dev, inlineRequires })` -> the options bundle()
-// takes for the project's files: jsx, stripFlow, babel..., aliases, define;
-// inlineRequires, the bundle's, as the Metro config gives it. `onBuild({
-// request, outcome, ms })` after each build.
+// takes for the project's files: jsx, stripFlow, babel..., aliases, define,
+// store (load-cache.js's); inlineRequires, the bundle's, as the Metro config
+// gives it. `onBuild({ request, outcome, ms, cached })` after each build:
+// `cached`, its store's tally(), of the files it took and kept, or null.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
 // defaults where not given. A minified bundle fails with its minifyRefusal;
 // each, with its transformRefusal, where it has one.
@@ -73,7 +74,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal, metro.inlineRequires].map((ask) => ask(entry.path, { platform: request.platform, dev: request.dev })))
     if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve(), waiting: new Set() }
+    const build = builds.get(key) ?? { request, entryPath: entry.path, ...open(config, request, entry, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve(), waiting: new Set() }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
@@ -148,7 +149,7 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
 
 // Its files cached of each platform, dev, minify and inline requires, which
 // make them; with `esm`, those left CommonJS of them too, which a file's
-// cached build is of.
+// cached build is of. -> { bundler, store }, the store its options have.
 function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry, inlineRequires = null) {
   const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map(), commonJs: new Set() })
@@ -171,14 +172,16 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, cache
     assetRegistryPath: metro.assetRegistryPath,
     prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
   }
-  if (dev && runtime !== null) return createModuleBundler({ ...common, runtime, ids, builds: caches.get(target).modules })
-  return createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true })
+  const store = options.store ?? null
+  if (dev && runtime !== null) return { bundler: createModuleBundler({ ...common, runtime, ids, builds: caches.get(target).modules }), store }
+  return { bundler: createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true }), store }
 }
 
 async function run({ projectRoot, onBuild }, build, at) {
   if (build.last?.version === at) return build.last
   const bundler = await build.bundler
   const start = performance.now()
+  build.store?.tally()
   try {
     const result = await bundler.rebuild((done, total) => {
       for (const onProgress of build.waiting) onProgress?.(done, total)
@@ -192,7 +195,7 @@ async function run({ projectRoot, onBuild }, build, at) {
     if (!Array.isArray(error?.errors)) throw error
     build.last = { ok: false, version: at, errors: error.errors, files: new Set(error.files ?? []) }
   }
-  onBuild({ request: build.request, outcome: build.last, ms: Math.round(performance.now() - start) })
+  onBuild({ request: build.request, outcome: build.last, ms: Math.round(performance.now() - start), cached: build.store?.tally() ?? null })
   return build.last
 }
 
