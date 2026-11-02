@@ -831,6 +831,13 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
     assert.equal(bundled({ '^#lib/(.+)$': './lib/\\1' }, './template-plugin.js', 'template.js'), 'a')
   })
 
+  it('builds each module alike with --self-test, which keeps it in each and lets it traverse', () => {
+    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib', export: './nowhere' } }]] }\n")
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--self-test', 'index.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stderr, /--self-test: each of 5 modules is as Babel makes it/u)
+  })
+
   it('keeps it where it may rewrite what names none: with a root', () => {
     assert.equal(ran({ alias: { '#lib': './lib' }, root: ['./lib'] }), 5)
   })
@@ -860,6 +867,33 @@ describe("rn-bundle, with Babel's plugins of classes, modules and block scoping"
     // file with a class and the script.
     assert.deepEqual(['transform-classes', 'transform-modules-commonjs', 'transform-block-scoping'].map(files), [1, 4, 2])
   })
+
+  const selfTest = (...args) => spawnSync(process.execPath, [BIN, '--platform=ios', '--self-test', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
+
+  it('with --self-test, builds again with each plugin, finds each module the same, and writes nothing without --output', () => {
+    const r = selfTest()
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stderr, /rn-bundle: --self-test: each of 4 modules is as Babel makes it with each of the config's plugins\n$/u)
+    assert.ok(!readdirSync(root).includes('rn-bundle.js'))
+  })
+
+  it('with --self-test, fails where Babel leaves out a plugin that has something to do', () => {
+    // Of classes' key, one that marks each `export default`, in a file with no class too.
+    const config = readFileSync(join(root, 'babel.config.js'), 'utf8')
+    writeFileSync(join(root, 'babel.config.js'), config.replace('ExportDefaultDeclaration() {}', "ExportDefaultDeclaration(path) { path.insertAfter({ type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'marked' } }) }"))
+    try {
+      const r = selfTest()
+      assert.equal(r.status, 1)
+      assert.match(r.stderr, /rn-bundle: --self-test: 1 of 4 modules differ from Babel's output with each of the config's plugins:\n {2}a\.js:\d+\n {4}- [^\n]*\n {4}\+ "marked";\n$/u)
+    } finally {
+      writeFileSync(join(root, 'babel.config.js'), config)
+    }
+  })
+
+  it('takes --sourcemap-output with --output alone', () => {
+    const map = selfTest('--sourcemap-output=out.map')
+    assert.deepEqual([map.status, map.stderr], [1, 'rn-bundle: --sourcemap-output maps the bundle of --output: pass it\n'])
+  })
 })
 
 describe('rn-bundle, of a project with no Babel config', () => {
@@ -873,12 +907,13 @@ describe('rn-bundle, of a project with no Babel config', () => {
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout).platform, null)
   })
 
-  it('takes --profile, --esm and --unstable-transform-profile only where Babel runs', () => {
+  it('takes --profile, --self-test, --esm and --unstable-transform-profile only where Babel runs', () => {
     const refused = (args) => {
       const { status, stderr } = run(args)
       return [status, stderr]
     }
     assert.deepEqual(refused(['--profile']), [1, "rn-bundle: --profile times the plugins of the project's Babel config, and it has none\n"])
+    assert.deepEqual(refused(['--self-test']), [1, "rn-bundle: --self-test builds again with each of the plugins of the project's Babel config, and it has none\n"])
     assert.deepEqual(refused(['--esm']), [1, "rn-bundle: --esm keeps ES modules through the project's Babel config, and it has none\n"])
     assert.deepEqual(refused(['--unstable-transform-profile=hermes-stable']), [1, "rn-bundle: --unstable-transform-profile is the profile the project's Babel config builds for, and it has none\n"])
   })
