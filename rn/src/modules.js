@@ -88,9 +88,9 @@ async function graphOf(run, state, { scripts, prelude }) {
   }
   // A module by its key, once: `kind` 'file', 'asset' or 'empty'. Each
   // built, onProgress of those built and those found, as Metro's.
-  const visit = ({ key, kind }) => {
-    if (pending.has(key)) return
-    pending.set(key, moduleOf(run, state, { key, kind }, visit).catch(fail(key)).finally(() => run.onProgress?.(++done, pending.size)))
+  const visit = (found) => {
+    if (pending.has(found.key)) return
+    pending.set(found.key, moduleOf(run, state, found, visit).catch(fail(found.key)).finally(() => run.onProgress?.(++done, pending.size)))
   }
   let entryKey
   try {
@@ -98,11 +98,10 @@ async function graphOf(run, state, { scripts, prelude }) {
   } catch {
     throw Object.assign(new Error('no entry'), { errors: [{ text: `Could not resolve "${entry}"`, location: null }] })
   }
-  const resolveBefore = (specifiers) => specifiers.map((specifier) => moduleOfResolution(resolveImport(state, { importer: entryKey, specifier, kind: 'import-statement', aliases: run.aliases, platform: run.platform }))).filter((found) => found !== null)
-  const injected = resolveBefore(run.injected ?? [])
-  run.asEntry = { importer: entryKey, keys: new Set(injected.map(({ key }) => key)) }
-  const before = [...resolveBefore(run.runBeforeMain ?? state.reactNative.runBeforeMain), ...injected]
   visit({ key: entryKey, kind: 'file' })
+  const resolveBefore = (specifiers) => specifiers.map((specifier) => moduleOfResolution(resolveImport(state, { importer: entryKey, specifier, kind: 'import-statement', aliases: run.aliases, platform: run.platform }))).filter((found) => found !== null)
+  // Those to run before the entry, then rn's own, its imports resolved as the entry's.
+  const before = [...resolveBefore(run.runBeforeMain ?? state.reactNative.runBeforeMain), ...resolveBefore(run.injected ?? []).map((found) => ({ ...found, importer: entryKey }))]
   for (const found of before) visit(found)
   const scriptsBuilt = Promise.all(scripts.map((path) => scriptOf(run, state, path).catch(fail(path))))
   let size = 0
@@ -128,8 +127,9 @@ function moduleOfResolution(resolution) {
   return { key: resolution.filePath, kind: 'file' }
 }
 
-// A module: its source, built, its imports resolved, each visited. -> its record.
-async function moduleOf(run, state, { key, kind }, visit) {
+// A module: its source, built, its imports resolved (from `importer`, its
+// own path but where given), each visited. -> its record.
+async function moduleOf(run, state, { key, kind, importer = key }, visit) {
   const { projectRoot, platform, host } = run
   let source
   if (kind === 'empty') {
@@ -144,7 +144,6 @@ async function moduleOf(run, state, { key, kind }, visit) {
     if (source.errors !== undefined) throw Object.assign(new Error('load'), { errors: source.errors })
   }
   let built = await buildOf(run, key, source)
-  const importer = run.asEntry?.keys.has(key) ? run.asEntry.importer : key
   const resolve1 = (imported) => resolveImport(state, { importer, specifier: imported.specifier, kind: imported.kind, aliases: run.aliases, platform, imports: source.pluginData?.imports })
   let resolved = built.imports.map((imported) => ({ ...imported, resolution: resolve1(imported) }))
   // An import of nothing, not known as optional: esbuild says whether it is.

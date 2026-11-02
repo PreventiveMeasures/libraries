@@ -85,8 +85,8 @@ const socket = async (url) => {
 }
 
 // The bundle run in a context of its own. -> its globalThis.result, as JSON has it.
-const run = (code) => {
-  const context = { console: { log: () => {} } }
+const run = (code, globals = {}) => {
+  const context = { console: { log: () => {} }, ...globals }
   context.globalThis = context
   runInNewContext(code, context)
   return JSON.parse(JSON.stringify({ result: context.result }))
@@ -727,6 +727,7 @@ describe('rn-serve, with @react-native/dev-middleware', () => {
 })
 
 describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Network panel', () => {
+  const REACT_NATIVE = APP['node_modules/react-native/package.json']
   // A dev-middleware of its options and rn-serve's handler alone, which the
   // test drives as a DevTools and its app's runtime would: GET
   // /test/<route>?m=<message>.
@@ -763,7 +764,7 @@ describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Netw
     'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
     'node_modules/@react-native/dev-middleware/index.js': DEV_MIDDLEWARE,
     // As react-native 0.88 has them: its Libraries/ exported.
-    'node_modules/react-native/package.json': { name: 'react-native', version: '0.88.1', exports: { './asset-registry': './src/asset-registry.js', './setup-env': './src/setup-env.js', './Libraries/*': './Libraries/*.js' } },
+    'node_modules/react-native/package.json': { ...REACT_NATIVE, exports: { ...REACT_NATIVE.exports, './Libraries/*': './Libraries/*.js' } },
     'node_modules/react-native/Libraries/Core/Devtools/getDevServer.js': "module.exports = () => {\n  ;(globalThis.order ??= []).push('reporter')\n  return globalThis.devServer\n}\n",
     'node_modules/react-native/Libraries/Core/Devtools/parseErrorStack.js': 'module.exports = () => []\n',
   })
@@ -793,10 +794,8 @@ describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Netw
       addEventListener() {}
     }
     class XMLHttpRequest {}
-    const context = { console: { log: () => {} }, setTimeout, WebSocket, XMLHttpRequest, devServer: { url: `${server.url}/`, fullBundleUrl: bundleUrl(), bundleLoadedFromServer: true } }
-    context.globalThis = context
-    runInNewContext(code, context)
-    assert.deepEqual(JSON.parse(JSON.stringify([context.result.order, sockets])), [['polyfill', 'setup-env', 'reporter'], [`${server.url.replace('http', 'ws')}/network`]])
+    const { result } = run(code, { setTimeout, WebSocket, XMLHttpRequest, devServer: { url: `${server.url}/`, bundleLoadedFromServer: true } })
+    assert.deepEqual([result.order, sockets], [['polyfill', 'setup-env', 'reporter'], [`${server.url.replace('http', 'ws')}/network`]])
     assert.ok(Object.hasOwn(XMLHttpRequest.prototype, 'send'))
     // Not in a bundle of no dev.
     assert.doesNotMatch(String((await fetchRaw(bundleUrl('platform=ios&dev=false'))).body), /app\/network\.js/u)

@@ -80,6 +80,8 @@ export function createNetworkInspector({ log = () => {}, wait = WAIT, maxBodies 
   const end = (session) => {
     if (!sessions.delete(session)) return
     ended = Date.now()
+    // Of no DevTools served, no body is asked for again.
+    if (![...sessions].some(({ network }) => network === 'served')) bodies.clear()
     retell()
   }
 
@@ -114,7 +116,8 @@ export function createNetworkInspector({ log = () => {}, wait = WAIT, maxBodies 
           reporters.delete(reporter)
           clearTimeout(reporter.timer)
           // What it left going, failed: the app is gone, or reloaded.
-          for (const id of reporter.inflight) send(servedBy(reporter), () => ({ method: 'Network.loadingFailed', params: { requestId: id, timestamp: reporter.time, type: TYPE, errorText: 'The app went away', canceled: false } }))
+          const served = servedBy(reporter)
+          for (const id of reporter.inflight) send(served, () => ({ method: 'Network.loadingFailed', params: { requestId: id, timestamp: reporter.time, type: TYPE, errorText: 'The app went away', canceled: false } }))
         },
       }
     },
@@ -188,10 +191,12 @@ function tell(reporter, verdict, wait) {
   if (reporter.state !== state) say(reporter, state)
 }
 
+// Told not to, it tells of nothing more, of what it left going too.
 function say(reporter, state) {
   clearTimeout(reporter.timer)
   reporter.timer = null
   reporter.state = state
+  if (state === 'off') reporter.inflight.clear()
   reporter.client.send(JSON.stringify({ type: state === 'on' ? 'enable' : 'disable' }))
 }
 
@@ -263,34 +268,35 @@ function initiatorOf(stack, session) {
 }
 
 // The responses' bodies, as their chunks come, each in order (`at`, its
-// offset), the oldest dropped past `max` characters of them. -> { add(id, {
-// data, at, more }, base64), get(id) -> { body, base64Encoded }, else null }.
+// offset), joined as the last comes, the oldest dropped past `max`
+// characters of them. -> { add(id, { data, at, more }, base64), get(id) ->
+// { body, base64Encoded }, else null, clear() }.
 function createBodies(max) {
   const kept = new Map()
   let size = 0
-  const drop = (id) => {
-    size -= kept.get(id)?.size ?? 0
-    kept.delete(id)
-  }
   return {
     add(id, { data, at, more }, base64) {
-      const body = kept.get(id) ?? { chunks: [], base64, size: 0, done: false }
-      if (body.done || at !== body.size) return
+      const body = kept.get(id) ?? { chunks: [], base64, size: 0, text: null }
+      if (body.text !== null || at !== body.size) return
       kept.delete(id)
       body.chunks.push(data)
       body.size += data.length
-      body.done = !more
+      if (!more) [body.text, body.chunks] = [body.chunks.join(''), []]
       kept.set(id, body)
       size += data.length
-      for (const oldest of kept.keys()) {
+      for (const [oldest, { size: dropped }] of kept) {
         if (size <= max) break
-        drop(oldest)
+        size -= dropped
+        kept.delete(oldest)
       }
     },
     get(id) {
       const body = kept.get(id)
-      if (body === undefined || !body.done) return null
-      return { body: body.chunks.join(''), base64Encoded: body.base64 }
+      return body?.text == null ? null : { body: body.text, base64Encoded: body.base64 }
+    },
+    clear() {
+      kept.clear()
+      size = 0
     },
   }
 }

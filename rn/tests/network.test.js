@@ -31,9 +31,9 @@ const connect = (network, { id = 'phone', has } = {}) => {
 
 // A DevTools of a runtime that fails Network.enable, which rn-serve answers,
 // and asks which reporter it has.
-const served = (network, { id, has = 'r1', scriptId = '7' } = {}) => {
+const served = (network, { id, has = 'r1' } = {}) => {
   const devtools = connect(network, { id, has })
-  devtools.fromDevice({ method: 'Debugger.scriptParsed', params: { scriptId, url: BUNDLE } })
+  devtools.fromDevice({ method: 'Debugger.scriptParsed', params: { scriptId: '7', url: BUNDLE } })
   assert.equal(devtools.fromDebugger({ id: 1, method: 'Network.enable', params: {} }), undefined)
   assert.equal(devtools.fromDevice({ id: 1, error: { code: -32_601, message: "Unsupported method 'Network.enable'" } }), true)
   assert.deepEqual(devtools.toDebugger, [{ id: 1, result: {} }])
@@ -203,6 +203,23 @@ describe('network: React Native DevTools\' Network panel', () => {
     const late = report(other)
     await sleep(50)
     assert.deepEqual(late.told, ['disable'])
+  })
+
+  it('keeps no body once no DevTools is served, nor fails what a reporter told to stop left going', async () => {
+    const network = inspector()
+    const socket = socketOf()
+    network.debuggerConnected(socket)
+    served(network)
+    const { say, close } = report(network)
+    await sleep(0)
+    requestOf(say, 1)
+    say({ type: 'request', id: 2, url: 'https://api.example/slow', method: 'GET', headers: {}, time: 2, wallTime: 1_700_000_000 })
+    socket.close()
+    const devtools = served(network, { id: 'phone' })
+    await sleep(0)
+    devtools.fromDebugger({ id: 9, method: 'Network.getResponseBody', params: { requestId: '1.1' } })
+    close()
+    assert.deepEqual(devtools.toDebugger, [{ id: 9, error: { code: -32_000, message: 'No data found for resource with given identifier' } }])
   })
 
   it('fails each request an app left going as it goes, and takes nothing it does not know', async () => {

@@ -8,23 +8,27 @@
 // is sent, with its call stack; as it ends, its response's status and
 // headers (as they came, where setResponseHeaders() is there to say when),
 // its body (its text; json's and arraybuffer's as React Native's _response
-// has them; a blob's read), in chunks; or that it failed. Those of the
-// app's start kept until rn-serve first says. Of the XMLHttpRequest's
-// open(), setRequestHeader() and send(), and its abort, error, timeout and
-// loadend events, of no listener of readystatechange, which has React
-// Native's ask for a response in parts.
+// has them; a blob's read, as text where of a text type, else as base64),
+// in chunks; or that it failed. Those of the app's start kept until
+// rn-serve first says. Of the XMLHttpRequest's open(), setRequestHeader()
+// and send(), and its abort, error, timeout and loadend events, of no
+// listener of readystatechange, which has React Native's ask for a
+// response in parts.
 
 'use strict'
 
-let devServerOf = null
+// A module's function, CommonJS's or an ES module's default.
+const functionOf = (module) => (typeof module === 'function' ? module : typeof module?.default === 'function' ? module.default : null)
+
+let getDevServer = null
 let parseErrorStack = null
 try {
-  devServerOf = require('react-native/Libraries/Core/Devtools/getDevServer')
+  getDevServer = functionOf(require('react-native/Libraries/Core/Devtools/getDevServer'))
 } catch {
   // No react-native of it: no reporter.
 }
 try {
-  parseErrorStack = require('react-native/Libraries/Core/Devtools/parseErrorStack')
+  parseErrorStack = functionOf(require('react-native/Libraries/Core/Devtools/parseErrorStack'))
 } catch {
   // No call stacks.
 }
@@ -38,33 +42,31 @@ const MAX_BODY = 16 * 1024 * 1024
 const MAX_KEPT = 4 * 1024 * 1024
 const MAX_FRAMES = 50
 const RETRY = 2000
-// Where it keeps its id on the global object (src/network.js's).
-const REPORTER_GLOBAL = '__rnServeReporter'
 const MAX_RETRY = 60_000
 const FAILED = ['abort', 'error', 'timeout']
+// Where it keeps its id on the global object (src/network.js's).
+const REPORTER_GLOBAL = '__rnServeReporter'
+// A blob of these types read as text, any other as base64.
+const TEXT = /^text\/|json|xml|javascript|x-www-form-urlencoded/u
 
-// A module's function, CommonJS's or an ES module's default.
-const functionOf = (module) => (typeof module === 'function' ? module : typeof module?.default === 'function' ? module.default : null)
-const now = (global) => (typeof global.performance?.now === 'function' ? global.performance.now() : Date.now()) / 1000
+const now = () => (typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : Date.now()) / 1000
 
-function install(global) {
-  const devServer = functionOf(devServerOf)
-  const XMLHttpRequest = global.XMLHttpRequest
-  if (devServer === null || typeof XMLHttpRequest !== 'function' || typeof global.WebSocket !== 'function') return
-  const { url, bundleLoadedFromServer } = devServer()
+function install() {
+  const { XMLHttpRequest, WebSocket } = globalThis
+  if (getDevServer === null || typeof XMLHttpRequest !== 'function' || typeof WebSocket !== 'function') return
+  const { url, bundleLoadedFromServer } = getDevServer()
   if (!bundleLoadedFromServer) return
   // Its id, which rn-serve asks the runtime of each DevTools for, to tell
   // whose requests these are.
   const id = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`
-  Object.defineProperty(global, REPORTER_GLOBAL, { value: id, configurable: true })
-  const socketUrl = `${url.startsWith('https:') ? 'wss' : 'ws'}${url.slice(url.indexOf(':'))}network`
-  watch(XMLHttpRequest.prototype, createReporter(global, socketUrl, id), global)
+  Object.defineProperty(globalThis, REPORTER_GLOBAL, { value: id, configurable: true })
+  watch(XMLHttpRequest.prototype, createReporter(`${url.startsWith('https:') ? 'wss' : 'ws'}${url.slice(url.indexOf(':'))}network`, id))
 }
 
 // rn-serve's socket: `state` 'new' until rn-serve first says, keeping what
 // it is told; 'on', sending it; 'off'. Opened again where it closes, which
 // rn-serve says of anew.
-function createReporter(global, socketUrl, id) {
+function createReporter(socketUrl, id) {
   let state = 'new'
   let kept = []
   let keptSize = 0
@@ -73,21 +75,19 @@ function createReporter(global, socketUrl, id) {
   const stop = () => {
     state = 'off'
     kept = []
-    keptSize = 0
   }
   const connect = () => {
-    const ws = new global.WebSocket(socketUrl)
+    const ws = new globalThis.WebSocket(socketUrl)
+    socket = ws
     let closed = false
     const close = () => {
       if (closed) return
       closed = true
-      socket = null
       stop()
       setTimeout(connect, retry)
       retry = Math.min(retry * 2, MAX_RETRY)
     }
     ws.addEventListener('open', () => {
-      socket = ws
       retry = RETRY
       ws.send(JSON.stringify({ type: 'hello', reporter: id }))
     })
@@ -97,7 +97,6 @@ function createReporter(global, socketUrl, id) {
         state = 'on'
         for (const text of kept) ws.send(text)
         kept = []
-        keptSize = 0
       } else if (type === 'disable') {
         stop()
       }
@@ -107,18 +106,24 @@ function createReporter(global, socketUrl, id) {
   }
   connect()
   return {
+    reporting: () => state !== 'off',
     // Whether a request sent now is to be told of.
     tracking: () => state === 'on' || (state === 'new' && keptSize < MAX_KEPT),
+    // Characters of a body it may yet take.
+    room: () => (state === 'on' ? MAX_BODY : state === 'new' ? MAX_KEPT - keptSize : 0),
+    // -> whether it took the message.
     send(message) {
-      if (state === 'off') return
+      if (state === 'off') return false
       const text = JSON.stringify(message)
-      if (text.length > MAX_MESSAGE) return
+      if (text.length > MAX_MESSAGE) return false
       if (state === 'on') {
-        socket?.send(text)
-      } else if (message.type !== 'body' || keptSize + text.length <= MAX_KEPT) {
-        kept.push(text)
-        keptSize += text.length
+        socket.send(text)
+        return true
       }
+      if (message.type === 'body' && keptSize + text.length > MAX_KEPT) return false
+      kept.push(text)
+      keptSize += text.length
+      return true
     },
   }
 }
@@ -132,13 +137,13 @@ function typeOf(data) {
 }
 
 // Each request of an XMLHttpRequest, as open() and setRequestHeader() name
-// it, from its send().
-function watch(proto, reporter, global) {
+// it, from its send(): `sent`, of the request it sent last.
+function watch(proto, reporter) {
   const requests = new WeakMap()
   const { open, setRequestHeader, send, setResponseHeaders } = proto
   let seq = 0
   proto.open = function (method, url, ...rest) {
-    requests.set(this, { method: String(method).toUpperCase(), url: String(url), headers: {}, current: null })
+    requests.set(this, { method: String(method).toUpperCase(), url: String(url), headers: {}, sent: null })
     return open.call(this, method, url, ...rest)
   }
   proto.setRequestHeader = function (name, value) {
@@ -149,24 +154,23 @@ function watch(proto, reporter, global) {
   proto.send = function (body) {
     const request = requests.get(this)
     if (request !== undefined && this.readyState === 1 && reporter.tracking()) {
-      const sent = { id: ++seq, outcome: null, headersAt: null }
-      request.current = sent
-      reporter.send(requestMessage(sent.id, request, body, new Error('sent').stack, global))
-      follow(this, sent, request, reporter, global)
+      request.sent = { id: ++seq, url: request.url, outcome: null, headersAt: null }
+      reporter.send(requestMessage(request.sent.id, request, body, new Error('sent').stack))
+      follow(this, request.sent, reporter)
     }
     return send.call(this, body)
   }
   if (typeof setResponseHeaders === 'function') {
     proto.setResponseHeaders = function (...args) {
-      const sent = requests.get(this)?.current
-      if (sent != null && sent.headersAt === null) sent.headersAt = now(global)
+      const sent = requests.get(this)?.sent
+      if (sent != null && sent.headersAt === null) sent.headersAt = now()
       return setResponseHeaders.apply(this, args)
     }
   }
 }
 
-function requestMessage(id, { url, method, headers }, body, stack, global) {
-  const message = { type: 'request', id, url, method, headers: { ...headers }, time: now(global), wallTime: Date.now() / 1000, stack: framesOf(stack) }
+function requestMessage(id, { url, method, headers }, body, stack) {
+  const message = { type: 'request', id, url, method, headers: { ...headers }, time: now(), wallTime: Date.now() / 1000, stack: framesOf(stack) }
   if (body != null) message.hasPostData = true
   if (typeof body === 'string' && body.length <= CHUNK) message.postData = body
   return message
@@ -174,45 +178,43 @@ function requestMessage(id, { url, method, headers }, body, stack, global) {
 
 // The stack's frames, but send()'s own, as React Native parses one.
 function framesOf(stack) {
-  const parse = functionOf(parseErrorStack)
-  if (parse === null || typeof stack !== 'string') return undefined
+  if (parseErrorStack === null || typeof stack !== 'string') return undefined
   try {
-    return parse(stack).slice(1, MAX_FRAMES + 1).map(({ methodName, file, lineNumber, column }) => ({ methodName, file, lineNumber, column }))
+    return parseErrorStack(stack).slice(1, MAX_FRAMES + 1).map(({ methodName, file, lineNumber, column }) => ({ methodName, file, lineNumber, column }))
   } catch {
     return undefined
   }
 }
 
 // The request's end: its outcome, by the events before loadend.
-function follow(xhr, sent, request, reporter, global) {
+function follow(xhr, sent, reporter) {
   const failed = (event) => {
     sent.outcome = event.type
   }
   const ended = () => {
     for (const type of FAILED) xhr.removeEventListener(type, failed)
     xhr.removeEventListener('loadend', ended)
-    if (request.current === sent) request.current = null
-    end(xhr, sent, request, reporter, global)
+    end(xhr, sent, reporter)
   }
   for (const type of FAILED) xhr.addEventListener(type, failed)
   xhr.addEventListener('loadend', ended)
 }
 
-function end(xhr, { id, outcome, headersAt }, request, reporter, global) {
-  const time = now(global)
+function end(xhr, { id, url, outcome, headersAt }, reporter) {
+  if (!reporter.reporting()) return
+  const time = now()
   const headers = headersOf(xhr)
-  if (xhr.status > 0) {
-    const type = Object.keys(headers).find((name) => name.toLowerCase() === 'content-type')
-    reporter.send({ type: 'response', id, url: xhr.responseURL || request.url, status: xhr.status, headers, mimeType: type === undefined ? '' : headers[type].split(';')[0].trim(), time: headersAt ?? time })
-  }
+  const type = Object.keys(headers).find((name) => name.toLowerCase() === 'content-type')
+  const mimeType = type === undefined ? '' : headers[type].split(';')[0].trim()
+  if (xhr.status > 0) reporter.send({ type: 'response', id, url: xhr.responseURL || url, status: xhr.status, headers, mimeType, time: headersAt ?? time })
   if (outcome !== null) {
     const message = outcome === 'abort' ? 'Canceled' : outcome === 'timeout' ? 'Timed out' : typeof xhr._response === 'string' && xhr._response !== '' ? xhr._response : 'Failed'
     reporter.send({ type: 'failed', id, time, error: message, canceled: outcome === 'abort' })
     return
   }
-  bodyOf(xhr, global, (data, base64, size) => {
-    if (data !== null && data.length <= MAX_BODY) chunks(reporter, id, data, base64)
-    reporter.send({ type: 'finished', id, time, size: size ?? (data === null ? 0 : base64 ? Math.floor((data.length * 3) / 4) : data.length) })
+  bodyOf(xhr, mimeType, reporter.room(), (data, base64, size) => {
+    if (data !== null) chunks(reporter, id, data, base64)
+    reporter.send({ type: 'finished', id, time, size })
   })
 }
 
@@ -227,35 +229,50 @@ function headersOf(xhr) {
   return headers
 }
 
-// -> done(data, base64, size): its body, base64 where binary, else null.
-function bodyOf(xhr, global, done) {
+// -> done(data, base64, size): its body, base64 where binary, else null
+// where there is none, or more than `room` characters of it; its size.
+function bodyOf(xhr, mimeType, room, done) {
+  const limit = Math.min(MAX_BODY, room)
   const type = xhr.responseType
-  if (type === '' || type === 'text') return done(xhr.responseText, false)
+  const fits = (data) => (data.length <= limit ? data : null)
+  if (type === '' || type === 'text') {
+    const text = xhr.responseText
+    return done(fits(text), false, text.length)
+  }
   // As it came: json's text, an arraybuffer's base64.
-  if ((type === 'json' || type === 'arraybuffer') && typeof xhr._response === 'string') return done(xhr._response, type === 'arraybuffer')
+  const raw = xhr._response
+  if (type === 'json' && typeof raw === 'string') return done(fits(raw), false, raw.length)
+  if (type === 'arraybuffer' && typeof raw === 'string') return done(fits(raw), true, Math.floor((raw.length * 3) / 4))
   const blob = type === 'blob' ? xhr.response : null
-  if (blob == null || typeof global.FileReader !== 'function' || !(blob.size <= MAX_BODY)) return done(null, false, blob?.size)
-  const reader = new global.FileReader()
+  if (blob == null || typeof globalThis.FileReader !== 'function') return done(null, false, 0)
+  // As text, of as many characters as bytes at most; as base64, of 4 of each 3.
+  const text = TEXT.test(mimeType || blob.type || '')
+  if (!((text ? blob.size : Math.ceil(blob.size / 3) * 4) <= limit)) return done(null, false, blob.size)
+  const reader = new globalThis.FileReader()
   reader.addEventListener('load', () => {
     const { result } = reader
-    const at = typeof result === 'string' ? result.indexOf(',') : -1
-    done(at === -1 ? null : result.slice(at + 1), true, blob.size)
+    if (typeof result !== 'string') return done(null, false, blob.size)
+    // Of a data URL, what follows its comma.
+    done(text ? result : result.slice(result.indexOf(',') + 1), !text, blob.size)
   })
   reader.addEventListener('error', () => done(null, false, blob.size))
-  reader.readAsDataURL(blob)
+  // eslint-disable-next-line unicorn/prefer-blob-reading-methods -- React Native's Blob has no text()
+  if (text) reader.readAsText(blob)
+  else reader.readAsDataURL(blob)
   return undefined
 }
 
-// The body in chunks, `at` each's offset, none of which splits a surrogate pair.
+// The body in chunks, `at` each's offset, none of which splits a surrogate
+// pair; none after one not taken.
 function chunks(reporter, id, data, base64) {
   let at = 0
   do {
     let until = Math.min(at + CHUNK, data.length)
     // Of a pair, its code point: past U+FFFF.
     if (until < data.length && data.codePointAt(until - 1) > 0xff_ff) until--
-    reporter.send({ type: 'body', id, at, data: data.slice(at, until), base64, more: until < data.length })
+    if (!reporter.send({ type: 'body', id, at, data: data.slice(at, until), base64, more: until < data.length })) return
     at = until
   } while (at < data.length)
 }
 
-install(globalThis)
+install()

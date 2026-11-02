@@ -73,7 +73,7 @@ class Xhr extends Target {
 
 // The app: its globals, rn-serve's sockets, its timers. `modules`, what of
 // react-native the reporter's require() finds.
-function app({ devServer = { url: 'http://localhost:8081/', fullBundleUrl: BUNDLE, bundleLoadedFromServer: true }, modules } = {}) {
+function app({ devServer = { url: 'http://localhost:8081/', bundleLoadedFromServer: true }, modules } = {}) {
   const sockets = []
   const timers = []
   const clock = { now: 1000 }
@@ -88,12 +88,20 @@ function app({ devServer = { url: 'http://localhost:8081/', fullBundleUrl: BUNDL
       this.sent.push(JSON.parse(text))
     }
   }
+  const reads = []
   class FileReader extends Target {
-    readAsDataURL(blob) {
+    read(how, result) {
+      reads.push(how)
       queueMicrotask(() => {
-        this.result = `data:${blob.type};base64,${Buffer.from(blob.text).toString('base64')}`
+        this.result = result
         this.emit('load')
       })
+    }
+    readAsText(blob) {
+      this.read('text', blob.text)
+    }
+    readAsDataURL(blob) {
+      this.read('base64', `data:${blob.type};base64,${Buffer.from(blob.text).toString('base64')}`)
     }
   }
   class XMLHttpRequest extends Xhr {}
@@ -107,7 +115,7 @@ function app({ devServer = { url: 'http://localhost:8081/', fullBundleUrl: BUNDL
     if (Object.hasOwn(found, specifier)) return found[specifier]
     throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'MODULE_NOT_FOUND' })
   })
-  return { sockets, timers, clock, XMLHttpRequest, context }
+  return { sockets, timers, clock, XMLHttpRequest, context, reads }
 }
 
 // The app's socket, open, rn-serve having said `type`.
@@ -159,18 +167,20 @@ describe("network's reporter, of an app", () => {
     assert.deepEqual([sent(sockets[0]), later.added.size], [[], 0])
   })
 
-  it("reads a blob's body, as fetch's is, as base64; json's and arraybuffer's as they came", async () => {
-    const { sockets, XMLHttpRequest } = app()
+  it("reads a blob's body, as fetch's is: as text, of a text type, else as base64; json's and arraybuffer's as they came", async () => {
+    const { sockets, XMLHttpRequest, reads } = app()
     told(sockets[0], 'enable')
-    const fetched = new XMLHttpRequest()
-    fetched.open('GET', 'https://api.example/logo.svg')
-    fetched.responseType = 'blob'
-    fetched.send()
-    fetched.respond(200, { 'content-type': 'image/svg+xml' })
-    fetched.blob = { size: 6, type: 'image/svg+xml', text: '<svg/>' }
-    fetched.end('load')
+    for (const [name, type, text] of [['logo.png', 'image/png', 'PNG\0'], ['user', 'application/json; charset=utf-8', '{"id":1}']]) {
+      const fetched = new XMLHttpRequest()
+      fetched.open('GET', `https://api.example/${name}`)
+      fetched.responseType = 'blob'
+      fetched.send()
+      fetched.respond(200, { 'content-type': type })
+      fetched.blob = { size: text.length, type, text }
+      fetched.end('load')
+    }
     await tick()
-    for (const [id, responseType, response] of [[2, 'json', '{"a": 1}'], [3, 'arraybuffer', 'AAEC']]) {
+    for (const [id, responseType, response] of [[3, 'json', '{"a": 1}'], [4, 'arraybuffer', 'AAEC']]) {
       const xhr = new XMLHttpRequest()
       xhr.open('GET', `https://api.example/${id}`)
       xhr.responseType = responseType
@@ -179,7 +189,33 @@ describe("network's reporter, of an app", () => {
       xhr.end('load', response)
     }
     const bodies = sent(sockets[0]).filter(({ type }) => type === 'body' || type === 'finished').map(({ type, id, data, base64, size }) => (type === 'body' ? [id, data, base64] : [id, size]))
-    assert.deepEqual(bodies, [[1, Buffer.from('<svg/>').toString('base64'), true], [1, 6], [2, '{"a": 1}', false], [2, 8], [3, 'AAEC', true], [3, 3]])
+    assert.deepEqual(bodies, [[1, Buffer.from('PNG\0').toString('base64'), true], [1, 4], [2, '{"id":1}', false], [2, 8], [3, '{"a": 1}', false], [3, 8], [4, 'AAEC', true], [4, 3]])
+    assert.deepEqual(reads, ['base64', 'text'])
+  })
+
+  it('reads no body once rn-serve says not to, nor one more than it may keep until rn-serve says', async () => {
+    const { sockets, XMLHttpRequest, reads } = app()
+    const request = (name, size) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('GET', `https://api.example/${name}`)
+      xhr.responseType = 'blob'
+      xhr.send()
+      xhr.respond(200, { 'content-type': 'text/plain' })
+      xhr.blob = { size, type: 'text/plain', text: 'x'.repeat(size) }
+      return xhr
+    }
+    const [small, large] = [request('small', 10), request('large', 5 * 1024 * 1024)]
+    small.end('load')
+    large.end('load')
+    await tick()
+    told(sockets[0], 'enable')
+    // The large one unread, finished at once; the small one's read.
+    assert.deepEqual(sent(sockets[0]).filter(({ type }) => type !== 'request' && type !== 'response').map(({ type, id }) => [type, id]), [['finished', 2], ['body', 1], ['finished', 1]])
+    const late = request('late', 10)
+    sockets[0].emit('message', { data: JSON.stringify({ type: 'disable' }) })
+    late.end('load')
+    await tick()
+    assert.deepEqual(reads, ['text'])
   })
 
   it('sends a body in chunks, each at its offset, none of which splits a surrogate pair', () => {
@@ -227,7 +263,7 @@ describe("network's reporter, of an app", () => {
   })
 
   it('is no reporter where the bundle is no dev server\'s, or react-native has no getDevServer', () => {
-    assert.equal(app({ devServer: { url: 'http://localhost:8081/', fullBundleUrl: null, bundleLoadedFromServer: false } }).sockets.length, 0)
+    assert.equal(app({ devServer: { url: 'http://localhost:8081/', bundleLoadedFromServer: false } }).sockets.length, 0)
     const { sockets, XMLHttpRequest } = app({ modules: {} })
     assert.deepEqual([sockets.length, Object.hasOwn(XMLHttpRequest.prototype, 'send')], [0, false])
   })
