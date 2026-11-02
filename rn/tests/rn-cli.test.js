@@ -89,14 +89,14 @@ describe('rn-cli bundle', () => {
     assert.deepEqual(args('--dev', 'no', '--minify', 'false'), ['--platform=ios', '--output=out/main.jsbundle', '--dev'])
   })
 
-  it('takes the options rn-bundle has no use for, and the source map\'s with --sourcemap-output alone', () => {
+  it('takes the options rn-bundle has no use for, passes --max-workers, and the source map\'s with --sourcemap-output alone', () => {
     const r = run([
       'bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--max-workers', '4', '--read-global-cache',
       '--load-config', '{}', '--bundle-encoding', 'utf8', '--unstable-transform-profile', 'default', '--sourcemap-sources-root', '.',
       '--sourcemap-use-absolute-path', '--verbose',
     ])
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(translated(r), ['--platform=ios', '--output=out/main.jsbundle', '--dev', '--', 'index.js'])
+    assert.deepEqual(translated(r), ['--platform=ios', '--output=out/main.jsbundle', '--dev', '--max-workers=4', '--', 'index.js'])
     const map = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--sourcemap-output', 'out/main.map', '--sourcemap-sources-root', '.', '--sourcemap-use-absolute-path', '--verbose'])
     assert.equal(map.status, 0, map.stderr)
     assert.deepEqual(translated(map).slice(3, 6), ['--sourcemap-output=out/main.map', '--sourcemap-sources-root=.', '--sourcemap-use-absolute-path'])

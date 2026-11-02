@@ -19,6 +19,8 @@ const TAKEN = new Set([
   ...under('serializer', ['getPolyfills', 'polyfillModuleNames', 'getModulesRunBeforeMainModule']),
   // getTransformOptions by what it gives (TRANSFORMS).
   ...under('transformer', ['assetRegistryPath', 'enableBabelRCLookup', 'enableBabelRuntime', 'getTransformOptions']),
+  // How many workers Babel transforms in.
+  'maxWorkers',
 ])
 // Of the transform options getTransformOptions gives, those rn-bundle and
 // rn-serve don't do, where not Metro's default: the rest are of how Metro
@@ -31,7 +33,7 @@ const TRANSFORMS = {
 // Of no bearing on what is built: how Metro caches, watches, works, reports
 // and parses (hermes-parser or Babel's, of one language).
 const LEFT = new Set([
-  ...under('', ['watchFolders', 'cacheStores', 'cacheVersion', 'maxWorkers', 'stickyWorkers', 'resetCache', 'reporter', 'unstable_perfLoggerFactory', 'fileMapCacheDirectory', 'hasteMapCacheDirectory']),
+  ...under('', ['watchFolders', 'cacheStores', 'cacheVersion', 'stickyWorkers', 'resetCache', 'reporter', 'unstable_perfLoggerFactory', 'fileMapCacheDirectory', 'hasteMapCacheDirectory']),
   ...under('resolver', ['platforms', 'useWatchman', 'requireCycleIgnorePatterns', 'unstable_incrementalResolution']),
   ...under('transformer', ['optimizationSizeLimit', 'unstable_workerThreads', 'unstable_compactOutput', 'hermesParser']),
 ])
@@ -125,6 +127,18 @@ const show = (value, cwd) => {
   return JSON.stringify(value) ?? String(value)
 }
 
+// Metro's maxWorkers (its getMaxWorkers() of the CPUs, by default), as its
+// WorkerFarm takes it: one, which Metro transforms in on its main thread,
+// where not more than one.
+export const workersOf = (maxWorkers) => Math.max(1, Math.trunc(maxWorkers) || 1)
+
+// --max-workers, as Metro's CLI takes it, over the config's maxWorkers
+// (metroOptions()'s): unless given, the config's.
+export function maxWorkersOf(given, metro, fail) {
+  if (given === undefined) return metro.maxWorkers
+  return /^\d+$/u.test(given) ? workersOf(Number(given)) : fail(`--max-workers takes a number of workers, not ${given}`)
+}
+
 // Metro's blockList, one RegExp or several, as RegExps that keep no state.
 const patterns = (blockList) => {
   const list = blockList == null ? [] : Array.isArray(blockList) ? blockList : [blockList]
@@ -137,7 +151,7 @@ const patterns = (blockList) => {
 // its inline requires, where Metro is the project's (`inlineRequires`).
 function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null)) {
   let polyfills = null
-  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, minifyRefusal: null, transformRefusal: () => null }
+  const none = { runBeforeMain: null, assetRegistryPath: null, blockList: null, port: null, maxWorkers: null, minifyRefusal: null, transformRefusal: () => null }
   return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
@@ -166,7 +180,8 @@ async function baselinesOf(metro, project, cwd) {
 // The project's Metro config (`file`, else the one Metro finds), as
 // bundle() and createDevBundler() take it: { file, assetExts, resolver,
 // blockList, polyfills(platform), runBeforeMain(entryPath) or null,
-// assetRegistryPath or null, babelRCLookup, babelRuntime, port or null, minifyRefusal,
+// assetRegistryPath or null, babelRCLookup, babelRuntime, port or null,
+// maxWorkers (workersOf()) or null, Metro's default then, minifyRefusal,
 // transformRefusal(entryPath, { platform, dev }), inlineRequires(entryPath,
 // { platform, dev }) (inlineRequiresOf()) }. `name` is the command's,
 // `serving` whether it serves, `minify` whether it minifies; where it
@@ -233,6 +248,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     babelRuntime: transformer.enableBabelRuntime ?? true,
     inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
     port: server?.port ?? null,
+    maxWorkers: workersOf(config.maxWorkers),
     minifyRefusal: minifying.length === 0 ? null : errorOf(minifying),
     transformRefusal: async (entryPath, target) => {
       // Its getDependencies, of what preloads, of no bearing here; but of

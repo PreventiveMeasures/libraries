@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { babelWorkers, gatedInlining, newProfile, profileReport } from '../src/babel-worker.js'
+import { babelWorkers, gatedInlining, metroMaxWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
@@ -21,6 +21,8 @@ describe('babelWorkers', () => {
     'node_modules/babel-plugin-module-resolver': { link: realpathSync(fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')).replace(/[\\/]lib[\\/]index\.js$/u, '')) },
     // A require of an alias, put in as Babel traverses the file.
     'inject.cjs': "module.exports = ({ types: t }) => ({ name: 'inject', visitor: { Identifier(path) { if (path.node.name === '__DEP__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('#lib/b')])) } } })\n",
+    // The worker's thread, by which file it transforms.
+    'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
     // A config with its own visitor wrapper, which marks after mark's visitor.
     'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
@@ -32,6 +34,16 @@ describe('babelWorkers', () => {
     const files = await Promise.all(['a', 'b', 'c'].map((name) => transform(`const ${name} = 1 ?? 2`, join(root, `${name}.js`))))
     assert.deepEqual(files, ['a', 'b', 'c'].map((name) => ({ code: `const ${name} = 1 ?? 2;`, imports: [] })))
     await assert.rejects(transform('const a = (b: ) => 1', join(root, 'bad.js')), /bad\.js: Unexpected token/u)
+  })
+
+  it("transforms in at most as many workers as it is given, else as Metro's getMaxWorkers of the CPUs", async () => {
+    assert.deepEqual([1, 2, 4, 8, 12, 16].map((cores) => metroMaxWorkers(cores)), [1, 1, 3, 6, 8, 10])
+    const threads = async (max) => {
+      const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }, null, max)
+      const files = await Promise.all(Array.from({ length: 6 }, (_, i) => transform('a()', join(root, `t${i}.js`))))
+      return new Set(files.map(({ code }) => code)).size
+    }
+    assert.deepEqual([await threads(1), await threads(3)], [1, 3])
   })
 
   it("leaves out the config's plugins of the keys it is given", async () => {

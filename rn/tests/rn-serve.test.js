@@ -623,6 +623,7 @@ describe('rn-serve flags', () => {
 
   it('fails on what it cannot take', () => {
     assert.deepEqual([fails(['--port=x']).status, fails(['--port=x']).stderr], [1, 'rn-serve: --port takes a port, not x\n'])
+    assert.deepEqual([fails(['--max-workers=x']).status, fails(['--max-workers=x']).stderr], [1, 'rn-serve: --max-workers takes a number of workers, not x\n'])
     assert.match(fails(['--babel-aliases=aliases.json']).stderr, /--babel-aliases maps the imports where no Babel runs/u)
     assert.match(fails(['--define=x']).stderr, /--define takes K=V, not x/u)
     // Babel runs where the project has a config, as Metro's transformer runs it.

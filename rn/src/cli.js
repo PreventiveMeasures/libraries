@@ -113,10 +113,12 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup;
 // `babelRuntime`, its enableBabelRuntime, for the preset where the project
 // has no config; `keepPlugins`, each target's workers leave module-resolver
-// as it is (load.js). A target's `inlineRequires`, metroOptions()'s of its
-// bundle, Metro's inline requires, its workers inline after Babel: a target
-// of each, as Metro caches a file's transform of its transform options.
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false } = {}) {
+// as it is (load.js); `maxWorkers`, how many workers each target's Babel
+// runs in at most, Metro's default (metroMaxWorkers()) where null. A
+// target's `inlineRequires`, metroOptions()'s of its bundle, Metro's inline
+// requires, its workers inline after Babel: a target of each, as Metro
+// caches a file's transform of its transform options.
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -147,7 +149,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }, timed),
+      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }, timed, maxWorkers),
       babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)

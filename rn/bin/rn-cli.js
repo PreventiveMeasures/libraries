@@ -10,9 +10,10 @@
 // --assets-dest, --asset-catalog-dest (iOS, with --assets-dest),
 // --sourcemap-output, --sourcemap-sources-root and
 // --sourcemap-use-absolute-path (with --sourcemap-output), --config (the
-// Metro config, which rn-bundle loads as Metro does). Taken, of no use to rn-bundle,
-// which keeps no cache and runs no command: --reset-cache,
-// --read-global-cache, --max-workers, --verbose, and react-native's
+// Metro config, which rn-bundle loads as Metro does), --max-workers (how
+// many workers Babel runs in). Taken, of no use to rn-bundle, which keeps no
+// cache and runs no command: --reset-cache, --read-global-cache, --verbose,
+// and react-native's
 // scripts/bundle.js's --config-cmd and --load-config; --bundle-encoding,
 // utf8 alone; --unstable-transform-profile default. Another profile, as
 // rn-bundle takes it, for the project's Babel config. Refused, as rn-bundle can't do as Metro would:
@@ -26,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { failer } from '../src/cli.js'
 
 const RN_BUNDLE = fileURLToPath(new URL('rn-bundle.js', import.meta.url))
-const USAGE = 'usage: rn-cli bundle --entry-file FILE --bundle-output FILE [--platform ios] [--dev BOOL] [--minify BOOL] [--assets-dest DIR] [--asset-catalog-dest DIR] [--sourcemap-output FILE] [--sourcemap-sources-root DIR] [--sourcemap-use-absolute-path] [--config FILE]\n'
+const USAGE = 'usage: rn-cli bundle --entry-file FILE --bundle-output FILE [--platform ios] [--dev BOOL] [--minify BOOL] [--assets-dest DIR] [--asset-catalog-dest DIR] [--sourcemap-output FILE] [--sourcemap-sources-root DIR] [--sourcemap-use-absolute-path] [--config FILE] [--max-workers N]\n'
 
 // How each option takes its value: `value`, the next argument where not
 // `=`; `optional`, the next where it is no option; `flag`, none.
@@ -104,6 +105,7 @@ function translate(values, cwd) {
     if (has('sourcemap-use-absolute-path')) args.push('--sourcemap-use-absolute-path')
   }
   if (has('config')) args.push(`--metro-config=${resolve(cwd, get('config'))}`)
+  if (has('max-workers')) args.push(`--max-workers=${get('max-workers')}`)
   // Its default, Metro's, of no use to rn-bundle.
   if (has('unstable-transform-profile') && get('unstable-transform-profile') !== 'default') args.push(`--unstable-transform-profile=${get('unstable-transform-profile')}`)
   return [...args, '--', get('entry-file')]
