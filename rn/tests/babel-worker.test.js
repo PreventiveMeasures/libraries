@@ -11,6 +11,8 @@ import { writeTree } from './fixtures.js'
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
 const core = createRequire(import.meta.url)('@babel/core')
 const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))
+const FLOW_STRIP_TYPES = fileURLToPath(import.meta.resolve('@babel/plugin-transform-flow-strip-types'))
+const OXC = fileURLToPath(import.meta.resolve('oxc-parser'))
 
 describe('babelWorkers', () => {
   const { root, cleanup } = writeTree({
@@ -22,6 +24,10 @@ describe('babelWorkers', () => {
     // A require of an alias, put in as Babel traverses the file.
     'inject.cjs': "module.exports = ({ types: t }) => ({ name: 'inject', visitor: { Identifier(path) { if (path.node.name === '__DEP__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('#lib/b')])) } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
+    // Which parser made the AST: Babel's nodes are its Node's, oxc-babel.js's plain objects.
+    'parsed.cjs': "module.exports = ({ types: t }) => ({ name: 'parsed', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(path.node.constructor === Object ? 'oxc' : 'babel'))) } } } })\n",
+    // A plugin that parses, as Babel's own parser does.
+    'parser.cjs': "module.exports = () => ({ name: 'parser', parserOverride: (code, options, parse) => parse(code, options) })\n",
     // A config with its own visitor wrapper, which marks after mark's visitor.
     'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
   })
@@ -111,6 +117,38 @@ describe('babelWorkers', () => {
     const transform = babelWorkers(CORE, { babelrc: false, configFile: false, cwd: root, compact: false, plugins })
     assert.equal((await transform("require('#first/a')", join(root, 'a.js'))).code, 'require("./first/a");')
     assert.equal((await transform("require('#second/b')", join(root, 'b.js'))).code, 'require("./second/b");')
+  })
+
+  it("parses each lowered source by oxc-parser, where given, to the AST Babel's parser makes, else by Babel's", async () => {
+    const options = { babelrc: false, configFile: false, compact: false, sourceType: 'unambiguous', parserOpts: { plugins: ['jsx'] } }
+    const source = '"use strict";\nconst a = /* @__PURE__ */ (/* b */ c(), d);\nfunction e() {\n  return (\n    // f\n    g\n  );\n}\nconst h = <I j="k">{l}</I>;\n'
+    const expected = (await babelWorkers(CORE, { ...options, plugins: [join(root, 'parsed.cjs')] })(source, join(root, 'a.js'), [], true)).code
+    assert.match(expected, /"babel";$/u)
+    const plugins = [join(root, 'parsed.cjs')]
+    const transform = babelWorkers(CORE, { ...options, plugins, oxc: OXC })
+    assert.equal((await transform(source, join(root, 'a.js'), [], true)).code, expected.replace(/"babel";$/u, '"oxc";'))
+    // Not lowered: as esbuild didn't print it, Babel parses it.
+    assert.equal((await transform(source, join(root, 'a.js'))).code, expected)
+    // Where Babel's flow plugin reads `f<T>(x)` as a call, the file saying @flow.
+    const flow = babelWorkers(CORE, { ...options, plugins: [FLOW_STRIP_TYPES, ...plugins], oxc: OXC })
+    assert.match((await flow('// @flow\nf<T>(x);', join(root, 'flow.js'), [], true)).code, /^f\(x\);\n"babel";$/u)
+    assert.match((await flow('f < T > (x);', join(root, 'not-flow.js'), [], true)).code, /"oxc";$/u)
+    // What oxc-parser fails on, Babel parses (Flow types), or fails on, with its error.
+    assert.match((await flow('const a: number = 1;', join(root, 'typed.js'), [], true)).code, /^const a = 1;\n"babel";$/u)
+    await assert.rejects(transform('const a = (b: ) => 1', join(root, 'bad.js'), [], true), /bad\.js: Unexpected token/u)
+    // Another plugin's parser: Babel takes no two.
+    const parser = babelWorkers(CORE, { ...options, plugins: [join(root, 'parser.cjs'), ...plugins], oxc: OXC })
+    assert.match((await parser(source, join(root, 'a.js'), [], true)).code, /"babel";$/u)
+    assert.match((await parser(source, join(root, 'a.js'), ['parser'], true)).code, /"oxc";$/u)
+  })
+
+  it("profiles oxc-parser's parsing as Babel's, of no plugin", async () => {
+    const profile = newProfile()
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'parsed.cjs')], oxc: OXC }, profile)
+    assert.match((await transform('a()', join(root, 'a.js'), [], true)).code, /"oxc";$/u)
+    assert.equal(profile.plugins.has('rn-bundle-oxc-parser'), false)
+    const parsing = profile.own.get('parsing')
+    assert.deepEqual([parsing.files, parsing.calls, parsing.ms > 0], [1, 1, true])
   })
 
   it('reports a profile, most time first, with that outside the plugins', () => {

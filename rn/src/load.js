@@ -100,7 +100,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
     const esModule = esm !== false && !esm.has(path) && !(MODULE_SYNTAX.test(source.code) && COMMONJS_NAMES.test(source.code))
     try {
       const without = [...source.without, ...(esModule ? [COMMONJS] : []), ...idle(source.code)]
-      const transformed = await babel(source.code, path, without)
+      const transformed = await babel(source.code, path, without, source.lowered === true)
       const { code, imports = [] } = typeof transformed === 'string' ? { code: transformed } : transformed
       // TS, as Babel makes it JS, loaded as TS by esbuild, which then takes an
       // export of what it finds no export of for a type's, as it takes TS.
@@ -150,7 +150,9 @@ async function hasFlow(esbuild, code, loader) {
   return isFlow(code) || (await parseErrors(esbuild, code, loader)) !== null
 }
 
-// -> { code, without }: the source for Babel, and the plugins to leave out.
+// -> { code, without, lowered }: the source for Babel, the plugins to leave
+// out, and whether it is esbuild's output (JS and JSX), which oxc-parser may
+// parse for Babel (babel-worker.js).
 async function javascript({ esbuild, stripFlow, sourcemap }, plugins, contents, path) {
   let code = contents
   if (stripFlow !== null && (await hasFlow(esbuild, contents, 'jsx'))) {
@@ -184,7 +186,7 @@ async function downgrade(esbuild, plugins, contents, path, sourcemap) {
     if (!Array.isArray(error?.errors) || !error.errors.every(({ location }) => location)) throw error
     return null
   }
-  return decorated(code) ? null : { code, without }
+  return decorated(code) ? null : { code, without, lowered: true }
 }
 
 // As @react-native/babel-preset's TS plugin makes it: fields with no value
@@ -198,9 +200,9 @@ async function typescript(esbuild, plugins, contents, loader, path, sourcemap) {
   const tsconfigRaw = (useDefineForClassFields) => ({ compilerOptions: { useDefineForClassFields } })
   const { supported, without } = lowering(plugins, [...INERT, ...INERT_TS])
   const code = await lower(esbuild, contents, loader, path, { supported, tsconfigRaw: tsconfigRaw(false) }, sourcemap)
-  if (!decorated(code)) return { code, without }
+  if (!decorated(code)) return { code, without, lowered: true }
   // Decorated: types stripped alone, classes left to the project's Babel config, all of it.
-  return { code: await lower(esbuild, contents, loader, path, { tsconfigRaw: tsconfigRaw(true) }, sourcemap), without: [] }
+  return { code: await lower(esbuild, contents, loader, path, { tsconfigRaw: tsconfigRaw(true) }, sourcemap), without: [], lowered: true }
 }
 
 // What esbuild lowers before Babel, for the plugins of the project's Babel
