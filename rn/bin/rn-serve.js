@@ -188,15 +188,15 @@ server.listen(port, host, () => {
 const UNKEPT = { fingerprint: "without a fingerprint of Babel's config", config: 'of a Babel config with no key', external: "of a plugin's files of its own", failed: 'failed' }
 const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`
 
-// A build's status, on its line: its time, and of the files it loaded, those
-// the cache had, those loaded anew, those as they were in memory, and why
-// one loaded anew was kept none of; `cached`, the store's tally(), null
-// where there is none.
+// A build's status, on its line: its time, the time of it the cache took,
+// and of the files it loaded, those the cache had, those loaded anew, those
+// as they were in memory, and why one loaded anew was kept none of;
+// `cached`, the store's tally, null where there is none.
 function status(ms, cached) {
   if (cached === null) return `in ${ms} ms, cache: off`
-  const { hits, misses, memory, unkept } = cached
+  const { hits, misses, memory, unkept, ms: taken } = cached
   const why = Object.entries(unkept).map(([reason, count]) => `${count} ${UNKEPT[reason] ?? reason}`).join(', ')
-  return `in ${ms} ms, cache: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
+  return `in ${ms} ms, cache ${Math.round(taken)} ms: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
 }
 
 // The directory each file as it loads is kept in across runs: the user's
@@ -226,16 +226,27 @@ function mountDebugger(serverUrl) {
   }
 }
 
+// At once, a build in progress though: what it would make is kept in
+// memory alone, and esbuild and Babel's workers end with the process; but
+// a pack of the cache being written (load-cache.js's), written first, of
+// which a run after would have none else. Asked again, at once.
+let quitting = false
+function quit() {
+  if (quitting) process.exit(0)
+  quitting = true
+  void Promise.resolve(loadCache?.settled()).finally(() => process.exit(0))
+}
+process.on('SIGINT', quit)
+process.on('SIGTERM', quit)
+
 function keys(serverUrl) {
   log(`rn-serve: r reload, d dev menu${devMiddleware === null ? '' : ', j debugger'}, ctrl-c quit`)
   emitKeypressEvents(process.stdin)
   process.stdin.setRawMode(true)
   process.stdin.on('keypress', (text, key) => {
-    // At once, a build in progress though: what it would make is kept in
-    // memory alone, and esbuild and Babel's workers end with the process.
     if (key?.ctrl && (key.name === 'c' || key.name === 'd')) {
       process.stdin.setRawMode(false)
-      process.exit(0)
+      quit()
     } else if (text === 'r' || text === 'd') {
       const method = text === 'r' ? 'reload' : 'devMenu'
       log(`rn-serve: ${method} to ${devServer.broadcast(method)} app(s)`)

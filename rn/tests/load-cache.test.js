@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -19,10 +19,18 @@ const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_mo
 // A plugin of an output of its own each time it runs: one the same is kept.
 const RANDOM = "module.exports = ({ types: t }, { tag = '' }) => ({ name: 'random', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(tag + Math.random()))) } } } })\n"
 
+// The records of a pack's segment (load-pack.js's): a key, its length, its JSON.
+const recordsOf = (buffer) => {
+  let count = 0
+  for (let at = 0; at + 68 <= buffer.length; at += 68 + buffer.readUInt32LE(at + 64)) count++
+  return count
+}
+
 // A project of these files and @babel/core, its cache in it, and a run of
 // rn-serve on it: a target of its own, its own workers, a store of its
-// own; `load(name, contents, options)` writes the file, and loads it as
-// loadCached() does with the store.
+// own, a build of it started; `load(name, contents, options)` writes the
+// file, and loads it as loadCached() does with the store; end() finishes
+// the build, its pack written: -> its tally, but its time.
 function projectOf(tree) {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/@babel/core': linked('@babel/core'), ...tree })
   const cacheDir = join(root, 'cache')
@@ -32,13 +40,32 @@ function projectOf(tree) {
     for (const path of Object.keys(modules)) if (path.startsWith(`${root}${sep}`) || path.includes(BABEL_CORE)) delete modules[path]
     const target = babel ? projectBabel(root, peers(root, fail), fail, { fingerprint: true, maxWorkers: 1 })({ platform, dev: true }) : null
     const store = createLoadCache(dir, { esbuild, cwd: root })(target)
+    // Its build started as it first loads, after a test has its target as it would.
+    let started = false
     const load = (name, contents, options = {}) => {
+      if (!started) store.start()
+      started = true
       writeFileSync(join(root, name), contents)
       return loadCached({ esbuild, projectRoot: root, stripFlow: null, babel: target?.babel ?? null, babelPlugins: target?.babelPlugins ?? null, store, ...options }, diskHost, null, join(root, name))
     }
-    return { target, store, load }
+    const end = async () => {
+      const { tally, written } = store.finish()
+      await written
+      const { ms: _ms, ...counts } = tally
+      return counts
+    }
+    return { target, store, load, end }
   }
-  const entries = () => readdirSync(cacheDir, { recursive: true }).filter((path) => path.includes(sep)).length
+  // Each record of the packs, and each other file kept.
+  const entries = () => {
+    let count = 0
+    for (const path of readdirSync(cacheDir, { recursive: true })) {
+      const full = join(cacheDir, path)
+      if (path.endsWith('.pack')) count += recordsOf(readFileSync(full))
+      else if (!path.startsWith('packs') && statSync(full).isFile()) count++
+    }
+    return count
+  }
   return { root, cleanup, run, entries }
 }
 
@@ -54,22 +81,26 @@ describe('loadCached, with a store of load-cache.js', () => {
     'helper.cjs': "module.exports = 'helped'\n",
   })
   after(cleanup)
-  const contents = async (...args) => (await run().load(...args)).contents
+  const contents = async (...args) => {
+    const each = run()
+    const loaded = await each.load(...args)
+    await each.end()
+    return loaded.contents
+  }
 
   it('keeps each file as it loads, which a run after takes while its name and contents are the same, and counts each', async () => {
     const first = run()
     const loaded = await first.load('a.js', "import a from 'a'\na()")
     assert.match(loaded.contents, /^import a from "a";\na\(\);\n"a0\.\d+";$/u)
-    assert.deepEqual(first.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: {} })
+    assert.deepEqual(await first.end(), { hits: 0, misses: 1, memory: 0, unkept: {} })
     const second = run()
     assert.deepEqual(await second.load('a.js', "import a from 'a'\na()"), loaded)
-    assert.deepEqual(second.store.tally(), { hits: 1, misses: 0, memory: 0, unkept: {} })
-    // As in memory, of a build after.
+    // As in memory, of the build.
     const memory = new Map()
     const options = { esbuild, projectRoot: root, stripFlow: null, babel: second.target.babel, babelPlugins: second.target.babelPlugins, store: second.store }
     await loadCached(options, diskHost, memory, join(root, 'a.js'))
     await loadCached(options, diskHost, memory, join(root, 'a.js'))
-    assert.deepEqual(second.store.tally(), { hits: 1, misses: 0, memory: 1, unkept: {} })
+    assert.deepEqual(await second.end(), { hits: 2, misses: 0, memory: 1, unkept: {} })
     assert.notEqual(await contents('a.js', 'a()'), loaded.contents)
     writeFileSync(join(root, 'other.js'), "import a from 'a'\na()")
     assert.notEqual(await contents('other.js', "import a from 'a'\na()"), loaded.contents)
@@ -140,23 +171,25 @@ describe('loadCached, with a store of load-cache.js', () => {
 
   it("loads, though the cache can't be written", async () => {
     const blocked = join(root, 'blocked')
-    // Each entry's directory a file.
+    // Its packs' directory a file, and each other entry's.
     mkdirSync(blocked)
-    for (let i = 0; i < 256; i++) writeFileSync(join(blocked, i.toString(16).padStart(2, '0')), '')
-    assert.match((await run({ dir: blocked }).load('i.js', 'i()')).contents, /^i\(\);\n"/u)
+    for (const name of ['packs', ...Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'))]) writeFileSync(join(blocked, name), '')
+    const each = run({ dir: blocked })
+    assert.match((await each.load('i.js', 'i()')).contents, /^i\(\);\n"/u)
+    assert.deepEqual(await each.end(), { hits: 0, misses: 1, memory: 0, unkept: {} })
   })
 
   it('keeps none that fails, nor any of a target with no fingerprint, and counts each, and why', async () => {
     const count = entries()
     const failing = run()
     assert.equal((await failing.load('f.js', 'const = 1')).errors.length, 1)
-    assert.deepEqual(failing.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { failed: 1 } })
+    assert.deepEqual(await failing.end(), { hits: 0, misses: 1, memory: 0, unkept: { failed: 1 } })
     assert.equal(entries(), count)
     const unprinted = run()
     unprinted.target.fingerprint = () => Promise.reject(new Error('no fingerprint'))
     unprinted.target.workerOptions = { other: true }
     await unprinted.load('g.js', 'g()')
-    assert.deepEqual(unprinted.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { fingerprint: 1 } })
+    assert.deepEqual(await unprinted.end(), { hits: 0, misses: 1, memory: 0, unkept: { fingerprint: 1 } })
     assert.equal(entries(), count)
   })
 
@@ -167,7 +200,9 @@ describe('loadCached, with a store of load-cache.js', () => {
       return source.replace(': number', '')
     }
     const flow = '// @flow\nconst n: number = 1\n'
-    const first = await run({ babel: false }).load('flow.js', flow, { stripFlow })
+    const before = run({ babel: false })
+    const first = await before.load('flow.js', flow, { stripFlow })
+    await before.end()
     assert.deepEqual([first.contents, stripped], ['// @flow\nconst n = 1\n', 1])
     assert.deepEqual(await run({ babel: false }).load('flow.js', flow, { stripFlow }), first)
     assert.equal(stripped, 1)
@@ -185,7 +220,12 @@ describe('loadCached, with a store, of a plugin a .babelrc has of options of its
     'pick-b.cjs': "module.exports = 'b'\n",
   })
   after(cleanup)
-  const contents = async (...args) => (await run().load(...args)).contents
+  const contents = async (...args) => {
+    const each = run()
+    const loaded = await each.load(...args)
+    await each.end()
+    return loaded.contents
+  }
 
   it('loads anew where what the plugin requires of those options changes', async () => {
     assert.equal(await contents('optioned/x.js', 'x()'), 'x();\n"b";')
@@ -208,7 +248,12 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
     'external.cjs': "module.exports = (api) => { api.cache.never(); api.addExternalDependency(__dirname + '/dep.txt'); return { name: 'external', visitor: { Program: { exit(path) { path.pushContainer('body', api.types.expressionStatement(api.types.stringLiteral(String(Math.random())))) } } } } }\n",
   })
   after(cleanup)
-  const contents = async (...args) => (await run().load(...args)).contents
+  const contents = async (...args) => {
+    const each = run()
+    const loaded = await each.load(...args)
+    await each.end()
+    return loaded.contents
+  }
 
   it('loads anew where what the config read or looked for as it loaded changes, which a function of its options may keep', async () => {
     assert.equal(await contents('h.js', 'h()'), 'h();\n"one";')
@@ -225,13 +270,13 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
     assert.equal(entries(), count)
     const each = run()
     await each.load('external.js', 'e()')
-    assert.deepEqual(each.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { external: 1 } })
+    assert.deepEqual(await each.end(), { hits: 0, misses: 1, memory: 0, unkept: { external: 1 } })
   })
 })
 
 describe('ownModules', () => {
   it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
     const src = fileURLToPath(new URL('../src/', import.meta.url))
-    assert.deepEqual(ownModules(), ['assets.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'bundle.js', 'defaults.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load.js', 'mappings.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
+    assert.deepEqual(ownModules(), ['assets.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'bundle.js', 'defaults.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load-pack.js', 'load.js', 'mappings.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
   })
 })

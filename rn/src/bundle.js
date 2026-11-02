@@ -392,7 +392,7 @@ export async function loadCached(options, host, cache, path) {
   }
   const variant = [Boolean(options.sourcemap), esm === false ? null : esm.has(path), Boolean(options.keepPlugins)]
   const { key, why = null } = store === null ? { key: null } : await store.keyOf(path, contents, variant)
-  const kept = key === null ? null : store.get(key)
+  const kept = key === null ? null : await store.get(key)
   const { uncacheable = false, ...result } = kept ?? (await loadFile(options, path, contents))
   if (kept === null && store !== null) {
     const unkept = result.errors === undefined ? (why ?? (uncacheable ? 'external' : null)) : 'failed'

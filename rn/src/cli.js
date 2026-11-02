@@ -125,7 +125,8 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // for a cache of each file as it loads (load-cache.js), each target has
 // fingerprint(), its workers' (babelWorkers()), of `workerOptions`, the
 // options they have, and configKey(filename, covered), a key of the config
-// Babel loads for the file (configKeyOf()). `oneBuild`, each target of one
+// Babel loads for the file (configKeyOf()), and configStart(), as a build
+// starts. `oneBuild`, each target of one
 // build, whose files don't change as it runs: Babel's .babelrc lookup of
 // each file left out where it would find none.
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false } = {}) {
@@ -169,6 +170,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
         workerOptions,
         fingerprint: babel.fingerprint,
         configKey: (filename, covered) => (configKey ??= configKeyOf((core ??= project.load(corePath)), options, createRequire(corePath).cache))(filename, covered),
+        configStart: () => configKey?.start(),
       }),
     }
     targets.set(key, target)
