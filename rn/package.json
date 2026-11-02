@@ -50,6 +50,7 @@
     "src/assets.js",
     "src/babel-aliases.js",
     "src/babel-worker.js",
+    "src/babelrc.js",
     "src/bundle-url.js",
     "src/bundle.js",
     "src/cli.js",

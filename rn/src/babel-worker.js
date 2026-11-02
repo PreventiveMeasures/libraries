@@ -9,6 +9,7 @@ import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
 import { fingerprintOf, readsOf } from './load-cache.js'
+import { babelrcFinder } from './babelrc.js'
 
 // How many workers Babel runs in where nothing says: 2, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
@@ -39,7 +40,10 @@ const BACKLOG = 8
 // fingerprint, options, modules, reads }: what its output is of but a
 // file's own config and its source (load-cache.js's fingerprintOf()), as
 // its workers have it once they load the config, and what it is a digest
-// of. Where profile is newProfile()'s, the time of each
+// of. With options.oneBuild, of one build, whose files don't change as it
+// runs, Babel's .babelrc lookup of each file left out where it would find
+// none (babelrcFinder()), as its directories are read once. Where profile
+// is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
 // hooks', by its key. At most `max` workers (defaultWorkers() where null),
 // one more made only as files wait: as each has BACKLOG of them or more. One
@@ -174,7 +178,7 @@ export function gatedInlining(plugin) {
 }
 
 if (workerData?.babel !== undefined) {
-  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, ...given }, profile } = workerData.babel
+  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, ...given }, profile } = workerData.babel
   // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
   enableCompileCache()
   const core = createRequire(corePath)(corePath)
@@ -204,7 +208,8 @@ if (workerData?.babel !== undefined) {
   const inlinePlugin = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
   const inlining = (filename) => (inlinePlugin === null || inlineRequires.blockList.includes(filename) ? [] : [inlinePlugin])
   // As Metro's transformer has it, a file in node_modules has no component to edit.
-  const optionsOf = (filename) => ({ ...given, filename, plugins: [...(given.plugins ?? []), IMPORTS, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })
+  const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
+  const optionsOf = (filename) => ({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins: [...(given.plugins ?? []), IMPORTS, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })
   // By plugin key, the calls and own time of its visitors and hooks, in the
   // file being transformed: a call's own, not that of a plugin it calls.
   let spent = new Map()
