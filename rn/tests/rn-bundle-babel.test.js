@@ -186,3 +186,27 @@ describe('rn-bundle, with Babel, with a .babelrc of a directory of its own', () 
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['sub', null])
   })
 })
+
+describe("rn-bundle, with Babel, with Reanimated's plugin", () => {
+  // As Reanimated 4's (react-native-worklets'), which has each file it runs
+  // in say so.
+  const { root, cleanup } = writeTree({
+    'babel.config.js': "module.exports = { plugins: ['react-native-worklets/plugin'] }\n",
+    'node_modules/react-native-worklets/plugin/index.js': "module.exports = ({ types: t }) => ({ name: 'worklets', visitor: { Program: { exit(path, state) { path.pushContainer('body', t.expressionStatement(t.callExpression(t.identifier('ran'), [t.stringLiteral(require('path').basename(state.filename))]))) } } } })\n",
+    'index.js': "globalThis.ran = (name) => (globalThis.files ??= []).push(name)\nrequire('./animated')\nrequire('./plain')\nconsole.log(JSON.stringify(globalThis.files))\n",
+    'animated.js': "const useAnimatedStyle = (style) => style\nmodule.exports = useAnimatedStyle(() => ({ opacity: 1 }))\n",
+    'plain.js': 'module.exports = 1\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const run = (args) => spawnSync(process.execPath, [BIN, '--platform=ios', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
+
+  it('runs it in the files that name what it acts on alone; --self-test, which builds again with it in each, finds where that changes one', () => {
+    const r = run(['--output=out.js'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['animated.js'])
+    const selfTest = run(['--self-test'])
+    assert.equal(selfTest.status, 1)
+    assert.match(selfTest.stderr, /index\.js|plain\.js/u)
+  })
+})

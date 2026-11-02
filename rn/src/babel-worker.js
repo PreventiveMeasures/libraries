@@ -10,6 +10,7 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 
 import { fingerprintOf, readsOf } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
+import { workletsGate } from './worklets.js'
 
 // How many workers Babel runs in where nothing says: 2, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
@@ -349,14 +350,17 @@ if (workerData?.babel !== undefined) {
     const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map((fn) => gate(fn, resolvePath)) : fns])
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
-  // The options transformSync takes for the file: the config's, as Babel
-  // loads them for it, its plugins, loaded, as they are, but those of the
-  // keys in without, and the inlining one.
-  const optionsFor = (filename, without) => {
+  // Reanimated's plugin, left out of a file it leaves as it is (but with
+  // keepPlugins, as --self-test builds again).
+  const quiet = keepPlugins ? null : workletsGate({ cwd: given.cwd ?? process.cwd(), envName: given.envName })
+  // The options transformSync takes for the file of source: the config's, as
+  // Babel loads them for it, its plugins, loaded, as they are, but those of
+  // the keys in without, and Reanimated's where quiet, and the inlining one.
+  const optionsFor = (filename, source, without) => {
     const start = performance.now()
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
-    const plugins = listOf([...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)])
+    const plugins = listOf([...config.plugins.filter((plugin) => !without.includes(plugin.key) && !quiet?.(plugin, source)), ...inlining(filename)])
     // module-resolver traverses, as its plugin does, with keepPlugins.
     if (!keepPlugins) plugins.forEach(gateResolver)
     return { ...config, plugins }
@@ -428,7 +432,7 @@ if (workerData?.babel !== undefined) {
     own = new Map()
     imports = new Set()
     try {
-      const result = transform(source, optionsFor(filename, without))
+      const result = transform(source, optionsFor(filename, source, without))
       const { code } = lowerLeft(result, filename)
       const entries = (map) => [...map].map(([key, [calls, ms, worked]]) => [key, calls, ms, worked])
       port.postMessage({ code, imports: [...imports], ...(result.externalDependencies?.size > 0 && { uncacheable: true }), ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })

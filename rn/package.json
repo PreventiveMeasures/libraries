@@ -74,7 +74,8 @@
     "src/source-map.js",
     "src/symbolicate.js",
     "src/watch.js",
-    "src/websocket.js"
+    "src/websocket.js",
+    "src/worklets.js"
   ],
   "engines": {
     "node": ">=24.14.0"
