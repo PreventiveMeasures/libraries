@@ -7,15 +7,19 @@ import { availableParallelism } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
-// (corePath, options, profile) => async (source, filename, without = []) =>
-// { code, imports }, by the @babel/core at corePath, with options (all but
-// the filename) for each file, its config's plugins of the keys in without
-// left out; with options.refresh, react-refresh's Babel plugin at that path
-// for each file outside node_modules, as Metro's transformer adds it for Fast
-// Refresh. `imports`, the specifiers of the file's import and export-from
-// declarations (IMPORTS). Where profile is newProfile()'s, the time of each
-// transform is added to it, and that of each plugin: its visitors' and
-// hooks', by its key.
+import { Unconverted, babelFile } from './oxc-babel.js'
+
+// (corePath, options, profile) => async (source, filename, without = [],
+// lowered = false) => { code, imports }, by the @babel/core at corePath, with
+// options (all but the filename) for each file, its config's plugins of the
+// keys in without left out; with options.refresh, react-refresh's Babel
+// plugin at that path for each file outside node_modules, as Metro's
+// transformer adds it for Fast Refresh; with options.oxc, oxc-parser at that
+// path parses each `lowered` source (esbuild's output: JS and JSX) in place
+// of Babel's parser, to the AST Babel's would make (OXC). `imports`, the
+// specifiers of the file's import and export-from declarations (IMPORTS).
+// Where profile is newProfile()'s, the time of each transform is added to
+// it, and that of each plugin: its visitors' and hooks', by its key.
 export function babelWorkers(corePath, options, profile = null) {
   const max = availableParallelism() >= 4 ? 2 : 1
   const workers = []
@@ -34,7 +38,7 @@ export function babelWorkers(corePath, options, profile = null) {
     workers.push(info)
     return info
   }
-  return async (source, filename, without = []) => {
+  return async (source, filename, without = [], lowered = false) => {
     const info = pick()
     const { port1, port2 } = new MessageChannel()
     const { promise: failed, reject } = Promise.withResolvers()
@@ -42,7 +46,7 @@ export function babelWorkers(corePath, options, profile = null) {
     if (info.busy++ === 0) info.worker.ref()
     info.pending.add(reject)
     try {
-      info.worker.postMessage({ port: port1, source, filename, without }, [port1])
+      info.worker.postMessage({ port: port1, source, filename, without, lowered }, [port1])
       const [{ code, imports, error, loc, spent }] = await Promise.race([once(port2, 'message'), failed])
       // Babel's error, with where in the file Babel says, if it does.
       if (error !== undefined) throw Object.assign(new Error(error), loc === undefined ? {} : { loc })
@@ -97,8 +101,47 @@ export function profileReport({ files, ms, plugins, own }, root) {
   ].join('\n')
 }
 
+// Babel's parser options that oxc-parser's AST, made Babel's (oxc-babel.js),
+// is the same of, or that only take more code (which oxc-parser then fails
+// on, leaving it to Babel).
+const OXC_OPTIONS = new Set([
+  'sourceType',
+  'sourceFileName',
+  'plugins',
+  'createImportExpressions',
+  'allowReturnOutsideFunction',
+  'allowAwaitOutsideFunction',
+  'allowImportExportEverywhere',
+  'allowSuperOutsideMethod',
+  'allowUndeclaredExports',
+  'allowNewTargetOutsideFunction',
+  'allowYieldOutsideFunction',
+  'errorRecovery',
+])
+// Babel's parser plugins that make another AST of JS.
+const NOT_OXC = new Set(['estree', 'typescript', 'flowComments', 'placeholders', 'v8intrinsic'])
+
+// Babel's parser options of a file -> babelFile()'s, and whether it has JSX;
+// null where oxc-parser's AST isn't Babel's of it: Babel's flow plugin reads
+// `f<T>(x)` as a call where the file says @flow, or `all` says so.
+function oxcOptions(parserOpts, code) {
+  if (Object.keys(parserOpts).some((key) => !OXC_OPTIONS.has(key) && parserOpts[key] !== undefined)) return null
+  const sourceType = parserOpts.sourceType ?? 'module'
+  if (sourceType !== 'module' && sourceType !== 'script' && sourceType !== 'unambiguous') return null
+  let jsx = false
+  let flow = false
+  for (const plugin of parserOpts.plugins ?? []) {
+    const [name, options] = Array.isArray(plugin) ? plugin : [plugin, {}]
+    if (NOT_OXC.has(name) || (name === 'flow' && options?.all === true)) return null
+    jsx ||= name === 'jsx'
+    flow ||= name === 'flow'
+  }
+  if (flow && code.includes('@flow')) return null
+  return { sourceType, flow, jsx, importExpressions: parserOpts.createImportExpressions === true }
+}
+
 if (workerData?.babel !== undefined) {
-  const { corePath, options: { refresh = null, ...given }, profile } = workerData.babel
+  const { corePath, options: { refresh = null, oxc = null, ...given }, profile } = workerData.babel
   const core = createRequire(corePath)(corePath)
   // The specifiers of the file's import and export-from declarations, but
   // types', as Metro's transformer records where each is (its
@@ -111,6 +154,39 @@ if (workerData?.babel !== undefined) {
       'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'({ node }) {
         if (node.source != null && node.loc != null && (node.importKind ?? node.exportKind) !== 'type') imports.add(node.source.value)
       },
+    },
+  }
+  // oxc-parser in place of Babel's parser, for esbuild's output where no
+  // plugin of the config parses: by raw transfer, without which its AST, made
+  // Babel's, is no quicker (Babel parses then), and with the errors it finds
+  // in a pass of its own, which Babel's parser throws on too. A file it fails
+  // on, Babel parses, failing with its own error.
+  const oxcParser = oxc === null ? null : createRequire(import.meta.url)(oxc)
+  const parser = oxcParser?.rawTransferSupported?.() === true ? oxcParser : null
+  // The source of the file being transformed, where oxc-parser parses it.
+  let oxcSource = null
+  const OXC = {
+    name: 'rn-bundle-oxc-parser',
+    parserOverride(code, parserOpts) {
+      if (code !== oxcSource) return undefined
+      const options = oxcOptions(parserOpts, code)
+      if (options === null) return undefined
+      const start = performance.now()
+      try {
+        const { program, comments, errors } = parser.parseSync(parserOpts.sourceFileName ?? 'file.js', code, {
+          lang: options.jsx ? 'jsx' : 'js',
+          sourceType: options.sourceType,
+          preserveParens: true,
+          showSemanticErrors: true,
+          experimentalRawTransfer: true,
+        })
+        return errors.length > 0 ? undefined : babelFile(program, comments, code, options)
+      } catch (error) {
+        if (error instanceof Unconverted) return undefined
+        throw error
+      } finally {
+        if (profile) time('parsing', start)
+      }
     },
   }
   // As Metro's transformer has it, a file in node_modules has no component to edit.
@@ -255,19 +331,26 @@ if (workerData?.babel !== undefined) {
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
   // Sync: a worker transforms one file at a time.
-  const transform = (source, filename, without) => {
+  const transform = (source, filename, without, lowered) => {
     // The config's plugins, loaded, which transformSync takes as they are.
     const start = performance.now()
     const config = core.loadOptionsSync(optionsOf(filename))
     if (profile) time('config', start)
     const plugins = config.plugins.filter(({ key }) => !without.includes(key))
     plugins.forEach(gateResolver)
-    if (!profile) return core.transformSync(source, { ...config, plugins })
-    plugins.forEach(timeHooks)
-    for (const { key } of plugins) spent.set(key, [0, 0, false])
-    // Timed as the config's own visitor wrapper, if any, makes it.
-    const wrap = config.wrapPluginVisitorMethod
-    return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
+    // Babel takes no two plugins' parsers.
+    oxcSource = parser !== null && lowered && plugins.every(({ parserOverride }) => parserOverride === undefined) ? source : null
+    const parsing = oxcSource === null ? plugins : [...plugins, OXC]
+    try {
+      if (!profile) return core.transformSync(source, { ...config, plugins: parsing })
+      plugins.forEach(timeHooks)
+      for (const { key } of plugins) spent.set(key, [0, 0, false])
+      // Timed as the config's own visitor wrapper, if any, makes it.
+      const wrap = config.wrapPluginVisitorMethod
+      return core.transformSync(source, { ...config, plugins: parsing, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
+    } finally {
+      oxcSource = null
+    }
   }
   // What the config's other plugins leave of let and const after its block
   // scoping plugin, as code they insert once it has run (Reanimated's
@@ -283,13 +366,13 @@ if (workerData?.babel !== undefined) {
     const parsing = { sourceType: config.sourceType ?? 'unambiguous', ...(config.parserOpts && { parserOpts: config.parserOpts }) }
     return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: given.cwd, filename, compact: false, ...parsing, plugins: [blockScoping], ...(given.sourceMaps && { sourceMaps: given.sourceMaps, inputSourceMap: true }) })
   }
-  parentPort.on('message', ({ port, source, filename, without }) => {
+  parentPort.on('message', ({ port, source, filename, without, lowered }) => {
     const start = performance.now()
     spent = new Map()
     own = new Map()
     imports = new Set()
     try {
-      const { code } = lowerLeft(transform(source, filename, without), filename)
+      const { code } = lowerLeft(transform(source, filename, without, lowered), filename)
       const entries = (map) => [...map].map(([key, [calls, ms, worked]]) => [key, calls, ms, worked])
       port.postMessage({ code, imports: [...imports], ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
     } catch (error) {

@@ -103,13 +103,16 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 // each target's workers time the config's plugins, as its `profile`;
 // `refresh`, react-refresh's Babel plugin, a dev target's workers run it
 // over each file outside node_modules, for Fast Refresh; `transformProfile`,
-// one of TRANSFORM_PROFILES, the caller's, for the config's plugins.
-export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default' } = {}) {
+// one of TRANSFORM_PROFILES, the caller's, for the config's plugins. Where
+// oxc-parser is installed, it parses esbuild's output for Babel, in place of
+// Babel's parser.
+export function projectBabel(cwd, { fromProject, locate, load }, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default' } = {}) {
   const configFile = babelConfigOf(cwd)
   if (configFile === null) fail('--babel needs a babel.config.(js|cjs|mjs|json) in the project')
   const corePath = tryResolve(fromProject, '@babel/core')
   if (corePath === null) fail('--babel needs @babel/core installed in the project')
   const core = load(corePath)
+  const oxc = locate('oxc-parser')
   const targets = new Map()
   return ({ platform, dev }) => {
     const key = `${platform}\0${dev}`
@@ -129,7 +132,7 @@ export function projectBabel(cwd, { fromProject, load }, fail, { sourceMaps = fa
     const timed = profile ? newProfile() : null
     const target = {
       profile: timed,
-      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }) }, timed),
+      babel: babelWorkers(corePath, { ...options, compact: false, ...(sourceMaps && { sourceMaps: 'inline' }), ...(dev && refresh !== null && { refresh }), ...(oxc !== null && { oxc }) }, timed),
       babelPlugins: async (filename) => pluginsByKey((await core.loadOptionsAsync({ ...options, filename }))?.plugins ?? []),
     }
     targets.set(key, target)

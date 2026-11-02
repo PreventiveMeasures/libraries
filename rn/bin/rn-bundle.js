@@ -35,7 +35,10 @@
 // @react-native/babel-preset builds for; default where not given. --profile
 // reports the time each of the config's plugins takes, summed over Babel's
 // workers: the files its visitors ran in, their calls, and the time outside
-// the plugins. Flow
+// the plugins. Where oxc-parser is installed, it parses what esbuild hands
+// Babel, to the AST (comments attached alike) Babel's parser makes of it, in
+// place of Babel's parser, but where the config has a parser of its own (its
+// time, Babel's parsing in --profile). Flow
 // types are stripped first, by flow-remove-types; with --babel, where that
 // isn't installed, Babel's config strips them, as it does a file with Flow
 // that is code (`component`, `hook`), which flow-remove-types leaves. The
