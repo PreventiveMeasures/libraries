@@ -35,8 +35,10 @@
 // declare it (`Text3`), but where it minifies. An import resolves for
 // ESM, as Metro resolves it: by exports' `import` condition.
 // The project's rn.config.json (src/rn-config.js) has the defaults of
-// --esm (its esm) and of the Metro config (its metroConfig: false, none,
-// as of a project with none; a path, that file), the flags over it.
+// --esm (its esm), --max-workers (its maxWorkers, over the Metro config's)
+// and of the Metro config (its metroConfig: false, none, as of a project
+// with none; a path, that file), the flags over it; and what it adds to the
+// Metro config's assetExts, sourceExts and assetResolutions.
 // --unstable-transform-profile, `react-native bundle`'s: the profile Babel's
 // caller names (default, hermes-stable, hermes-canary), which
 // @react-native/babel-preset builds for; default where not given.

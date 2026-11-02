@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { metroAssetExts, readMetroAssetExts, scanMetroAssetExts } from '../metro-config.js'
@@ -74,6 +76,27 @@ describe('readMetroAssetExts', () => {
 
   it("reads them off the project's metro.config.js, never running it, after Metro's", () => {
     assert.deepEqual(readMetroAssetExts(root), [...defaults.assetExts, 'riv', 'lottie'])
+  })
+
+  it("takes rn.config.json's: the assetExts it adds after the config's, the config of its metroConfig, of none where false, `file` over it", () => {
+    const { root: own, cleanup: done } = writeTree({
+      'package.json': { name: 'app' },
+      'metro.config.js': "module.exports = { resolver: { assetExts: [...defaults.assetExts, 'riv'] } }\n",
+      'spread.config.js': "module.exports = { resolver: { assetExts: [...defaults.assetExts, 'glow'] } }\n",
+    })
+    const withConfig = (config, options) => {
+      writeFileSync(join(own, 'rn.config.json'), JSON.stringify(config))
+      return readMetroAssetExts(own, { oxc: null, ...options })
+    }
+    try {
+      assert.deepEqual(withConfig({ assetExts: ['lottie', 'riv', 'lottie'] }), [...defaults.assetExts, 'riv', 'lottie'])
+      assert.deepEqual(withConfig({ metroConfig: false, assetExts: ['lottie'] }), [...defaults.assetExts, 'lottie'])
+      assert.deepEqual(withConfig({ metroConfig: 'spread.config.js' }), [...defaults.assetExts, 'glow'])
+      assert.deepEqual(withConfig({ metroConfig: false }, { file: 'metro.config.js' }), [...defaults.assetExts, 'riv'])
+      assert.throws(() => withConfig({ assetExts: ['.lottie'] }), { message: /^rn\.config\.json: assetExts is a list of extensions/u })
+    } finally {
+      done()
+    }
   })
 
   it('reads `file` where given, throwing where it is not there', () => {

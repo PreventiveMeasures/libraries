@@ -15,7 +15,7 @@ import { bundle } from './bundle.js'
 import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
-import { flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
+import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
 import { prelude } from './serializer.js'
 import { differences } from './self-test.js'
 import { metroSourceMap } from './source-map.js'
@@ -40,7 +40,7 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
     const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
     const project = peers(cwd, fail)
     const esbuild = project.peer('esbuild', 'bundling')
-    const metro = await metroOptions(cwd, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-bundle', minify: values.minify })
+    const metro = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-bundle', minify: values.minify }), rnConfig, fail)
     const transformRefusal = await metro.transformRefusal(resolve(cwd, entry), { platform: values.platform, dev: values.dev })
     if (transformRefusal !== null) fail(transformRefusal)
     const inlineRequires = await metro.inlineRequires(resolve(cwd, entry), { platform: values.platform, dev: values.dev })

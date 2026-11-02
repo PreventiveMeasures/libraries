@@ -53,9 +53,11 @@
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 // The project's rn.config.json (src/rn-config.js) has the defaults of
-// --esm (its esm), --dev-tools (its devTools) and of the Metro config (its
+// --esm (its esm), --dev-tools (its devTools), --max-workers (its
+// maxWorkers, over the Metro config's) and of the Metro config (its
 // metroConfig: false, none, as of a project with none; a path, that file),
-// the flags over it.
+// the flags over it; and what it adds to the Metro config's assetExts,
+// sourceExts and assetResolutions.
 
 import { realpathSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'
@@ -72,7 +74,7 @@ import { createLoadCache } from '../src/load-cache.js'
 import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { REPORTER } from '../src/network.js'
-import { flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
+import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
 import { createWatcher } from '../src/watch.js'
@@ -110,7 +112,7 @@ const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
 const devTools = flagOf(values['dev-tools'], rnConfig, 'devTools', 'dev-tools').on
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
-const metro = await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true })
+const metro = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
 const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.port)
 // For Fast Refresh: the module system dev bundles are written for, and the
 // plugin that has Babel register each component.

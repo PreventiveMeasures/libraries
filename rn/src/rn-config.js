@@ -5,6 +5,13 @@
 //     default), the one Metro finds; false, none, as of a project with no
 //     metro.config.js (Metro's defaults as @react-native/metro-config has
 //     them); a path, from the root, that file. --metro-config over it.
+//   assetExts, sourceExts, assetResolutions: what it adds to the Metro
+//     config's resolver's lists (else Metro's defaults), after theirs: the
+//     extensions of assets (["riv"]) and of code (["mjs"]), and the scales
+//     an asset's files are of (["0.75"], or [0.75]). It removes none: an
+//     extension it adds to one of assetExts and sourceExts the other has is
+//     an error (Metro takes a file of it for an asset).
+//   maxWorkers: --max-workers' default, over the Metro config's.
 //   esm: --esm's default (false); --esm and --no-esm over it.
 //   devTools: rn-serve's --dev-tools' default (false): React Native DevTools
 //     opened for each app as it connects (devtools.js); --dev-tools and
@@ -14,11 +21,23 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { defaults } from './defaults.js'
+
 export const RN_CONFIG = 'rn.config.json'
 
 const boolean = [(value) => typeof value === 'boolean', 'true or false']
+const listOf = (valid) => (value) => Array.isArray(value) && value.every(valid)
+// An extension, as Metro lists them: without its dot, of no directory.
+const extensions = [listOf((value) => typeof value === 'string' && /^[^./\\][^/\\]*$/u.test(value)), 'a list of extensions, each without its dot ("riv")']
+// A scale, as Metro's assetResolutions has it, a string (`@0.75x`), or as a
+// number has it.
+const isScale = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0) || (typeof value === 'string' && /^\d+(?:\.\d+)?$/u.test(value) && Number(value) > 0)
 const OPTIONS = {
   metroConfig: [(value) => typeof value === 'boolean' || (typeof value === 'string' && value !== ''), 'true, false or the path of a Metro config'],
+  assetExts: extensions,
+  sourceExts: extensions,
+  assetResolutions: [listOf(isScale), 'a list of scales ("0.75", or 0.75)'],
+  maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
   devTools: boolean,
 }
@@ -50,6 +69,27 @@ export function readRnConfig(projectRoot, fail) {
 // (`flag`), else the config's metroConfig: null, the one Metro finds; false,
 // none; else that file.
 export const metroConfigOf = (flag, { metroConfig = true }) => flag ?? (metroConfig === true ? null : metroConfig)
+
+// metroOptions()'s `metro`, of what the config adds to its lists, after
+// theirs, each once, and of its maxWorkers; `metro` itself where it has
+// none of them.
+export function extendedMetro(metro, config, fail) {
+  const { assetExts = [], sourceExts = [], assetResolutions = [], maxWorkers } = config
+  if (assetExts.length + sourceExts.length + assetResolutions.length === 0 && maxWorkers === undefined) return metro
+  const added = (base, more) => [...base, ...more.filter((each, i) => !base.includes(each) && more.indexOf(each) === i)]
+  const assets = added(metro.assetExts, assetExts)
+  const sources = added(metro.resolver.sourceExts ?? defaults.sourceExts, sourceExts)
+  for (const [key, list, other, otherKey] of [['assetExts', assetExts, sources, 'sourceExts'], ['sourceExts', sourceExts, assets, 'assetExts']]) {
+    const both = list.find((ext) => other.includes(ext))
+    if (both !== undefined) return fail(`${RN_CONFIG}: ${key} adds ${both}, which ${otherKey} has: Metro takes a file of it for an asset, and ${RN_CONFIG} removes none`)
+  }
+  return {
+    ...metro,
+    assetExts: assets,
+    resolver: { ...metro.resolver, sourceExts: sources, assetResolutions: added(metro.resolver.assetResolutions ?? defaults.assetResolutions, assetResolutions.map(String)) },
+    maxWorkers: maxWorkers ?? metro.maxWorkers,
+  }
+}
 
 // A boolean flag's value: the flag's (`flag`, undefined where not given),
 // else the config's (`key` of it), else false. -> { on, by }: whether it
