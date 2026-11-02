@@ -57,6 +57,7 @@
     "src/build-host.js",
     "src/bundle.js",
     "src/cli.js",
+    "src/client-log.js",
     "src/defaults.js",
     "src/dev-bundler.js",
     "src/exports.js",

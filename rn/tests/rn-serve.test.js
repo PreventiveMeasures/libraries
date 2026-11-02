@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
 import { runInNewContext } from 'node:vm'
 
 import { png, writeTree } from './fixtures.js'
@@ -302,6 +303,20 @@ describe('rn-serve', () => {
     assert.equal(String((await fetchRaw(`${server.url}/reload`)).body), 'OK')
     await until(() => message.messages.length === 1, 'a reload')
     message.ws.close()
+  })
+
+  it("prints each app's console as Metro's terminal does, by default: each line labelled by its level, of its mode where not the bridge", async () => {
+    const hot = await socket(`${server.url}/hot?bundleEntry=index.bundle&platform=ios`)
+    try {
+      const send = (level, mode, ...data) => hot.ws.send(JSON.stringify({ type: 'log', level, mode, data }))
+      send('warn', 'BRIDGE', 'careful', '1')
+      send('log', 'NOBRIDGE', 'hello  ')
+      const printed = () => stripVTControlCharacters(server.output())
+      await until(() => /^ \(NOBRIDGE\) LOG {2}hello$/mu.test(printed()), "the app's console")
+      assert.match(printed(), /^ WARN {2}careful 1$/mu)
+    } finally {
+      hot.ws.close()
+    }
   })
 
   it('leaves a port another dev server has, as RN does', () => {
