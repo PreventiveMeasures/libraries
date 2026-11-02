@@ -107,7 +107,7 @@ function app({ devServer = { url: 'http://localhost:8081/', fullBundleUrl: BUNDL
     if (Object.hasOwn(found, specifier)) return found[specifier]
     throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'MODULE_NOT_FOUND' })
   })
-  return { sockets, timers, clock, XMLHttpRequest }
+  return { sockets, timers, clock, XMLHttpRequest, context }
 }
 
 // The app's socket, open, rn-serve having said `type`.
@@ -119,7 +119,7 @@ const sent = (socket) => socket.sent.slice(1)
 
 describe("network's reporter, of an app", () => {
   it('keeps the requests of its start until rn-serve first says, then tells it of each: sent, responded to, its body, finished', () => {
-    const { sockets, clock, XMLHttpRequest } = app()
+    const { sockets, clock, XMLHttpRequest, context } = app()
     const xhr = new XMLHttpRequest()
     xhr.open('get', 'https://api.example/user')
     xhr.setRequestHeader('Accept', 'application/json')
@@ -127,7 +127,9 @@ describe("network's reporter, of an app", () => {
     const [socket] = sockets
     assert.equal(socket.url, 'ws://localhost:8081/network')
     told(socket, 'enable')
-    assert.deepEqual(socket.sent[0], { type: 'hello', bundle: BUNDLE })
+    // Named by the id it keeps on the global object, which rn-serve asks the runtime for.
+    assert.deepEqual([socket.sent[0], Object.keys(context).includes('__rnServeReporter')], [{ type: 'hello', reporter: context.__rnServeReporter }, false])
+    assert.match(context.__rnServeReporter, /^\w+\.\w+$/u)
     clock.now = 1250
     xhr.respond(200, { 'Content-Type': 'application/json; charset=utf-8' }, 'https://api.example/user/42')
     clock.now = 1500

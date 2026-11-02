@@ -1,7 +1,9 @@
 // rn-serve's network reporter (src/network.js), in each dev bundle rn-serve
 // serves where React Native DevTools are: run after InitializeCore, before
 // the entry, its imports react-native's, resolved as the entry's are. It
-// tells rn-serve, on its /network socket, of each request an XMLHttpRequest
+// names itself to rn-serve by an id it keeps on the global object, which
+// rn-serve asks the runtime of each DevTools for: whose requests these are.
+// It tells rn-serve, on its /network socket, of each request an XMLHttpRequest
 // makes (fetch's too: React Native's is of one) while rn-serve asks: as it
 // is sent, with its call stack; as it ends, its response's status and
 // headers (as they came, where setResponseHeaders() is there to say when),
@@ -36,6 +38,8 @@ const MAX_BODY = 16 * 1024 * 1024
 const MAX_KEPT = 4 * 1024 * 1024
 const MAX_FRAMES = 50
 const RETRY = 2000
+// Where it keeps its id on the global object (src/network.js's).
+const REPORTER_GLOBAL = '__rnServeReporter'
 const MAX_RETRY = 60_000
 const FAILED = ['abort', 'error', 'timeout']
 
@@ -47,16 +51,20 @@ function install(global) {
   const devServer = functionOf(devServerOf)
   const XMLHttpRequest = global.XMLHttpRequest
   if (devServer === null || typeof XMLHttpRequest !== 'function' || typeof global.WebSocket !== 'function') return
-  const { url, fullBundleUrl, bundleLoadedFromServer } = devServer()
+  const { url, bundleLoadedFromServer } = devServer()
   if (!bundleLoadedFromServer) return
+  // Its id, which rn-serve asks the runtime of each DevTools for, to tell
+  // whose requests these are.
+  const id = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`
+  Object.defineProperty(global, REPORTER_GLOBAL, { value: id, configurable: true })
   const socketUrl = `${url.startsWith('https:') ? 'wss' : 'ws'}${url.slice(url.indexOf(':'))}network`
-  watch(XMLHttpRequest.prototype, createReporter(global, socketUrl, fullBundleUrl), global)
+  watch(XMLHttpRequest.prototype, createReporter(global, socketUrl, id), global)
 }
 
 // rn-serve's socket: `state` 'new' until rn-serve first says, keeping what
 // it is told; 'on', sending it; 'off'. Opened again where it closes, which
 // rn-serve says of anew.
-function createReporter(global, socketUrl, bundle) {
+function createReporter(global, socketUrl, id) {
   let state = 'new'
   let kept = []
   let keptSize = 0
@@ -81,7 +89,7 @@ function createReporter(global, socketUrl, bundle) {
     ws.addEventListener('open', () => {
       socket = ws
       retry = RETRY
-      ws.send(JSON.stringify({ type: 'hello', bundle }))
+      ws.send(JSON.stringify({ type: 'hello', reporter: id }))
     })
     ws.addEventListener('message', ({ data }) => {
       const type = typeOf(data)

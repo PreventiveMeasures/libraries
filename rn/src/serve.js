@@ -103,7 +103,7 @@ function readBody(request) {
 // Metro config's, the project root the first, as Metro has them.
 export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = false }) {
   const sources = sourceRoutes(projectRoot, watchFolders)
-  const network = createNetworkInspector({ keyOf: keyOfUrl, log })
+  const network = createNetworkInspector({ log })
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()

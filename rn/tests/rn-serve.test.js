@@ -732,6 +732,7 @@ describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Netw
   // /test/<route>?m=<message>.
   const DEV_MIDDLEWARE = [
     'const sent = []',
+    'const toDevice = []',
     'let options = null',
     'let handler = null',
     'exports.createDevMiddleware = (given) => {',
@@ -739,12 +740,13 @@ describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Netw
     '  const routes = {',
     "    '/test/options': () => ({ experiments: options.unstable_experiments, handler: typeof options.unstable_customInspectorMessageHandler }),",
     "    '/test/connect': () => {",
-    "      handler = options.unstable_customInspectorMessageHandler({ page: { id: '1' }, device: { appId: 'com.app', id: 'phone', name: 'Phone', sendMessage: () => {} }, debugger: { userAgent: null, sendMessage: (message) => sent.push(message) } })",
+    "      handler = options.unstable_customInspectorMessageHandler({ page: { id: '1' }, device: { appId: 'com.app', id: 'phone', name: 'Phone', sendMessage: (message) => toDevice.push(message) }, debugger: { userAgent: null, sendMessage: (message) => sent.push(message) } })",
     '      return null',
     '    },',
     "    '/test/debugger': (message) => handler.handleDebuggerMessage(message) === true,",
     "    '/test/device': (message) => handler.handleDeviceMessage(message) === true,",
     "    '/test/sent': () => sent,",
+    "    '/test/toDevice': () => toDevice,",
     '  }',
     '  const middleware = (request, response, next) => {',
     "    const url = new URL(request.url, 'http://localhost')",
@@ -807,7 +809,14 @@ describe('rn-serve, with @react-native/dev-middleware and Fast Refresh: the Netw
     assert.equal(await ask('device', { id: 1, error: { code: -32_601, message: "Unsupported method 'Network.enable'" } }), true)
     const { ws, messages } = await socket(`${server.url}/network`)
     try {
-      ws.send(JSON.stringify({ type: 'hello', bundle: bundleUrl() }))
+      ws.send(JSON.stringify({ type: 'hello', reporter: 'r1' }))
+      // The runtime asked which reporter it has, as rn-serve serves it and as the reporter says hello.
+      const asked = await until(async () => {
+        const all = await ask('toDevice')
+        return all.length === 2 && all
+      }, 'the runtime asked')
+      assert.deepEqual(asked.map(({ method, params }) => [method, params.expression]), [['Runtime.evaluate', 'globalThis.__rnServeReporter'], ['Runtime.evaluate', 'globalThis.__rnServeReporter']])
+      for (const { id } of asked) assert.equal(await ask('device', { id, result: { result: { type: 'string', value: 'r1' } } }), true)
       await until(() => messages.length > 0, 'the reporter told')
       assert.deepEqual(messages, [{ type: 'enable' }])
       for (const message of [
