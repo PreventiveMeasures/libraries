@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { loadCached, lowersLetOf } from '../src/bundle.js'
 import { peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
-import { configKeyOf, createLoadCache, ownModules } from '../src/load-cache.js'
+import { configKeyOf, createLoadCache, fingerprintOf, ownModules, withDependencies } from '../src/load-cache.js'
 import { packedRecords, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
@@ -24,8 +24,7 @@ const RANDOM = "module.exports = ({ types: t }, { tag = '' }) => ({ name: 'rando
 // rn-serve on it: a target of its own, its own workers, a store of its
 // own, a build of it started; `load(name, contents, options)` writes the
 // file, and loads it as loadCached() does with the store; end() finishes
-// the build, its pack written: -> its tally, but its times and what of
-// its pack it read.
+// the build, its pack written: -> its tally, but its time.
 function projectOf(tree) {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/@babel/core': linked('@babel/core'), ...tree })
   const cacheDir = join(root, 'cache')
@@ -34,7 +33,7 @@ function projectOf(tree) {
     // @babel/core, of what it has loaded of them, which transforms in band.
     for (const path of Object.keys(modules)) if (path.startsWith(`${root}${sep}`) || path.includes(BABEL_CORE)) delete modules[path]
     const target = babel ? projectBabel(root, peers(root, fail), fail, { fingerprint: true, maxWorkers: 1 })({ platform, dev: true }) : null
-    const store = createLoadCache(dir, { esbuild, cwd: root })(target)
+    const store = createLoadCache(dir, { esbuild })(target)
     // Its build started as it first loads, after a test has its target as it would.
     let started = false
     const load = (name, contents, options = {}) => {
@@ -46,9 +45,8 @@ function projectOf(tree) {
     const end = async () => {
       const { tally, written } = store.finish()
       await written
-      const { ms, parts, pack: _pack, gc: _gc, ...counts } = tally
-      // Its time, that of its parts.
-      assert.ok(Math.abs(ms - Object.values(parts).reduce((sum, each) => sum + each, 0)) < 1e-6)
+      const { ms, ...counts } = tally
+      assert.ok(ms >= 0)
       return counts
     }
     return { target, store, load, end }
@@ -268,6 +266,77 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
     const each = run()
     await each.load('external.js', 'e()')
     assert.deepEqual(await each.end(), { hits: 0, misses: 1, memory: 0, unkept: { external: 1 } })
+  })
+})
+
+describe('loadCached, with a store, of a plugin of a package that requires another as it transforms', () => {
+  // A plugin of a package, which requires its dependency's value as it
+  // first transforms, not as Babel makes it; the project's lockfile.
+  const { root, cleanup, run } = projectOf({
+    'babel.config.json': { plugins: ['babel-plugin-lazy'] },
+    'node_modules/babel-plugin-lazy/package.json': { name: 'babel-plugin-lazy', version: '1.0.0', main: 'index.js', dependencies: { 'lazy-value': '^1.0.0' } },
+    'node_modules/babel-plugin-lazy/index.js': "module.exports = ({ types: t }) => ({ name: 'lazy', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(require('lazy-value')))) } } } })\n",
+    'node_modules/lazy-value/package.json': { name: 'lazy-value', version: '1.0.0', main: 'index.js' },
+    'node_modules/lazy-value/index.js': "module.exports = 'one'\n",
+    'package-lock.json': { lockfileVersion: 3, packages: {} },
+  })
+  after(cleanup)
+  const contents = async (...args) => {
+    const each = run()
+    const loaded = await each.load(...args)
+    return [loaded.contents, (await each.end()).hits]
+  }
+  // A file written as a package manager writes it: of the mtime its tarball has.
+  const installed = (path, text) => {
+    writeFileSync(join(root, path), text)
+    utimesSync(join(root, path), new Date(499_162_500_000), new Date(499_162_500_000))
+  }
+
+  it("keeps each file while what the plugins depend on is as it was, though the lockfile is another; of a dependency's other version, of npm's mtime and the same size, loads it anew", async () => {
+    installed('node_modules/lazy-value/package.json', JSON.stringify({ name: 'lazy-value', version: '1.0.0', main: 'index.js' }))
+    assert.deepEqual(await contents('l.js', 'l()'), ['l();\n"one";', 0])
+    writeFileSync(join(root, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/left-pad': { version: '1.3.0' } } }))
+    assert.deepEqual(await contents('l.js', 'l()'), ['l();\n"one";', 1])
+    installed('node_modules/lazy-value/index.js', "module.exports = 'two'\n")
+    installed('node_modules/lazy-value/package.json', JSON.stringify({ name: 'lazy-value', version: '1.0.1', main: 'index.js' }))
+    assert.deepEqual(await contents('l.js', 'l()'), ['l();\n"two";', 0])
+    assert.deepEqual(await contents('l.js', 'l()'), ['l();\n"two";', 1])
+  })
+})
+
+describe('withDependencies', () => {
+  it("has each module's package's package.json, and of what each depends on, as Node finds it, but the project's own", () => {
+    const { root, cleanup } = writeTree({
+      'package.json': { name: 'app', dependencies: { 'left-pad': '1' } },
+      'node_modules/left-pad/package.json': { name: 'left-pad' },
+      'node_modules/@s/plugin/package.json': { name: '@s/plugin', dependencies: { helper: '1' }, optionalDependencies: { missing: '1' }, peerDependencies: { '@babel/core': '7' } },
+      'node_modules/@s/plugin/lib/index.js': '',
+      'node_modules/@s/plugin/node_modules/helper/package.json': { name: 'helper', dependencies: { deep: '1' } },
+      'node_modules/deep/package.json': { name: 'deep' },
+      'node_modules/@babel/core/package.json': { name: '@babel/core' },
+    })
+    try {
+      const given = [join(root, 'babel.config.js'), join(root, 'node_modules/@s/plugin/lib/index.js')]
+      const found = withDependencies(given)
+      assert.deepEqual(found.slice(0, 2), given)
+      assert.deepEqual(found.slice(2).map((path) => path.slice(root.length + 1)).toSorted(), ['node_modules/@babel/core/package.json', 'node_modules/@s/plugin/node_modules/helper/package.json', 'node_modules/@s/plugin/package.json', 'node_modules/deep/package.json'])
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('fingerprintOf', () => {
+  it("is of the project's lockfile where a module of it can't be read (a zip's), and else not", () => {
+    const { root, cleanup } = writeTree({ 'yarn.lock': 'a\n', 'plugin.js': '' })
+    try {
+      const of = (module) => fingerprintOf([join(root, module)], { cwd: root })
+      const before = [of('plugin.js'), of('.yarn/cache/plugin.zip/index.js')]
+      writeFileSync(join(root, 'yarn.lock'), 'b\n')
+      assert.deepEqual([of('plugin.js') === before[0], of('.yarn/cache/plugin.zip/index.js') === before[1]], [true, false])
+    } finally {
+      cleanup()
+    }
   })
 })
 
