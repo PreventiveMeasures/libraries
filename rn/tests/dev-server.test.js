@@ -212,7 +212,13 @@ describe('the dev bundler', () => {
 describe('the dev bundler, in the module format', () => {
   // The app in a workspace, a module of which is out of it.
   const { root, cleanup } = writeTree({
-    'app/index.js': "import { shared } from '../shared/Shared'\nimport config, { of } from './config.json'\nimport { setup } from './config.js'\nglobalThis.result = [shared, config, of, setup]\n",
+    'app/index.js': "import { shared } from '../shared/Shared'\nimport config, { of } from './config.json'\nimport { setup } from './config.js'\nimport { viaMjs } from './esm.mjs'\nimport { viaTyped } from './typed/user.js'\nglobalThis.result = [shared, config, of, setup, viaMjs, viaTyped]\n",
+    // An ES module of Node's, by its extension or its package's type (one
+    // with an import of nothing, built apart), and its default import.
+    'app/def.js': "export default 'def'\n",
+    'app/esm.mjs': "import def from './def.js'\nexport const viaMjs = def\n",
+    'app/typed/package.json': { type: 'module' },
+    'app/typed/user.js': "import def from '../def.js'\ntry {\n  require('not-installed')\n} catch {}\nexport const viaTyped = def\n",
     'app/config.js': "export const setup = 'js'\n",
     'app/config.json': '{ "of": "json" }\n',
     'shared/Shared.js': "export const shared = 'shared'\n",
@@ -221,13 +227,16 @@ describe('the dev bundler, in the module format', () => {
   const projectRoot = join(root, 'app')
   const runtime = createRequire(import.meta.url).resolve('metro-runtime/src/polyfills/require.js')
 
-  it("runs: each module's exports, a JSON file's too, as Metro wraps it", async () => {
+  it("runs: each module's exports, a JSON file's too, as Metro wraps it; a default import as Babel's interop takes it, of an ES module of Node's too", async () => {
     const devBundler = createDevBundler({ projectRoot, esbuild, runtime, targetOptions: () => ({ define: {} }) })
     try {
       const outcome = await devBundler.get({ kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false })
       const context = createContext({})
       runInContext(outcome.js, context)
-      assert.deepEqual(JSON.parse(JSON.stringify(context.result)), ['shared', { of: 'json' }, 'json', 'js'])
+      assert.deepEqual(JSON.parse(JSON.stringify(context.result)), ['shared', { of: 'json' }, 'json', 'js', 'def', 'def'])
+      // Each mapped to its file, as it is named.
+      const { sources } = outcome.index()
+      assert.ok(sources.includes(join(projectRoot, 'esm.mjs')) && !sources.some((source) => source.endsWith('.mjs.js')), String(sources))
     } finally {
       await devBundler.dispose()
     }
