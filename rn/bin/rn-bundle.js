@@ -115,6 +115,8 @@ const cwd = process.cwd()
 const project = peers(cwd, fail)
 const esbuild = project.peer('esbuild', 'bundling')
 const metro = await metroOptions(cwd, project, fail, { file: values['metro-config'] ?? null, name: 'rn-bundle', minify: values.minify })
+const transformRefusal = await metro.transformRefusal(resolve(cwd, positionals[0]), { platform: values.platform, dev: values.dev })
+if (transformRefusal !== null) fail(transformRefusal)
 const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup })?.({ platform: values.platform, dev: values.dev }) ?? null
 if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
 if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")

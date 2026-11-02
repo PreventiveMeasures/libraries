@@ -38,25 +38,35 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     assert.equal(options.file, 'metro.config.js')
     assert.deepEqual(options.polyfills('ios').map((path) => basename(path)), ['polyfill.js'])
     assert.deepEqual([options.assetRegistryPath, options.blockList.map(String), options.port, options.babelRCLookup], ['react-native/Libraries/Image/AssetRegistry', [String(/(\/__tests__\/.*)$/u).replace('/u', '/')], 8081, true])
-    assert.deepEqual([options.resolver.sourceExts, options.resolver.mainFields, options.resolver.conditionNames], [['js', 'jsx', 'json', 'ts', 'tsx'], ['react-native', 'browser', 'main'], ['react-native']])
+    assert.deepEqual([options.resolver.sourceExts, options.resolver.mainFields, options.resolver.conditionNames, options.resolver.packageExports], [['js', 'jsx', 'json', 'ts', 'tsx'], ['react-native', 'browser', 'main'], ['react-native'], true])
     assert.equal(typeof options.runBeforeMain, 'function')
+    assert.equal(await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true }), null)
   })
 
   it('takes the options it does, whatever they are', async () => {
-    const options = await load("{ resolver: { sourceExts: ['js', 'mjs'], extraNodeModules: { shared: '../shared' }, nodeModulesPaths: ['vendor'], disableHierarchicalLookup: true }, transformer: { enableBabelRCLookup: false } }")
-    assert.deepEqual([options.resolver.sourceExts, options.resolver.extraNodeModules, options.resolver.nodeModulesPaths, options.resolver.disableHierarchicalLookup, options.babelRCLookup], [['js', 'mjs'], { shared: join(root, '../shared') }, [join(root, 'vendor')], true, false])
+    const options = await load("{ resolver: { sourceExts: ['js', 'mjs'], extraNodeModules: { shared: '../shared' }, nodeModulesPaths: ['vendor'], disableHierarchicalLookup: true, unstable_enablePackageExports: false }, transformer: { enableBabelRCLookup: false } }")
+    assert.deepEqual([options.resolver.sourceExts, options.resolver.extraNodeModules, options.resolver.nodeModulesPaths, options.resolver.disableHierarchicalLookup, options.resolver.packageExports, options.babelRCLookup], [['js', 'mjs'], { shared: join(root, '../shared') }, [join(root, 'vendor')], true, false, false])
     // extraNodeModules by name, as Metro reads it: a Proxy's too.
     const lazy = await load("{ resolver: { extraNodeModules: new Proxy({}, { get: (_, name) => `../${String(name)}` }) } }")
     assert.equal(lazy.resolver.extraNodeModules.shared, join(root, '../shared'))
   })
 
-  it('refuses a Babel transformer, a resolver, a serializer and transform options of its own', async () => {
-    const message = await load("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js'), getTransformOptions: async () => ({ transform: { inlineRequires: false } }) }, resolver: { resolveRequest: () => null }, serializer: { customSerializer: () => '' } }")
+  it('refuses a Babel transformer, a resolver and a serializer of its own', async () => {
+    const message = await load("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') }, resolver: { resolveRequest: () => null }, serializer: { customSerializer: () => '' } }")
     assert.deepEqual(message.split('\nrn-bundle: '), [
       'its config: resolver.resolveRequest is a function: rn-bundle does it as Metro\'s default alone',
       'its config: serializer.customSerializer is a function: rn-bundle does it as Metro\'s default alone',
       "its config: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone",
-      'its config: transformer.getTransformOptions is a function: rn-bundle does it as Metro\'s default alone',
+    ])
+  })
+
+  it('takes getTransformOptions by the transform options it gives each bundle, refusing those it does not do', async () => {
+    const options = await load("{ transformer: { getTransformOptions: async (entries, { dev, hot, platform }, getDependencies) => ({ transform: { inlineRequires: false, nonInlinedRequires: ['React'], unstable_disableES6Transforms: true, experimentalImportSupport: platform === 'android' && !hot && (await getDependencies(entries[0])).length === 0, unstable_inlinePlatform: !dev } }) } }")
+    const entry = join(root, 'index.js')
+    assert.equal(await options.transformRefusal(entry, { platform: 'ios', dev: false }), null)
+    assert.deepEqual((await options.transformRefusal(entry, { platform: 'android', dev: true })).replaceAll(options.file, 'its config').split('\nrn-bundle: '), [
+      "its config: transformer.getTransformOptions gives experimentalImportSupport true, Metro's own transform of import and export: rn-bundle does it as Metro's default alone",
+      "its config: transformer.getTransformOptions gives unstable_inlinePlatform false, Platform.OS left to run time: rn-bundle does it as Metro's default alone",
     ])
   })
 
@@ -101,5 +111,7 @@ describe('metroOptions, of a project with no config', () => {
   it("is Metro's defaults as @react-native/metro-config has them, its registry and what runs before the entry react-native's", async () => {
     const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })
     assert.deepEqual([options.file, options.runBeforeMain, options.assetRegistryPath, options.blockList, options.polyfills('ios')], [null, null, null, null, []])
+    // Metro's own default, of its version: 0.87's.
+    assert.equal(options.resolver.packageExports, true)
   })
 })

@@ -34,6 +34,10 @@ export interface MetroResolverOptions {
   // Read by name at each lookup, as Metro reads it, so a Proxy works too.
   extraNodeModules?: Readonly<Record<string, string>> | null
   disableHierarchicalLookup?: boolean
+  // Metro's unstable_enablePackageExports: whether a package's `exports` are
+  // read (`imports` are either way). Metro's default from 0.82 on; before,
+  // it is false.
+  packageExports?: boolean
   // The metro-resolver module to resolve with instead of the built-in (the
   // project's own, for its Metro's exact rules), given the context Metro's
   // DependencyGraph builds over the host. Written for metro-resolver 0.81 on.

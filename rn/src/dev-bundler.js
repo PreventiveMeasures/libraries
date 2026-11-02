@@ -16,7 +16,9 @@ import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall } from './modules.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
-const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null })
+const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null })
+// A build refused, for what of the Metro config it doesn't do.
+const refused = (version, text) => ({ ok: false, version, errors: [{ text, location: null }], files: new Set() })
 const decoder = new TextDecoder()
 
 export const inside = (root, path) => {
@@ -28,7 +30,8 @@ export const inside = (root, path) => {
 // project's files: jsx, stripFlow, babel..., aliases, define. `onBuild({
 // request, outcome, ms })` after each build.
 // `metro`: the project's Metro config, as metroOptions() has it; Metro's
-// defaults where not given. A minified bundle fails with its minifyRefusal.
+// defaults where not given. A minified bundle fails with its minifyRefusal;
+// each, with its transformRefusal, where it has one.
 export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, metro = NO_METRO, runtime = null, maxBuilds = 8, onBuild = () => {} }) {
   const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, onBuild, caches: new Map(), ids: new Map() }
   const builds = new Map()
@@ -70,11 +73,14 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   // null where the request names no entry here. A `shallow` request, a
   // module's, as an update names it: its module of the last build of a
   // bundle that has it, alone.
-  const get = (request) => {
+  const get = async (request) => {
     if (request.shallow) return moduleOutcome(builds, request, projectRoot)
-    if (request.minify && metro.minifyRefusal !== null) return { ok: false, version, errors: [{ text: metro.minifyRefusal, location: null }], files: new Set() }
+    if (request.minify && metro.minifyRefusal !== null) return refused(version, metro.minifyRefusal)
     const entry = entryOf(config, request)
     if (entry === null) return null
+    // As Metro asks the config for each bundle.
+    const transformRefusal = await metro.transformRefusal(entry.path, { platform: request.platform, dev: request.dev })
+    if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
     const build = builds.get(key) ?? { request, entryPath: entry.path, bundler: open(config, request, entry), last: null, good: null, pending: null, chain: Promise.resolve() }
     builds.delete(key)

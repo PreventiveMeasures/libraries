@@ -1063,6 +1063,12 @@ describe('rn-bundle with a Metro config', () => {
     const r = bundleWith(['--metro-config=svg.config.js'], 'anim.js')
     assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: svg.config.js: transformer.babelTransformerPath is \"svg-transformer.js\", a Babel transformer of its own, not the project's Babel config as @react-native/metro-babel-transformer runs it: rn-bundle does it as Metro's default alone\n"])
   })
+
+  it("takes package exports either way, and transform options by what they are: refusing Metro's transform of import and export", () => {
+    writeFileSync(join(root, 'imports.config.js'), templateConfig("{ resolver: { unstable_enablePackageExports: true }, transformer: { getTransformOptions: async (entries, { platform }) => ({ transform: { inlineRequires: true, experimentalImportSupport: platform === 'ios' } }) } }"))
+    const r = bundleWith(['--metro-config=imports.config.js'], 'anim.js')
+    assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: imports.config.js: transformer.getTransformOptions gives experimentalImportSupport true, Metro's own transform of import and export: rn-bundle does it as Metro's default alone\n"])
+  })
 })
 
 describe('rn-bundle with a Metro config, but no metro-config', () => {

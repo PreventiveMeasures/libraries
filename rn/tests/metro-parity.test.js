@@ -33,6 +33,7 @@ describe('createMetroResolver resolves as metro-resolver does', () => {
   it('with other source extensions, a custom asset extension, and no web conditions', () => {
     assert.deepEqual(differences({ sourceExts: ['ts', 'tsx', 'js', 'json', 'cjs'], assetExts: [...defaults.assetExts, 'json'], conditionsByPlatform: {} }), [])
   })
+  it("with no package's exports read, as Metro before 0.82 has it", () => assert.deepEqual(differences({ packageExports: false }), []))
   it('with nodeModulesPaths and extraNodeModules', () => {
     const options = { nodeModulesPaths: [join(root, 'vendor', 'node_modules'), join(root, 'node_modules')], extraNodeModules: { stream: join(root, 'shims', 'stream') } }
     assert.deepEqual(differences(options), [])
