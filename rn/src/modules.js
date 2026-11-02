@@ -167,15 +167,25 @@ async function buildOf(run, key, source, resolvable = null) {
   const kept = run.builds.get(key)
   if (resolvable === null && kept !== undefined && kept.contents === source.contents && kept.loader === source.loader) return kept.built
   const { esbuild, projectRoot } = run
-  // Absolute: esbuild takes stdin's file from its resolveDir.
-  const sourcefile = key === EMPTY ? EMPTY : key
+  // Absolute: esbuild takes stdin's file from its resolveDir. A module here
+  // is CommonJS, an ES one too, as esbuild or Babel makes it, and an import
+  // of one is to take its `exports.default`, as Babel's interop, Metro's,
+  // does; but esbuild takes an .mjs or .mts file for an ES module of Node's,
+  // and gives it the whole of `module.exports`: so named, it is not.
+  const sourcefile = key === EMPTY ? EMPTY : key.replace(/\.m([jt])s$/u, '.m$1s.$1s')
   // A JSON file as Metro wraps it, `module.exports =` it: esbuild builds one
   // as an entry point, as CommonJS, with no exports at all.
   const wrapped = source.loader === 'json' ? { ...source, contents: (await esbuild.transform(source.contents, { loader: 'json', format: 'cjs', sourcefile, logLevel: 'silent' })).code, loader: 'js' } : source
   const common = { bundle: true, write: false, format: 'cjs', platform: 'neutral', absWorkingDir: projectRoot, outfile: resolve(projectRoot, OUTFILE), metafile: true, sourcemap: 'external', define: run.define ?? {}, minify: run.minify ?? false, supported: run.supported, logLevel: 'silent' }
-  const result = resolvable === null
-    ? await esbuild.build({ ...common, stdin: { contents: wrapped.contents, loader: wrapped.loader, sourcefile, resolveDir: key === EMPTY ? projectRoot : dirname(key) }, external: ['*'] })
-    : await esbuild.build({ ...common, entryPoints: [key], plugins: [checking(key, wrapped, resolvable, projectRoot)] })
+  const stdin = { contents: wrapped.contents, loader: wrapped.loader, sourcefile, resolveDir: key === EMPTY ? projectRoot : dirname(key) }
+  let result
+  try {
+    result = await esbuild.build({ ...common, stdin, ...(resolvable === null ? { external: ['*'] } : { plugins: [checking(resolvable, projectRoot)] }) })
+  } catch (error) {
+    // Of the file's own name.
+    if (Array.isArray(error?.errors) && sourcefile !== key) for (const each of error.errors) if (each.location !== null && resolve(projectRoot, each.location.file) === sourcefile) each.location.file = nameOf(projectRoot, key)
+    throw error
+  }
   const text = (ext) => result.outputFiles.find(({ path }) => path.endsWith(ext)).text
   const imports = Object.values(result.metafile.inputs).flatMap((input) => input.imports).filter((imported) => imported.external).map(({ path, kind }) => ({ specifier: path, kind }))
   const code = text('.js')
@@ -184,18 +194,13 @@ async function buildOf(run, key, source, resolvable = null) {
   return built
 }
 
-// The module, each import that resolves left as it is, the rest to esbuild.
-const checking = (key, source, resolvable, projectRoot) => ({
+// The module's imports: each that resolves left as it is, the rest to
+// esbuild, which may find none of one (optional), but no file.
+const checking = (resolvable, projectRoot) => ({
   name: 'metro-module',
   setup(build) {
-    build.onResolve({ filter: ANY }, ({ path, kind }) => {
-      if (kind === 'entry-point') return { path: key }
-      return resolvable.has(path) ? { path, external: true } : undefined
-    })
-    build.onLoad({ filter: ANY }, ({ path }) => {
-      if (path === key) return { ...source, resolveDir: dirname(key) }
-      return { errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }
-    })
+    build.onResolve({ filter: ANY }, ({ path }) => (resolvable.has(path) ? { path, external: true } : undefined))
+    build.onLoad({ filter: ANY }, ({ path }) => ({ errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }))
   },
 })
 
