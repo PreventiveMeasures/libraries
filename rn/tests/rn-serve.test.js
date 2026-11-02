@@ -917,7 +917,15 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
     'xcode/bin/xcrun': fake('xcrun', `if (args.join(' ') === '--find simctl') console.log('/xcode/simctl')\nelse if (args.join(' ') === 'simctl list devices available --json') console.log(${JSON.stringify(JSON.stringify(LIST))})`),
     'xcode/bin/xcode-select': fake('xcode-select', 'console.log(process.env.FAKE_DEVELOPER)'),
     'xcode/bin/open': fake('open'),
-    'xcode/bin/plutil': fake('plutil', "console.log(JSON.stringify(args[1] === 'CFBundleIdentifier' ? 'com.example.app' : ['iPhoneSimulator']))"),
+    // As plutil: of json, an array or a dictionary alone; of raw, a string as it is.
+    'xcode/bin/plutil': fake('plutil', [
+      "const value = args[1] === 'CFBundleIdentifier' ? 'com.example.app' : ['iPhoneSimulator']",
+      "if (args[2] === 'json' && typeof value === 'string') {",
+      "  console.error(`${args.at(-1)}: invalid object in plist for JSON format`)",
+      '  process.exit(1)',
+      '}',
+      "console.log(args[2] === 'raw' ? value : JSON.stringify(value))",
+    ].join('\n')),
     'xcode/Developer/Applications/Simulator.app/Contents/Info.plist': '',
     // Xcode 27's: DeviceHub.app in the Xcode app's Applications, and no Simulator.app.
     'xcode27/Contents/Developer/usr/bin/.keep': '',
@@ -949,7 +957,7 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
       const app = join(root, 'build/App.app')
       assert.deepEqual(commands(), [
         ['xcrun', '--find', 'simctl'],
-        ['plutil', '-extract', 'CFBundleIdentifier', 'json', '-o', '-', join(app, 'Info.plist')],
+        ['plutil', '-extract', 'CFBundleIdentifier', 'raw', '-o', '-', join(app, 'Info.plist')],
         ['plutil', '-extract', 'CFBundleSupportedPlatforms', 'json', '-o', '-', join(app, 'Info.plist')],
         ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'],
         ['xcode-select', '-p'],

@@ -58,11 +58,14 @@ export function chooseSimulator(simulators, wanted = null) {
   return found
 }
 
-// A value of the app's Info.plist, as plutil gives it (JSON); null where
-// it has none.
-async function infoOf(run, appPath, key) {
+// A value of the app's Info.plist, as plutil extracts it in `format`: a
+// string `raw`, as it is (plutil's json takes an array or a dictionary
+// alone, refusing a string); else `json`, of its JSON. null where it has
+// none.
+async function infoOf(run, appPath, key, format) {
   try {
-    return JSON.parse(await run('plutil', ['-extract', key, 'json', '-o', '-', join(appPath, 'Info.plist')]))
+    const out = await run('plutil', ['-extract', key, format, '-o', '-', join(appPath, 'Info.plist')])
+    return format === 'raw' ? out.trim() || null : JSON.parse(out)
   } catch {
     return null
   }
@@ -76,9 +79,9 @@ async function infoOf(run, appPath, key) {
 // tells whether a path is. -> a promise of { bundleId, simulator }; rejects
 // of a step that fails, but opening the simulator's window, which is logged.
 export async function launchIos({ appPath, simulator: wanted = null, location, log = () => {}, run = exec, exists = existsSync }) {
-  const bundleId = await infoOf(run, appPath, 'CFBundleIdentifier')
+  const bundleId = await infoOf(run, appPath, 'CFBundleIdentifier', 'raw')
   if (typeof bundleId !== 'string') throw new Error(`${appPath} has no CFBundleIdentifier in its Info.plist: it is no app`)
-  const platforms = await infoOf(run, appPath, 'CFBundleSupportedPlatforms')
+  const platforms = await infoOf(run, appPath, 'CFBundleSupportedPlatforms', 'json')
   if (Array.isArray(platforms) && !platforms.includes('iPhoneSimulator')) throw new Error(`${basename(appPath)} is built for ${platforms.join(', ')}, not a simulator: build it for one (xcodebuild -sdk iphonesimulator)`)
   const simulator = chooseSimulator(simulatorsOf(await run('xcrun', ['simctl', 'list', 'devices', 'available', '--json'])), wanted)
   const { udid } = simulator
