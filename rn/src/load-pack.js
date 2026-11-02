@@ -34,11 +34,12 @@ export const pause = () => {
   })
 }
 
-// -> { index: Map<key, its value's JSON>, read: the segments' names }: the
-// segments of `dir`, each read whole; of one cut short, what is whole.
+// -> { index: Map<key, its value's JSON>, read: the segments' names, bytes }:
+// the segments of `dir`, each read whole; of one cut short, what is whole.
 function segmentsOf(dir) {
   const index = new Map()
   const read = []
+  let bytes = 0
   let names = []
   try {
     names = readdirSync(dir).filter((name) => name.endsWith(SEGMENT))
@@ -53,6 +54,7 @@ function segmentsOf(dir) {
       continue
     }
     read.push(name)
+    bytes += buffer.length
     for (let at = 0; at + KEY + 4 <= buffer.length; ) {
       const start = at + KEY + 4
       const end = start + buffer.readUInt32LE(at + KEY)
@@ -61,7 +63,7 @@ function segmentsOf(dir) {
       at = end
     }
   }
-  return { index, read }
+  return { index, read, bytes }
 }
 
 // A segment of `records` ([key, JSON]) written in `dir`, whole, then moved
@@ -96,7 +98,7 @@ async function writeSegment(dir, records, gone) {
   }
 }
 
-// -> { get(key) (its value, or null), set(key, value), start(), finish() }:
+// -> { load(), get(key) (its value, or null), set(key, value), start(), finish() }:
 // the pack in `dir`. A run reads it at its first get(), and keeps what it
 // read while a build that started before is under way: at the end of the
 // last (finish()), the entries set since are written, a segment of their
@@ -113,11 +115,15 @@ export function createPack(dir) {
   let building = 0
   const asked = new Set()
   const fresh = []
+  // -> { bytes, segments } of what it read, at its first load(); else null.
   const load = () => {
-    if (index !== null || done) return
-    ;({ index, read } = segmentsOf(dir))
+    if (index !== null || done) return null
+    let bytes
+    ;({ index, read, bytes } = segmentsOf(dir))
+    return { bytes, segments: read.length }
   }
   return {
+    load,
     get: (key) => {
       load()
       const value = index?.get(key)

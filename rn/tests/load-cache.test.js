@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { loadCached, lowersLetOf } from '../src/bundle.js'
 import { peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
-import { createLoadCache, ownModules } from '../src/load-cache.js'
+import { configKeyOf, createLoadCache, ownModules } from '../src/load-cache.js'
 import { writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
@@ -30,7 +30,8 @@ const recordsOf = (buffer) => {
 // rn-serve on it: a target of its own, its own workers, a store of its
 // own, a build of it started; `load(name, contents, options)` writes the
 // file, and loads it as loadCached() does with the store; end() finishes
-// the build, its pack written: -> its tally, but its time.
+// the build, its pack written: -> its tally, but its times and what of
+// its pack it read.
 function projectOf(tree) {
   const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, 'node_modules/@babel/core': linked('@babel/core'), ...tree })
   const cacheDir = join(root, 'cache')
@@ -51,7 +52,9 @@ function projectOf(tree) {
     const end = async () => {
       const { tally, written } = store.finish()
       await written
-      const { ms: _ms, ...counts } = tally
+      const { ms, parts, pack: _pack, gc: _gc, ...counts } = tally
+      // Its time, that of its parts.
+      assert.ok(Math.abs(ms - Object.values(parts).reduce((sum, each) => sum + each, 0)) < 1e-6)
       return counts
     }
     return { target, store, load, end }
@@ -274,9 +277,29 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
   })
 })
 
+describe('configKeyOf', () => {
+  it("has each item's options as JSON once a run, not once a file's key: of a plugin's many entries (an alias map's), most of its time", () => {
+    // Options of an object that counts each time it is JSON.
+    const { root, cleanup } = writeTree({
+      'package.json': { name: 'app' },
+      'node_modules/@babel/core': linked('@babel/core'),
+      'babel.config.js': "module.exports = { plugins: [['./noop.cjs', { alias: { toJSON() { globalThis.shownAlias = (globalThis.shownAlias ?? 0) + 1; return 'alias' } } }]] }\n",
+      'noop.cjs': 'module.exports = () => ({ visitor: {} })\n',
+    })
+    try {
+      const key = configKeyOf(createRequire(join(root, 'index.js'))('@babel/core'), { cwd: root, root }, modules)
+      const keys = ['a.js', 'b.js', 'c.js'].map((name) => key(join(root, name)))
+      assert.deepEqual([keys.every((each) => typeof each === 'string'), new Set(keys).size, globalThis.shownAlias], [true, 3, 1])
+    } finally {
+      delete globalThis.shownAlias
+      cleanup()
+    }
+  })
+})
+
 describe('ownModules', () => {
   it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
     const src = fileURLToPath(new URL('../src/', import.meta.url))
-    assert.deepEqual(ownModules(), ['assets.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'bundle.js', 'defaults.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load-pack.js', 'load.js', 'mappings.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
+    assert.deepEqual(ownModules(), ['assets.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'bundle.js', 'defaults.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load-pack.js', 'load-store.js', 'load.js', 'mappings.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
   })
 })
