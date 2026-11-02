@@ -4,8 +4,9 @@ import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, describe, it } from 'node:test'
 
+import { metroMaxWorkers } from '../src/babel-worker.js'
 import { peers } from '../src/cli.js'
-import { metroOptions } from '../src/metro-options.js'
+import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { METRO_CONFIG, writeTree } from './fixtures.js'
 
 const template = (custom = '{}') => `const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')\nmodule.exports = mergeConfig(getDefaultConfig(__dirname), ${custom})\n`
@@ -38,6 +39,7 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
     const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })
     assert.equal(options.file, 'metro.config.js')
     assert.deepEqual(options.polyfills('ios').map((path) => basename(path)), ['polyfill.js'])
+    assert.equal(options.maxWorkers, metroMaxWorkers())
     assert.deepEqual([options.assetRegistryPath, options.blockList.map(String), options.port, options.babelRCLookup], ['react-native/Libraries/Image/AssetRegistry', [String(/(\/__tests__\/.*)$/u).replace('/u', '/')], 8081, true])
     assert.deepEqual([options.resolver.sourceExts, options.resolver.mainFields, options.resolver.conditionNames, options.resolver.packageExports], [['js', 'jsx', 'json', 'ts', 'tsx'], ['react-native', 'browser', 'main'], ['react-native'], true])
     assert.equal(typeof options.runBeforeMain, 'function')
@@ -117,7 +119,16 @@ describe("metroOptions, of a config over @react-native/metro-config's", () => {
   })
 
   it('leaves an option Metro has none of, as Metro does (it warns), and those of no bearing on what is built', async () => {
-    assert.equal(typeof (await load("{ transformer: { svgAssetPlugin: true }, watchFolders: ['..'], maxWorkers: 1, resolver: { useWatchman: false }, watcher: { additionalExts: ['cts'] } }")), 'object')
+    assert.equal(typeof (await load("{ transformer: { svgAssetPlugin: true }, watchFolders: ['..'], resolver: { useWatchman: false }, watcher: { additionalExts: ['cts'] } }")), 'object')
+  })
+
+  it("takes maxWorkers as Metro's WorkerFarm does, one where not more, and --max-workers over it", async () => {
+    assert.deepEqual([(await load('{ maxWorkers: 5 }')).maxWorkers, (await load('{ maxWorkers: 0 }')).maxWorkers], [5, 1])
+    const fail = (message) => {
+      throw new Error(message)
+    }
+    assert.deepEqual([undefined, '2', '0'].map((given) => maxWorkersOf(given, { maxWorkers: 5 }, fail)), [5, 2, 1])
+    assert.throws(() => maxWorkersOf('two', { maxWorkers: 5 }, fail), /^Error: --max-workers takes a number of workers, not two$/u)
   })
 
   it('refuses a config of another directory, which has it for the project root', async () => {

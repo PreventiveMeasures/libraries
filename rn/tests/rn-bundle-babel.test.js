@@ -30,6 +30,9 @@ describe('rn-bundle, with a Babel config', () => {
     }
     assert.equal(caller(), '[true,"default"]\n')
     assert.equal(caller('--unstable-transform-profile=hermes-stable'), '[true,"hermes-stable"]\n')
+    assert.equal(caller('--max-workers=1'), '[true,"default"]\n')
+    const workers = run(['--platform=ios', '--max-workers=many', '--output=caller.out.js', 'caller.js'])
+    assert.deepEqual([workers.status, workers.stderr], [1, 'rn-bundle: --max-workers takes a number of workers, not many\n'])
     const unknown = run(['--platform=ios', '--unstable-transform-profile=hermes', '--output=caller.out.js', 'caller.js'])
     assert.deepEqual([unknown.status, unknown.stderr], [1, 'rn-bundle: --unstable-transform-profile is one of default, hermes-stable, hermes-canary\n'])
   })

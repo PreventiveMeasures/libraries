@@ -7,7 +7,14 @@ import { availableParallelism } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
-// (corePath, options, profile) => async (source, filename, without = []) =>
+// As many workers as Metro transforms in, by default: its metro-config's
+// getMaxWorkers of the CPUs (3 of 4, 6 of 8, 10 of 16), leaving one for the
+// main thread, which resolves and runs esbuild's plugin, as Metro's does.
+export function metroMaxWorkers(cores = availableParallelism()) {
+  return Math.max(1, Math.ceil(cores * (0.5 + 0.5 * Math.exp(-cores * 0.07))) - 1)
+}
+
+// (corePath, options, profile, max) => async (source, filename, without = []) =>
 // { code, imports }, by the @babel/core at corePath, with options (all but
 // the filename) for each file, its config's plugins of the keys in without
 // left out; with options.refresh, react-refresh's Babel plugin at that path
@@ -18,13 +25,14 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 // worker inlines them (inlining()). `imports`, the specifiers of the file's import and
 // export-from declarations (IMPORTS). Where profile is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
-// hooks', by its key.
-export function babelWorkers(corePath, options, profile = null) {
-  const max = availableParallelism() >= 4 ? 2 : 1
+// hooks', by its key. At most `max` workers (metroMaxWorkers() where null),
+// made as files wait for one.
+export function babelWorkers(corePath, options, profile = null, max = null) {
+  const most = max ?? metroMaxWorkers()
   const workers = []
   const pick = () => {
     const idle = workers.find(({ busy }) => busy === 0)
-    if (idle !== undefined || workers.length >= max) return idle ?? workers.reduce((a, b) => (b.busy < a.busy ? b : a))
+    if (idle !== undefined || workers.length >= most) return idle ?? workers.reduce((a, b) => (b.busy < a.busy ? b : a))
     const info = { worker: new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } }), busy: 0, pending: new Set() }
     // A worker that dies leaves the pool, failing what it was given, which
     // would wait forever; one more is made where needed.

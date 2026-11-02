@@ -3,8 +3,8 @@
 //   [--assets-dest=DIR] [--asset-catalog-dest=DIR] [--sourcemap-output=FILE]
 //   [--sourcemap-sources-root=DIR] [--sourcemap-use-absolute-path]
 //   [--metro-config=FILE] [--esm] [--profile] [--self-test]
-//   [--unstable-transform-profile=PROFILE] [--define=K=V ...]
-//   [--babel-aliases=FILE] ENTRY
+//   [--unstable-transform-profile=PROFILE] [--max-workers=N]
+//   [--define=K=V ...] [--babel-aliases=FILE] ENTRY
 // A React Native app's bundle: its imports resolved as Metro resolves them,
 // built by esbuild (an iife), its assets as Metro's asset modules, copied to
 // --assets-dest as `react-native bundle` lays them out; with
@@ -35,7 +35,10 @@
 // ESM, as Metro resolves it: by exports' `import` condition.
 // --unstable-transform-profile, `react-native bundle`'s: the profile Babel's
 // caller names (default, hermes-stable, hermes-canary), which
-// @react-native/babel-preset builds for; default where not given. --profile
+// @react-native/babel-preset builds for; default where not given.
+// --max-workers, `react-native bundle`'s: how many workers Babel runs in at
+// most, over the Metro config's maxWorkers, which is, as Metro's default,
+// 3 of 4 CPUs, 6 of 8, 10 of 16. --profile
 // reports the time each of the config's plugins takes, summed over Babel's
 // workers: the files its visitors ran in, their calls, and the time outside
 // the plugins. --self-test builds again, Babel without none of the config's
@@ -49,7 +52,7 @@
 // project's Metro config (metro.config.js, else --metro-config) is loaded as
 // Metro loads it, by the project's metro-config, and its resolver's options
 // (assetExts, sourceExts, blockList...), polyfills, modules run before the
-// entry and asset registry taken, and the inline requires its transformer's
+// entry, asset registry and maxWorkers taken, and the inline requires its transformer's
 // getTransformOptions gives (@react-native/metro-config's), which Babel's
 // workers inline after the Babel config's plugins, by the project's Metro,
 // as Metro's transform worker does: a module required where it is first
@@ -75,7 +78,7 @@ import { profileReport } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
 import { TRANSFORM_PROFILES, babelAliases, defines, failer, flowStripper, peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
-import { metroOptions } from '../src/metro-options.js'
+import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { prelude } from '../src/serializer.js'
 import { differences } from '../src/self-test.js'
 import { metroSourceMap } from '../src/source-map.js'
@@ -102,6 +105,7 @@ const { values, positionals } = parseArgs({
     profile: { type: 'boolean', default: false },
     'self-test': { type: 'boolean', default: false },
     'unstable-transform-profile': { type: 'string' },
+    'max-workers': { type: 'string' },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
   },
@@ -132,7 +136,8 @@ const metro = await metroOptions(cwd, project, fail, { file: values['metro-confi
 const transformRefusal = await metro.transformRefusal(resolve(cwd, positionals[0]), { platform: values.platform, dev: values.dev })
 if (transformRefusal !== null) fail(transformRefusal)
 const inlineRequires = await metro.inlineRequires(resolve(cwd, positionals[0]), { platform: values.platform, dev: values.dev })
-const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime })?.({ platform: values.platform, dev: values.dev, inlineRequires }) ?? null
+const maxWorkers = maxWorkersOf(values['max-workers'], metro, fail)
+const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers })?.({ platform: values.platform, dev: values.dev, inlineRequires }) ?? null
 if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
 if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
 if (values.esm && babel === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
@@ -207,7 +212,7 @@ if (values['assets-dest'] !== undefined) {
 process.stderr.write(`rn-bundle: ${positionals[0]} for ${values.platform}${values.output === undefined ? '' : ` to ${values.output}`} (esbuild ${esbuild.version}), ${result.graph.size} modules, ${result.assets.length} assets\n`)
 if (babel?.profile) process.stderr.write(profileReport(babel.profile, cwd))
 if (selfTest) {
-  const kept = projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, keepPlugins: true })({ platform: values.platform, dev: values.dev, inlineRequires })
+  const kept = projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, keepPlugins: true, maxWorkers })({ platform: values.platform, dev: values.dev, inlineRequires })
   const theirs = new Map()
   await build({ ...options, babel: kept.babel, babelPlugins: kept.babelPlugins, keepPlugins: true, cache: theirs })
   const found = await differences(esbuild, ours, theirs)

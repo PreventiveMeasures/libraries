@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
-//   [--define=K=V ...] [--babel-aliases=FILE] [--client-logs]
+//   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
@@ -17,8 +17,9 @@
 // an edit of an ES module: esbuild makes its exports getters, which that
 // runtime takes for no refresh boundary. A build error is shown in the app.
 // The project's Metro config is loaded as rn-bundle loads it, its server's
-// port the default of --port, and an option of its server or symbolicator
-// not as Metro's default an error too.
+// port the default of --port, its maxWorkers of --max-workers (how many
+// workers each bundle's Babel runs in at most, as rn-bundle's), and an
+// option of its server or symbolicator not as Metro's default an error too.
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 
@@ -32,7 +33,7 @@ import { parseArgs } from 'node:util'
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createGate } from '../src/gate.js'
-import { metroOptions } from '../src/metro-options.js'
+import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { createWatcher } from '../src/watch.js'
 
@@ -46,6 +47,7 @@ const { values } = parseArgs({
     port: { type: 'string' },
     host: { type: 'string', default: '127.0.0.1' },
     'metro-config': { type: 'string' },
+    'max-workers': { type: 'string' },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
     'client-logs': { type: 'boolean', default: false },
@@ -66,7 +68,7 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime })
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail) })
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
