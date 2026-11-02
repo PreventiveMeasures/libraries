@@ -4,7 +4,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { writeTree } from './fixtures.js'
+import { printed, writeTree } from './fixtures.js'
 import { BIN, linked } from './rn-bundle-app.js'
 
 describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
@@ -73,7 +73,7 @@ describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    return JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
+    return JSON.parse(printed(join(root, 'main.out.js')))
   }
 
   it('makes TS JS by esbuild as the plugin would by default; a file with a JSX pragma or a native component spec, Babel takes as it is', () => {
@@ -124,6 +124,7 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
     writeFileSync(join(root, 'babel.config.js'), config(options))
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
+    // In a process of its own: it prints once its async functions are done.
     const { ran, ...out } = JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
     return { ...out, ran: Object.fromEntries(KEYS.map((key) => [key, ran.filter((name) => name === key).length])), code: readFileSync(join(root, 'main.out.js'), 'utf8'), stderr: r.stderr }
   }
@@ -189,7 +190,7 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     assert.ok(!/\b(?:let|const)\b/u.test(code), code)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
   })
 
   it("lowers again by the config's plugin what Babel's others leave of let and const after it", () => {
@@ -197,13 +198,13 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     assert.ok(!/\b(?:let|const)\b/u.test(code), code)
-    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'early\n1\n')
+    assert.equal(printed(join(root, 'out.js')), 'early\n1\n')
   })
 
   it("parses Babel's output again as its config's parser options have it", () => {
     const r = build([late, lowers], 'returns.js', 'parserOpts: { allowReturnOutsideFunction: true }, ')
     assert.equal(r.status, 0, r.stderr)
-    assert.equal(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout, 'const\n1\n')
+    assert.equal(printed(join(root, 'out.js')), 'const\n1\n')
   })
 
   it('runs Babel again only over output that declares a let or const, not where the words are alone', () => {
@@ -281,7 +282,7 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
-    return { code, stderr: r.stderr, out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
+    return { code, stderr: r.stderr, out: JSON.parse(printed(join(root, 'out.js'))) }
   }
   const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'], fromMjs: 'mjs' }
 
@@ -313,7 +314,7 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     const names = (...args) => {
       const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'names.js'], { cwd: root, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+      return JSON.parse(printed(join(root, 'out.js')))
     }
     assert.deepEqual(names('--esm'), ['Button', 'Button'])
     assert.deepEqual(names(), ['Button', 'Button'])

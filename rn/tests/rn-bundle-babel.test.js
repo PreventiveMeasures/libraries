@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { writeTree } from './fixtures.js'
+import { printed, writeTree } from './fixtures.js'
 import { BABEL_APP, BIN, MODERN, babelConfig, linked, lowered, md5, notInstalled } from './rn-bundle-app.js'
 
 describe('rn-bundle, with a Babel config', () => {
@@ -17,7 +17,7 @@ describe('rn-bundle, with a Babel config', () => {
   it('builds each file as the project\'s Babel config makes it, for the platform', () => {
     const r = run(['--platform=ios', '--define=__DEV__=false', '--define=process.env.NODE_ENV="production"', '--output=ios.js', 'index.js'])
     assert.equal(r.status, 0, r.stderr)
-    const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
+    const out = JSON.parse(printed(join(root, 'ios.js')))
     assert.deepEqual([out.where, out.greet, out.typed, out.generic, out.dual, out.optional, out.platform, out.dev, out.env], ['ios', 'hi', 'flow', 'generic', 'rn', 'none', 'ios', false, 'production'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
@@ -26,7 +26,7 @@ describe('rn-bundle, with a Babel config', () => {
     const caller = (...args) => {
       const r = run(['--platform=ios', ...args, '--output=caller.out.js', 'caller.js'])
       assert.equal(r.status, 0, r.stderr)
-      return spawnSync(process.execPath, [join(root, 'caller.out.js')], { encoding: 'utf8' }).stdout
+      return printed(join(root, 'caller.out.js'))
     }
     assert.equal(caller(), '[true,"default"]\n')
     assert.equal(caller('--unstable-transform-profile=hermes-stable'), '[true,"hermes-stable"]\n')
@@ -41,7 +41,7 @@ describe('rn-bundle, with a Babel config', () => {
     const babelEnv = (args, env) => {
       const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
       assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).babelEnv
+      return JSON.parse(printed(join(root, 'env.js'))).babelEnv
     }
     assert.equal(babelEnv([]), 'production')
     assert.equal(babelEnv([], { NODE_ENV: 'development' }), 'production')
@@ -54,7 +54,7 @@ describe('rn-bundle, with a Babel config', () => {
     const nodeEnv = (args, env) => {
       const r = run(['--platform=ios', ...args, '--output=env.js', 'index.js'], env)
       assert.equal(r.status, 0, r.stderr)
-      return JSON.parse(spawnSync(process.execPath, [join(root, 'env.js')], { encoding: 'utf8' }).stdout).nodeEnv
+      return JSON.parse(printed(join(root, 'env.js'))).nodeEnv
     }
     assert.equal(nodeEnv([]), 'production')
     assert.equal(nodeEnv([], { NODE_ENV: 'development' }), 'production')
@@ -64,20 +64,20 @@ describe('rn-bundle, with a Babel config', () => {
   it('makes each TS file JS by esbuild before Babel, lowering the rest after it', () => {
     const r = run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
+    assert.deepEqual(JSON.parse(printed(join(root, 'modern.out.js'))), MODERN)
     assert.ok(lowered(readFileSync(join(root, 'modern.out.js'), 'utf8')))
   })
 
   it('leaves Flow to Babel without flow-remove-types: a @flow file that may have type arguments as it is', () => {
     const r = spawnSync(process.execPath, ['--import', notInstalled('flow-remove-types'), BIN, '--platform=ios', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8', env: ENV })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty', 'StaticBlock'] } })
+    assert.deepEqual(JSON.parse(printed(join(root, 'modern.out.js'))), { ...MODERN, syntax: { ...MODERN.syntax, flow: ['ClassProperty', 'StaticBlock'] } })
   })
 
   it('takes a file with no import or export for a script, as Metro does: sloppy', () => {
     const r = run(['--platform=ios', '--output=sloppy.out.js', 'sloppy.js'])
     assert.equal(r.status, 0, r.stderr)
-    assert.equal(spawnSync(process.execPath, [join(root, 'sloppy.out.js')], { encoding: 'utf8' }).stdout, '"with"\n')
+    assert.equal(printed(join(root, 'sloppy.out.js')), '"with"\n')
   })
 
   it('fails on a TS file esbuild cannot parse', () => {
@@ -97,7 +97,7 @@ describe('rn-bundle, with Babel, with a Babel config that takes no Flow', () => 
   const { root, cleanup } = writeTree({ ...BABEL_APP, 'babel.config.js': babelConfig([['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-react-jsx']) })
   after(cleanup)
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
-  const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
+  const output = (file) => JSON.parse(printed(join(root, file)))
 
   it('strips the Flow types of each file that has them before Babel', () => {
     const r = run(['--platform=ios', '--output=ios.js', 'index.js'])
@@ -139,7 +139,7 @@ describe('rn-bundle, with Babel, with Flow that is code', () => {
   it("leaves a file with Flow flow-remove-types doesn't strip to Babel as it is, its @flow pragma kept", () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['hello world', 'typed'])
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['hello world', 'typed'])
   })
 })
 
@@ -158,7 +158,7 @@ describe('rn-bundle, with Babel, of a file with a source map of its own', () => 
   const read = (...args) => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', ...args, 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    return spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout
+    return printed(join(root, 'out.js'))
   }
 
   it('reads it only where the bundle has a source map', () => {
@@ -183,7 +183,7 @@ describe('rn-bundle, with Babel, with a .babelrc of a directory of its own', () 
   it('takes it for the files beneath it alone', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['sub', null])
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['sub', null])
   })
 })
 
@@ -204,7 +204,7 @@ describe("rn-bundle, with Babel, with Reanimated's plugin", () => {
   it('runs it in the files that name what it acts on alone; --self-test, which builds again with it in each, finds where that changes one', () => {
     const r = run(['--output=out.js'])
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['animated.js'])
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), ['animated.js'])
     const selfTest = run(['--self-test'])
     assert.equal(selfTest.status, 1)
     assert.match(selfTest.stderr, /index\.js|plain\.js/u)

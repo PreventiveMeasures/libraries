@@ -1,7 +1,9 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { format } from 'node:util'
+import { runInNewContext } from 'node:vm'
 
 import { createVfs } from '@preventive/vfs'
 
@@ -20,6 +22,19 @@ export function writeTree(tree) {
     else writeFileSync(path, dataOf(content))
   }
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) }
+}
+
+// What the bundle at `path` prints as it runs, as `node <path>` prints it to
+// stdout (console.log's lines): run in a context of its own, as rn-serve's
+// tests run theirs, not in a Node process of its own each. Of what it prints
+// at once: not of what it prints after an await, or a timer.
+export function printed(path) {
+  let out = ''
+  const print = (...args) => {
+    out += `${format(...args)}\n`
+  }
+  runInNewContext(readFileSync(path, 'utf8'), { console: { log: print, info: print, debug: print, warn() {}, error() {} } }, { filename: path })
+  return out
 }
 
 // The tree as a Vfs holds it, from `/`.

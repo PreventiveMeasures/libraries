@@ -6,14 +6,14 @@ import { SourceMap } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { METRO_CONFIG, pkg, writeTree } from './fixtures.js'
+import { METRO_CONFIG, pkg, printed, writeTree } from './fixtures.js'
 import { APP, BABEL_APP, BIN, MODERN, OPTIONS, PLATFORM_PLUGIN, POLYFILLS, PRELUDE, linked, listFiles, md5, notInstalled, reactNativeApp, templateConfig } from './rn-bundle-app.js'
 
 describe('rn-bundle', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)
   const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8' })
-  const output = (file) => JSON.parse(spawnSync(process.execPath, [join(root, file)], { encoding: 'utf8' }).stdout)
+  const output = (file) => JSON.parse(printed(join(root, file)))
 
   it('minifies with --minify, to a bundle that does the same', () => {
     for (const [file, args] of [['plain.js', []], ['min.js', ['--minify']]]) {
@@ -138,7 +138,7 @@ describe('rn-bundle, of a project with no Babel config', () => {
   it('builds with no Babel, where no @react-native/babel-preset is either', () => {
     const r = run(OPTIONS)
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout).platform, null)
+    assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))).platform, null)
   })
 
   it('takes --profile, --self-test, --esm and --unstable-transform-profile only where Babel runs', () => {
@@ -181,7 +181,7 @@ describe('rn-bundle, of a project with a .babelrc, or @react-native/babel-preset
   const platform = (root, ...args) => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'platform.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
+    return JSON.parse(printed(join(root, 'out.js')))
   }
 
   it('runs a .babelrc, which Metro extends', () => {
@@ -203,7 +203,7 @@ describe('rn-bundle with the project\'s own esbuild', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...OPTIONS.filter((option) => !option.startsWith('--babel-aliases')), '--output=ios.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /\(esbuild 0\.25\.\d+\)/u)
-    const out = JSON.parse(spawnSync(process.execPath, [join(root, 'ios.js')], { encoding: 'utf8' }).stdout)
+    const out = JSON.parse(printed(join(root, 'ios.js')))
     assert.deepEqual([out.where, out.greet, out.typed, out.dual], ['ios', 'hi', 'flow', 'rn'])
     assert.equal(out.assets[0].hash, md5('img/logo.png', 'img/logo@2x.png', 'img/logo@3x.png'))
   })
@@ -212,7 +212,7 @@ describe('rn-bundle with the project\'s own esbuild', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=modern.out.js', 'modern.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /\(esbuild 0\.25\.\d+\)/u)
-    assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'modern.out.js')], { encoding: 'utf8' }).stdout), MODERN)
+    assert.deepEqual(JSON.parse(printed(join(root, 'modern.out.js'))), MODERN)
   })
 })
 
@@ -248,12 +248,12 @@ describe('rn-bundle with a Metro config', () => {
   after(cleanup)
   const hash = (...contents) => contents.reduce((md5sum, content) => md5sum.update(content), createHash('md5')).digest('hex')
   const bundleWith = (args, entry) => spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=config-out.js', entry], { cwd: root, encoding: 'utf8' })
-  const outputOf = () => JSON.parse(spawnSync(process.execPath, [join(root, 'config-out.js')], { encoding: 'utf8' }).stdout)
+  const outputOf = () => JSON.parse(printed(join(root, 'config-out.js')))
 
   it('loads it as Metro does, by metro-config, running it: the assetExts it adds are assets', () => {
     const r = spawnSync(process.execPath, [BIN, '--platform=android', '--assets-dest=res', '--output=anim.js', 'anim.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    const [spin, wave] = JSON.parse(spawnSync(process.execPath, [join(root, 'anim.js')], { encoding: 'utf8' }).stdout)
+    const [spin, wave] = JSON.parse(printed(join(root, 'anim.js')))
     assert.deepEqual(spin, { __packager_asset: true, httpServerLocation: '/assets/anim', scales: [1, 2], hash: hash('RIVE', 'RIVE@2x'), name: 'spin', type: 'riv' })
     assert.deepEqual([wave.name, wave.type, wave.hash], ['wave', 'lottie', hash('PK')])
     assert.deepEqual(listFiles(join(root, 'res')), ['raw/anim_spin.riv', 'raw/anim_wave.lottie', 'raw/keep.xml'])
@@ -343,7 +343,7 @@ describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
   const build = (root, args = [], node = []) => {
     const r = spawnSync(process.execPath, [...node, BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    return { code: readFileSync(join(root, 'out.js'), 'utf8'), out: JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout) }
+    return { code: readFileSync(join(root, 'out.js'), 'utf8'), out: JSON.parse(printed(join(root, 'out.js'))) }
   }
 
   it("from react-native 0.87 on: Metro's prelude, the polyfills, react-native/setup-env, then the entry; assets registered with react-native/asset-registry", () => {
@@ -390,7 +390,7 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
   const run = (root, args = []) => {
     const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    return spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout.trim().split('\n')
+    return printed(join(root, 'out.js')).trim().split('\n')
   }
 
   it('runs a module where it is first used, as Metro does: not one of nonInlinedRequires (React), nor one never used', () => {
@@ -440,7 +440,7 @@ describe('rn-bundle --sourcemap-output', () => {
     assert.deepEqual(map.x_google_ignoreList, map.sources.flatMap((source, i) => (source.includes(`${sep}node_modules${sep}`) ? [i] : [])))
     assert.equal(map.sourcesContent[map.sources.indexOf(join(root, 'index.js'))], reactNativeApp(true)['index.js'])
     assert.deepEqual(origin(bundle, 'order: globalThis.order'), [join(root, 'index.js'), 3, 29])
-    assert.deepEqual(spawnSync(process.execPath, [join(root, 'build/main.jsbundle')], { encoding: 'utf8' }).stdout, `${JSON.stringify({ order: ['console', 'error-guard', 'setup-env'], logo: 'logo', prefix: '', started: 'number' })}\n`)
+    assert.deepEqual(printed(join(root, 'build/main.jsbundle')), `${JSON.stringify({ order: ['console', 'error-guard', 'setup-env'], logo: 'logo', prefix: '', started: 'number' })}\n`)
   })
 
   it('makes each source from --sourcemap-sources-root, and with --sourcemap-use-absolute-path the URL the map\'s path', () => {
