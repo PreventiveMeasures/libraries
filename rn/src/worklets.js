@@ -10,6 +10,13 @@ const PLUGINS = new Map([
   ['reanimated', 'react-native-reanimated/plugin'],
   ['worklets', 'react-native-worklets/plugin'],
 ])
+// The paths of each one's code: its module, or a file in its directory.
+const FILES = new Map([
+  ['reanimated', /[\\/]react-native-reanimated[\\/]plugin(?:\.js$|[\\/].*\.c?js$)/u],
+  ['worklets', /[\\/]react-native-worklets[\\/]plugin(?:\.js$|[\\/].*\.c?js$)/u],
+])
+// The modules loaded, Babel's of the config's plugins too: one cache of a thread's.
+const LOADED = createRequire(import.meta.url).cache
 // What they make a worklet of the callbacks to, by name: Reanimated's hooks,
 // animations and what runs a function on another runtime, gesture
 // handler's hooks, a Gesture's object (its onStart, onUpdate...), a layout
@@ -42,13 +49,22 @@ export function workletsGate({ cwd, envName = '' }) {
   const byEnv = RELEASE.test(process.env.BABEL_ENV ?? '') || RELEASE.test(process.env.NODE_ENV ?? '')
   const release = byEnv && (RELEASE.test(envName) || !/dev/iu.test(envName))
   const words = new Map()
+  // The plugin's code: of the files of it Babel loaded, by the config's
+  // plugin, wherever from (a preset's own, a parent's node_modules); else of
+  // its module as the project resolves it; null where none can be read.
+  const codeOf = (key) => {
+    const loaded = Object.keys(LOADED).filter((path) => FILES.get(key).test(path))
+    try {
+      const paths = loaded.length > 0 ? loaded : [createRequire(join(cwd, 'package.json')).resolve(PLUGINS.get(key))]
+      return paths.map((path) => readFileSync(path, 'utf8')).join('\n')
+    } catch {
+      return null
+    }
+  }
   // The plugin's words, or null where its code can't be read, which keeps it.
   const wordsOf = (key) => {
     if (!words.has(key)) {
-      let code = null
-      try {
-        code = readFileSync(createRequire(join(cwd, 'package.json')).resolve(PLUGINS.get(key)), 'utf8')
-      } catch {}
+      const code = codeOf(key)
       const names = code === null ? null : new Set([...NAMES, ...Array.from(code.matchAll(NAMED), ([, , name]) => name)])
       words.set(key, names === null ? null : new RegExp(`worklet|\\b(?:${[...names].join('|')})\\b`, 'u'))
     }
