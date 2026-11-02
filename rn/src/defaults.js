@@ -2,6 +2,7 @@
 // @react-native/metro-config 0.88), and the disk as the default host.
 
 import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 
 const freeze = Object.freeze
 
@@ -29,10 +30,13 @@ const stat = (path) => {
   }
 }
 
+// `readFileAsync`, a file read off the main thread, as a build reads ahead
+// each file it resolves (bundle.js's metroGraph()).
 export const diskHost = freeze({
   isFile: (path) => stat(path)?.isFile() ?? false,
   isDirectory: (path) => stat(path)?.isDirectory() ?? false,
   realpath: realpathSync,
   readFile: readFileSync,
+  readFileAsync: readFile,
   readdir: readdirSync,
 })

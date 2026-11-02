@@ -223,10 +223,11 @@ function metroGraph({
   // bundle()'s, made before its build; createBundler()'s, as each starts.
   if (reuseFirst) fresh()
   const before = () => runBeforeMain ?? state.reactNative.runBeforeMain
-  const load = (path) => loadCached(options, reading(host, state.read), cache, path)
-  // The files Metro resolved, which alone esbuild may load.
+  const load = (path) => loadCached(options, aheadHost(host, state, path), cache, path)
+  // The files Metro resolved, which alone esbuild may load, each read ahead.
   const file = (path) => {
     state.resolved.add(path)
+    readAhead(host, state, path)
     return { path: esbuildPath(path) }
   }
   const plugin = {
@@ -342,6 +343,32 @@ export function metroResolverOf({ host, assetExts, resolver = {}, blockList = nu
   return createMetroResolver({ ...resolver, host: seen, assetExts })
 }
 
+// Each file a build resolves, read ahead as it is (readAhead()), where
+// the host reads off the main thread (its readFileAsync): as Babel
+// transforms what came before it, the disk reads it, the main thread not
+// waiting on it. By the build's state, which a build's own each is: none
+// read for one is another's. aheadHost(host, state, path) -> the host to
+// load it by (reading()'s, of the state's `read`), of its bytes so read
+// (readAhead(), loadCached()'s), which it then lets go: one resolved again
+// once loaded, which esbuild loads not again, read not again.
+const AHEAD = new WeakMap()
+function readAhead(host, state, path) {
+  if (host.readFileAsync === undefined) return
+  if (!AHEAD.has(state)) AHEAD.set(state, new Map())
+  const ahead = AHEAD.get(state)
+  // One that fails is read as the host reads it, failing as it does.
+  if (!ahead.has(path)) ahead.set(path, host.readFileAsync(path).catch(() => null))
+}
+function aheadHost(host, state, path) {
+  const bytes = AHEAD.get(state)?.get(path)
+  AHEAD.get(state)?.set(path, undefined)
+  const ahead = () => {
+    state.read.add(path)
+    return bytes
+  }
+  return { ...reading(host, state.read), ...(bytes !== undefined && { readAhead: ahead }) }
+}
+
 // A path in a namespace of this plugin's, which esbuild prints as it is (in
 // comments, and as a module's name), made relative to the project, as
 // esbuild prints a file's, so that the bundle doesn't depend on where the
@@ -387,9 +414,11 @@ export function lookingOnce(host) {
 // that make it (sourcemap, esm, keepPlugins), where it does, kept there
 // where it doesn't; but none failed, nor one of Babel's `uncacheable`.
 // Each counted in the store (its note()): in memory, or loaded anew, and
-// why one is kept none of.
+// why one is kept none of. Its contents as the host's readAhead() gives
+// them, where it has one (a promise of them, of null where the read
+// failed), else as it reads them.
 export async function loadCached(options, host, cache, path) {
-  const contents = decoder.decode(host.readFile(path))
+  const contents = decoder.decode((await host.readAhead?.()) ?? host.readFile(path))
   const { store = null, esm = false } = options
   const hit = cache?.get(path)
   if (hit !== undefined && hit.contents === contents) {
