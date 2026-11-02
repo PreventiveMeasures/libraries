@@ -241,8 +241,21 @@ function match({ mainFields, redirects }, subpaths, pkg) {
   return key === undefined ? null : map.get(key)
 }
 
-// redirectModulePath: a string target is relative to the package, even where
-// it names another.
+// metro-resolver's redirectModulePath, of Metro's context: an absolute path
+// by its package's map (redirect()); a relative one by the origin's, of its
+// directory; a name by the origin's, as its map has it.
+function redirectModulePath(context, modulePath) {
+  if (isAbsolute(modulePath)) return redirect(context, modulePath)
+  const own = packageOf(context, context.origin)
+  if (own === null) return modulePath
+  if (!modulePath.startsWith('.')) return match(context, variants(modulePath), own.packageJson) ?? modulePath
+  const to = match(context, variants(`./${toPosix(join(dirname(own.packageRelativePath), modulePath))}`), own.packageJson)
+  if (typeof to !== 'string') return to ?? modulePath
+  return isAbsolute(to) ? normalize(to) : join(own.rootPath, to)
+}
+
+// redirectModulePath of a path: a string target is relative to the package,
+// even where it names another.
 function redirect(context, path) {
   const pkg = packageOf(context, path)
   if (pkg === null) return path
@@ -311,7 +324,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
     nodeModulesPaths: context.nodeModulesPaths,
     originModulePath: context.origin,
     preferNativePlatform: context.preferNativePlatform,
-    redirectModulePath: ours((path) => redirect(context, path)),
+    redirectModulePath: ours((modulePath) => redirectModulePath(context, modulePath)),
     resolveHasteModule: () => null,
     resolveHastePackage: () => null,
     ...(context.custom !== null && { resolveRequest: context.custom }),

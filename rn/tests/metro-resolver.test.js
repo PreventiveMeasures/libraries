@@ -83,17 +83,19 @@ describe('createMetroResolver', () => {
   })
 
   it("runs a Metro config's resolveRequest through metro-resolver, which gives it its own resolve, and Metro's context", () => {
-    const vfs = vfsOf({ 'src/a.ts': '', 'src/b.js': '', 'node_modules/c/index.js': '' })
+    const vfs = vfsOf({ 'package.json': { browser: { gone: false, kept: 'other', './src/old.js': './src/b.js' } }, 'src/a.ts': '', 'src/b.js': '', 'node_modules/c/index.js': '' })
     const seen = []
+    let context = null
     // As a config has one: of the origin alone, the rest to Metro's own.
     const resolveRequest = (...args) => {
-      const [context, moduleName] = args
-      seen.push([context.originModulePath, moduleName, args[2], context.dev, context.dependency.name, context.customResolverOptions, context.redirectModulePath('/src/b.js')])
+      const [given, moduleName] = args
+      context ??= given
+      seen.push([given.originModulePath, moduleName, args[2], given.dev, given.dependency.name, given.customResolverOptions, given.redirectModulePath('/src/b.js')])
       if (moduleName === 'stub') return { type: 'empty' }
       if (moduleName === 'thrown') throw new Error('not here')
-      const modulePath = join(dirname(context.originModulePath), moduleName)
-      if (moduleName.endsWith('.js') && !vfs.isFile(modulePath)) return context.resolveRequest(context, moduleName.replace(/\.js$/u, '.ts'), ...args.slice(2))
-      return context.resolveRequest(...args)
+      const modulePath = join(dirname(given.originModulePath), moduleName)
+      if (moduleName.endsWith('.js') && !vfs.isFile(modulePath)) return given.resolveRequest(given, moduleName.replace(/\.js$/u, '.ts'), ...args.slice(2))
+      return given.resolveRequest(...args)
     }
     const resolve = createMetroResolver({ host: vfs, metroResolver, resolveRequest, dev: true })
     assert.deepEqual(resolve('/src/x.js', './a.js', { platform: 'ios' }), { type: 'sourceFile', filePath: '/src/a.ts' })
@@ -103,6 +105,12 @@ describe('createMetroResolver', () => {
     assert.equal(resolve('/src/x.js', 'missing'), null)
     assert.throws(() => resolve('/src/x.js', 'thrown'), /not here/u)
     assert.throws(() => createMetroResolver({ resolveRequest }), TypeError)
+    // Its redirectModulePath is metro-resolver's: of a name, a relative path
+    // and an absolute one.
+    const metros = createRequire(import.meta.url)('metro-resolver/private/PackageResolve')
+    const paths = ['gone', 'gone.js', 'kept', 'none', './old.js', './old', '../src/old.js', '/src/old.js', '/src/b.js']
+    assert.deepEqual(paths.map((path) => context.redirectModulePath(path)), [false, 'gone.js', 'other', 'none', '/src/b.js', '/src/b.js', '/src/b.js', '/src/b.js', '/src/b.js'])
+    assert.deepEqual(paths.map((path) => context.redirectModulePath(path)), paths.map((path) => metros.redirectModulePath(context, path)))
   })
 
   it('refuses what it cannot resolve from', () => {
