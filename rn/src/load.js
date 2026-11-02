@@ -54,12 +54,12 @@ const MAYBE_TYPE_ARGUMENTS = /(?<!=)>(?:\s|\/\/.*|\/\*[\s\S]*?\*\/)*[(`]/u
 // Options of Babel's TS plugin that change which fields and imports it keeps.
 const TS_OPTIONS = ['onlyRemoveTypeImports', 'allowDeclareFields', 'jsxPragma', 'jsxPragmaFrag']
 // With `esm`, the config's plugin that makes modules CommonJS is left out:
-// esbuild links them, as it does without Babel. But not in a module that may
-// name `module` or `exports`, which Babel's CommonJS binds to its own, and
-// esbuild leaves unbound in an ES module.
+// esbuild links them, as it does without Babel. But not in a module that
+// names `module` or `exports` unbound, which Babel's CommonJS binds to its
+// own, and esbuild leaves unbound in an ES module: Babel's worker, which has
+// its scope, makes it CommonJS after all (babel-transformer.js).
 const COMMONJS = 'transform-modules-commonjs'
 const MODULE_SYNTAX = /\b(?:import|export)\b/u
-const COMMONJS_NAMES = /\b(?:module|exports)\b/u
 // Left out of Babel where the file gives them nothing to do (their output
 // the same): transform-modules-commonjs where it has no import or export, a
 // script to Babel; transform-block-scoping in a module (strict, so of no
@@ -101,7 +101,7 @@ export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPl
       if (!Array.isArray(error?.errors)) throw error
       return { errors: error.errors }
     }
-    const esModule = esm !== false && !esm.has(path) && !(MODULE_SYNTAX.test(source.code) && COMMONJS_NAMES.test(source.code))
+    const esModule = esm !== false && !esm.has(path)
     try {
       const without = keepPlugins ? [...source.without.filter((key) => !INERT.includes(key) && !INERT_TS.includes(key)), ...(esModule ? [COMMONJS] : [])] : [...source.without, ...(esModule ? [COMMONJS] : []), ...idle(source.code)]
       const transformed = await babel(source.code, path, without)
