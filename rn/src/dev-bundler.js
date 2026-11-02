@@ -19,7 +19,7 @@ const NAMESPACED = /^metro-[a-z]+:/u
 const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null) })
 // A build refused, for what of the Metro config it doesn't do.
 const refused = (version, text) => ({ ok: false, version, errors: [{ text, location: null }], files: new Set() })
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { fatal: true })
 
 export const inside = (root, path) => {
   const rel = relative(root, path)
@@ -128,10 +128,18 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     // A file a bundle was built from, its bytes, else null.
     sourceFile: (path) => (files().has(path) ? host.readFile(path) : null),
     // A source a bundle was built from, else null.
-    readSource(path) {
-      return files().has(path) ? decoder.decode(host.readFile(path)) : null
-    },
+    readSource: (path) => (files().has(path) ? textOf(host, path) : null),
     dispose: () => evict(0),
+  }
+}
+
+// A file's text, null where it is not UTF-8 (now).
+function textOf(host, path) {
+  const bytes = host.readFile(path)
+  try {
+    return decoder.decode(bytes)
+  } catch {
+    return null
   }
 }
 
