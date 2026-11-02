@@ -564,6 +564,50 @@ describe('rn-serve, with Fast Refresh', () => {
   })
 })
 
+describe('rn-serve --esm', () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'node_modules/metro-runtime': linked('metro-runtime'),
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
+    'esm.js': "import make, { named } from './lib/cjs'\nimport { used } from './lib/named'\nconst esm = require('./lib/esm')\nglobalThis.result = { made: make(), named, used, esm: [esm.default, esm.value] }\n",
+    'lib/cjs.js': "module.exports = () => 'made'\nmodule.exports.named = 'named'\n",
+    'lib/named.js': "export const used = 'used'\nexport const unused = 'UNUSED-EXPORT'\n",
+    'lib/esm.js': "export default 'default'\nexport const value = 'value'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
+  })
+  let server
+  before(async () => {
+    server = await serve(root, ['--esm'])
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+  const OUT = { made: 'made', named: 'named', used: 'used', esm: ['default', 'value'] }
+
+  it('leaves import and export to esbuild: which makes each module of a dev bundle CommonJS, and links those of one of no dev, dropping what is unused', async () => {
+    const dev = String((await fetchRaw(`${server.url}/esm.bundle?platform=ios`)).body)
+    const named = dev.split('\n__d(').find((text) => text.includes('"lib/named.js"'))
+    // esbuild's exports, not Babel's CommonJS plugin's.
+    assert.ok(named.includes('__export(') && !named.includes('exports.used ='), named)
+    assert.deepEqual(JSON.parse(JSON.stringify(runApp(dev).context.result)), OUT)
+    const release = String((await fetchRaw(`${server.url}/esm.bundle?platform=ios&dev=false`)).body)
+    assert.ok(!release.includes('UNUSED-EXPORT'))
+    assert.deepEqual(run(release).result, OUT)
+  })
+
+  it('takes --esm only where Babel runs', () => {
+    const plain = writeTree({ 'package.json': { name: 'plain' } })
+    try {
+      const r = spawnSync(process.execPath, [BIN, '--esm'], { cwd: plain.root, encoding: 'utf8' })
+      assert.deepEqual([r.status, r.stderr], [1, "rn-serve: --esm keeps ES modules through the project's Babel config, and it has none\n"])
+    } finally {
+      plain.cleanup()
+    }
+  })
+})
+
 describe('rn-serve, with @react-native/dev-middleware', () => {
   // As react-native has it: its middleware answers what rn-serve's routes don't.
   const { root, cleanup } = writeTree({

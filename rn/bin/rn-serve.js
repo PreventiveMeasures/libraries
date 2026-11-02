@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
-//   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--client-logs]
+//   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--esm]
+//   [--client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
@@ -16,6 +17,10 @@
 // metro-runtime before 0.83.3 (react-native before 0.81) reloads the app on
 // an edit of an ES module: esbuild makes its exports getters, which that
 // runtime takes for no refresh boundary. A build error is shown in the app.
+// --esm, as rn-bundle's: Babel leaves import and export to esbuild, which
+// links the modules of a bundle it builds whole (minified, or of no dev), and
+// makes each of a dev bundle CommonJS itself, its exports getters: so that
+// runtime reloads the app on an edit of one too.
 // The project's Metro config is loaded as rn-bundle loads it, its server's
 // port the default of --port, its maxWorkers of --max-workers (how many
 // workers each bundle's Babel runs in at most, as rn-bundle's), and an
@@ -50,6 +55,7 @@ const { values } = parseArgs({
     'max-workers': { type: 'string' },
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
+    esm: { type: 'boolean', default: false },
     'client-logs': { type: 'boolean', default: false },
   },
 })
@@ -69,6 +75,7 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail) })
+if (values.esm && babelFor === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
@@ -89,6 +96,7 @@ const devBundler = createDevBundler({
     stripFlow,
     ...babelFor?.({ platform, dev, inlineRequires }),
     aliases,
+    esm: values.esm,
     define: defines(dev, values.define, fail),
   }),
   onBuild: ({ request, outcome, ms }) => {

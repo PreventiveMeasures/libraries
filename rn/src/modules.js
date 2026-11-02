@@ -51,7 +51,9 @@ export function createModuleBundler(options) {
   }
   return {
     async rebuild(onProgress = null) {
-      const run = { ...options, onProgress, stripFlow: options.stripFlow ?? null, babel: options.babel ?? null, babelPlugins: options.babelPlugins ?? null, aliases: options.aliases ?? null, host, assetExts, supported: { ...(await supportedOf), 'dynamic-import': false }, idOf, builds }
+      // With `esm`, Babel leaves import and export to esbuild, which makes
+      // each module CommonJS, but of the files of `commonJs`.
+      const run = { ...options, esm: options.esm === true ? (options.commonJs ?? new Set()) : false, onProgress, stripFlow: options.stripFlow ?? null, babel: options.babel ?? null, babelPlugins: options.babelPlugins ?? null, aliases: options.aliases ?? null, host, assetExts, supported: { ...(await supportedOf), 'dynamic-import': false }, idOf, builds }
       let state = null
       try {
         // Its state published before what of react-native runs before the

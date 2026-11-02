@@ -147,10 +147,11 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
 }
 
 // Its files cached of each platform, dev, minify and inline requires, which
-// make them.
+// make them; with `esm`, those left CommonJS of them too, which a file's
+// cached build is of.
 function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, caches, ids }, { platform, dev, minify }, entry, inlineRequires = null) {
   const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
-  if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map() })
+  if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map(), commonJs: new Set() })
   const options = targetOptions({ platform, dev, inlineRequires })
   const common = {
     ...options,
@@ -161,6 +162,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, cache
     projectRoot,
     minify,
     cache: caches.get(target).files,
+    commonJs: caches.get(target).commonJs,
     assetExts: metro.assetExts,
     resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,

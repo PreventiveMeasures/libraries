@@ -59,8 +59,10 @@ export async function bundle(options) {
 
 // bundle(), to build again and again on one esbuild context: each build
 // resolves and reads every file anew, but for `cache`'s.
+// With `esm`, `commonJs`, the Set of files left CommonJS, where it is kept
+// with `cache`.
 export async function createBundler(options) {
-  const esm = options.esm === true ? new Set() : false
+  const esm = options.esm === true ? (options.commonJs ?? new Set()) : false
   const graph = metroGraph({ ...options, esm }, { reuseFirst: false })
   // Through the main module always, as what runs before the entry may change.
   const context = await options.esbuild.context(buildOptions(options, graph, { main: true, lowersLet: await lowersLetOf(options).catch(() => false) }))
