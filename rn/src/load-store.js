@@ -21,6 +21,19 @@ const collected = () => {
   return gcTime
 }
 
+// -> (part, run): what run() gives, the time it takes the cache's, as the
+// build's (tallied()'s tally), and of its `part`.
+const timer = (tallied) => (part, run) => {
+  const start = performance.now()
+  try {
+    return run()
+  } finally {
+    const ms = performance.now() - start
+    tallied().ms += ms
+    tallied().parts[part] += ms
+  }
+}
+
 // The store of a target (createLoadCache()'s), its pack and its keys' base.
 export function storeOf(babel, { salt, packed, base: baseOf, read, write, track }) {
   // Its pack, once its keys' prefix is known, as each key is of it: asked
@@ -31,22 +44,19 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
   const fresh = () => ({ hits: 0, misses: 0, memory: 0, unkept: {}, ms: 0, parts: { config: 0, hashing: 0, records: 0, pack: 0 }, pack: null, gc: 0 })
   let tally = fresh()
   let gcAt = 0
-  // The time the cache takes of `run`, as the build's, and of its `part`.
-  const timed = (part, run) => {
-    const start = performance.now()
-    try {
-      return run()
-    } finally {
+  const timed = timer(() => tally)
+  // The pack read, at its first build's first ask, which each of its asks
+  // waits for: the time it took, as the build's, and what it read.
+  let reading = null
+  const loaded = () =>
+    (reading ??= (async () => {
+      const start = performance.now()
+      const was = await pack.load()
       const ms = performance.now() - start
       tally.ms += ms
-      tally.parts[part] += ms
-    }
-  }
-  // The pack read, at its first build's first ask: what it read.
-  const loaded = () => {
-    const was = timed('pack', () => pack.load())
-    if (was !== null) tally.pack = was
-  }
+      tally.parts.pack += ms
+      if (was !== null) tally.pack = was
+    })())
   const keyOf = async (path, contents, variant) => {
     const base = await baseOf()
     if (base === null) return { key: null, why: 'fingerprint' }
@@ -59,7 +69,7 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
     keyOf,
     get: async (key) => {
       await settled()
-      loaded()
+      await loaded()
       const result = timed('records', () => pack.get(key))
       if (typeof result?.contents !== 'string' || typeof result.loader !== 'string') return null
       tally.hits++
@@ -69,7 +79,7 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
     set: (key, result) => timed('records', () => pack?.set(key, result)),
     build: async (parts, text, compute) => {
       await settled()
-      loaded()
+      await loaded()
       const key = timed('hashing', () => createHash('sha256').update(salt).update('\0module\0').update(JSON.stringify(parts)).update('\0').update(text).digest('hex'))
       const kept = timed('records', () => pack.get(key))
       if (kept !== null) {

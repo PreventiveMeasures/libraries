@@ -16,7 +16,7 @@ import { createPack, readEntry, touch, writeEntry } from './load-pack.js'
 import { storeOf } from './load-store.js'
 
 // A cache entry's format: another, none of the entries before.
-const CACHE_FORMAT = 3
+const CACHE_FORMAT = 4
 // rn's code of the chain: loadFile()'s, Babel's worker's, a dev bundle's
 // module's build (modules.js), and this file's.
 const CHAIN = ['load.js', 'babel-worker.js', 'modules.js', 'load-cache.js']
@@ -293,7 +293,7 @@ const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept)
 // `unkept` (loaded anew, kept none of, `why`); get() counts `hits`. A
 // build's start() and finish() -> { tally: { hits, misses, memory, unkept:
 // { [why]: count }, ms, parts: { config, hashing, records, pack }, pack:
-// { bytes, segments } or null, gc }, written }: what was counted of it, `ms`
+// { bytes, unpacked, segments } or null, gc }, written }: what was counted of it, `ms`
 // the time the cache took, by part (its files' configs' keys, its hashing,
 // its records, its pack read), what of its pack it read, the time V8 took
 // collecting garbage, and a promise of its pack written. A file's load and a

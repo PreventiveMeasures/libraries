@@ -46,10 +46,15 @@ describe('prune', () => {
   }
   const left = (dir, of) => (existsSync(join(dir, of)) ? readdirSync(join(dir, of)).toSorted() : [])
 
-  it('removes the packs and entries no run has used for STALE, and those alone', async () => {
+  it('removes the packs, entries and last builds no run has used for STALE, and those alone', async () => {
     const dir = cacheOf({ packs: { old: { ago: STALE + HOUR }, used: { ago: STALE - HOUR } }, entries: { old: STALE + HOUR, used: HOUR } })
+    mkdirSync(join(dir, 'builds'))
+    for (const [name, ago] of [['old.json', STALE + HOUR], ['used.json', HOUR]]) {
+      writeFileSync(join(dir, 'builds', name), '[]')
+      utimesSync(join(dir, 'builds', name), new Date(NOW - ago), new Date(NOW - ago))
+    }
     await prune(dir, { now: NOW })
-    assert.deepEqual([left(dir, 'packs'), left(dir, 'entries')], [['used'], ['used']])
+    assert.deepEqual([left(dir, 'packs'), left(dir, 'entries'), left(dir, 'builds')], [['used'], ['used'], ['used.json']])
   })
 
   it('removes the least lately used packs while they take more than the budget, but of those a run used of the last GRACE', async () => {
@@ -99,6 +104,7 @@ describe("a pack's use", () => {
     utimesSync(dir, old, old)
     const read = createPack(dir)
     read.start()
+    await read.load()
     assert.equal(read.get('0'.repeat(64)), 'zero')
     assert.ok(Date.now() - statSync(dir).mtimeMs < HOUR)
     utimesSync(dir, old, old)

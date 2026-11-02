@@ -9,7 +9,7 @@ import { loadCached, lowersLetOf } from '../src/bundle.js'
 import { peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
 import { configKeyOf, createLoadCache, ownModules } from '../src/load-cache.js'
-import { writeTree } from './fixtures.js'
+import { packedRecords, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
 const modules = createRequire(import.meta.url).cache
@@ -19,12 +19,6 @@ const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_mo
 // A plugin of an output of its own each time it runs: one the same is kept.
 const RANDOM = "module.exports = ({ types: t }, { tag = '' }) => ({ name: 'random', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(tag + Math.random()))) } } } })\n"
 
-// The records of a pack's segment (load-pack.js's): a key, its length, its JSON.
-const recordsOf = (buffer) => {
-  let count = 0
-  for (let at = 0; at + 68 <= buffer.length; at += 68 + buffer.readUInt32LE(at + 64)) count++
-  return count
-}
 
 // A project of these files and @babel/core, its cache in it, and a run of
 // rn-serve on it: a target of its own, its own workers, a store of its
@@ -64,7 +58,7 @@ function projectOf(tree) {
     let count = 0
     for (const path of readdirSync(cacheDir, { recursive: true })) {
       const full = join(cacheDir, path)
-      if (path.endsWith('.pack')) count += recordsOf(readFileSync(full))
+      if (path.endsWith('.pack')) count += packedRecords(readFileSync(full)).length
       else if (!path.startsWith('packs') && statSync(full).isFile()) count++
     }
     return count
