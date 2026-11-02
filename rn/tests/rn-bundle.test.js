@@ -774,6 +774,9 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     // A string of an escape of a control character.
     'tab.js': "import { a } from 'foo\\tbar'\nconsole.log(JSON.stringify(a))\n",
     'lib/classCallCheck.js': "module.exports = 'classCallCheck'\n",
+    // A template of no substitution, as transform-template-literals makes it a string.
+    'template.js': 'const { a } = require(`#lib/a`)\nconsole.log(JSON.stringify(a))\n',
+    'template-plugin.js': "module.exports = ({ types: t }) => ({ name: 'transform-template-literals', visitor: { TemplateLiteral(path) { if (path.node.expressions.length === 0) path.replaceWith(t.stringLiteral(path.node.quasis[0].value.cooked)) } } })\n",
     'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
@@ -821,7 +824,7 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     assert.equal(build({ '^foo\\tbar$': './lib/a' }, 'tab.js'), 'a')
   })
 
-  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's", () => {
+  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's, a template's string", () => {
     const bundled = (alias, plugin, entry) => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}], ${JSON.stringify(plugin)}] }\n`)
       const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
@@ -835,6 +838,7 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     // Of core-js, @babel/runtime-corejs3's.
     const corejs = ['./helper-plugin.js', { corejs: 3, specifier: '@babel/runtime-corejs3/helpers/classCallCheck' }]
     assert.equal(bundled({ '^@babel/runtime-corejs3/helpers/classCallCheck$': './lib/classCallCheck' }, corejs, 'helper.js'), 'classCallCheck')
+    assert.equal(bundled({ '^#lib/(.+)$': './lib/\\1' }, './template-plugin.js', 'template.js'), 'a')
   })
 
   it('keeps it where it may rewrite what names none: with a root', () => {
