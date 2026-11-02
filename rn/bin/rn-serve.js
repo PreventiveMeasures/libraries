@@ -184,12 +184,11 @@ function keys(serverUrl) {
   emitKeypressEvents(process.stdin)
   process.stdin.setRawMode(true)
   process.stdin.on('keypress', (text, key) => {
+    // At once, a build in progress though: what it would make is kept in
+    // memory alone, and esbuild and Babel's workers end with the process.
     if (key?.ctrl && (key.name === 'c' || key.name === 'd')) {
       process.stdin.setRawMode(false)
-      watcher.close()
-      server.close()
-      server.closeAllConnections()
-      void quit()
+      process.exit(0)
     } else if (text === 'r' || text === 'd') {
       const method = text === 'r' ? 'reload' : 'devMenu'
       log(`rn-serve: ${method} to ${devServer.broadcast(method)} app(s)`)
@@ -197,11 +196,6 @@ function keys(serverUrl) {
       void openDebugger(serverUrl)
     }
   })
-}
-
-async function quit() {
-  await devBundler.dispose()
-  process.exit(0)
 }
 
 // As React Native's `j`: the debugger of the app last connected.
