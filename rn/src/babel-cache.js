@@ -165,7 +165,10 @@ export function cacheOf(dir, fingerprint, modules) {
         writeFileSync(written, JSON.stringify(entry))
         renameSync(written, path)
       } catch {
-        rmSync(written, { force: true })
+        // Nor what is left of it, where it can't be: the output is Babel's still.
+        try {
+          rmSync(written, { force: true })
+        } catch {}
       }
     },
   }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -229,6 +229,14 @@ describe('babelWorkers, with a cache directory', () => {
     assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"two";')
     writeFileSync(join(root, 'flag'), '')
     assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"two!";')
+  })
+
+  it("transforms, though the cache can't be written", async () => {
+    const blocked = join(root, 'blocked')
+    // Each entry's directory a file.
+    mkdirSync(blocked)
+    for (let i = 0; i < 256; i++) writeFileSync(join(blocked, i.toString(16).padStart(2, '0')), '')
+    assert.equal(await code('i()', 'i.js', [], { cacheDir: blocked, babelrc: false }), 'i();')
   })
 
   it("keeps no output of a plugin's of files it names, nor any error", async () => {
