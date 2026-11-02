@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
 //   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--esm]
-//   [--reset-cache] [--client-logs]
+//   [--reset-cache] [--no-warm] [--client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
@@ -23,7 +23,10 @@
 // are the same; each build logs, on its line, its time, and of the files it
 // loaded, those the cache had (hits), those loaded anew (misses), those as
 // they were in memory, and why one was kept none of. --reset-cache empties
-// it first, as Metro's does its own. A dev
+// it first, as Metro's does its own. As it starts, it builds, ahead of the
+// app, the bundles an app asked for of its last run; of none, the project's
+// one bundle (the one its native project names, else its index), for iOS
+// on a Mac, else for Android; --no-warm builds none. A dev
 // bundle is in Metro's module format, with metro-runtime's require (that
 // react-native has): each app of one gets what changed, as Metro's Fast
 // Refresh sends it, where the project's Babel config runs each component of
@@ -76,8 +79,10 @@ const { values } = parseArgs({
     'babel-aliases': { type: 'string' },
     esm: { type: 'boolean', default: false },
     'reset-cache': { type: 'boolean', default: false },
+    warm: { type: 'boolean', default: true },
     'client-logs': { type: 'boolean', default: false },
   },
+  allowNegative: true,
 })
 
 const fail = failer('rn-serve')
@@ -194,7 +199,7 @@ server.listen(port, host, () => {
   if (runtime === null) log("rn-serve: no metro-runtime, as react-native has it: no Fast Refresh, a change reloads the app")
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
-  void last?.warm(devBundler, log)
+  if (values.warm) void last?.warm(devBundler, log)
 })
 
 // Why a file loaded anew was kept none of (loadCached()'s).
