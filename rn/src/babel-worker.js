@@ -4,7 +4,7 @@
 import { once } from 'node:events'
 import { createRequire } from 'node:module'
 import { availableParallelism } from 'node:os'
-import { isAbsolute, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
 // (corePath, options, profile) => async (source, filename, without = []) =>
@@ -176,35 +176,82 @@ if (workerData?.babel !== undefined) {
     for (const hook of ['pre', 'post', 'parserOverride', 'generatorOverride']) if (typeof plugin[hook] === 'function') plugin[hook] = timed(plugin.key, plugin[hook], hook.endsWith('Override'))
   }
   // babel-plugin-module-resolver traverses each file on Program's enter and
-  // exit, but rewrites nothing where no string in it names an alias, as its
-  // options, normalized by its pre hook for the file, have each, with no
-  // `root` and no `resolvePath` of its own: each instance's traversals run
-  // only where one does, checked by a walk of the file's nodes as each would
-  // start, with what other plugins added by then. A walk alone is its time,
-  // not a call of it (timed()).
+  // exit for the source of each import and export declaration and the first
+  // argument of each call of one of its transformFunctions or of import(),
+  // which, a string, it maps by its resolvePath and replaces (its
+  // mapPathString). With no `root` and no `resolvePath` of its own, as its
+  // options, normalized by its pre hook for the file, have them, it changes
+  // nothing where no string in the file names an alias: there each
+  // instance's traversal is left out, else done by a walk of the file's
+  // nodes, as Babel has them as it would start (with what other plugins
+  // added by then), each such string mapped by its module's own resolvePath,
+  // where the plugin is its module's. A traversal left out is its time, not
+  // a call of it (timed()).
   const RESOLVER = 'module-resolver'
   const gated = new WeakSet()
-  const names = (node, options) => {
-    if (options?.root?.length !== 0 || options.customResolvePath !== undefined || !Array.isArray(options.alias) || !options.alias.every(([regExp]) => regExp instanceof RegExp)) return true
-    let named = false
-    core.types.traverseFast(node, (child) => {
-      named ||= child.type === 'StringLiteral' && options.alias.some(([regExp]) => regExp.test(child.value))
-    })
-    return named
+  // Its module's resolvePath, where the plugin's Program visitor is its
+  // module's: as the project resolves the module, as its Babel config does.
+  const resolvePathOf = (enter) => {
+    try {
+      const resolver = createRequire(join(given.cwd ?? process.cwd(), 'package.json'))('babel-plugin-module-resolver')
+      const its = resolver.default({ types: core.types }).visitor.Program.enter
+      return (Array.isArray(its) ? its[0] : its) === enter && typeof resolver.resolvePath === 'function' ? resolver.resolvePath : null
+    } catch {
+      return null
+    }
   }
-  const gate = (fn) =>
+  // Whether a call is of one of the patterns, as module-resolver's matchesPattern has it.
+  const transforms = ({ callee }, patterns) =>
+    core.types.isImport(callee) || patterns.some((pattern) => (core.types.isMemberExpression(callee) ? core.types.matchesPattern(callee, pattern) : core.types.isIdentifier(callee) && !pattern.includes('.') && callee.name === pattern))
+  // -> null where no string in the node names an alias, else the nodes
+  // module-resolver maps a string of: [node, key, index].
+  const sitesOf = (node, { alias, transformFunctions }) => {
+    let named = false
+    const sites = []
+    core.types.traverseFast(node, (child) => {
+      named ||= child.type === 'StringLiteral' && alias.some(([regExp]) => regExp.test(child.value))
+      if (core.types.isImportDeclaration(child) || core.types.isExportDeclaration(child)) sites.push([child, 'source'])
+      else if (child.type === 'CallExpression' && transforms(child, transformFunctions)) sites.push([child, 'arguments', 0])
+    })
+    return named ? sites : null
+  }
+  // As module-resolver's mapPathString maps each, each node of it visited once.
+  const resolve = (sites, pass, resolvePath) => {
+    const visited = pass.moduleResolverVisited
+    for (const [owner, key, index] of sites) {
+      if (visited.has(owner)) continue
+      visited.add(owner)
+      const node = index === undefined ? owner[key] : owner[key][index]
+      if (!core.types.isStringLiteral(node)) continue
+      const modulePath = resolvePath(node.value, pass.file.opts.filename, pass.opts)
+      if (!modulePath || node.pathResolved) continue
+      const replacement = core.types.stringLiteral(modulePath)
+      core.types.inheritsComments(replacement, node)
+      core.types.removeComments(node)
+      replacement.pathResolved = true
+      if (index === undefined) owner[key] = replacement
+      else owner[key][index] = replacement
+    }
+  }
+  const aliasesAlone = (options) => options?.root?.length === 0 && options.customResolvePath === undefined && Array.isArray(options.alias) && options.alias.every(([regExp]) => regExp instanceof RegExp) && Array.isArray(options.transformFunctions) && options.transformFunctions.every((pattern) => typeof pattern === 'string')
+  const gate = (fn, resolvePath) =>
     function (path, ...rest) {
       // `this`, the instance's pass, with its options for the file.
-      if (names(path.node, this?.normalizedOpts)) return fn.call(this, path, ...rest)
-      skipped = true
+      const options = this?.normalizedOpts
+      if (!aliasesAlone(options)) return fn.call(this, path, ...rest)
+      const sites = sitesOf(path.node, options)
+      if (sites === null) skipped = true
+      else if (resolvePath === null || !(this.moduleResolverVisited instanceof Set)) return fn.call(this, path, ...rest)
+      else resolve(sites, this, resolvePath)
       return undefined
     }
   const gateResolver = (plugin) => {
     const program = plugin.visitor?.Program
     if (plugin.key !== RESOLVER || gated.has(plugin) || program === undefined) return
     gated.add(plugin)
+    const resolvePath = resolvePathOf(program.enter?.[0])
     // Its own, not the Program visitor its instances share.
-    const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map(gate) : fns])
+    const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map((fn) => gate(fn, resolvePath)) : fns])
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
   // Sync: a worker transforms one file at a time.
