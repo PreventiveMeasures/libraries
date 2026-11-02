@@ -5,11 +5,12 @@
 // which dev-middleware connects to it anew). Once of each connection of a
 // device: DevTools closed, they are opened again as the app connects anew.
 
-// The page of a runtime before React Native's modern one that
-// dev-middleware's /open-debugger takes, by its title; else one that reloads
-// in place, as it takes them.
-const LEGACY_PAGE = 'React Native Experimental (Improved Chrome Reloads)'
-const debuggable = (page) => page?.title === LEGACY_PAGE || page?.capabilities?.nativePageReloads === true
+// A page DevTools debug, as dev-middleware's /open-debugger takes them: one
+// that reloads in place (React Native's modern runtime); else, of a runtime
+// before it, one whose title names React, as dev-middleware's Device finds
+// it, of which it makes the page /open-debugger takes ("React Native
+// Experimental (Improved Chrome Reloads)", which no runtime lists itself).
+const debuggable = (page) => page?.capabilities?.nativePageReloads === true || (typeof page?.title === 'string' && page.title.includes('React'))
 
 // The device an inspector socket is of, as its URL names it; null where it
 // names none (dev-middleware numbers it then).

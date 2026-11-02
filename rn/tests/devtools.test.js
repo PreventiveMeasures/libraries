@@ -41,10 +41,12 @@ describe('createDevToolsOpener', () => {
     assert.deepEqual(opened, ['phone', 'phone'])
   })
 
-  it("takes a runtime's legacy page, as /open-debugger does, and no page of neither", async () => {
+  it("takes a legacy runtime's page whose title names React, of which dev-middleware makes the page /open-debugger takes, and no page of neither", async () => {
     const { opened, opener } = setup()
-    connect(opener.deviceConnected, '/inspector/device?device=old').emit('message', pages({ id: '2', title: 'React Native Experimental (Improved Chrome Reloads)', app: 'com.app' }))
+    // As a runtime before React Native's modern one lists it: of no capabilities.
+    connect(opener.deviceConnected, '/inspector/device?device=old').emit('message', pages({ id: '2', title: 'Hermes React Native', app: 'com.app', vm: 'Hermes' }))
     connect(opener.deviceConnected, '/inspector/device?device=jsc').emit('message', pages({ id: '1', title: 'JSC', app: 'com.app', capabilities: {} }))
+    connect(opener.deviceConnected, '/inspector/device?device=untitled').emit('message', pages({ id: '3', app: 'com.app' }))
     await tick()
     assert.deepEqual(opened, ['old'])
   })
