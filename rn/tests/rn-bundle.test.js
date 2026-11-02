@@ -332,6 +332,60 @@ describe('rn-bundle with a Metro config, but no metro-config', () => {
   })
 })
 
+describe("rn-bundle, of a project's rn.config.json", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    ...METRO_CONFIG,
+    // A config it refuses, which metroConfig false leaves unread.
+    'metro.config.js': templateConfig("{ transformer: { babelTransformerPath: require.resolve('./svg-transformer.js') } }"),
+    'svg-transformer.js': 'module.exports = {}\n',
+    'glow.config.js': templateConfig("{ resolver: { assetExts: ['glow'] } }"),
+    'halo.glow': 'GLOW',
+    'glow.js': "import { getAssetByID } from 'react-native/Libraries/Image/AssetRegistry'\nconsole.log(JSON.stringify(getAssetByID(require('./halo.glow')).type))\n",
+  })
+  after(cleanup)
+  const bundleWith = (config, args = [], entry = 'index.js') => {
+    writeFileSync(join(root, 'rn.config.json'), JSON.stringify(config))
+    return runBundle(['--platform=ios', ...OPTIONS, ...args, '--output=out.js', entry], { cwd: root })
+  }
+
+  it('loads the Metro config Metro finds, as of none', async () => {
+    const r = await bundleWith({ metroConfig: true })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /^rn-bundle: metro\.config\.js: transformer\.babelTransformerPath is "svg-transformer\.js"/u)
+  })
+
+  it("loads no Metro config of metroConfig false, as of a project with none: Metro's defaults as @react-native/metro-config has them", async () => {
+    const r = await bundleWith({ metroConfig: false })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(printed(join(root, 'out.js'))).where, 'ios')
+  })
+
+  it('loads the Metro config of its path, --metro-config over it', async () => {
+    const r = await bundleWith({ metroConfig: 'glow.config.js' }, [], 'glow.js')
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(printed(join(root, 'out.js'))), 'glow')
+    const over = await bundleWith({ metroConfig: false }, ['--metro-config=glow.config.js'], 'glow.js')
+    assert.equal(over.status, 0, over.stderr)
+    const refused = await bundleWith({ metroConfig: 'glow.config.js' }, ['--metro-config=metro.config.js'], 'glow.js')
+    assert.match(refused.stderr, /^rn-bundle: metro\.config\.js: transformer\.babelTransformerPath/u)
+    assert.match((await bundleWith({ metroConfig: 'none.config.js' })).stderr, /^rn-bundle: no such Metro config: none\.config\.js\n$/u)
+  })
+
+  it('takes esm where Babel runs, as --esm, --no-esm over it', async () => {
+    const r = await bundleWith({ metroConfig: false, esm: true })
+    assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: rn.config.json's esm keeps ES modules through the project's Babel config, and it has none\n"])
+    const over = await bundleWith({ metroConfig: false, esm: true }, ['--no-esm'])
+    assert.equal(over.status, 0, over.stderr)
+  })
+
+  it('refuses an option it does not know, and takes devTools, which is of rn-serve', async () => {
+    const r = await bundleWith({ metroConfig: false, esModules: true })
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, esm, devTools\n'])
+    assert.equal((await bundleWith({ metroConfig: false, devTools: true })).status, 0)
+  })
+})
+
 describe('rn-bundle, as @react-native/metro-config configures Metro', () => {
   const modern = writeTree(reactNativeApp(true))
   const older = writeTree(reactNativeApp(false))
