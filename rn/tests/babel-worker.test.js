@@ -38,12 +38,14 @@ describe('babelWorkers', () => {
 
   it('transforms in at most as many workers as it is given, else 2 of 4 CPUs or more, 1 of fewer', async () => {
     assert.deepEqual([1, 2, 3, 4, 8, 12, 16].map((cores) => defaultWorkers(cores)), [1, 1, 1, 2, 2, 2, 2])
-    const threads = async (max) => {
+    const threads = async (max, length) => {
       const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }, null, max)
-      const files = await Promise.all(Array.from({ length: 6 }, (_, i) => transform('a()', join(root, `t${i}.js`))))
+      const files = await Promise.all(Array.from({ length }, (_, i) => transform('a()', join(root, `t${i}.js`))))
       return new Set(files.map(({ code }) => code)).size
     }
-    assert.deepEqual([await threads(1), await threads(3)], [1, 3])
+    assert.deepEqual([await threads(1, 30), await threads(3, 30)], [1, 3])
+    // A few files, which one does before another would have loaded Babel.
+    assert.equal(await threads(3, 8), 1)
   })
 
   it("leaves out the config's plugins of the keys it is given", async () => {

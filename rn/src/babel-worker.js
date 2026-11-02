@@ -18,6 +18,9 @@ export function defaultWorkers(cores = availableParallelism()) {
   return cores >= 4 ? 2 : 1
 }
 
+// The files each worker has waiting before one more is made.
+const BACKLOG = 8
+
 // (corePath, options, profile, max) => async (source, filename, without = []) =>
 // { code, imports }, by the @babel/core at corePath, with options (all but
 // the filename) for each file, its config's plugins of the keys in without
@@ -30,13 +33,15 @@ export function defaultWorkers(cores = availableParallelism()) {
 // export-from declarations (IMPORTS). Where profile is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
 // hooks', by its key. At most `max` workers (defaultWorkers() where null),
-// made as files wait for one.
+// one more made only as files wait: as each has BACKLOG of them or more. One
+// starting costs some 300 ms of CPU, loading Babel and the config, which a
+// few files, done by one in less, don't make up for.
 export function babelWorkers(corePath, options, profile = null, max = null) {
   const most = max ?? defaultWorkers()
   const workers = []
   const pick = () => {
-    const idle = workers.find(({ busy }) => busy === 0)
-    if (idle !== undefined || workers.length >= most) return idle ?? workers.reduce((a, b) => (b.busy < a.busy ? b : a))
+    const least = workers.reduce((a, b) => (a === undefined || b.busy < a.busy ? b : a), undefined)
+    if (least !== undefined && (least.busy < BACKLOG || workers.length >= most)) return least
     const info = { worker: new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } }), busy: 0, pending: new Set() }
     // A worker that dies leaves the pool, failing what it was given, which
     // would wait forever; one more is made where needed.
