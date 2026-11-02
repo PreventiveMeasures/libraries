@@ -641,31 +641,31 @@ describe('rn-serve, its cache of each file as it loads', () => {
   })
   const transformed = () => (existsSync(join(root, 'transformed.log')) ? readFileSync(join(root, 'transformed.log'), 'utf8').trim().split('\n').length : 0)
   // A run of rn-serve, of a bundle: -> its result, how many files Babel
-  // transformed, and how many it logs it loaded from the cache.
+  // transformed, and the cache's status it logs on its build's line.
   const served = async (args = []) => {
     const count = transformed()
     const server = await serve(root, args, tmp)
     try {
       const code = String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)
-      const logged = await until(() => /rn-serve: built .*?(?:, (\d+) of (\d+) files loaded from the cache)?\n/u.exec(server.output()), 'the build logged')
-      return [run(code).result, transformed() - count, `${logged[1]} of ${logged[2]}`]
+      const logged = await until(() => /rn-serve: built \S+ for ios, dev in \d+ ms, cache: ([^\n]*)\n/u.exec(server.output()), 'the build logged')
+      return [run(code).result, transformed() - count, logged[1]]
     } finally {
       await server.stop()
     }
   }
 
-  it('keeps each file as it loads in the OS\'s temporary directory, across runs, while the Babel config and the plugins left out of it are the same, and logs how many it took', async () => {
-    assert.deepEqual(await served(), ['other', 2, '0 of 2'])
+  it('keeps each file as it loads in the OS\'s temporary directory, across runs, while the Babel config and the plugins left out of it are the same, and logs on its line its time, hits and misses', async () => {
+    assert.deepEqual(await served(), ['other', 2, '0 hits, 2 misses'])
     assert.deepEqual(readdirSync(tmp).filter((name) => name.startsWith('rn-serve-cache')), [`rn-serve-cache-${process.getuid()}`])
-    assert.deepEqual(await served(), ['other', 0, '2 of 2'])
+    assert.deepEqual(await served(), ['other', 0, '2 hits, 0 misses'])
     // Without the config's CommonJS plugin, which esbuild does for it.
-    assert.deepEqual(await served(['--esm']), ['other', 2, '0 of 2'])
-    assert.deepEqual(await served(['--esm']), ['other', 0, '2 of 2'])
-    assert.deepEqual(await served(), ['other', 0, '2 of 2'])
+    assert.deepEqual(await served(['--esm']), ['other', 2, '0 hits, 2 misses'])
+    assert.deepEqual(await served(['--esm']), ['other', 0, '2 hits, 0 misses'])
+    assert.deepEqual(await served(), ['other', 0, '2 hits, 0 misses'])
     writeFileSync(join(root, 'babel.config.js'), config('A config, changed.'))
-    assert.deepEqual(await served(), ['other', 2, '0 of 2'])
-    assert.deepEqual(await served(['--reset-cache']), ['other', 2, '0 of 2'])
-    assert.deepEqual(await served(), ['other', 0, '2 of 2'])
+    assert.deepEqual(await served(), ['other', 2, '0 hits, 2 misses'])
+    assert.deepEqual(await served(['--reset-cache']), ['other', 2, '0 hits, 2 misses'])
+    assert.deepEqual(await served(), ['other', 0, '2 hits, 0 misses'])
   })
 
   it('keeps none in a directory another may write in', async () => {

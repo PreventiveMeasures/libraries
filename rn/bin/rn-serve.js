@@ -16,8 +16,10 @@
 // flow-remove-types, the lockfile, the Babel config the file has (the
 // plugins left out of it, as --esm leaves one, among it), the code of
 // @babel/core and of what the config loads or reads, NODE_ENV and BABEL_ENV
-// are the same; each build logs how many of the files it loaded it took
-// from there. --reset-cache empties it first, as Metro's does its own. A dev
+// are the same; each build logs, on its line, its time, and of the files it
+// loaded, those the cache had (hits), those loaded anew (misses), those as
+// they were in memory, and why one was kept none of. --reset-cache empties
+// it first, as Metro's does its own. A dev
 // bundle is in Metro's module format, with metro-runtime's require (that
 // react-native has): each app of one gets what changed, as Metro's Fast
 // Refresh sends it, where the project's Babel config runs each component of
@@ -112,9 +114,8 @@ const devBundler = createDevBundler({
   },
   onBuild: ({ request, outcome, ms, cached }) => {
     watcher?.update(devBundler.files())
-    const what = `${request.entryFile} for ${request.platform ?? 'no platform'}${request.dev ? ', dev' : ''}${request.minify ? ', minified' : ''}`
-    const loaded = cached === null ? 0 : cached.taken + cached.made
-    if (outcome.ok) return log(`rn-serve: built ${what} in ${ms} ms${loaded === 0 ? '' : `, ${cached.taken} of ${loaded} files loaded from the cache`}`)
+    const what = `${request.entryFile} for ${request.platform ?? 'no platform'}${request.dev ? ', dev' : ''}${request.minify ? ', minified' : ''} ${status(ms, cached)}`
+    if (outcome.ok) return log(`rn-serve: built ${what}`)
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
   },
 })
@@ -182,6 +183,21 @@ server.listen(port, host, () => {
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
 })
+
+// Why a file loaded anew was kept none of (loadCached()'s).
+const UNKEPT = { fingerprint: "without a fingerprint of Babel's config", config: 'of a Babel config with no key', external: "of a plugin's files of its own", failed: 'failed' }
+const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`
+
+// A build's status, on its line: its time, and of the files it loaded, those
+// the cache had, those loaded anew, those as they were in memory, and why
+// one loaded anew was kept none of; `cached`, the store's tally(), null
+// where there is none.
+function status(ms, cached) {
+  if (cached === null) return `in ${ms} ms, cache: off`
+  const { hits, misses, memory, unkept } = cached
+  const why = Object.entries(unkept).map(([reason, count]) => `${count} ${UNKEPT[reason] ?? reason}`).join(', ')
+  return `in ${ms} ms, cache: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
+}
 
 // The directory each file as it loads is kept in across runs: the user's
 // own, in the OS's temporary directory, as Metro keeps its cache; emptied

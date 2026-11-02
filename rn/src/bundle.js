@@ -380,16 +380,26 @@ export function lookingOnce(host) {
 // the same; else as options.store (load-cache.js's) has it, of the options
 // that make it (sourcemap, esm, keepPlugins), where it does, kept there
 // where it doesn't; but none failed, nor one of Babel's `uncacheable`.
+// Each counted in the store (its note()): in memory, or loaded anew, and
+// why one is kept none of.
 export async function loadCached(options, host, cache, path) {
   const contents = decoder.decode(host.readFile(path))
-  const hit = cache?.get(path)
-  if (hit !== undefined && hit.contents === contents) return hit.result
   const { store = null, esm = false } = options
+  const hit = cache?.get(path)
+  if (hit !== undefined && hit.contents === contents) {
+    store?.note('memory')
+    return hit.result
+  }
   const variant = [Boolean(options.sourcemap), esm === false ? null : esm.has(path), Boolean(options.keepPlugins)]
-  const key = store === null ? null : await store.keyOf(path, contents, variant)
+  const { key, why = null } = store === null ? { key: null } : await store.keyOf(path, contents, variant)
   const kept = key === null ? null : store.get(key)
   const { uncacheable = false, ...result } = kept ?? (await loadFile(options, path, contents))
-  if (kept === null && key !== null && !uncacheable && result.errors === undefined) store.set(key, result)
+  if (kept === null && store !== null) {
+    const unkept = result.errors === undefined ? (why ?? (uncacheable ? 'external' : null)) : 'failed'
+    store.note('misses')
+    if (unkept === null) store.set(key, result)
+    else store.note('unkept', unkept)
+  }
   if (cache !== null && result.errors === undefined) cache.set(path, { contents, result })
   return result
 }

@@ -58,10 +58,16 @@ describe('loadCached, with a store of load-cache.js', () => {
     const first = run()
     const loaded = await first.load('a.js', "import a from 'a'\na()")
     assert.match(loaded.contents, /^import a from "a";\na\(\);\n"a0\.\d+";$/u)
-    assert.deepEqual(first.store.tally(), { taken: 0, made: 1 })
+    assert.deepEqual(first.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: {} })
     const second = run()
     assert.deepEqual(await second.load('a.js', "import a from 'a'\na()"), loaded)
-    assert.deepEqual(second.store.tally(), { taken: 1, made: 0 })
+    assert.deepEqual(second.store.tally(), { hits: 1, misses: 0, memory: 0, unkept: {} })
+    // As in memory, of a build after.
+    const memory = new Map()
+    const options = { esbuild, projectRoot: root, stripFlow: null, babel: second.target.babel, babelPlugins: second.target.babelPlugins, store: second.store }
+    await loadCached(options, diskHost, memory, join(root, 'a.js'))
+    await loadCached(options, diskHost, memory, join(root, 'a.js'))
+    assert.deepEqual(second.store.tally(), { hits: 1, misses: 0, memory: 1, unkept: {} })
     assert.notEqual(await contents('a.js', 'a()'), loaded.contents)
     writeFileSync(join(root, 'other.js'), "import a from 'a'\na()")
     assert.notEqual(await contents('other.js', "import a from 'a'\na()"), loaded.contents)
@@ -138,9 +144,17 @@ describe('loadCached, with a store of load-cache.js', () => {
     assert.match((await run({ dir: blocked }).load('i.js', 'i()')).contents, /^i\(\);\n"/u)
   })
 
-  it('keeps none that fails', async () => {
+  it('keeps none that fails, nor any of a target with no fingerprint, and counts each, and why', async () => {
     const count = entries()
-    assert.equal((await run().load('f.js', 'const = 1')).errors.length, 1)
+    const failing = run()
+    assert.equal((await failing.load('f.js', 'const = 1')).errors.length, 1)
+    assert.deepEqual(failing.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { failed: 1 } })
+    assert.equal(entries(), count)
+    const unprinted = run()
+    unprinted.target.fingerprint = () => Promise.reject(new Error('no fingerprint'))
+    unprinted.target.workerOptions = { other: true }
+    await unprinted.load('g.js', 'g()')
+    assert.deepEqual(unprinted.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { fingerprint: 1 } })
     assert.equal(entries(), count)
   })
 
@@ -207,5 +221,8 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
     const count = entries()
     assert.notEqual(await contents('external.js', 'e()'), await contents('external.js', 'e()'))
     assert.equal(entries(), count)
+    const each = run()
+    await each.load('external.js', 'e()')
+    assert.deepEqual(each.store.tally(), { hits: 0, misses: 1, memory: 0, unkept: { external: 1 } })
   })
 })

@@ -230,11 +230,15 @@ function writeEntry(dir, key, value) {
 // target's fingerprint is kept with what it is a digest of: a run after,
 // where those are the same, it is that, at once, before its workers load
 // Babel and the config. -> (babel) => { keyOf(path, contents, variant)
-// (async, null where none is kept), get(key) (loadFile()'s result, or null
-// where none), set(key, result), keep(kind, path, compute) (async: what
-// compute() gives, of the file's config, kept as `kind`, JSON), tally() },
-// of a target; tally() -> { taken, made } since it was last asked, of the
-// results taken and set. Each is written whole, then moved in place:
+// (async: { key }, or { key: null, why } where none is kept: `fingerprint`,
+// its workers have none; `config`, the file's config has no key), get(key)
+// (loadFile()'s result, or null where none), set(key, result), keep(kind,
+// path, compute) (async: what compute() gives, of the file's config, kept
+// as `kind`, JSON), note(what, why), tally() }, of a target. note() counts
+// a file `memory` (as it was in memory), `misses` (loaded anew), or
+// `unkept` (loaded anew, kept none of, `why`); get() counts `hits`.
+// tally() -> { hits, misses, memory, unkept: { [why]: count } } since it
+// was last asked. Each is written whole, then moved in place:
 // another rn-serve may read it. A cache, at best: what fails to read or
 // write is loaded anew.
 export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
@@ -268,36 +272,38 @@ export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
   return (babel) => {
     const keyOf = async (path, contents, variant) => {
       const base = await baseOf(babel)
-      if (base === null) return null
+      if (base === null) return { key: null, why: 'fingerprint' }
       const { prefix, covered } = base
       const config = babel === null ? '' : babel.configKey(path, covered)
-      if (config === null) return null
-      return createHash('sha256').update(prefix).update('\0').update(JSON.stringify([path, variant, config])).update('\0').update(contents).digest('hex')
+      if (config === null) return { key: null, why: 'config' }
+      return { key: createHash('sha256').update(prefix).update('\0').update(JSON.stringify([path, variant, config])).update('\0').update(contents).digest('hex') }
     }
-    let tally = { taken: 0, made: 0 }
+    const fresh = () => ({ hits: 0, misses: 0, memory: 0, unkept: {} })
+    let tally = fresh()
     return {
       keyOf,
       get: (key) => {
         const result = read(key)
         if (typeof result?.contents !== 'string' || typeof result.loader !== 'string') return null
-        tally.taken++
+        tally.hits++
         return result
       },
-      set: (key, result) => {
-        write(key, result)
-        tally.made++
-      },
+      set: (key, result) => write(key, result),
       keep: async (kind, path, compute) => {
-        const key = await keyOf(path, '', [kind])
+        const { key } = await keyOf(path, '', [kind])
         const kept = key === null ? null : read(key)
         if (kept !== null && Object.hasOwn(kept, 'value')) return kept.value
         const value = await compute()
         if (key !== null) write(key, { value })
         return value
       },
+      note: (what, why = null) => {
+        if (what === 'unkept') tally.unkept[why] = (tally.unkept[why] ?? 0) + 1
+        else tally[what]++
+      },
       tally: () => {
         const was = tally
-        tally = { taken: 0, made: 0 }
+        tally = fresh()
         return was
       },
     }
