@@ -5,7 +5,7 @@
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
-import { fingerprintOf, readsOf } from './load-cache.js'
+import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
@@ -57,7 +57,7 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
   // config: before any file, which a plugin may require more for. Asked, its
   // inputs too, which a run after may make it of again (load-cache.js).
   const reads = fingerprinted ? readsOf(loadConfig) : loadConfig()
-  const inputs = fingerprinted ? { options: { refresh, keepPlugins, inlineRequires, ...given }, modules: Object.keys(createRequire(corePath).cache), reads: [...reads] } : null
+  const inputs = fingerprinted ? { options: { refresh, keepPlugins, inlineRequires, ...given }, modules: withDependencies(Object.keys(createRequire(corePath).cache)), reads: [...reads] } : null
   const fingerprint = fingerprinted ? fingerprintOf(inputs.modules, inputs.options, reads) : null
   return ({ source, filename, without, fingerprint: asked = false }) => {
     if (asked) return { fingerprint, ...inputs }

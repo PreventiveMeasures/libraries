@@ -1,5 +1,5 @@
 // rn-serve's cache (load-cache.js's), pruned: of each change to rn's code,
-// to the lockfile, or to a target's Babel config, the cache has a pack of
+// to esbuild, or to a target's Babel config (or what it depends on), the cache has a pack of
 // its own, of an app of 10k files 350 MB, and entries of their own, which
 // no run after would read again, nor remove. Not of the chain (load-cache.js's
 // ownModules()): what it removes is read by none, of a key of none.

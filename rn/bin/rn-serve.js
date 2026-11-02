@@ -19,9 +19,11 @@
 // Babel config's output) is kept on disk too, across runs, in the OS's
 // temporary directory, as Metro keeps its cache (rn-serve-cache-UID, the
 // user's alone; rn-bundle keeps none): while the file, rn, esbuild,
-// flow-remove-types, the lockfile, the Babel config the file has (the
+// flow-remove-types and its dependencies, the Babel config the file has (the
 // plugins left out of it, as --esm leaves one, among it), the code of
-// @babel/core and of what the config loads or reads, NODE_ENV and BABEL_ENV
+// @babel/core and of what the config loads or reads, the versions of the
+// packages they depend on (not the lockfile: a package the app adds is of
+// none of it), NODE_ENV and BABEL_ENV
 // are the same; each build logs, on its line, its time, and of the files it
 // loaded, those the cache had (hits), those loaded anew (misses), those as
 // they were in memory, and why one was kept none of. --reset-cache empties
@@ -108,7 +110,7 @@ if (values.esm && babelFor === null) fail("--esm keeps ES modules through the pr
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
 let pruned = null
-const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types'), cwd: projectRoot })
+const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types') })
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
 
@@ -212,18 +214,15 @@ const UNKEPT = { fingerprint: "without a fingerprint of Babel's config", config:
 const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`
 
 // A build's status, on its line: its time, the time of it the cache took,
-// by part (its files' configs' keys, its hashing, its records, its pack
-// read, of so many MB, so many unpacked), the time V8 took of it collecting garbage, and of
-// the files it loaded, those the cache had, those loaded anew, those as
-// they were in memory, and why one loaded anew was kept none of; `cached`,
-// the store's tally, null where there is none.
+// and of the files it loaded, those the cache had, those loaded anew, those
+// as they were in memory, and why one loaded anew was kept none of;
+// `cached`, the store's tally, null where there is none.
 function status(ms, cached) {
-  if (cached === null) return `in ${ms} ms, cache: off`
-  const { hits, misses, memory, unkept, ms: taken, parts, pack, gc } = cached
+  const seconds = (each) => `${(each / 1000).toFixed(1)} s`
+  if (cached === null) return `in ${seconds(ms)}, cache: off`
+  const { hits, misses, memory, unkept, ms: taken } = cached
   const why = Object.entries(unkept).map(([reason, count]) => `${count} ${UNKEPT[reason] ?? reason}`).join(', ')
-  const read = pack === null ? '' : ` of ${(pack.bytes / 1e6).toFixed(0)} MB, ${(pack.unpacked / 1e6).toFixed(0)} MB unpacked`
-  const of = `config ${Math.round(parts.config)}, hashing ${Math.round(parts.hashing)}, records ${Math.round(parts.records)}, pack ${Math.round(parts.pack)}${read}; gc ${Math.round(gc)} ms`
-  return `in ${ms} ms, cache ${Math.round(taken)} ms (${of}): ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
+  return `in ${seconds(ms)}, cache ${seconds(taken)}: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
 }
 
 // With its Network panel, which rn-serve has show the app's requests where

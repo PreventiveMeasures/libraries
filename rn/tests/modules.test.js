@@ -76,7 +76,7 @@ describe('the module format', () => {
     // A run of its own: its own module ids, builds and files in memory.
     // A build of it, its store's pack written as it ends.
     const runOf = async () => {
-      const each = createLoadCache(join(root, 'store'), { esbuild, cwd: root })(null)
+      const each = createLoadCache(join(root, 'store'), { esbuild })(null)
       each.start()
       const result = await createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild: counting, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids: new Map(), builds: new Map(), cache: new Map(), store: each }).rebuild()
       await each.finish().written

@@ -16,7 +16,7 @@ import { createPack, readEntry, touch, writeEntry } from './load-pack.js'
 import { storeOf } from './load-store.js'
 
 // A cache entry's format: another, none of the entries before.
-const CACHE_FORMAT = 4
+const CACHE_FORMAT = 5
 // rn's code of the chain: loadFile()'s, Babel's worker's, a dev bundle's
 // module's build (modules.js), and this file's.
 const CHAIN = ['load.js', 'babel-worker.js', 'modules.js', 'load-cache.js']
@@ -97,20 +97,68 @@ function lockfilesOf(dir) {
   }
 }
 
+const NODE_MODULES = `${sep}node_modules${sep}`
+// The package.json of the package a module is of, of node_modules; null of
+// the project's own.
+const manifestOf = (path) => {
+  const found = path.lastIndexOf(NODE_MODULES)
+  if (found === -1) return null
+  const at = found + NODE_MODULES.length
+  const [scope, name] = path.slice(at).split(sep)
+  return join(path.slice(0, at), scope.startsWith('@') ? join(scope, name ?? '') : scope, 'package.json')
+}
+// The package.json of a package `name`, as Node finds it from the package
+// at `dir`; null where none is.
+const dependencyOf = (dir, name) => {
+  for (let at = dir; ; at = dirname(at)) {
+    const path = join(at, 'node_modules', name, 'package.json')
+    if (existsSync(path)) return path
+    if (dirname(at) === at) return null
+  }
+}
+
+// `modules`, and the package.json of each package one of them is of, of
+// node_modules, and of each package those depend on (their dependencies,
+// optional and peer too), as Node finds it, theirs too: what Babel and the
+// plugins it has loaded may load as they transform, which they have not as
+// the config loads (@babel/core's @babel/helpers, as it first adds a
+// helper), whose version a change to them makes another. Of the project's
+// lockfile, all else (the app's own packages, its tools) are of no output
+// of the cache's: each file of a package the app loads is kept by its contents.
+export function withDependencies(modules) {
+  const manifests = new Set()
+  const add = (path) => path !== null && manifests.add(path)
+  for (const path of modules) add(manifestOf(path))
+  for (const path of manifests) {
+    let manifest = null
+    try {
+      manifest = JSON.parse(readFileSync(path, 'utf8'))
+    } catch {
+      continue
+    }
+    for (const name of Object.keys({ ...manifest?.dependencies, ...manifest?.optionalDependencies, ...manifest?.peerDependencies })) add(dependencyOf(dirname(path), name))
+  }
+  return [...new Set([...modules, ...manifests])]
+}
+
 // What a Babel worker's output is of, but a file's own config (configKeyOf())
 // and its source: the options the worker was given, each of `modules`,
 // those it has loaded once its config is (@babel/core, the config, its
 // plugins and presets, and what they require, the project's or a
 // package's), by its code; each other path of `reads`, those the config
 // read or looked for as it loaded (readsOf()), as it is (stateOf());
-// NODE_ENV and BABEL_ENV, which plugins read.
+// NODE_ENV and BABEL_ENV, which plugins read. Of a module of none read (of
+// a zip's, Yarn's Plug'n'Play's), the project's lockfile too (of
+// options.cwd's): what a change to its code is of.
 export function fingerprintOf(modules, options, reads = new Map()) {
   const loaded = new Set(modules)
+  const codes = modules.toSorted().map((path) => [path, fileDigest(path)])
   return digest(JSON.stringify([
     options,
     [process.env.NODE_ENV ?? null, process.env.BABEL_ENV ?? null],
-    modules.toSorted().map((path) => [path, fileDigest(path)]),
+    codes,
     [...reads].filter(([path]) => !loaded.has(path)).toSorted(([a], [b]) => (a < b ? -1 : 1)).map(([path, read]) => [path, stateOf(path, read)]),
+    codes.some(([, code]) => code === null) ? lockfilesOf(options.cwd ?? process.cwd()).map((path) => [path, fileDigest(path)]) : null,
   ]))
 }
 
@@ -250,15 +298,18 @@ export function configKeyOf(core, options, modules) {
   return Object.assign(keyOf, { start: () => looked.clear() })
 }
 
-// A module's size and mtime: where each of those a fingerprint is of is
-// as it was, its code is, a stat of each, not a read (2.3k of a react-native
-// app's preset), but where a change the lockfile has, which makes each key
-// another, would make it another; and each path its config read or looked
-// for, as it is (stateOf()).
+// A module's inode, size, mtime and ctime: where each of those a
+// fingerprint is of is as it was, its code is, a stat of each, not a read
+// (2.3k of a react-native app's preset). Not its size and mtime alone: a
+// package manager writes each file of a package of the mtime its tarball
+// has (npm's, 1985's), and a package.json of another version may be of
+// the same size; a file it writes is another (of an inode of its own, and
+// a ctime, which none sets). And each path its config read or looked for,
+// as it is (stateOf()).
 const statOf = (path) => {
   try {
-    const { size, mtimeMs } = statSync(path)
-    return [size, mtimeMs]
+    const { ino, size, mtimeMs, ctimeMs } = statSync(path)
+    return [ino, size, mtimeMs, ctimeMs]
   } catch {
     return null
   }
@@ -272,8 +323,8 @@ const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept)
 
 // Each file as loadFile() loads it, kept in `dir`, by a key of what it is
 // of: rn's code of the chain (ownModules()), esbuild's version, flow-remove-types
-// (`flow`, its path, or null) by its code, the project's lockfile, of the
-// versions of what they load (from `cwd`); a target's Babel (projectBabel()'s,
+// (`flow`, its path, or null) by its code, and its dependencies' versions
+// (withDependencies()); a target's Babel (projectBabel()'s,
 // or null), its workers' fingerprint (fingerprintOf()) and the file's own
 // config (configKeyOf()); the file's path, its contents, and `variant`, what
 // of loadFile()'s options make it (its sourcemap, esm, keepPlugins). A
@@ -292,18 +343,15 @@ const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept)
 // a file `memory` (as it was in memory), `misses` (loaded anew), or
 // `unkept` (loaded anew, kept none of, `why`); get() counts `hits`. A
 // build's start() and finish() -> { tally: { hits, misses, memory, unkept:
-// { [why]: count }, ms, parts: { config, hashing, records, pack }, pack:
-// { bytes, unpacked, segments } or null, gc }, written }: what was counted of it, `ms`
-// the time the cache took, by part (its files' configs' keys, its hashing,
-// its records, its pack read), what of its pack it read, the time V8 took
-// collecting garbage, and a promise of its pack written. A file's load and a
+// { [why]: count }, ms }, written }: what was counted of it, `ms` the time
+// the cache took, and a promise of its pack written. A file's load and a
 // module's build are kept in the target's pack (load-pack.js), read whole;
 // the rest, each in a file of its own, of the salt's entries, written whole,
 // then moved in place: another rn-serve may read it. A cache, at best: what fails to read or
 // write is loaded anew. Its settled() -> a promise of each pack's write
 // under way done, for a run to end once they are.
-export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
-  const salt = digest(JSON.stringify([CACHE_FORMAT, ownModules().map(fileDigest), esbuild.version, flow === null ? null : [flow, fileDigest(flow)], lockfilesOf(cwd).map((path) => [path, fileDigest(path)])]))
+export function createLoadCache(dir, { esbuild, flow = null }) {
+  const salt = digest(JSON.stringify([CACHE_FORMAT, ownModules().map(fileDigest), esbuild.version, flow === null ? null : withDependencies([flow]).map((path) => [path, fileDigest(path)])]))
   // Its entries, of the salt's: of another, none read again, as a run
   // after removes them once none uses them (load-prune.js's prune()).
   const entries = join(dir, 'entries', salt)
