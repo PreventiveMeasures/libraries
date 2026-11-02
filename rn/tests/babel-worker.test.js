@@ -188,6 +188,7 @@ describe('babelWorkers, asked for a fingerprint', () => {
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
     // Its output of a file it names, which may change.
     'external.cjs': "module.exports = (api) => { api.cache.never(); api.addExternalDependency(__dirname + '/dep.txt'); return { name: 'external', visitor: {} } }\n",
+    'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
   })
   after(cleanup)
   const options = { babelrc: false, configFile: false, cwd: root, compact: false, plugins: [join(root, 'mark.cjs')] }
@@ -199,6 +200,22 @@ describe('babelWorkers, asked for a fingerprint', () => {
     assert.ok(Array.isArray(reads))
     assert.deepEqual(given, { refresh: null, keepPlugins: false, inlineRequires: null, ...options })
     await assert.rejects(babelWorkers(CORE, options, null, 1).fingerprint(), /no fingerprint/u)
+  })
+
+  it("transforms in band still, but gives a worker's: of what Babel loaded, not of what the main thread has", async () => {
+    const { threadOf, fingerprintOf } = (() => {
+      const transform = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprint: true }, null, 1)
+      return { threadOf: threader(transform), fingerprintOf: () => transform.fingerprint() }
+    })()
+    // esbuild's, CommonJS, which the main thread has loaded, Babel not.
+    const require = createRequire(import.meta.url)
+    const esbuild = require.resolve('esbuild')
+    require(esbuild)
+    assert.deepEqual(await Promise.all([threadOf(), threadOf()]), [0, 0])
+    const { fingerprint, modules } = await fingerprintOf()
+    assert.ok(modules.includes(join(root, 'thread.cjs')) && !modules.includes(esbuild), String(modules))
+    const fresh = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprint: true }, null, 1)
+    assert.equal((await fresh.fingerprint()).fingerprint, fingerprint)
   })
 
   it("says an output is of a plugin's of files it names, which a cache keeps none of", async () => {
