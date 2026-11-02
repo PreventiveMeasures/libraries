@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-import { bundle, createBundler } from '../src/bundle.js'
+import { bundle, createBundler, lookingOnce } from '../src/bundle.js'
 import { png, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
@@ -183,5 +183,15 @@ describe('bundle, of an entry not there', () => {
     } finally {
       await bundler.dispose()
     }
+  })
+})
+
+describe("lookingOnce, a build's host", () => {
+  it('asks the host of each path once: a file, a directory, a real path', () => {
+    const asked = []
+    const host = { isFile: (path) => asked.push(['isFile', path]) > 0 && path.endsWith('.js'), isDirectory: (path) => asked.push(['isDirectory', path]) > 0 && !path.endsWith('.js'), realpath: (path) => asked.push(['realpath', path]) && path, readFile: () => '' }
+    const once = lookingOnce(host)
+    for (let i = 0; i < 2; i++) assert.deepEqual([once.isFile('/a.js'), once.isFile('/b'), once.isDirectory('/b'), once.realpath('/a.js')], [true, false, true, '/a.js'])
+    assert.deepEqual(asked, [['isFile', '/a.js'], ['isFile', '/b'], ['isDirectory', '/b'], ['realpath', '/a.js']])
   })
 })

@@ -59,13 +59,26 @@ export function createMetroResolver({
     custom,
     dev,
     extra,
-    // Each package.json, package root and redirect map, read once.
+    // Each package.json, package root and redirect map, read once; and each
+    // path's package, found once.
     manifests: new Map(),
+    packages: new Map(),
     roots: new Map(),
     redirects: new WeakMap(),
   }
+  // Each resolution of an import, of its file's directory, as Metro's
+  // DependencyGraph caches it (its _resolutionCache, of the origin's
+  // directory, the specifier, ESM or not, and the platform), a config's
+  // resolveRequest's too: asked once of each.
+  const resolved = new Map()
   return (originModulePath, specifier, { platform = null, isESMImport = false } = {}) => {
     if (!isAbsolute(originModulePath)) throw new TypeError(`resolve: the origin must be an absolute path, not ${JSON.stringify(originModulePath)}`)
+    const key = `${dirname(originModulePath)}\0${specifier}\0${isESMImport === true ? 'esm' : 'cjs'}\0${platform}`
+    if (!resolved.has(key)) resolved.set(key, resolveOf(originModulePath, specifier, platform, isESMImport))
+    return resolved.get(key)
+  }
+
+  function resolveOf(originModulePath, specifier, platform, isESMImport) {
     const context = {
       ...config,
       origin: originModulePath,
@@ -205,6 +218,10 @@ function read({ host, manifests }, file) {
 // node_modules on the way finds none). The root by its real path, the
 // package-relative path posix.
 function packageOf(context, path) {
+  return memo(context.packages, path, () => closestPackage(context, path))
+}
+
+function closestPackage(context, path) {
   const { host } = context
   const found = (dir) => ({ rootPath: memo(context.roots, dir, () => host.realpath(dir)), packageJson: read(context, join(dir, 'package.json')), packageRelativePath: toPosix(relative(dir, path)) })
   const isDirectory = host.isDirectory(path)
