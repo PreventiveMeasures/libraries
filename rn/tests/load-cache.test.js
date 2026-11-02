@@ -158,6 +158,30 @@ describe('loadCached, with a store of load-cache.js', () => {
   })
 })
 
+describe('loadCached, with a store, of a plugin a .babelrc has of options of its own', () => {
+  // A plugin of the helper its options pick, required in its factory, of
+  // the root's config, and of a .babelrc of other options.
+  const { root, cleanup, run } = projectOf({
+    'babel.config.json': { plugins: [['./picks.cjs', { pick: 'a' }]] },
+    'optioned/.babelrc': { plugins: [['../picks.cjs', { pick: 'b' }]] },
+    'picks.cjs': "module.exports = ({ types: t }, { pick }) => {\n  const value = require(`./pick-${pick}.cjs`)\n  return { name: 'picks', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(value))) } } } }\n}\n",
+    'pick-a.cjs': "module.exports = 'a'\n",
+    'pick-b.cjs': "module.exports = 'b'\n",
+  })
+  after(cleanup)
+  const contents = async (...args) => (await run().load(...args)).contents
+
+  it('loads anew where what the plugin requires of those options changes', async () => {
+    assert.equal(await contents('optioned/x.js', 'x()'), 'x();\n"b";')
+    assert.equal(await contents('y.js', 'y()'), 'y();\n"a";')
+    writeFileSync(join(root, 'pick-b.cjs'), "module.exports = 'b2'\n")
+    assert.equal(await contents('optioned/x.js', 'x()'), 'x();\n"b2";')
+    assert.equal(await contents('y.js', 'y()'), 'y();\n"a";')
+    writeFileSync(join(root, 'pick-a.cjs'), "module.exports = 'a2'\n")
+    assert.equal(await contents('y.js', 'y()'), 'y();\n"a2";')
+  })
+})
+
 describe('loadCached, with a store, of a config of what it reads as it loads', () => {
   const { root, cleanup, run, entries } = projectOf({
     // A config of a function of what it reads as it loads, and of whether a file is there.

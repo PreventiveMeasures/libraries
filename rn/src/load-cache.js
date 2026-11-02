@@ -8,7 +8,8 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import fs, { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { Module } from 'node:module'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // A cache entry's format: another, none of the entries before.
@@ -115,38 +116,78 @@ function codeOf(modules) {
   }
 }
 
+// The modules `run` requires as it runs (a plugin's or a preset's factory,
+// as Babel makes it), by their paths: each require through Module's, as a
+// module's own require is, though the module is loaded already.
+function requiresOf(run) {
+  const required = new Set()
+  const { require } = Module.prototype
+  Module.prototype.require = function (id) {
+    try {
+      const path = Module._resolveFilename(id, this)
+      if (isAbsolute(path)) required.add(path)
+    } catch {
+      // Not found: the require fails as it would.
+    }
+    return Reflect.apply(require, this, [id])
+  }
+  try {
+    run()
+  } finally {
+    Module.prototype.require = require
+  }
+  return [...required].toSorted()
+}
+
 // -> (filename, covered) => a key of the project's Babel config for the
 // file, as Babel loads it by `core` with `options` (its
 // loadPartialConfig()): the options it gives the file, each plugin and
 // preset by its name, file and options; the code of the config's files
 // Babel loads for it (a .babelrc of its directory too) and of the plugins
-// and presets they name for it (an override's too, which a worker's
-// fingerprint, of the config of the project's root, may not have), and
-// what they require of the project's own (codeOf(), `modules`
-// require.cache). Each plugin and preset of those not `covered` (a Set of
-// the modules the fingerprint is of) is made first, as Babel makes it, once
-// a run: what its factory requires (a helper of its own) is then of its
-// code too, which loadPartialConfig() calls not. null where Babel ignores
-// the file, or a plugin or preset of it fails to be made, or its options
-// are no JSON.
+// and presets they name for it, and what they require of the project's own
+// (codeOf(), `modules` require.cache), but of those `covered` (a Set of the
+// modules a worker's fingerprint is of); and of each plugin and preset of
+// it the config of the project's root makes not, as the workers make it
+// (an override's, a .babelrc's, one of options of its own), what its
+// factory requires (requiresOf()), which loadPartialConfig() calls not:
+// made anew, once a run, of an item of its own, which Babel has made none
+// of. null where Babel ignores the file, or a plugin or preset of it fails
+// to be made, or its options are no JSON.
 export function configKeyOf(core, options, modules) {
   const code = codeOf(modules)
   const itemOf = (item) => [item.name ?? null, item.file?.resolved ?? null, item.options ?? null]
-  const made = new Set()
-  const make = ({ plugins, presets }, covered) => {
-    const fresh = (items) => items.filter((item) => item.file !== undefined && !covered.has(item.file.resolved) && !made.has(item.file.resolved))
-    const each = { plugins: fresh(plugins), presets: fresh(presets) }
-    if (each.plugins.length + each.presets.length === 0) return
-    core.loadOptionsSync({ cwd: options.cwd, root: options.root, caller: options.caller, envName: options.envName, babelrc: false, configFile: false, ...each })
-    for (const item of [...each.plugins, ...each.presets]) made.add(item.file.resolved)
+  const instanceOf = (item) => JSON.stringify(itemOf(item), shown)
+  const itemsOf = ({ plugins, presets }) => [...plugins.map((item) => [item, 'plugin']), ...presets.map((item) => [item, 'preset'])]
+  const fresh = core.createConfigItemSync ?? core.createConfigItem
+  let rooted = null
+  const rootedOf = () => {
+    try {
+      rooted ??= new Set(itemsOf(core.loadPartialConfigSync({ ...options, filename: join(options.cwd ?? process.cwd(), 'index.js') }).options).map(([item]) => instanceOf(item)))
+    } catch {
+      rooted = new Set()
+    }
+    return rooted
+  }
+  const made = new Map()
+  const madeOf = (item, type) => {
+    const instance = instanceOf(item)
+    if (!made.has(instance)) {
+      const own = fresh(item.options === undefined ? item.value : [item.value, item.options], { dirname: item.dirname, type })
+      const required = requiresOf(() => core.loadOptionsSync({ cwd: options.cwd, root: options.root, caller: options.caller, envName: options.envName, babelrc: false, configFile: false, [`${type}s`]: [own] }))
+      made.set(instance, required.map((path) => [path, code(path)]))
+    }
+    return made.get(instance)
   }
   return (filename, covered = new Set()) => {
     try {
       const partial = core.loadPartialConfigSync({ ...options, filename })
       if (partial === null) return null
-      make(partial.options, covered)
-      const named = [...partial.options.plugins, ...partial.options.presets].map((item) => item.file?.resolved).filter((path) => path !== undefined)
-      return digest(JSON.stringify([[...partial.files, ...named].map(code), { ...partial.options, plugins: partial.options.plugins.map(itemOf), presets: partial.options.presets.map(itemOf) }], shown))
+      const items = itemsOf(partial.options)
+      // Their code before any of their factories runs here.
+      const named = items.map(([item]) => item.file?.resolved).filter((path) => path !== undefined)
+      const codes = [...partial.files, ...named].filter((path) => !covered.has(path)).map((path) => [path, code(path)])
+      const required = items.filter(([item]) => !rootedOf().has(instanceOf(item))).map(([item, type]) => madeOf(item, type))
+      return digest(JSON.stringify([codes, required, { ...partial.options, plugins: partial.options.plugins.map(itemOf), presets: partial.options.presets.map(itemOf) }], shown))
     } catch {
       return null
     }
