@@ -1,5 +1,5 @@
 // React Native DevTools opened for each app as it connects (rn-serve's
-// --dev-tools, rn.config.json's devTools), as `j` opens them: of the app's
+// --devtools, rn.config.json's devtools), as `j` opens them: of the app's
 // device, once its runtime lists a page DevTools debugs, unless a DevTools
 // is connected to that device already (one left open as the app relaunched,
 // which dev-middleware connects to it anew). Once of each connection of a

@@ -21,9 +21,9 @@
 //     an error (Metro takes a file of it for an asset).
 //   maxWorkers: --max-workers' default, over the Metro config's.
 //   esm: --esm's default (false); --esm and --no-esm over it.
-//   devTools: rn-serve's --dev-tools' default (false): React Native DevTools
-//     opened for each app as it connects (devtools.js); --dev-tools and
-//     --no-dev-tools over it. rn-bundle leaves it.
+//   devtools: rn-serve's --devtools' default (false): React Native DevTools
+//     opened for each app as it connects (devtools.js); --devtools and
+//     --no-devtools over it. rn-bundle leaves it.
 //   launch: rn-serve's --launch' default: "ios", the app launched on a
 //     simulator as rn-serve starts (launch-ios.js), and its bundle the one
 //     built ahead of it; false (the default), none. --launch and
@@ -56,7 +56,7 @@ const OPTIONS = {
   assetResolutions: [listOf(isScale), 'a list of scales ("0.75", or 0.75)'],
   maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
-  devTools: boolean,
+  devtools: boolean,
   launch: [(value) => value === false || value === 'ios', '"ios", or false'],
 }
 const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]
