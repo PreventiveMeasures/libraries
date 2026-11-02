@@ -155,7 +155,7 @@ const options = {
   babelPlugins: babel?.babelPlugins ?? null,
   esm: values.esm,
   assetExts: metro.assetExts,
-  resolver: metro.resolver,
+  resolver: { ...metro.resolver, dev: values.dev },
   blockList: metro.blockList,
   runBeforeMain: metro.runBeforeMain?.(resolve(cwd, positionals[0])) ?? null,
   assetRegistryPath: metro.assetRegistryPath,

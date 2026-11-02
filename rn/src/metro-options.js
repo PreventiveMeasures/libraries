@@ -9,13 +9,13 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, relative, resolve } from 'node:path'
 
-import { locateThrough, polyfills as reactNativePolyfills } from './cli.js'
+import { locateThrough, polyfills as reactNativePolyfills, tryResolve } from './cli.js'
 import { defaults } from './defaults.js'
 
 const under = (section, keys) => keys.map((key) => (section === '' ? key : `${section}.${key}`))
 // The options rn-bundle and rn-serve do, whatever they are.
 const TAKEN = new Set([
-  ...under('resolver', ['assetExts', 'sourceExts', 'assetResolutions', 'resolverMainFields', 'unstable_conditionNames', 'unstable_conditionsByPlatform', 'nodeModulesPaths', 'extraNodeModules', 'disableHierarchicalLookup', 'blockList', 'unstable_enablePackageExports']),
+  ...under('resolver', ['assetExts', 'sourceExts', 'assetResolutions', 'resolverMainFields', 'unstable_conditionNames', 'unstable_conditionsByPlatform', 'nodeModulesPaths', 'extraNodeModules', 'disableHierarchicalLookup', 'blockList', 'unstable_enablePackageExports', 'resolveRequest']),
   ...under('serializer', ['getPolyfills', 'polyfillModuleNames', 'getModulesRunBeforeMainModule']),
   // getTransformOptions by what it gives (TRANSFORMS).
   ...under('transformer', ['assetRegistryPath', 'enableBabelRCLookup', 'enableBabelRuntime', 'getTransformOptions']),
@@ -141,6 +141,15 @@ function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.r
   return { ...none, file: null, assetExts: defaults.assetExts, resolver, polyfills: () => (polyfills ??= reactNativePolyfills(project, fail)), babelRCLookup: true, babelRuntime: true, inlineRequires }
 }
 
+// The metro-resolver the project's Metro runs, of its metro-config's metro:
+// a resolveRequest of the config runs through it, as through Metro's.
+function metroResolverOf(project, metroConfig, fail) {
+  const fromConfig = createRequire(metroConfig)
+  const metro = tryResolve(fromConfig, 'metro')
+  const found = (metro === null ? null : tryResolve(createRequire(metro), 'metro-resolver')) ?? tryResolve(fromConfig, 'metro-resolver')
+  return found === null ? fail('resolver.resolveRequest runs through metro-resolver, as Metro has it: npm i -D metro-resolver') : project.load(found)
+}
+
 // Metro's defaults, and @react-native/metro-config's over them where the
 // project has it, and it loads.
 async function baselinesOf(metro, project, cwd) {
@@ -213,6 +222,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
       extraNodeModules: new Proxy(resolver.extraNodeModules ?? {}, { get: (target, key) => (typeof target[key] === 'string' ? absolute(target[key]) : target[key]) }),
       disableHierarchicalLookup: resolver.disableHierarchicalLookup,
       packageExports: Boolean(resolver.unstable_enablePackageExports),
+      ...(typeof resolver.resolveRequest === 'function' && { metroResolver: metroResolverOf(project, metroConfig, fail), resolveRequest: resolver.resolveRequest }),
     },
     blockList: patterns(resolver.blockList),
     polyfills: (platform) => [...serializer.getPolyfills({ platform }), ...(serializer.polyfillModuleNames ?? [])],

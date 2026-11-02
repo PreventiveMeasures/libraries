@@ -42,6 +42,11 @@ export interface MetroResolverOptions {
   // project's own, for its Metro's exact rules), given the context Metro's
   // DependencyGraph builds over the host. Written for metro-resolver 0.81 on.
   metroResolver?: { resolve(context: object, specifier: string, platform: string | null): Resolution } | null
+  // A Metro config's resolver.resolveRequest, which metroResolver's resolve
+  // runs in its place, given its own as the context's (and so needs it).
+  resolveRequest?: ((context: object, specifier: string, platform: string | null) => Resolution) | null
+  // The bundle's, as Metro's context has it.
+  dev?: boolean
 }
 
 export interface ResolveOptions {
