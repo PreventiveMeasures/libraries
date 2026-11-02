@@ -71,6 +71,7 @@
     "src/exports.js",
     "src/gate.js",
     "src/hot.js",
+    "src/launch-ios.js",
     "src/image-size.js",
     "src/load-cache.js",
     "src/load-pack.js",

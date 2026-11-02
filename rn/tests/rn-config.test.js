@@ -30,14 +30,19 @@ describe('readRnConfig', () => {
   })
 
   it('takes each of its options, as they are', () => {
-    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devTools: true }
+    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devTools: true, launch: 'ios', ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' } }
+    assert.deepEqual(read('{ "launch": false, "ios": {} }'), { launch: false, ios: {} })
     assert.deepEqual(read(JSON.stringify(options)), options)
     assert.deepEqual(read('{ "metroConfig": "metro.rn.config.js" }'), { metroConfig: 'metro.rn.config.js' })
     assert.deepEqual(read('{}'), {})
   })
 
   it('refuses an option it does not know, a value of another type, and a file not an object of JSON', () => {
-    assert.throws(() => read('{ "devtools": true }'), { message: 'rn.config.json: no such option devtools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools' })
+    assert.throws(() => read('{ "devtools": true }'), { message: 'rn.config.json: no such option devtools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devTools, launch, ios' })
+    assert.throws(() => read('{ "launch": "android" }'), { message: 'rn.config.json: launch is "ios", or false, not "android"' })
+    assert.throws(() => read('{ "ios": [] }'), { message: 'rn.config.json: ios is an object of options (simulator, binaryPath), not []' })
+    assert.throws(() => read('{ "ios": { "udid": "X" } }'), { message: 'rn.config.json: no such option ios.udid: it has simulator, binaryPath' })
+    assert.throws(() => read('{ "ios": { "binaryPath": "" } }'), { message: 'rn.config.json: ios.binaryPath is the path of a simulator\'s build of the app, an .app, not ""' })
     for (const exts of [['.riv'], ['lib/x'], [''], 'riv', [1]]) {
       assert.throws(() => read(JSON.stringify({ assetExts: exts })), { message: `rn.config.json: assetExts is a list of extensions, each without its dot ("riv"), not ${JSON.stringify(exts)}` })
     }
