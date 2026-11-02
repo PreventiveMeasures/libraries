@@ -794,7 +794,7 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
 
   it("leaves it out of Babel where no string names an alias, though the file's text names one: no hook of it runs there", () => {
     writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib', export: './nowhere', '^~(.+)$': './lib/\\\\1' } }]] }\n")
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     // In the three files with a string of #lib, its pre and post hooks and its traversal on enter.
     assert.deepEqual(/^ +\d+ +[\d.]+ +(\d+) +(\d+) {2}module-resolver$/mu.exec(r.stderr)?.slice(1).map(Number), [3, 3 * 2 + 3])
@@ -803,7 +803,7 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
   it('keeps it where a string an alias matches is spelled across lines, or matched by a RegExp of a backreference', () => {
     const build = (alias, entry) => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}]] }\n`)
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
     }
@@ -817,7 +817,7 @@ describe("rn-bundle, with babel-plugin-module-resolver's aliases", () => {
   it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import, a helper's, a template's string", () => {
     const bundled = (alias, plugin, entry) => {
       writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify({ alias })}], ${JSON.stringify(plugin)}] }\n`)
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+      const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout)
     }
