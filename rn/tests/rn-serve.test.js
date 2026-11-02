@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { request } from 'node:http'
-import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -12,6 +13,11 @@ import { runInNewContext } from 'node:vm'
 import { png, writeTree } from './fixtures.js'
 
 const BIN = fileURLToPath(new URL('../bin/rn-serve.js', import.meta.url))
+// The OS's temporary directory of each rn-serve, which keeps Babel's output
+// there: the tests' own.
+const TMP = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
+after(() => rmSync(TMP, { recursive: true, force: true }))
+const envOf = (dir) => ({ ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir })
 const linked = (name) => ({ link: realpathSync(fileURLToPath(new URL(`../node_modules/${name}`, import.meta.url))) })
 const under = (dir, tree) => Object.fromEntries(Object.entries(tree).map(([path, content]) => [`${dir}/${path}`, content]))
 
@@ -23,9 +29,9 @@ const until = async (get, what, ms = 15_000) => {
   throw new Error(`timed out waiting for ${what}`)
 }
 
-// rn-serve on a free port, in `cwd`. -> { url, output(), stop() }
-async function serve(cwd, args = []) {
-  const child = spawn(process.execPath, [BIN, '--port=0', ...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+// rn-serve on a free port, in `cwd`, of the temporary directory `tmp`. -> { url, output(), stop() }
+async function serve(cwd, args = [], tmp = TMP) {
+  const child = spawn(process.execPath, [BIN, '--port=0', ...args], { cwd, env: envOf(tmp), stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   const collect = (data) => {
     out += data
@@ -604,6 +610,83 @@ describe('rn-serve --esm', () => {
       assert.deepEqual([r.status, r.stderr], [1, "rn-serve: --esm keeps ES modules through the project's Babel config, and it has none\n"])
     } finally {
       plain.cleanup()
+    }
+  })
+})
+
+describe("rn-serve, its cache of Babel's output", () => {
+  const config = (comment) => [
+    `// ${comment}`,
+    "const { appendFileSync } = require('node:fs')",
+    "const { basename, join } = require('node:path')",
+    'module.exports = (api) => {',
+    '  api.cache(true)',
+    "  const logged = () => ({ pre(file) { appendFileSync(join(__dirname, 'transformed.log'), `${basename(file.opts.filename)}\\n`) } })",
+    "  return { plugins: ['@babel/plugin-transform-modules-commonjs', logged] }",
+    '}',
+    '',
+  ].join('\n')
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    'babel.config.js': config('A config.'),
+    'index.js': "import { other } from './lib/other'\nglobalThis.result = other\n",
+    'lib/other.js': "export const other = 'other'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
+  })
+  const tmp = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
+  after(() => {
+    cleanup()
+    rmSync(tmp, { recursive: true, force: true })
+  })
+  const transformed = () => (existsSync(join(root, 'transformed.log')) ? readFileSync(join(root, 'transformed.log'), 'utf8').trim().split('\n').length : 0)
+  // A run of rn-serve, of a bundle: -> its result, and how many files Babel transformed.
+  const served = async (args = []) => {
+    const count = transformed()
+    const server = await serve(root, args, tmp)
+    try {
+      const code = String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)
+      return [run(code).result, transformed() - count]
+    } finally {
+      await server.stop()
+    }
+  }
+
+  it("keeps each file's output in the OS's temporary directory, across runs, while the Babel config and the plugins left out of it are the same", async () => {
+    assert.deepEqual(await served(), ['other', 2])
+    assert.deepEqual(readdirSync(tmp).filter((name) => name.startsWith('rn-serve-babel')), [`rn-serve-babel-${process.getuid()}`])
+    assert.deepEqual(await served(), ['other', 0])
+    // Without the config's CommonJS plugin, which esbuild does for it.
+    assert.deepEqual(await served(['--esm']), ['other', 2])
+    assert.deepEqual(await served(['--esm']), ['other', 0])
+    assert.deepEqual(await served(), ['other', 0])
+    writeFileSync(join(root, 'babel.config.js'), config('A config, changed.'))
+    assert.deepEqual(await served(), ['other', 2])
+    assert.deepEqual(await served(['--reset-cache']), ['other', 2])
+    assert.deepEqual(await served(), ['other', 0])
+  })
+
+  it('keeps none in a directory another may write in', async () => {
+    const shared = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
+    try {
+      mkdirSync(join(shared, `rn-serve-babel-${process.getuid()}`), { mode: 0o777 })
+      chmodSync(join(shared, `rn-serve-babel-${process.getuid()}`), 0o777)
+      const server = await serve(root, [], shared)
+      await server.stop()
+      assert.match(server.output(), /rn-serve: keeping no Babel output across runs: \S+ is not this user's alone/u)
+    } finally {
+      rmSync(shared, { recursive: true, force: true })
+    }
+  })
+
+  it('is of rn-serve alone: rn-bundle keeps none', () => {
+    const fresh = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
+    try {
+      const bundled = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url)), '--platform=ios', `--output=${join(fresh, 'out.js')}`, 'index.js'], { cwd: root, env: envOf(fresh), encoding: 'utf8' })
+      assert.equal(bundled.status, 0, bundled.stderr)
+      assert.deepEqual(readdirSync(fresh).filter((name) => name.startsWith('rn-serve-babel')), [])
+    } finally {
+      rmSync(fresh, { recursive: true, force: true })
     }
   })
 })

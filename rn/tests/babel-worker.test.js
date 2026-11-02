@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { realpathSync } from 'node:fs'
+import { mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -151,6 +151,100 @@ describe('babelWorkers', () => {
   it('fails each transform of a worker that dies, none left waiting', { timeout: 10_000 }, async () => {
     const transform = babelWorkers(join(root, 'broken.cjs'), {})
     for (const name of ['a', 'b', 'c']) await assert.rejects(transform('x', join(root, `${name}.js`)), /broken core/u)
+  })
+})
+
+describe('babelWorkers, with a cache directory', () => {
+  // A plugin of an output of its own each time it runs: one the same is kept.
+  const RANDOM = "module.exports = ({ types: t }, { tag = '' }) => ({ name: 'random', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(tag + Math.random()))) } } } })\n"
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    '.babelrc': { plugins: [['./random.cjs', { tag: 'a' }]] },
+    'random.cjs': RANDOM,
+    'sub/b.js': 'b()\n',
+    // A plugin a .babelrc of its own directory names, of a file it requires.
+    'nested/.babelrc': { plugins: ['../local.cjs'] },
+    'local.cjs': "const helper = require('./helper.cjs')\nmodule.exports = ({ types: t }) => ({ name: 'local', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(helper))) } } } })\n",
+    'helper.cjs': "module.exports = 'helped'\n",
+    // A config of a function of what it reads as it loads, and of whether a file is there.
+    'reads.config.cjs': "const { existsSync, readFileSync } = require('node:fs')\nconst data = readFileSync(__dirname + '/data.txt', 'utf8').trim() + (existsSync(__dirname + '/flag') ? '!' : '')\nmodule.exports = { plugins: [['./calls.cjs', { value: () => data }]] }\n",
+    'calls.cjs': "module.exports = ({ types: t }, { value }) => ({ name: 'calls', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(value()))) } } } })\n",
+    'data.txt': 'one\n',
+    // As random, but its output of a file it names, which may change.
+    'external.cjs': "module.exports = (api) => { api.cache.never(); api.addExternalDependency(__dirname + '/dep.txt'); return { name: 'external', visitor: { Program: { exit(path) { path.pushContainer('body', api.types.expressionStatement(api.types.stringLiteral(String(Math.random())))) } } } } }\n",
+  })
+  after(cleanup)
+  const cacheDir = join(root, 'cache')
+  // A pool of its own, as another run of rn-serve has, of the project's .babelrc.
+  const transform = (source, name, without = [], options = {}) => babelWorkers(CORE, { cwd: root, root, babelrc: true, configFile: false, compact: false, cacheDir, ...options }, null, 1)(source, join(root, name), without)
+  const code = async (...args) => (await transform(...args)).code
+  const entries = () => readdirSync(cacheDir, { recursive: true }).filter((path) => path.includes(sep)).length
+
+  it("keeps each file's output, which another pool takes while the file's source and name are the same", async () => {
+    const first = await transform("import a from 'a'\na()", 'a.js')
+    assert.match(first.code, /^import a from 'a';\na\(\);\n"a0\.\d+";$/u)
+    assert.deepEqual(await transform("import a from 'a'\na()", 'a.js'), first)
+    assert.notEqual(await code('a()', 'a.js'), first.code)
+    assert.notEqual(await code("import a from 'a'\na()", 'other.js'), first.code)
+    assert.equal(entries(), 3)
+  })
+
+  it("transforms anew where the config Babel loads for the file changes, of a file it didn't load before too", async () => {
+    const before = await code('b()', 'sub/b.js')
+    writeFileSync(join(root, '.babelrc'), JSON.stringify({ plugins: [['./random.cjs', { tag: 'changed' }]] }))
+    const changed = await code('b()', 'sub/b.js')
+    assert.notEqual(changed, before)
+    assert.match(changed, /"changed0\.\d+";$/u)
+    // A .babelrc of its directory, which Babel takes over the one above.
+    writeFileSync(join(root, 'sub/.babelrc'), JSON.stringify({ plugins: [['../random.cjs', { tag: 'sub' }]] }))
+    assert.match(await code('b()', 'sub/b.js'), /^b\(\);\n"sub0\.\d+";$/u)
+    assert.equal(await code('b()', 'sub/b.js'), await code('b()', 'sub/b.js'))
+  })
+
+  it("transforms anew where a plugin's code changes, or the options the pool is given", async () => {
+    const before = await code('c()', 'c.js')
+    writeFileSync(join(root, 'random.cjs'), `// Changed.\n${RANDOM}`)
+    assert.notEqual(await code('c()', 'c.js'), before)
+    const kept = await code('c()', 'c.js')
+    assert.equal(await code('c()', 'c.js'), kept)
+    assert.notEqual(await code('c()', 'c.js', [], { caller: { name: 'metro', platform: 'android' } }), kept)
+  })
+
+  it("transforms anew where a plugin the file's own config names changes, or what it requires", async () => {
+    assert.equal(await code('g()', 'nested/g.js'), 'g();\n"helped";')
+    writeFileSync(join(root, 'helper.cjs'), "module.exports = 'changed'\n")
+    assert.equal(await code('g()', 'nested/g.js'), 'g();\n"changed";')
+  })
+
+  it('keeps the output of each set of plugins left out apart, as --esm leaves one', async () => {
+    const all = await code('d()', 'd.js')
+    assert.equal(await code('d()', 'd.js', ['random']), 'd();')
+    assert.equal(await code('d()', 'd.js'), all)
+  })
+
+  it('transforms anew where what the config read or looked for as it loaded changes, which a function of its options may keep', async () => {
+    const reading = { babelrc: false, configFile: join(root, 'reads.config.cjs') }
+    assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"one";')
+    writeFileSync(join(root, 'data.txt'), 'two\n')
+    assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"two";')
+    writeFileSync(join(root, 'flag'), '')
+    assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"two!";')
+  })
+
+  it("transforms, though the cache can't be written", async () => {
+    const blocked = join(root, 'blocked')
+    // Each entry's directory a file.
+    mkdirSync(blocked)
+    for (let i = 0; i < 256; i++) writeFileSync(join(blocked, i.toString(16).padStart(2, '0')), '')
+    assert.equal(await code('i()', 'i.js', [], { cacheDir: blocked, babelrc: false }), 'i();')
+  })
+
+  it("keeps no output of a plugin's of files it names, nor any error", async () => {
+    const count = entries()
+    const external = { babelrc: false, plugins: [join(root, 'external.cjs')] }
+    assert.notEqual(await code('e()', 'e.js', [], external), await code('e()', 'e.js', [], external))
+    await assert.rejects(transform('const = 1', 'f.js'), /f\.js: Unexpected token/u)
+    assert.equal(entries(), count)
   })
 })
 

@@ -1,11 +1,14 @@
 // Babel's transforms, off the main thread: each worker loads the project's
-// @babel/core and its config once, and transforms what it is sent.
+// @babel/core and its config once, and transforms what it is sent; with a
+// cache directory, keeps each output there, across runs (babel-cache.js).
 
 import { once } from 'node:events'
 import { createRequire, enableCompileCache } from 'node:module'
 import { availableParallelism } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
+
+import { cacheOf, fingerprintOf, readsOf } from './babel-cache.js'
 
 // How many workers Babel runs in where nothing says: 2, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
@@ -29,7 +32,9 @@ const BACKLOG = 8
 // Refresh; with options.keepPlugins, module-resolver as its plugin has it
 // (gateResolver()); with options.inlineRequires, metroOptions()'s, each
 // file's requires inlined after its config's plugins, as Metro's transform
-// worker inlines them (inlining()). `imports`, the specifiers of the file's import and
+// worker inlines them (inlining()); with options.cacheDir, each output kept
+// there, and taken from there while what it is of is the same (babel-cache.js).
+// `imports`, the specifiers of the file's import and
 // export-from declarations (IMPORTS). Where profile is newProfile()'s, the time of each
 // transform is added to it, and that of each plugin: its visitors' and
 // hooks', by its key. At most `max` workers (defaultWorkers() where null),
@@ -158,7 +163,7 @@ export function gatedInlining(plugin) {
 }
 
 if (workerData?.babel !== undefined) {
-  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, ...given }, profile } = workerData.babel
+  const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, cacheDir = null, ...given }, profile } = workerData.babel
   // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
   enableCompileCache()
   const core = createRequire(corePath)(corePath)
@@ -328,21 +333,27 @@ if (workerData?.babel !== undefined) {
     const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map((fn) => gate(fn, resolvePath)) : fns])
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
-  // Sync: a worker transforms one file at a time.
-  const transform = (source, filename, without) => {
-    // The config's plugins, loaded, which transformSync takes as they are.
+  // The options transformSync takes for the file: the config's, as Babel
+  // loads them for it (of `loaded`, its loadPartialConfig()'s options, where
+  // given), its plugins, loaded, as they are, but those of the keys in
+  // without, and the inlining one.
+  const optionsFor = (filename, without, loaded = optionsOf(filename)) => {
     const start = performance.now()
-    const config = core.loadOptionsSync(optionsOf(filename))
+    const config = core.loadOptionsSync(loaded)
     if (profile) time('config', start)
     const plugins = [...config.plugins.filter(({ key }) => !without.includes(key)), ...inlining(filename)]
     // module-resolver traverses, as its plugin does, with keepPlugins.
     if (!keepPlugins) plugins.forEach(gateResolver)
-    if (!profile) return core.transformSync(source, { ...config, plugins })
-    plugins.forEach(timeHooks)
-    for (const { key } of plugins) spent.set(key, [0, 0, false])
+    return { ...config, plugins }
+  }
+  // Sync: a worker transforms one file at a time.
+  const transform = (source, options) => {
+    if (!profile) return core.transformSync(source, options)
+    options.plugins.forEach(timeHooks)
+    for (const { key } of options.plugins) spent.set(key, [0, 0, false])
     // Timed as the config's own visitor wrapper, if any, makes it.
-    const wrap = config.wrapPluginVisitorMethod
-    return core.transformSync(source, { ...config, plugins, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
+    const wrap = options.wrapPluginVisitorMethod
+    return core.transformSync(source, { ...options, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) })
   }
   // What the config's other plugins leave of let and const after its block
   // scoping plugin, as code they insert once it has run (Reanimated's
@@ -361,18 +372,40 @@ if (workerData?.babel !== undefined) {
   // The config loaded at once, as a file at the project's root has it,
   // before the first file is sent: its plugins and presets loaded, which
   // Babel then has of each file. Its errors are each file's, as it fails.
-  try {
-    core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
-  } catch {}
+  const loadConfig = () => {
+    try {
+      core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
+    } catch {}
+  }
+  // With a cache, what the config reads or looks for as it loads too, for
+  // the fingerprint, of the modules loaded by now, with the config.
+  const reads = cacheDir === null ? loadConfig() : readsOf(loadConfig)
+  const modules = createRequire(corePath).cache
+  const cache = cacheDir === null ? null : cacheOf(cacheDir, fingerprintOf(Object.keys(modules), { refresh, keepPlugins, inlineRequires, ...given }, given.cwd ?? process.cwd(), reads), modules)
+  // -> { code, imports }: Babel's output, kept where cached, but where a
+  // plugin's is of files it names (its addExternalDependency), which may
+  // change.
+  const output = (source, filename, options, key) => {
+    const result = transform(source, options)
+    const { code } = lowerLeft(result, filename)
+    const entry = { code, imports: [...imports] }
+    if (key !== null && !(result.externalDependencies?.size > 0)) cache.set(key, entry)
+    return entry
+  }
   parentPort.on('message', ({ port, source, filename, without }) => {
     const start = performance.now()
     spent = new Map()
     own = new Map()
     imports = new Set()
     try {
-      const { code } = lowerLeft(transform(source, filename, without), filename)
+      // With a cache, the config's files and the plugins and presets they
+      // name, for the file's key: its options of them, as Babel loads them.
+      const partial = cache === null ? null : core.loadPartialConfigSync(optionsOf(filename))
+      const options = optionsFor(filename, without, partial?.options)
+      const cacheKey = cache?.keyOf(options, source, partial) ?? null
+      const { code, imports: found } = (cacheKey === null ? null : cache.get(cacheKey)) ?? output(source, filename, options, cacheKey)
       const entries = (map) => [...map].map(([key, [calls, ms, worked]]) => [key, calls, ms, worked])
-      port.postMessage({ code, imports: [...imports], ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
+      port.postMessage({ code, imports: found, ...(profile && { spent: { ms: performance.now() - start, plugins: entries(spent), own: entries(own) } }) })
     } catch (error) {
       port.postMessage({ error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) })
     }

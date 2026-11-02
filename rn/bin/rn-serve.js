@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
 //   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE] [--esm]
-//   [--client-logs]
+//   [--reset-cache] [--client-logs]
 // A dev server for a React Native app, where Metro's would be: each bundle
 // the app asks for built as rn-bundle builds it (for the platform, dev and
 // minify of its URL), with Metro's prelude, polyfills and setup-env first,
 // and a source map; its assets; LogBox's symbolication; reload and the dev
 // menu (r, d), and with @react-native/dev-middleware installed, the debugger
 // (j). A file a bundle was built from changed, each bundle is built anew,
-// each file's transform kept in memory while its source is the same. A dev
+// each file's transform kept in memory while its source is the same. Babel's
+// output for each file is kept on disk too, across runs, in the OS's
+// temporary directory, as Metro keeps its cache (rn-serve-babel-UID, the
+// user's alone; rn-bundle keeps none): while the source Babel is given,
+// the options the project's Babel config gives the file (the plugins left
+// out of them, as --esm leaves one, among them), the code of @babel/core
+// and of the config and what it loads, the lockfile, NODE_ENV and BABEL_ENV
+// are the same; --reset-cache empties it first, as Metro's does its own. A dev
 // bundle is in Metro's module format, with metro-runtime's require (that
 // react-native has): each app of one gets what changed, as Metro's Fast
 // Refresh sends it, where the project's Babel config runs each component of
@@ -28,10 +35,11 @@
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 
-import { realpathSync } from 'node:fs'
+import { lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'
 import { isIP } from 'node:net'
-import { hostname } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
 import { parseArgs } from 'node:util'
 
@@ -56,6 +64,7 @@ const { values } = parseArgs({
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
     esm: { type: 'boolean', default: false },
+    'reset-cache': { type: 'boolean', default: false },
     'client-logs': { type: 'boolean', default: false },
   },
 })
@@ -74,7 +83,7 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail) })
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), cacheDir: babelCacheDir(values['reset-cache']) })
 if (values.esm && babelFor === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
@@ -170,6 +179,25 @@ server.listen(port, host, () => {
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
 })
+
+// The directory Babel's output is kept in across runs: the user's own, in
+// the OS's temporary directory, as Metro keeps its cache; emptied first with
+// --reset-cache. null, none kept, where it is another user's, or another may
+// write in it: the bundles would run what they put there.
+function babelCacheDir(reset) {
+  const uid = process.getuid?.() ?? null
+  const dir = join(tmpdir(), uid === null ? 'rn-serve-babel' : `rn-serve-babel-${uid}`)
+  try {
+    if (reset) rmSync(dir, { recursive: true, force: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const stat = lstatSync(dir)
+    if (uid === null || (stat.isDirectory() && stat.uid === uid && (stat.mode & 0o022) === 0)) return dir
+  } catch {
+    // Not there, and can't be made.
+  }
+  log(`rn-serve: keeping no Babel output across runs: ${dir} is not this user's alone`)
+  return null
+}
 
 function mountDebugger(serverUrl) {
   try {
