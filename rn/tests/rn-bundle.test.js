@@ -762,6 +762,11 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     // A string spelled across lines, by a line continuation.
     'continued.js': "import { a } from '#lib/\\\na'\nconsole.log(JSON.stringify(a))\n",
     'backreference.js': "import { a } from 'lib-lib'\nconsole.log(JSON.stringify(a))\n",
+    'quoted.js': "import { a } from 'foo\\'bar'\nconsole.log(JSON.stringify(a))\n",
+    // JSX, whose runtime Babel's plugin imports, of no string of the file.
+    'jsx.js': 'console.log(JSON.stringify(<b />))\n',
+    'lib/jsx-runtime.js': 'export const jsx = (type) => type\n',
+    'node_modules/@babel/plugin-transform-react-jsx': linked('@babel/plugin-transform-react-jsx'),
     'node_modules/@babel/core': linked('@babel/core'),
     'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
   })
@@ -804,6 +809,14 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
     assert.equal(build({ '#lib': './lib' }, 'continued.js'), 'a')
     // A group before its own: the second alias's \\1 is of its own group.
     assert.equal(build({ '^unused/(.+)$': './nowhere/\\1', '^([a-z]+)-\\1$': './\\1/a' }, 'backreference.js'), 'a')
+    assert.equal(build({ "^foo'bar$": './lib/a' }, 'quoted.js'), 'a')
+  })
+
+  it("keeps it where an alias matches what Babel's plugins write: the JSX runtime's import", () => {
+    writeFileSync(join(root, 'babel.config.js'), "module.exports = { plugins: [['module-resolver', { alias: { '^react/jsx-runtime$': './lib/jsx-runtime' } }], ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]] }\n")
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--output=out.js', 'jsx.js'], { cwd: root, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), 'b')
   })
 
   it('keeps it where it may rewrite what names none: with a root', () => {
