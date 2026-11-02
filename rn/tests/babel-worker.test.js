@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-import { gatedInlining } from '../src/babel-transformer.js'
+import { gatedInlining, memoizeHelpers } from '../src/babel-transformer.js'
 import { babelWorkers, defaultWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
@@ -237,5 +237,27 @@ describe("Metro's inline-requires plugin, where the program has what it inlines"
       // A require of a member's computed property: of no property name, which Metro inlines not.
       "var v = registry[require('./key')]\nexports.h = function () { return v }",
     ]) assert.equal(transform(code, gatedInlining(inlineRequiresPlugin)), transform(code, inlineRequiresPlugin), code)
+  })
+})
+
+describe('memoizeHelpers', () => {
+  it("answers File#availableHelper once of each helper and version range, as it would, and wraps it once", () => {
+    const asked = []
+    const fake = { File: class { availableHelper(name, versionRange) { asked.push([name, versionRange]); return name === 'extends' && versionRange !== '^6.0.0' } } }
+    memoizeHelpers(fake)
+    memoizeHelpers(fake)
+    const file = new fake.File()
+    const answers = [['extends', '^7.0.0'], ['extends', '^7.0.0'], ['extends', '^6.0.0'], ['jsx', undefined], ['jsx', undefined], ['extends', '^7.0.0']].map(([name, range]) => file.availableHelper(name, range))
+    assert.deepEqual(answers, [true, true, false, false, false, true])
+    assert.deepEqual(asked, [['extends', '^7.0.0'], ['extends', '^6.0.0'], ['jsx', undefined]])
+    // A range of another kind, as Babel's own has it, asked each time.
+    file.availableHelper('extends', 7)
+    file.availableHelper('extends', 7)
+    assert.equal(asked.length, 5)
+  })
+
+  it("leaves a @babel/core of no File#availableHelper as it is", () => {
+    assert.doesNotThrow(() => memoizeHelpers({}))
+    assert.doesNotThrow(() => memoizeHelpers({ File: class {} }))
   })
 })
