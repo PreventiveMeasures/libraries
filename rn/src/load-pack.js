@@ -15,6 +15,7 @@ const KEY = 64
 const SEGMENT = '.pack'
 // Segments read, of which a build's end writes them all as one.
 const SEGMENTS = 8
+const CHUNK = 8 * 1024 * 1024
 let segments = 0
 
 // Of work that runs on, at most so long before the event loop has its
@@ -67,12 +68,24 @@ function segmentsOf(dir) {
 // in place; those of `gone` then removed.
 async function writeSegment(dir, records, gone) {
   const name = `${Date.now().toString(36)}-${process.pid}-${segments++}${SEGMENT}`
-  const chunks = records.flatMap(([key, value]) => {
+  // Written in chunks of CHUNK bytes or so, not a write of each record's
+  // key and value, each a syscall.
+  const chunks = []
+  let parts = []
+  let size = 0
+  for (const [key, value] of records) {
     const head = Buffer.alloc(KEY + 4)
     head.write(key, 'latin1')
     head.writeUInt32LE(value.length, KEY)
-    return [head, value]
-  })
+    parts.push(head, value)
+    size += head.length + value.length
+    if (size >= CHUNK) {
+      chunks.push(Buffer.concat(parts, size))
+      parts = []
+      size = 0
+    }
+  }
+  if (parts.length > 0) chunks.push(Buffer.concat(parts, size))
   try {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, `${name}.tmp`), chunks)
@@ -124,14 +137,12 @@ export function createPack(dir) {
     },
     finish: () => {
       if (--building > 0) return Promise.resolve()
-      const records = fresh.splice(0)
+      let records = fresh.splice(0)
       let gone = []
-      if (index !== null) {
-        const kept = [...asked].filter((key) => index.has(key))
-        if (read.length >= SEGMENTS) {
-          records.unshift(...kept.map((key) => [key, index.get(key)]))
-          gone = read
-        }
+      if (index !== null && read.length >= SEGMENTS) {
+        // Concatenated, not spread: of an app's records, more than a call takes.
+        records = [...asked].filter((key) => index.has(key)).map((key) => [key, index.get(key)]).concat(records)
+        gone = read
       }
       // Let go: each file is in memory now.
       index = null

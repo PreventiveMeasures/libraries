@@ -331,9 +331,11 @@ export function createLoadCache(dir, { esbuild, flow = null, cwd }) {
   }
   // Each pack's write under way, for settled().
   const writing = new Set()
-  const track = (written) => {
+  // A pack's write that fails is a cache's: none kept, the run on.
+  const track = (pending) => {
+    const written = pending.catch(() => {})
     writing.add(written)
-    written.finally(() => writing.delete(written))
+    void written.finally(() => writing.delete(written))
     return written
   }
   return Object.assign((babel) => storeOf(babel, { salt, packed: () => baseOf(babel).then((base) => packOf(babel, base?.prefix ?? null)), base: () => baseOf(babel), read, write, track }), { settled: () => Promise.all(writing) })

@@ -53,6 +53,19 @@ describe('createPack', () => {
     assert.deepEqual(await build(dir, { ask: [0, 1, 2, 9] }), [null, 1, 2, 9])
   })
 
+  it('writes the segments as one, of as many records as a build asks for', async () => {
+    const dir = join(root, 'e')
+    // 136k, more than a call takes arguments.
+    const each = 17_000
+    for (let n = 0; n < 8; n++) await build(dir, { set: Array.from({ length: each }, (_, i) => [n * each + i, i]) })
+    await build(dir, { ask: Array.from({ length: 8 * each }, (_, i) => i) })
+    const [name] = segments(dir)
+    const buffer = readFileSync(join(dir, name))
+    let records = 0
+    for (let at = 0; at < buffer.length; at += 68 + buffer.readUInt32LE(at + 64)) records++
+    assert.deepEqual([segments(dir).length, records], [1, 8 * each])
+  })
+
   it('reads what is whole of a segment cut short', async () => {
     const dir = join(root, 'd')
     await build(dir, { set: [[1, 'one'], [2, 'two']] })
