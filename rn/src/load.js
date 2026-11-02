@@ -72,10 +72,14 @@ const BLOCK_SCOPING = 'transform-block-scoping'
 const BLOCK_SCOPED = /\b(?:let|const|class)\b/u
 const MODULE = /^(?:import(?!\s*\()|export)\b/mu
 // babel-plugin-module-resolver, with aliases alone (no `root`, no
-// `resolvePath` of its own), rewrites a specifier that starts with one, and
-// leaves the rest: Babel is without it in a file that names none of them.
-// Not where an alias is a RegExp (`^...`, `...$`).
+// `resolvePath` of its own), rewrites a string specifier one of them
+// matches, and leaves the rest: Babel is without it in a file that has no
+// string any of them matches (unaliased()).
 const RESOLVER = 'module-resolver'
+// By module-resolver's options, a RegExp of a string any of its aliases
+// matches, as its normalizeAlias has each: a key that starts with `^` or ends
+// with `$` a RegExp, any other the specifier it is and those under it.
+const ALIASES = new WeakMap()
 // Appended to TSX with JSX so that esbuild keeps React's import, which JSX,
 // left to Babel, uses (the classic runtime), as Babel's TS plugin keeps it.
 const USE_REACT = 'typeof React;\n'
@@ -228,14 +232,37 @@ function idle(code) {
 }
 
 // Whether module-resolver, of these options, leaves the file as it is: a
-// specifier names an alias only as the file spells it, but for escapes,
-// which it is read without; a file with one of a code point (`\x23`), it
-// may not leave.
+// string specifier is, in the file, a quote, its value and that quote again,
+// on one line, so each such span of the file (from each quote, whatever the
+// quotes before it) is tried, but for escapes, which the value is read
+// without; a file with one of a code point (`\x23`), it may not leave.
 function unaliased(options, contents) {
   if (options === undefined || options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 || /\\[ux0-9]/u.test(contents)) return false
+  const aliases = aliasesOf(options)
+  if (aliases === null) return false
   const text = contents.replaceAll('\\', '')
-  const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
-  return !keys.some((key) => key.startsWith('^') || key.endsWith('$') || text.includes(key))
+  // From each quote to the next like it: of each kind, the file once over.
+  for (const { index, 0: quote } of text.matchAll(/['"]/gu)) {
+    const end = text.indexOf(quote, index + 1)
+    const value = end === -1 ? '' : text.slice(index + 1, end)
+    if (!value.includes('\n') && aliases.test(value)) return false
+  }
+  return true
+}
+
+// -> ALIASES' RegExp of the options, null where one of its aliases is no RegExp.
+function aliasesOf(options) {
+  if (!ALIASES.has(options)) {
+    const keys = [options.alias ?? {}].flat().flatMap((alias) => Object.keys(alias))
+    const escape = (key) => key.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    try {
+      // eslint-disable-next-line require-unicode-regexp -- as module-resolver compiles a key: no flags
+      ALIASES.set(options, new RegExp(keys.map((key) => `(?:${key.startsWith('^') || key.endsWith('$') ? key : `^${escape(key)}(?:/.*|)$`})`).join('|') || '(?!)'))
+    } catch {
+      ALIASES.set(options, null)
+    }
+  }
+  return ALIASES.get(options)
 }
 
 // esbuild brings in this helper only to lower decorators.
