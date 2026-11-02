@@ -83,6 +83,12 @@ const USE_REACT = 'typeof React;\n'
 // those esbuild lowers before it (LOWERS): as --self-test builds again.
 export async function loadFile({ esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap = false, esm = false, keepPlugins = false }, path, contents) {
   const loader = LOADERS.get(extname(path)) ?? 'jsx'
+  // Loaded off the main thread, in Babel's worker, where it loads as this
+  // does: by this esbuild, of flow-remove-types or no Flow stripping, and
+  // the plugins of the config Babel loads for it (babel-load.js).
+  if (babel?.load?.esbuild === esbuild && loader !== 'json' && (stripFlow === null || stripFlow.flowRemoveTypes !== undefined) && babel.load.spare()) {
+    return await babel.load({ path, contents, projectRoot, sourcemap, keepPlugins, esm: esm === false ? false : esm.has(path) ? 'commonjs' : 'module', flow: stripFlow?.flowRemoveTypes ?? null })
+  }
   if (babel !== null && loader !== 'json') {
     let source = { code: contents, without: [] }
     // module-resolver's aliases, where the bundle maps them (resolverOf()).

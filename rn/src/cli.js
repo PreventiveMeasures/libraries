@@ -8,6 +8,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 
 import { createAliases } from './babel-aliases.js'
+import { pluginsByKey } from './babel-transformer.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
 import { configKeyOf } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
@@ -57,7 +58,7 @@ export function defines(dev, pairs, fail) {
 // installed, left to Babel's config, as Metro leaves them.
 export function flowStripper({ locate, load }, babel) {
   const flowRemoveTypes = locate('flow-remove-types')
-  if (flowRemoveTypes !== null) return (source) => load(flowRemoveTypes)(source, { all: true, removeEmptyImports: true }).toString()
+  if (flowRemoveTypes !== null) return Object.assign((source) => load(flowRemoveTypes)(source, { all: true, removeEmptyImports: true }).toString(), { flowRemoveTypes })
   if (babel) return null
   return () => {
     throw new Error('it needs flow-remove-types: npm i -D flow-remove-types')
@@ -140,6 +141,8 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   let core = null
   const targets = new Map()
   const finds = oneBuild && babelRCLookup ? babelrcFinder() : null
+  // The esbuild each file is lowered by, which, of the bundle's too, Babel's workers load it by (babel-load.js).
+  const esbuildPath = project.locate('esbuild')
   return ({ platform, dev, inlineRequires = null }) => {
     const key = `${platform}\0${dev}\0${JSON.stringify(inlineRequires)}`
     if (targets.has(key)) return targets.get(key)
@@ -165,7 +168,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     // maps of each file's own path: esbuild would put it before each source,
     // of its absolute path, of no more use than a file's of its own.
     const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
-    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers, { warm })
+    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }), ...(esbuildPath !== null && { esbuildPath }) }, timed, maxWorkers, { warm })
     let configKey = null
     const target = {
       profile: timed,
@@ -198,13 +201,6 @@ export function bigBuild({ locate }) {
   } catch {
     return false
   }
-}
-
-// Each plugin's options by its key; a key of more than one plugin (instances
-// of one, each named) has { instances }: theirs, in order.
-function pluginsByKey(plugins) {
-  const byKey = Map.groupBy(plugins, (plugin) => plugin.key)
-  return new Map([...byKey].map(([key, [plugin, ...more]]) => [key, more.length === 0 ? plugin.options : { instances: [plugin, ...more].map((each) => each.options) }]))
 }
 
 // A package of the project's, else of a dependency's: `through` names the

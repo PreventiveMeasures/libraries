@@ -5,12 +5,12 @@
 // thread's is of too.
 
 import { once } from 'node:events'
-import { enableCompileCache } from 'node:module'
+import { createRequire, enableCompileCache } from 'node:module'
 import { availableParallelism } from 'node:os'
 import { isAbsolute, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
-import { transformerOf } from './babel-transformer.js'
+import { handlerOf } from './babel-load.js'
 
 // How many workers Babel runs in where nothing says: 3, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
@@ -61,7 +61,9 @@ const IN_BAND = 16
 // thread, as a worker would (but with keepPlugins). The fingerprint is a
 // worker's alone, one made for it where none is: what the main thread has
 // loaded is the process's, not Babel's alone, and the config it has loaded
-// (in band, configKeyOf(), babelPlugins()) reads nothing anew. With `warm`,
+// (in band, configKeyOf(), babelPlugins()) reads nothing anew. With
+// options.esbuildPath, the function's load(request), its esbuild that of
+// the path, and spare(): babel-load.js's, a file loaded whole. With `warm`,
 // of a build of many files (cli.js's bigBuild()), each of the `max` is made
 // at once, loading Babel and the config as the build starts, the main
 // thread transforming in band till one is ready, as it does till then.
@@ -106,7 +108,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     if (inBand === undefined) {
       try {
         // Of no fingerprint: the main thread's is not a worker's.
-        inBand = transformerOf({ corePath, options: { ...options, fingerprint: false }, profile: profile !== null })
+        inBand = handlerOf({ corePath, options: { ...options, fingerprint: false }, profile: profile !== null })
       } catch (error) {
         inBand = () => {
           throw error
@@ -145,8 +147,22 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     if (spent !== undefined) addSpent(profile, spent)
     return { code, imports, ...(uncacheable && { uncacheable }) }
   }
+  // Each file loaded as loadFile() loads it, off the main thread
+  // (babel-load.js): its Flow stripped, lowered and its plugins picked
+  // there, by the config Babel loads for it, which the main thread then
+  // loads not too. But only where a worker is idle (spare()): the main
+  // thread, idle more than half a build of 2 workers of 4 CPUs, does that
+  // for each file faster than they transform them; where it can't, with
+  // more workers, the workers it keeps waiting take it on.
+  const load = async (request) => {
+    const { spent, thrown, ...loaded } = await ask({ load: request })
+    if (thrown !== undefined) throw new Error(thrown)
+    if (spent !== undefined) addSpent(profile, spent)
+    return loaded
+  }
+  const spare = () => workers.some(({ ready, busy }) => ready && busy === 0)
   let fingerprint = null
-  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)) })
+  return Object.assign(transform, { ...(options.esbuildPath != null && { load: Object.assign(load, { esbuild: createRequire(import.meta.url)(options.esbuildPath), spare }) }), fingerprint: () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)) })
 }
 
 // Babel's own work, outside its plugins, by what it is.
@@ -193,9 +209,9 @@ export function profileReport({ files, ms, plugins, own }, root) {
 if (workerData?.babel !== undefined) {
   // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
   enableCompileCache()
-  const handle = transformerOf(workerData.babel)
-  parentPort.on('message', ({ port, ...message }) => {
-    port.postMessage(handle(message))
+  const handle = handlerOf(workerData.babel)
+  parentPort.on('message', async ({ port, ...message }) => {
+    port.postMessage(await handle(message))
     port.close()
   })
   // Ready for files, the config loaded.

@@ -9,11 +9,20 @@ import { fingerprintOf, readsOf } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
+// The keys of the plugins rn adds to the config's: the one that records
+// each file's imports, and react-refresh's.
+const IMPORTS = 'rn-bundle-imports'
+const REFRESH = 'rn-bundle-refresh'
+
 // ({ corePath, options, profile }) -> (message) => its answer, of the
 // @babel/core at corePath and the config, which it loads as it is called:
 // of { source, filename, without }, { code, imports, uncacheable?, spent? }
 // or { error, loc? }; of { fingerprint: true }, { fingerprint, ...inputs }
-// (babelWorkers()).
+// (babelWorkers()). With `config`, the file's, configOf()'s, Babel's options
+// as it loaded them, which took it configMs. Its configOf(filename), the
+// config Babel loads for the file, and pluginsOf(config, filename), its
+// plugins (but rn's) as the main thread's babelPlugins() has them, and
+// Metro's inlining (cli.js).
 export function transformerOf({ corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, ...given }, profile }) {
   const core = createRequire(corePath)(corePath)
   memoizeHelpers(core)
@@ -22,7 +31,7 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
   const inlining = inliningOf(core, inlineRequires, given.cwd)
   // As Metro's transformer has it, a file in node_modules has no component to edit.
   const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
-  const optionsOf = (filename) => ({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins: [...(given.plugins ?? []), imports.plugin, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })
+  const optionsOf = (filename) => ({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins: [...(given.plugins ?? []), imports.plugin, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }, REFRESH]])] })
   const profiler = profile ? profilerOf(corePath) : null
   const gateResolver = resolverGate(core, cwd, () => profiler?.skip())
   // Reanimated's plugin, left out of a file it leaves as it is (but with
@@ -32,10 +41,11 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
   // The options transformSync takes for the file of source: the config's, as
   // Babel loads them for it, its plugins, loaded, as they are, but those of
   // the keys in without, and Reanimated's where quiet, and the inlining one.
-  const optionsFor = (filename, source, without) => {
+  const configOf = (filename) => core.loadOptionsSync(optionsOf(filename))
+  const optionsFor = (filename, source, without, loaded = null, loadedMs = 0) => {
     const start = performance.now()
-    const config = core.loadOptionsSync(optionsOf(filename))
-    profiler?.time('config', start)
+    const config = loaded ?? configOf(filename)
+    profiler?.time('config', start - loadedMs)
     const plugins = listOf([...config.plugins.filter((plugin) => !without.includes(plugin.key) && !quiet?.(plugin, source)), ...inlining(filename)])
     // module-resolver traverses, as its plugin does, with keepPlugins.
     if (!keepPlugins) plugins.forEach(gateResolver)
@@ -59,18 +69,30 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
   const reads = fingerprinted ? readsOf(loadConfig) : loadConfig()
   const inputs = fingerprinted ? { options: { refresh, keepPlugins, inlineRequires, ...given }, modules: Object.keys(createRequire(corePath).cache), reads: [...reads] } : null
   const fingerprint = fingerprinted ? fingerprintOf(inputs.modules, inputs.options, reads) : null
-  return ({ source, filename, without, fingerprint: asked = false }) => {
+  const pluginsOf = (config, filename) => {
+    const plugins = pluginsByKey(config.plugins.filter(({ key }) => key !== IMPORTS && key !== REFRESH))
+    return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
+  }
+  const handle = ({ source, filename, without, config = null, configMs = 0, fingerprint: asked = false }) => {
     if (asked) return { fingerprint, ...inputs }
     const start = profiler?.start()
     imports.clear()
     try {
-      const result = transform(source, optionsFor(filename, source, without))
+      const result = transform(source, optionsFor(filename, source, without, config, configMs))
       const { code } = lowerLeft(result, filename)
-      return { code, imports: imports.list(), ...(result.externalDependencies?.size > 0 && { uncacheable: true }), ...(profiler && { spent: profiler.spent(start) }) }
+      return { code, imports: imports.list(), ...(result.externalDependencies?.size > 0 && { uncacheable: true }), ...(profiler && { spent: profiler.spent(start - configMs) }) }
     } catch (error) {
       return { error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) }
     }
   }
+  return Object.assign(handle, { configOf, pluginsOf })
+}
+
+// Each plugin's options by its key; a key of more than one plugin (instances
+// of one, each named) has { instances }: theirs, in order.
+export function pluginsByKey(plugins) {
+  const byKey = Map.groupBy(plugins, (plugin) => plugin.key)
+  return new Map([...byKey].map(([key, [plugin, ...more]]) => [key, more.length === 0 ? plugin.options : { instances: [plugin, ...more].map((each) => each.options) }]))
 }
 
 // @babel/core's File#availableHelper(name, versionRange), which
@@ -101,7 +123,7 @@ const MEMOIZED = new WeakSet()
 function importsOf() {
   let imports = new Set()
   const plugin = {
-    name: 'rn-bundle-imports',
+    name: IMPORTS,
     visitor: {
       'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'({ node }) {
         if (node.source != null && node.loc != null && (node.importKind ?? node.exportKind) !== 'type') imports.add(node.source.value)
