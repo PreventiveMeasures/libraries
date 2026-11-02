@@ -3,14 +3,32 @@ import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-import { babelWorkers, defaultWorkers, gatedInlining, newProfile, profileReport } from '../src/babel-worker.js'
+import { gatedInlining } from '../src/babel-transformer.js'
+import { babelWorkers, defaultWorkers, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
 const core = createRequire(import.meta.url)('@babel/core')
 const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))
+
+// () => the thread a transform's file is transformed in (thread.cjs's): 0, the main thread.
+const threader = (transform) => {
+  let files = 0
+  return async () => Number(/(\d+);$/u.exec((await transform('a()', `/t${files++}.js`)).code)[1])
+}
+
+// Transforms one file after another till a worker does one: -> how many the main thread did.
+const readied = async (threadOf) => {
+  let files = 0
+  while ((await threadOf()) === 0) {
+    files++
+    await delay(5)
+  }
+  return files
+}
 
 describe('babelWorkers', () => {
   const { root, cleanup } = writeTree({
@@ -38,14 +56,25 @@ describe('babelWorkers', () => {
 
   it('transforms in at most as many workers as it is given, else 2 of 4 CPUs or more, 1 of fewer', async () => {
     assert.deepEqual([1, 2, 3, 4, 8, 12, 16].map((cores) => defaultWorkers(cores)), [1, 1, 1, 2, 2, 2, 2])
+    // In workers from the first file, as with keepPlugins (none of which
+    // this config has), not in band.
     const threads = async (max, length) => {
-      const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }, null, max)
-      const files = await Promise.all(Array.from({ length }, (_, i) => transform('a()', join(root, `t${i}.js`))))
-      return new Set(files.map(({ code }) => code)).size
+      const threadOf = threader(babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')], keepPlugins: true }, null, max))
+      return new Set(await Promise.all(Array.from({ length }, () => threadOf()))).size
     }
     assert.deepEqual([await threads(1, 30), await threads(3, 30)], [1, 3])
     // A few files, which one does before another would have loaded Babel.
     assert.equal(await threads(3, 8), 1)
+  })
+
+  it("transforms a build's first files in band, on the main thread, then in a worker once one is ready, but with keepPlugins", async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }
+    const threadOf = threader(babelWorkers(CORE, options))
+    // Those sent at once, before one is.
+    assert.deepEqual(new Set(await Promise.all(Array.from({ length: 24 }, () => threadOf()))), new Set([0]))
+    await readied(threadOf)
+    assert.notEqual(await threadOf(), 0)
+    assert.notEqual(await threader(babelWorkers(CORE, { ...options, keepPlugins: true }))(), 0)
   })
 
   it("leaves out the config's plugins of the keys it is given", async () => {
@@ -133,7 +162,7 @@ describe('babelWorkers', () => {
     assert.equal(
       profileReport({ files: 2, ms: 10, plugins, own }, '/app'),
       [
-        'Babel: 2 files, 10 ms, summed over its workers',
+        'Babel: 2 files, 10 ms, summed over its threads',
         '      ms       %    files      calls  plugin',
         '       6    60.0        2         30  transform-x',
         '       1    10.0        1          1  node_modules/preset/index.js$0',

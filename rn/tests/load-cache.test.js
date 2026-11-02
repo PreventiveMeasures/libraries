@@ -230,6 +230,6 @@ describe('loadCached, with a store, of a config of what it reads as it loads', (
 describe('ownModules', () => {
   it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
     const src = fileURLToPath(new URL('../src/', import.meta.url))
-    assert.deepEqual(ownModules(), ['babel-worker.js', 'babelrc.js', 'load-cache.js', 'load.js', 'worklets.js'].map((name) => join(src, name)))
+    assert.deepEqual(ownModules(), ['babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'load-cache.js', 'load.js', 'worklets.js'].map((name) => join(src, name)))
   })
 })

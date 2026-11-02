@@ -39,9 +39,10 @@
 // --max-workers, `react-native bundle`'s: how many workers Babel runs in at
 // most, over the Metro config's maxWorkers; where neither sets one (the
 // config's Metro's default), 2 (1 of fewer than 4 CPUs): more, which the main
-// thread can't keep busy, cost CPU and memory and slow it. --profile
-// reports the time each of the config's plugins takes, summed over Babel's
-// workers: the files its visitors ran in, their calls, and the time outside
+// thread can't keep busy, cost CPU and memory and slow it; a build's first
+// files the main thread transforms itself, before any. --profile reports
+// the time each of the config's plugins takes, summed over Babel's
+// threads: the files its visitors ran in, their calls, and the time outside
 // the plugins. --self-test builds again, Babel without none of the config's
 // plugins it leaves out for having nothing to do (but those esbuild lowers
 // before it), and fails where a module's Babel output differs, as esbuild

@@ -141,7 +141,7 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
 
   it('reports with --profile the files, visitor calls and time of each plugin', () => {
     const { stderr } = build({}, ['--profile'])
-    assert.match(stderr, /^Babel: 6 files, \d+ ms, summed over its workers\n {6}ms {7}% {4}files {6}calls {2}plugin$/mu)
+    assert.match(stderr, /^Babel: 6 files, \d+ ms, summed over its threads\n {6}ms {7}% {4}files {6}calls {2}plugin$/mu)
     assert.match(stderr, /^ +\d+ +[\d.]+ +\d+ +\d+ {2}internal\.blockHoist$/mu)
     assert.match(stderr, /^ {6}ms {7}% {4}files {6}calls {2}Babel, outside plugins\n(?: +\d+ +[\d.]+ +6 +\d+ {2}(?:config|parsing|scopes|printing)\n){4} +\d+ +[\d.]+ {22}traversal, and the rest$/mu)
     // Each plugin's one visitor runs once in each file it is in.
