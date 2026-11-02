@@ -104,6 +104,40 @@ export function profileReport({ files, ms, plugins, own }, root) {
   ].join('\n')
 }
 
+// Metro's inline-requires plugin, but on Program's exit only where the
+// program has what it inlines: a top-level declaration of a var of an
+// inlineable call (require, or one of its inlineableCalls) of a module named,
+// or of a member of one, but not of its ignoredRequires nor @babel/runtime's,
+// as it takes them. Elsewhere it crawls the program's scopes and walks it
+// for none, to no change: there, it is left out.
+export function gatedInlining(plugin) {
+  return (api, options) => {
+    const instance = plugin(api, options)
+    const program = instance.visitor.Program
+    const calls = new Set(['require', ...(options?.inlineableCalls ?? [])])
+    const ignored = new Set(options?.ignoredRequires ?? [])
+    // The module an inlineable call names, as the plugin reads it: of a
+    // string, or of require.resolve's; else null.
+    const moduleOf = (node) => {
+      if (node?.type !== 'CallExpression' || node.callee.type !== 'Identifier' || !calls.has(node.callee.name) || node.arguments.length === 0) return null
+      const [first] = node.arguments
+      if (first.type === 'StringLiteral') return first.value
+      const resolve = first.type === 'CallExpression' && first.callee.type === 'MemberExpression' && first.callee.object.type === 'Identifier' && calls.has(first.callee.object.name)
+      return resolve && first.callee.property.type === 'Identifier' && first.callee.property.name === 'resolve' && first.arguments[0]?.type === 'StringLiteral' ? first.arguments[0].value : null
+    }
+    const inlinable = ({ init }) => {
+      const name = moduleOf(init) ?? (init?.type === 'MemberExpression' ? moduleOf(init.object) : null)
+      return name !== null && !ignored.has(name) && !name.startsWith('@babel/runtime/')
+    }
+    const exit = program.exit
+    program.exit = function (path, state) {
+      if (path.node.body.some((statement) => statement.type === 'VariableDeclaration' && statement.declarations.some(inlinable))) return exit.call(this, path, state)
+      return undefined
+    }
+    return instance
+  }
+}
+
 if (workerData?.babel !== undefined) {
   const { corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, ...given }, profile } = workerData.babel
   // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
@@ -132,7 +166,7 @@ if (workerData?.babel !== undefined) {
   // the config's plugins, its presets' too (which run after its plugins),
   // the last, which does it all on Program's exit, after each other plugin's:
   // as a pass of its own after Babel, but on Babel's tree.
-  const inlinePlugin = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin, inlineRequires.options]] }).plugins[0]
+  const inlinePlugin = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
   const inlining = (filename) => (inlinePlugin === null || inlineRequires.blockList.includes(filename) ? [] : [inlinePlugin])
   // As Metro's transformer has it, a file in node_modules has no component to edit.
   const optionsOf = (filename) => ({ ...given, filename, plugins: [...(given.plugins ?? []), IMPORTS, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })

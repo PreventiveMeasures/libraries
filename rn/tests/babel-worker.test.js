@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { babelWorkers, newProfile, profileReport } from '../src/babel-worker.js'
+import { babelWorkers, gatedInlining, newProfile, profileReport } from '../src/babel-worker.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
@@ -137,5 +137,34 @@ describe('babelWorkers', () => {
   it('fails each transform of a worker that dies, none left waiting', { timeout: 10_000 }, async () => {
     const transform = babelWorkers(join(root, 'broken.cjs'), {})
     for (const name of ['a', 'b', 'c']) await assert.rejects(transform('x', join(root, `${name}.js`)), /broken core/u)
+  })
+})
+
+describe("Metro's inline-requires plugin, where the program has what it inlines", () => {
+  // Metro's own, as the project's Metro has it (metro-config's metro's).
+  const metroRequire = createRequire(createRequire(import.meta.url).resolve('metro-config'))
+  const { inlineRequiresPlugin } = createRequire(metroRequire.resolve('metro'))('metro-transform-plugins')
+  const IGNORED = ['React', 'react', 'react-native']
+  const transform = (code, plugin, options) => core.transformSync(code, { babelrc: false, configFile: false, compact: false, plugins: [[plugin, options ?? { ignoredRequires: IGNORED }]] }).code
+
+  it('runs its exit where a top-level var is of a module required, or a member of it, or destructured, not of one it ignores', () => {
+    const exits = []
+    const plugin = () => ({ name: 'inline-requires', visitor: { Program: { enter() {}, exit() { exits.push(true) } } } })
+    const runs = (code, options) => {
+      exits.length = 0
+      transform(code, gatedInlining(plugin), options)
+      return exits.length === 1
+    }
+    for (const code of ["var a = require('./a')", "var a = require('./a').b", "var { b } = require('./a')", "var a = require(require.resolve('./a'))", "var x = 1, a = require('./a')", "var r = importAll('./a')"]) assert.ok(runs(code, { ignoredRequires: IGNORED, inlineableCalls: ['importAll'] }), code)
+    for (const code of ["var r = require('react')", "var h = require('@babel/runtime/helpers/interopRequireDefault')", "var d = h(require('./a'))", "require('./a')", "function f() { var a = require('./a') }", 'var a = require(name)', "var r = importAll('./a')"]) assert.ok(!runs(code), code)
+    assert.ok(!runs("var a = require('./a')", { ignoredRequires: ['./a'] }))
+  })
+
+  it("makes each program as Metro's plugin makes it", () => {
+    for (const code of [
+      "var _a = require('./a')\nvar _r = require('react')\nexports.f = function () { return _a.x + _r.y }",
+      "var h = require('@babel/runtime/helpers/interopRequireDefault')\nvar _d = h(require('./d'))\nexports.g = function () { return _d.default }",
+      "var { z } = require('./z')\nvar w = require('./w').w\nconsole.log(z, w)",
+    ]) assert.equal(transform(code, gatedInlining(inlineRequiresPlugin)), transform(code, inlineRequiresPlugin), code)
   })
 })
