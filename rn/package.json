@@ -69,6 +69,7 @@
     "src/mappings.js",
     "src/metro-config.js",
     "src/metro-options.js",
+    "src/module-resolver.js",
     "src/modules.js",
     "src/network.js",
     "src/resolve.js",

@@ -165,7 +165,11 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const target = {
       profile: timed,
       babel,
-      babelPlugins: async (filename) => pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? []),
+      // The config's, and Metro's inlining, which the workers add after them.
+      babelPlugins: async (filename) => {
+        const plugins = pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
+        return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
+      },
       ...(fingerprint && {
         workerOptions,
         fingerprint: babel.fingerprint,
