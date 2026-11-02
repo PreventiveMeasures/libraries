@@ -755,7 +755,8 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   const { root, cleanup } = writeTree({
     'index.js': "import { a } from '#lib/a'\nimport { b } from './b'\nimport { e } from './escaped'\nimport { i } from './identity'\nconsole.log(JSON.stringify([a, b, e, i]))\n",
     'lib/a.js': "export const a = 'a'\n",
-    'b.js': "export const b = 'b'\n",
+    // A template of line continuations, CRLF, then a substitution: not a string, found so in linear time.
+    'b.js': `export const b = 'b'\nexport const t = \`${'\\\r\n'.repeat(64)}\${b}\`\n`,
     // An alias spelled with escapes: of a code point, and of a character that is itself.
     'escaped.js': "export { a as e } from '\\u0023lib/a'\n",
     'identity.js': "export { a as i } from '\\#lib/a'\n",
@@ -785,7 +786,7 @@ describe("rn-bundle --babel, with babel-plugin-module-resolver's aliases", () =>
   // -> the files module-resolver runs in, of the bundle's five.
   const ran = (options) => {
     writeFileSync(join(root, 'babel.config.js'), `module.exports = { plugins: [['module-resolver', ${JSON.stringify(options)}]] }\n`)
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [BIN, '--platform=ios', '--babel', '--profile', '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8', timeout: 30_000 })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(spawnSync(process.execPath, [join(root, 'out.js')], { encoding: 'utf8' }).stdout), ['a', 'b', 'a', 'a'])
     return Number(/^ +\d+ +[\d.]+ +(\d+) +\d+ {2}module-resolver$/mu.exec(r.stderr)?.[1] ?? 0)

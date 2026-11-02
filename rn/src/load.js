@@ -265,8 +265,10 @@ const ESCAPED = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\n': ''
 
 // Of each quote, a string's body after it, and the quote that ends it: its
 // escapes (a line continuation among them) its own, on one line; of a
-// backtick, a template's, of no `${`, across lines.
-const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy, '`': /(?:\\(?:\r\n|[^])|[^\\`$]|\$(?!\{))*`/uy }
+// backtick, a template's, of no `${`, across lines, its escape a backslash
+// and one character: an escaped CRLF is so of one way, not two, and a body
+// of many, ending at a `${`, fails in linear time.
+const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy, '`': /(?:\\[^]|[^\\`$]|\$(?!\{))*`/uy }
 
 // Whether an alias of module-resolver's matches what Babel's plugins of the
 // config may write into a file that had none: the automatic JSX runtime's,
