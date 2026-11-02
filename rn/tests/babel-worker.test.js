@@ -155,7 +155,7 @@ describe("Metro's inline-requires plugin, where the program has what it inlines"
       transform(code, gatedInlining(plugin), options)
       return exits.length === 1
     }
-    for (const code of ["var a = require('./a')", "var a = require('./a').b", "var { b } = require('./a')", "var a = require(require.resolve('./a'))", "var x = 1, a = require('./a')", "var r = importAll('./a')"]) assert.ok(runs(code, { ignoredRequires: IGNORED, inlineableCalls: ['importAll'] }), code)
+    for (const code of ["var a = require('./a')", "var a = require('./a').b", "var a = registry[require('./key')]", "var { b } = require('./a')", "var a = require(require.resolve('./a'))", "var x = 1, a = require('./a')", "var r = importAll('./a')"]) assert.ok(runs(code, { ignoredRequires: IGNORED, inlineableCalls: ['importAll'] }), code)
     for (const code of ["var r = require('react')", "var h = require('@babel/runtime/helpers/interopRequireDefault')", "var d = h(require('./a'))", "require('./a')", "function f() { var a = require('./a') }", 'var a = require(name)', "var r = importAll('./a')"]) assert.ok(!runs(code), code)
     assert.ok(!runs("var a = require('./a')", { ignoredRequires: ['./a'] }))
   })
@@ -165,6 +165,8 @@ describe("Metro's inline-requires plugin, where the program has what it inlines"
       "var _a = require('./a')\nvar _r = require('react')\nexports.f = function () { return _a.x + _r.y }",
       "var h = require('@babel/runtime/helpers/interopRequireDefault')\nvar _d = h(require('./d'))\nexports.g = function () { return _d.default }",
       "var { z } = require('./z')\nvar w = require('./w').w\nconsole.log(z, w)",
+      // A require of a member's computed property: of no property name, which Metro inlines not.
+      "var v = registry[require('./key')]\nexports.h = function () { return v }",
     ]) assert.equal(transform(code, gatedInlining(inlineRequiresPlugin)), transform(code, inlineRequiresPlugin), code)
   })
 })

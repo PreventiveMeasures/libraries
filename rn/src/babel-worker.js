@@ -107,7 +107,9 @@ export function profileReport({ files, ms, plugins, own }, root) {
 // Metro's inline-requires plugin, but on Program's exit only where the
 // program has what it inlines: a top-level declaration of a var of an
 // inlineable call (require, or one of its inlineableCalls) of a module named,
-// or of a member of one, but not of its ignoredRequires nor @babel/runtime's,
+// or of a member expression of one, its object or its computed property
+// (which Metro 0.78 on inlines not, of no property name, but its member
+// alias takes in either), but not of its ignoredRequires nor @babel/runtime's,
 // as it takes them. Elsewhere it crawls the program's scopes and walks it
 // for none, to no change: there, it is left out.
 export function gatedInlining(plugin) {
@@ -126,7 +128,7 @@ export function gatedInlining(plugin) {
       return resolve && first.callee.property.type === 'Identifier' && first.callee.property.name === 'resolve' && first.arguments[0]?.type === 'StringLiteral' ? first.arguments[0].value : null
     }
     const inlinable = ({ init }) => {
-      const name = moduleOf(init) ?? (init?.type === 'MemberExpression' ? moduleOf(init.object) : null)
+      const name = moduleOf(init) ?? (init?.type === 'MemberExpression' ? (moduleOf(init.object) ?? moduleOf(init.property)) : null)
       return name !== null && !ignored.has(name) && !name.startsWith('@babel/runtime/')
     }
     const exit = program.exit
