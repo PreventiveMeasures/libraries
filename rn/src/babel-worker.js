@@ -48,7 +48,8 @@ const IN_BAND = 16
 // fingerprint, options, modules, reads }: what its output is of but a
 // file's own config and its source (load-cache.js's fingerprintOf()), as
 // its workers have it once they load the config, and what it is a digest
-// of. With options.oneBuild, of one build, whose files don't change as it
+// of. Its close() -> (a promise of) each worker stopped. With
+// options.oneBuild, of one build, whose files don't change as it
 // runs, Babel's .babelrc lookup of each file left out where it would find
 // none (babelrcFinder()), as its directories are read once. Where profile
 // is newProfile()'s, the time of each
@@ -146,7 +147,10 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     return { code, imports, ...(uncacheable && { uncacheable }) }
   }
   let fingerprint = null
-  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)) })
+  // close(): each worker stopped, of a build done in a process that goes
+  // on (an embedder's, a test's): idle, they would keep their memory.
+  const close = () => Promise.all(workers.map(({ worker }) => worker.terminate()))
+  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)), close })
 }
 
 // Babel's own work, outside its plugins, by what it is.

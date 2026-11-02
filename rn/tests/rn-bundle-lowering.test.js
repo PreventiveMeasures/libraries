@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { memoized, printed, writeTree } from './fixtures.js'
-import { BIN, linked } from './rn-bundle-app.js'
+import { linked, runBundle } from './rn-bundle-app.js'
 
 describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
   // As @react-native/babel-preset has the TS plugin, for .ts and .tsx, and
@@ -69,28 +69,28 @@ describe('rn-bundle, with Babel, with Babel\'s TS plugin in the config', () => {
     'node_modules/@react-native/babel-plugin-codegen': linked('@react-native/babel-plugin-codegen'),
   })
   after(cleanup)
-  const build = memoized((options, entry = 'main.ts', ...args) => {
+  const build = memoized(async (options, entry = 'main.ts', ...args) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', entry], { cwd: root, encoding: 'utf8' })
+    const r = await runBundle(['--platform=ios', ...args, '--output=main.out.js', entry], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     return JSON.parse(printed(join(root, 'main.out.js')))
   })
 
-  it('makes TS JS by esbuild as the plugin would by default; a file with a JSX pragma or a native component spec, Babel takes as it is', () => {
-    assert.deepEqual(build({}), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
-    assert.deepEqual(build({}, 'kind.ts'), { kind: 'tsx', react: false })
+  it('makes TS JS by esbuild as the plugin would by default; a file with a JSX pragma or a native component spec, Babel takes as it is', async () => {
+    assert.deepEqual(await build({}), { effects: [], view: { type: 'b', children: ['view'] }, pragma: { type: 'i', children: ['pragma'] }, field: 'base', fields: 0, button: { name: 'Button', color: true } })
+    assert.deepEqual(await build({}, 'kind.ts'), { kind: 'tsx', react: false })
   })
 
-  it('leaves TS to Babel, where the plugin keeps imports or fields otherwise', () => {
+  it('leaves TS to Babel, where the plugin keeps imports or fields otherwise', async () => {
     for (const args of [[], ['--esm']]) {
-      assert.deepEqual(build({ onlyRemoveTypeImports: true }, 'main.ts', ...args).effects, ['effect', 'mark'])
-      const { field, fields } = build({ allowDeclareFields: true }, 'main.ts', ...args)
+      assert.deepEqual((await build({ onlyRemoveTypeImports: true }, 'main.ts', ...args)).effects, ['effect', 'mark'])
+      const { field, fields } = await build({ allowDeclareFields: true }, 'main.ts', ...args)
       assert.deepEqual([field, fields], [null, 2])
     }
   })
 
-  it('with --esm, loads TS as the JS Babel makes of it', () => {
-    assert.deepEqual(build({}, 'main.ts', '--esm'), build({}))
+  it('with --esm, loads TS as the JS Babel makes of it', async () => {
+    assert.deepEqual(await build({}, 'main.ts', '--esm'), await build({}))
   })
 })
 
@@ -120,9 +120,9 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)
-  const build = (options, args = []) => {
+  const build = async (options, args = []) => {
     writeFileSync(join(root, 'babel.config.js'), config(options))
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=main.out.js', 'main.js'], { cwd: root, encoding: 'utf8' })
+    const r = await runBundle(['--platform=ios', ...args, '--output=main.out.js', 'main.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     // In a process of its own: it prints once its async functions are done.
     const { ran, ...out } = JSON.parse(spawnSync(process.execPath, [join(root, 'main.out.js')], { encoding: 'utf8' }).stdout)
@@ -131,8 +131,8 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
   const once = Object.fromEntries(KEYS.map((key) => [key, 1]))
   const js = { 'transform-flow-strip-types': 5, 'transform-typescript': 5 }
 
-  it('lowers by esbuild what such a plugin with no options lowers, and leaves it out of Babel, with those that have nothing to do after esbuild', () => {
-    const { code, stderr, ...out } = build({})
+  it('lowers by esbuild what such a plugin with no options lowers, and leaves it out of Babel, with those that have nothing to do after esbuild', async () => {
+    const { code, stderr, ...out } = await build({})
     assert.ok(!stderr.includes('Babel:'), 'no profile without --profile')
     // Flow's plugin, which drops fields with no value, and TS's stay for JS:
     // both are left out for TS alone. Arrows esbuild doesn't lower.
@@ -140,8 +140,8 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
     assert.ok(code.includes('__asyncGenerator(') && code.includes('__forAwait('))
   })
 
-  it('reports with --profile the files, visitor calls and time of each plugin', () => {
-    const { stderr } = build({}, ['--profile'])
+  it('reports with --profile the files, visitor calls and time of each plugin', async () => {
+    const { stderr } = await build({}, ['--profile'])
     assert.match(stderr, /^Babel: 6 files, \d+ ms, summed over its threads\n {6}ms {7}% {4}files {6}calls {2}plugin$/mu)
     assert.match(stderr, /^ +\d+ +[\d.]+ +\d+ +\d+ {2}internal\.blockHoist$/mu)
     assert.match(stderr, /^ {6}ms {7}% {4}files {6}calls {2}Babel, outside plugins\n(?: +\d+ +[\d.]+ +6 +\d+ {2}(?:config|parsing|scopes|printing)\n){4} +\d+ +[\d.]+ {22}traversal, and the rest$/mu)
@@ -151,8 +151,8 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
     assert.deepEqual(Object.fromEntries(KEYS.map((key) => [key, rows[key]])), Object.fromEntries(KEYS.map((key) => [key, [counts[key], counts[key]]])))
   })
 
-  it('leaves to Babel what a plugin with options lowers', () => {
-    const { code, ran } = build({ 'transform-async-to-generator': { module: 'bluebird', method: 'coroutine' } })
+  it('leaves to Babel what a plugin with options lowers', async () => {
+    const { code, ran } = await build({ 'transform-async-to-generator': { module: 'bluebird', method: 'coroutine' } })
     assert.deepEqual(ran, { ...once, ...js, 'transform-arrow-functions': 6, 'transform-async-to-generator': 6 })
     assert.ok(/async function load\(/u.test(code) && code.includes('__asyncGenerator('))
   })
@@ -178,57 +178,57 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
   after(cleanup)
   const build = (plugins, entry = 'main.js', rest = '') => {
     writeFileSync(join(root, 'babel.config.js'), config(plugins, rest))
-    return spawnSync(process.execPath, [BIN, '--platform=ios', '--output=out.js', entry], { cwd: root, encoding: 'utf8' })
+    return runBundle(['--platform=ios', '--output=out.js', entry], { cwd: root })
   }
   const blockScoping = "() => ({ name: 'transform-block-scoping', visitor: {} })"
   // As Reanimated's worklets: a const put in once block scoping has run.
   const late = "({ template }) => ({ post(file) { file.path.pushContainer('body', template.statements.ast('const late = 1; console.log(late)')) } })"
   const lowers = "() => ({ name: 'transform-block-scoping', visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })"
 
-  it("adds no let or const after Babel: esbuild's helpers bind each key apart", () => {
-    const r = build([blockScoping])
+  it("adds no let or const after Babel: esbuild's helpers bind each key apart", async () => {
+    const r = await build([blockScoping])
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     assert.ok(!/\b(?:let|const)\b/u.test(code), code)
     assert.deepEqual(JSON.parse(printed(join(root, 'out.js'))), [['default', { a: 1, b: 2 }], ['a', 1], ['b', 2]])
   })
 
-  it("lowers again by the config's plugin what Babel's others leave of let and const after it", () => {
-    const r = build([late, lowers], 'late.js')
+  it("lowers again by the config's plugin what Babel's others leave of let and const after it", async () => {
+    const r = await build([late, lowers], 'late.js')
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     assert.ok(!/\b(?:let|const)\b/u.test(code), code)
     assert.equal(printed(join(root, 'out.js')), 'early\n1\n')
   })
 
-  it("parses Babel's output again as its config's parser options have it", () => {
-    const r = build([late, lowers], 'returns.js', 'parserOpts: { allowReturnOutsideFunction: true }, ')
+  it("parses Babel's output again as its config's parser options have it", async () => {
+    const r = await build([late, lowers], 'returns.js', 'parserOpts: { allowReturnOutsideFunction: true }, ')
     assert.equal(r.status, 0, r.stderr)
     assert.equal(printed(join(root, 'out.js')), 'const\n1\n')
   })
 
-  it('runs Babel again only over output that declares a let or const, not where the words are alone', () => {
+  it('runs Babel again only over output that declares a let or const, not where the words are alone', async () => {
     const log = join(root, 'passes.log')
     // The config's block scoping, which notes each file it runs in.
     const noting = `() => ({ name: 'transform-block-scoping', pre(file) { require('fs').appendFileSync(${JSON.stringify(log)}, require('path').basename(file.opts.filename) + '\\n') }, visitor: { VariableDeclaration(path) { path.node.kind = 'var' } } })`
-    const passes = (plugins, entry) => {
+    const passes = async (plugins, entry) => {
       rmSync(log, { force: true })
-      const r = build(plugins, entry)
+      const r = await build(plugins, entry)
       assert.equal(r.status, 0, r.stderr)
       return readFileSync(log, 'utf8')
     }
-    assert.equal(passes([late, noting], 'late.js'), 'late.js\nlate.js\n')
-    assert.equal(passes([noting], 'words.js'), 'words.js\n')
+    assert.equal(await passes([late, noting], 'late.js'), 'late.js\nlate.js\n')
+    assert.equal(await passes([noting], 'words.js'), 'words.js\n')
   })
 
-  it('fails on a let or const Babel leaves', () => {
-    const r = build([blockScoping], 'left.js')
+  it('fails on a let or const Babel leaves', async () => {
+    const r = await build([blockScoping], 'left.js')
     assert.equal(r.status, 1)
     assert.match(r.stderr, /Transforming let to the configured target environment/u)
   })
 
-  it('leaves them to esbuild where the config keeps them', () => {
-    const r = build([])
+  it('leaves them to esbuild where the config keeps them', async () => {
+    const r = await build([])
     assert.equal(r.status, 0, r.stderr)
     assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /for \(let key of/u)
   })
@@ -278,48 +278,48 @@ describe('rn-bundle --esm, with a Babel config that makes modules CommonJS', () 
     'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
   })
   after(cleanup)
-  const build = memoized((...args) => {
-    const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root, encoding: 'utf8' })
+  const build = memoized(async (...args) => {
+    const r = await runBundle(['--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root })
     assert.equal(r.status, 0, r.stderr)
     const code = readFileSync(join(root, 'out.js'), 'utf8')
     return { code, stderr: r.stderr, out: JSON.parse(printed(join(root, 'out.js'))) }
   })
   const OUT = { made: 'made', named: 'named', used: 'used', area: 9, viaExports: 'own', partial: ['present', null], cond: 'import', required: 'require', esm: ['default', 'value'], fromMjs: 'mjs' }
 
-  it('resolves an import Babel makes a require call as an ESM import, as Metro does', () => {
-    const { out } = build()
+  it('resolves an import Babel makes a require call as an ESM import, as Metro does', async () => {
+    const { out } = await build()
     assert.deepEqual([out.cond, out.required], ['import', 'require'])
   })
 
-  it('leaves import and export to esbuild, which links the modules and drops what is unused of them', () => {
-    const commonjs = build('--sourcemap-output=out.map')
+  it('leaves import and export to esbuild, which links the modules and drops what is unused of them', async () => {
+    const commonjs = await build('--sourcemap-output=out.map')
     assert.deepEqual(commonjs.out, OUT)
     const { sources } = JSON.parse(readFileSync(join(root, 'out.map'), 'utf8'))
     assert.ok(sources.some((source) => source.endsWith('lib/node.mjs')) && !sources.some((source) => source.includes('.rn.')), String(sources))
     assert.ok(/\brequire_named\b/u.test(commonjs.code) && commonjs.code.includes('UNUSED-EXPORT'))
-    const esm = build('--esm')
+    const esm = await build('--esm')
     assert.deepEqual(esm.out, OUT)
     assert.ok(!/\brequire_(?:named|shapes|shape|index)\b/u.test(esm.code) && !esm.code.includes('UNUSED-EXPORT'))
     // CommonJS: a file that is, and a module that names `exports`, as Babel makes it.
     assert.ok(/\brequire_cjs\b/u.test(esm.code) && /\brequire_bound\b/u.test(esm.code))
   })
 
-  it('leaves CommonJS a file in which esbuild finds an import of what a module does not export, warning of it', () => {
-    const { code, stderr } = build('--esm')
+  it('leaves CommonJS a file in which esbuild finds an import of what a module does not export, warning of it', async () => {
+    const { code, stderr } = await build('--esm')
     assert.ok(/\brequire_partial\b/u.test(code) && !/\brequire_present\b/u.test(code))
     assert.match(stderr, /▲ \[WARNING\] No matching export in "lib\/present\.js" for import "absent": left CommonJS, as Metro has it, the import undefined\n\n {4}lib\/partial\.js:1:18:/u)
   })
 
-  it("keeps a function's name where esbuild renames it, as Babel's CommonJS keeps it, but where it minifies", () => {
-    const names = (...args) => {
-      const r = spawnSync(process.execPath, [BIN, '--platform=ios', ...args, '--output=out.js', 'names.js'], { cwd: root, encoding: 'utf8' })
+  it("keeps a function's name where esbuild renames it, as Babel's CommonJS keeps it, but where it minifies", async () => {
+    const names = async (...args) => {
+      const r = await runBundle(['--platform=ios', ...args, '--output=out.js', 'names.js'], { cwd: root })
       assert.equal(r.status, 0, r.stderr)
       return JSON.parse(printed(join(root, 'out.js')))
     }
-    assert.deepEqual(names('--esm'), ['Button', 'Button'])
-    assert.deepEqual(names(), ['Button', 'Button'])
+    assert.deepEqual(await names('--esm'), ['Button', 'Button'])
+    assert.deepEqual(await names(), ['Button', 'Button'])
     // Minified, of neither its name, as Metro's minifier has it.
-    for (const minified of [names('--esm', '--minify'), names('--minify')]) assert.ok(!minified.includes('Button'), String(minified))
+    for (const minified of [await names('--esm', '--minify'), await names('--minify')]) assert.ok(!minified.includes('Button'), String(minified))
   })
 
 })
