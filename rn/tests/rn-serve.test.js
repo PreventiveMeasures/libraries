@@ -695,6 +695,18 @@ describe('rn-serve, its cache of each file as it loads', () => {
     assert.deepEqual([existsSync(stale), existsSync(join(cache, 'ab')), readdirSync(join(cache, 'packs')).toSorted(), readdirSync(join(cache, 'entries')).length], [false, false, kept, 1])
   })
 
+  it('builds, as it starts, the bundles an app asked for of its last run, ahead of the app, which then has its bundle at once', async () => {
+    const server = await serve(root, [], tmp)
+    try {
+      await until(() => /rn-serve: built \.\/index for ios, dev in \d+ ms, cache [^\n]*: 2 hits, 0 misses\n/u.test(server.output()), 'the bundle built ahead of the app')
+      assert.match(server.output(), /rn-serve: building \.\/index for ios, dev ahead of the app, as its last run did\n/u)
+      assert.equal(run(String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)).result, 'other')
+      assert.equal(server.output().match(/rn-serve: built /gu).length, 1)
+    } finally {
+      await server.stop()
+    }
+  })
+
   it('keeps none in a directory another may write in', async () => {
     const shared = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
     try {

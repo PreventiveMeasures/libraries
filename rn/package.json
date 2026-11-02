@@ -77,6 +77,7 @@
     "src/self-test.js",
     "src/serializer.js",
     "src/serve-assets.js",
+    "src/serve-cache.js",
     "src/serve.js",
     "src/source-map.js",
     "src/symbolicate.js",

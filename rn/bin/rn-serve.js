@@ -43,11 +43,10 @@
 // It answers the app and its tools, never another webpage (src/gate.js), on
 // 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi.
 
-import { lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { enableCompileCache } from 'node:module'
 import { isIP } from 'node:net'
-import { hostname, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { hostname } from 'node:os'
 import { emitKeypressEvents } from 'node:readline'
 import { parseArgs } from 'node:util'
 
@@ -59,6 +58,7 @@ import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { REPORTER } from '../src/network.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
+import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
 import { createWatcher } from '../src/watch.js'
 
 // Node's cache of the code it compiles, on disk, as tsc has it: the
@@ -94,7 +94,8 @@ const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.po
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
-const cacheDir = cacheDirOf(values['reset-cache'])
+const cacheDir = cacheDirOf(values['reset-cache'], log)
+const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot)
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
 if (values.esm && babelFor === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
@@ -125,12 +126,12 @@ const devBundler = createDevBundler({
     // Once a run, its first build's packs read: of what no run uses, and
     // the cache of Babel's output alone, of before.
     if (cacheDir !== null) pruned ??= prune(cacheDir, { before: [usersOwn('rn-serve-babel')] })
-    const what = `${request.entryFile} for ${request.platform ?? 'no platform'}${request.dev ? ', dev' : ''}${request.minify ? ', minified' : ''} ${status(ms, cached)}`
+    const what = `${bundleName(request)} ${status(ms, cached)}`
     if (outcome.ok) return log(`rn-serve: built ${what}`)
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
   },
 })
-const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler, gate, log, clientLogs: values['client-logs'] })
+const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler: last?.served(devBundler) ?? devBundler, gate, log, clientLogs: values['client-logs'] })
 
 // A change: each bundle built anew; the apps of one in the module format get
 // what changed from the build they have (once a build no longer fails, though
@@ -193,6 +194,7 @@ server.listen(port, host, () => {
   if (runtime === null) log("rn-serve: no metro-runtime, as react-native has it: no Fast Refresh, a change reloads the app")
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
+  void last?.warm(devBundler, log)
 })
 
 // Why a file loaded anew was kept none of (loadCached()'s).
@@ -212,31 +214,6 @@ function status(ms, cached) {
   const read = pack === null ? '' : ` of ${(pack.bytes / 1e6).toFixed(0)} MB, ${(pack.unpacked / 1e6).toFixed(0)} MB unpacked`
   const of = `config ${Math.round(parts.config)}, hashing ${Math.round(parts.hashing)}, records ${Math.round(parts.records)}, pack ${Math.round(parts.pack)}${read}; gc ${Math.round(gc)} ms`
   return `in ${ms} ms, cache ${Math.round(taken)} ms (${of}): ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
-}
-
-// A directory of the OS's temporary directory, of the user's by its name.
-function usersOwn(name) {
-  const uid = process.getuid?.() ?? null
-  return join(tmpdir(), uid === null ? name : `${name}-${uid}`)
-}
-
-// The directory each file as it loads is kept in across runs: the user's
-// own, in the OS's temporary directory, as Metro keeps its cache; emptied
-// first with --reset-cache. null, none kept, where it is another user's, or
-// another may write in it: the bundles would run what they put there.
-function cacheDirOf(reset) {
-  const uid = process.getuid?.() ?? null
-  const dir = usersOwn('rn-serve-cache')
-  try {
-    if (reset) rmSync(dir, { recursive: true, force: true })
-    mkdirSync(dir, { recursive: true, mode: 0o700 })
-    const stat = lstatSync(dir)
-    if (uid === null || (stat.isDirectory() && stat.uid === uid && (stat.mode & 0o022) === 0)) return dir
-  } catch {
-    // Not there, and can't be made.
-  }
-  log(`rn-serve: keeping no files across runs: ${dir} is not this user's alone`)
-  return null
 }
 
 // With its Network panel, which rn-serve has show the app's requests where

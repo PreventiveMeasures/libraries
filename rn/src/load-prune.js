@@ -44,8 +44,8 @@ async function sizeOf(dir, now) {
   return size
 }
 
-// The cache in `dir` pruned: the entries and packs of `dir` no run has
-// used for STALE, then of the packs, while they take more than `budget`
+// The cache in `dir` pruned: the entries, packs and last builds (serve-cache.js's)
+// of `dir` no run has used for STALE, then of the packs, while they take more than `budget`
 // bytes, the least lately used of those no run has used for GRACE; the
 // entries of the layout before; and each directory of `before`, a cache of
 // rn-serve's before this one, the user's own (not a link). A cache, at best:
@@ -56,10 +56,12 @@ export async function prune(dir, { now = Date.now(), budget = BUDGET, before = [
     if (found?.isDirectory() && found.uid === (process.getuid?.() ?? found.uid)) await remove(path)
   }
   for (const name of await namesOf(dir)) if (LEGACY.test(name)) await remove(join(dir, name))
-  for (const name of await namesOf(join(dir, 'entries'))) {
-    const path = join(dir, 'entries', name)
-    const used = await usedOf(path)
-    if (used !== null && now - used > STALE) await remove(path)
+  for (const kept of ['entries', 'builds']) {
+    for (const name of await namesOf(join(dir, kept))) {
+      const path = join(dir, kept, name)
+      const found = await stat(path).catch(() => null)
+      if (found !== null && now - found.mtimeMs > STALE) await remove(path)
+    }
   }
   const packs = []
   for (const name of await namesOf(join(dir, 'packs'))) {
