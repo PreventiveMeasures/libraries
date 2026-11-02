@@ -78,7 +78,7 @@ import { parseArgs } from 'node:util'
 import { assetCatalogFiles, assetsDestFiles } from '../src/assets-dest.js'
 import { profileReport } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
-import { TRANSFORM_PROFILES, babelAliases, defines, failer, flowStripper, peers, projectBabel } from '../src/cli.js'
+import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, failer, flowStripper, peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { prelude } from '../src/serializer.js'
@@ -139,7 +139,7 @@ const transformRefusal = await metro.transformRefusal(resolve(cwd, positionals[0
 if (transformRefusal !== null) fail(transformRefusal)
 const inlineRequires = await metro.inlineRequires(resolve(cwd, positionals[0]), { platform: values.platform, dev: values.dev })
 const maxWorkers = maxWorkersOf(values['max-workers'], metro, fail)
-const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers, oneBuild: true })?.({ platform: values.platform, dev: values.dev, inlineRequires }) ?? null
+const babel = projectBabel(cwd, project, fail, { profile: values.profile, sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers, oneBuild: true, warm: bigBuild(project) })?.({ platform: values.platform, dev: values.dev, inlineRequires }) ?? null
 if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
 if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
 if (values.esm && babel === null) fail("--esm keeps ES modules through the project's Babel config, and it has none")
