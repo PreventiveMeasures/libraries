@@ -8,7 +8,7 @@ import { availableParallelism } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_threads'
 
-import { cacheOf, fingerprintOf } from './babel-cache.js'
+import { cacheOf, fingerprintOf, readsOf } from './babel-cache.js'
 
 // How many workers Babel runs in where nothing says: 2, of 4 CPUs or more,
 // else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
@@ -372,12 +372,16 @@ if (workerData?.babel !== undefined) {
   // The config loaded at once, as a file at the project's root has it,
   // before the first file is sent: its plugins and presets loaded, which
   // Babel then has of each file. Its errors are each file's, as it fails.
-  try {
-    core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
-  } catch {}
-  // Its fingerprint of the modules loaded by now, with the config.
+  const loadConfig = () => {
+    try {
+      core.loadOptionsSync(optionsOf(join(given.cwd ?? process.cwd(), 'index.js')))
+    } catch {}
+  }
+  // With a cache, what the config reads or looks for as it loads too, for
+  // the fingerprint, of the modules loaded by now, with the config.
+  const reads = cacheDir === null ? loadConfig() : readsOf(loadConfig)
   const modules = createRequire(corePath).cache
-  const cache = cacheDir === null ? null : cacheOf(cacheDir, fingerprintOf(Object.keys(modules), { refresh, keepPlugins, inlineRequires, ...given }, given.cwd ?? process.cwd()), modules)
+  const cache = cacheDir === null ? null : cacheOf(cacheDir, fingerprintOf(Object.keys(modules), { refresh, keepPlugins, inlineRequires, ...given }, given.cwd ?? process.cwd(), reads), modules)
   // -> { code, imports }: Babel's output, kept where cached, but where a
   // plugin's is of files it names (its addExternalDependency), which may
   // change.

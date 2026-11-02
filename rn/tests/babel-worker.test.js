@@ -166,6 +166,10 @@ describe('babelWorkers, with a cache directory', () => {
     'nested/.babelrc': { plugins: ['../local.cjs'] },
     'local.cjs': "const helper = require('./helper.cjs')\nmodule.exports = ({ types: t }) => ({ name: 'local', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(helper))) } } } })\n",
     'helper.cjs': "module.exports = 'helped'\n",
+    // A config of a function of what it reads as it loads, and of whether a file is there.
+    'reads.config.cjs': "const { existsSync, readFileSync } = require('node:fs')\nconst data = readFileSync(__dirname + '/data.txt', 'utf8').trim() + (existsSync(__dirname + '/flag') ? '!' : '')\nmodule.exports = { plugins: [['./calls.cjs', { value: () => data }]] }\n",
+    'calls.cjs': "module.exports = ({ types: t }, { value }) => ({ name: 'calls', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(value()))) } } } })\n",
+    'data.txt': 'one\n',
     // As random, but its output of a file it names, which may change.
     'external.cjs': "module.exports = (api) => { api.cache.never(); api.addExternalDependency(__dirname + '/dep.txt'); return { name: 'external', visitor: { Program: { exit(path) { path.pushContainer('body', api.types.expressionStatement(api.types.stringLiteral(String(Math.random())))) } } } } }\n",
   })
@@ -216,6 +220,15 @@ describe('babelWorkers, with a cache directory', () => {
     const all = await code('d()', 'd.js')
     assert.equal(await code('d()', 'd.js', ['random']), 'd();')
     assert.equal(await code('d()', 'd.js'), all)
+  })
+
+  it('transforms anew where what the config read or looked for as it loaded changes, which a function of its options may keep', async () => {
+    const reading = { babelrc: false, configFile: join(root, 'reads.config.cjs') }
+    assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"one";')
+    writeFileSync(join(root, 'data.txt'), 'two\n')
+    assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"two";')
+    writeFileSync(join(root, 'flag'), '')
+    assert.equal(await code('h()', 'h.js', [], reading), 'h();\n"two!";')
   })
 
   it("keeps no output of a plugin's of files it names, nor any error", async () => {
