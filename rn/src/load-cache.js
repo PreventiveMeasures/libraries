@@ -7,7 +7,7 @@
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import fs, { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import fs, { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { Module } from 'node:module'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -119,7 +119,9 @@ const dependencyOf = (dir, name) => {
 
 // `modules`, and the package.json of each package one of them is of, of
 // node_modules, and of each package those depend on (their dependencies,
-// optional and peer too), as Node finds it, theirs too: what Babel and the
+// optional and peer too), as Node finds it, theirs too, each by its real
+// path, as Node finds a package's of it (pnpm's, of a link to the package
+// in its store, has its dependencies beside it there): what Babel and the
 // plugins it has loaded may load as they transform, which they have not as
 // the config loads (@babel/core's @babel/helpers, as it first adds a
 // helper), whose version a change to them makes another. Of the project's
@@ -127,7 +129,16 @@ const dependencyOf = (dir, name) => {
 // of the cache's: each file of a package the app loads is kept by its contents.
 export function withDependencies(modules) {
   const manifests = new Set()
-  const add = (path) => path !== null && manifests.add(path)
+  const seen = new Set()
+  const add = (path) => {
+    if (path === null || seen.has(path)) return
+    seen.add(path)
+    try {
+      manifests.add(realpathSync(path))
+    } catch {
+      // None there.
+    }
+  }
   for (const path of modules) add(manifestOf(path))
   for (const path of manifests) {
     let manifest = null
@@ -147,20 +158,24 @@ export function withDependencies(modules) {
 // plugins and presets, and what they require, the project's or a
 // package's), by its code; each other path of `reads`, those the config
 // read or looked for as it loaded (readsOf()), as it is (stateOf());
-// NODE_ENV and BABEL_ENV, which plugins read. Of a module of none read (of
-// a zip's, Yarn's Plug'n'Play's), the project's lockfile too (of
-// options.cwd's): what a change to its code is of.
+// NODE_ENV and BABEL_ENV, which plugins read. Of a module of none there to
+// read (of a zip's, Yarn's Plug'n'Play's), the project's lockfile too
+// (fallbackOf()): what a change to its code is of.
 export function fingerprintOf(modules, options, reads = new Map()) {
   const loaded = new Set(modules)
-  const codes = modules.toSorted().map((path) => [path, fileDigest(path)])
   return digest(JSON.stringify([
     options,
     [process.env.NODE_ENV ?? null, process.env.BABEL_ENV ?? null],
-    codes,
+    modules.toSorted().map((path) => [path, fileDigest(path)]),
     [...reads].filter(([path]) => !loaded.has(path)).toSorted(([a], [b]) => (a < b ? -1 : 1)).map(([path, read]) => [path, stateOf(path, read)]),
-    codes.some(([, code]) => code === null) ? lockfilesOf(options.cwd ?? process.cwd()).map((path) => [path, fileDigest(path)]) : null,
+    fallbackOf(modules.map(statOf), options),
   ]))
 }
+
+// Of modules of `stats` (statOf()'s) one of none there (a zip's), the
+// project's lockfiles (of options.cwd's) by their code; else null: as a
+// fingerprint is of them, so is its signature (statesOf()).
+const fallbackOf = (stats, options) => (stats.some((stat) => stat === null) ? lockfilesOf(options?.cwd ?? process.cwd()).map((path) => [path, fileDigest(path)]) : null)
 
 // -> (path) => the code of the module at `path`, and of what it requires
 // of the project's own (outside node_modules), as `modules` (require.cache)
@@ -314,9 +329,10 @@ const statOf = (path) => {
     return null
   }
 }
-const statesOf = ({ modules, reads }) => {
+const statesOf = ({ modules, reads, options }) => {
   const loaded = new Set(modules)
-  return JSON.stringify([modules.map(statOf), reads.filter(([path]) => !loaded.has(path)).map(([path, read]) => stateOf(path, read))])
+  const stats = modules.map(statOf)
+  return JSON.stringify([stats, reads.filter(([path]) => !loaded.has(path)).map(([path, read]) => stateOf(path, read)), fallbackOf(stats, options)])
 }
 const signed = (made) => ({ ...made, signature: statesOf(made) })
 const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept) === kept.signature

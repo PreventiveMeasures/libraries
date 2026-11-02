@@ -326,6 +326,54 @@ describe('withDependencies', () => {
   })
 })
 
+describe('withDependencies, of pnpm\'s layout', () => {
+  it("has a package's dependencies as Node finds them from its real path, beside it in pnpm's store", () => {
+    // Each package in the store, its dependencies links beside it.
+    const store = 'node_modules/.pnpm'
+    const { root, cleanup } = writeTree({
+      [`${store}/plugin@1/node_modules/plugin/package.json`]: { name: 'plugin', dependencies: { helper: '1' } },
+      [`${store}/plugin@1/node_modules/plugin/index.js`]: '',
+      [`${store}/plugin@1/node_modules/helper`]: { link: '../../helper@1/node_modules/helper' },
+      [`${store}/helper@1/node_modules/helper/package.json`]: { name: 'helper', dependencies: { deep: '1' } },
+      [`${store}/helper@1/node_modules/deep`]: { link: '../../deep@1/node_modules/deep' },
+      [`${store}/deep@1/node_modules/deep/package.json`]: { name: 'deep' },
+    })
+    try {
+      const found = withDependencies([join(root, `${store}/plugin@1/node_modules/plugin/index.js`)])
+      assert.deepEqual(found.slice(1).map((path) => path.slice(root.length + 1)).toSorted(), [`${store}/deep@1/node_modules/deep/package.json`, `${store}/helper@1/node_modules/helper/package.json`, `${store}/plugin@1/node_modules/plugin/package.json`])
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('createLoadCache, of a fingerprint of a module of none there to read', () => {
+  it("keys each file anew where the project's lockfile changes, though what else the fingerprint is of is as it was", async () => {
+    const { root, cleanup } = writeTree({ 'yarn.lock': 'a\n', 'a.js': '' })
+    try {
+      // A target of a module of a zip, Yarn's Plug'n'Play's, its workers' fingerprint as they make it.
+      const options = { cwd: root }
+      const zipped = [join(root, '.yarn/cache/plugin.zip/node_modules/plugin/index.js')]
+      let made = 0
+      const babel = {
+        workerOptions: options,
+        fingerprint: () => {
+          made++
+          return Promise.resolve({ fingerprint: fingerprintOf(zipped, options), options, modules: zipped, reads: [] })
+        },
+        configKey: () => '',
+      }
+      const key = async () => (await createLoadCache(join(root, 'cache'), { esbuild })(babel).keyOf(join(root, 'a.js'), '', [false, null, false])).key
+      const before = await key()
+      assert.deepEqual([await key(), made], [before, 1])
+      writeFileSync(join(root, 'yarn.lock'), 'b\n')
+      assert.notEqual(await key(), before)
+    } finally {
+      cleanup()
+    }
+  })
+})
+
 describe('fingerprintOf', () => {
   it("is of the project's lockfile where a module of it can't be read (a zip's), and else not", () => {
     const { root, cleanup } = writeTree({ 'yarn.lock': 'a\n', 'plugin.js': '' })
