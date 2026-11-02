@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,9 @@ const APP = {
   ].join('\n'),
   'img/logo.png': png(20, 10),
   'img/logo@2x.png': png(40, 20),
+  // A config of Metro's defaults, which metro-config loads.
   'metro.config.js': 'module.exports = {}\n',
+  'node_modules/metro-config': linked('metro-config'),
   'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' },
   'node_modules/react-native/Libraries/Image/AssetRegistry.js': 'const assets = []\nexports.registerAsset = (asset) => assets.push(asset)\nexports.getAssetByID = (id) => assets[id - 1]\n',
 }
@@ -150,33 +152,21 @@ describe('rn-cli bundle, of a project with a Babel config', () => {
   after(cleanup)
   const run = runner(root)
 
-  it('runs it, as Metro does, unless --babel false', () => {
-    const babel = (...args) => {
-      const r = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', ...args])
-      assert.equal(r.status, 0, r.stderr)
-      return output(join(root, 'out/main.jsbundle')).babel
-    }
-    assert.equal(babel(), true)
-    assert.equal(babel('--babel', 'false'), false)
-    assert.equal(babel('--babel'), true)
-  })
-
-  it('gives rn-bundle --unstable-transform-profile with --babel, of no use without', () => {
-    const profile = (...args) => {
-      const r = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--unstable-transform-profile', 'hermes-stable', ...args, '--verbose'])
-      assert.equal(r.status, 0, r.stderr)
-      return translated(r).filter((arg) => arg.startsWith('--babel') || arg.startsWith('--unstable'))
-    }
-    assert.deepEqual(profile(), ['--babel', '--unstable-transform-profile=hermes-stable'])
-    assert.deepEqual(profile('--babel', 'false'), [])
-  })
-
-  it('refuses a .babelrc alone, which rn-bundle would leave out, unless --babel false', () => {
-    rmSync(join(root, 'babel.config.js'))
-    writeFileSync(join(root, '.babelrc'), '{}')
+  it('runs it, as Metro does', () => {
     const r = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(output(join(root, 'out/main.jsbundle')).babel, true)
+  })
+
+  it('gives rn-bundle --unstable-transform-profile, for the Babel config', () => {
+    const r = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--unstable-transform-profile', 'hermes-stable', '--verbose'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(translated(r).filter((arg) => arg.startsWith('--unstable')), ['--unstable-transform-profile=hermes-stable'])
+  })
+
+  it('takes no --babel, which is no option of `react-native bundle`', () => {
+    const r = run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--babel', 'false'])
     assert.equal(r.status, 1)
-    assert.match(r.stderr, /rn-bundle runs a babel\.config\.\*, not \.babelrc/u)
-    assert.equal(run(['bundle', '--entry-file', 'index.js', '--bundle-output', 'out/main.jsbundle', '--babel', 'false']).status, 0)
+    assert.match(r.stderr, /no such option --babel/u)
   })
 })
