@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { gatedInlining, memoizeHelpers } from '../src/babel-transformer.js'
-import { babelWorkers, defaultWorkers, newProfile, profileReport } from '../src/babel-worker.js'
+import { babelWorkers, defaultWorkers, newProfile, profileReport, timedBefore } from '../src/babel-worker.js'
 import { bigBuild, peers } from '../src/cli.js'
 import { writeTree } from './fixtures.js'
 
@@ -187,6 +187,30 @@ describe('babelWorkers', () => {
         '',
       ].join('\n'),
     )
+  })
+
+  it("reports after Babel's the main thread's work before it, of no share of Babel's", () => {
+    const before = new Map([['flow-remove-types', { files: 3, ms: 4.4 }]])
+    const report = profileReport({ files: 0, ms: 0, plugins: new Map(), own: new Map(), before }, '/app').split('\n')
+    assert.deepEqual(report.slice(-3), ['      ms            files             before Babel, on the main thread', '       4                3             flow-remove-types', ''])
+  })
+
+  it('times each call of a function of the main thread before Babel, though it throws', () => {
+    const profile = newProfile()
+    const strip = timedBefore(profile, 'flow-remove-types', (source) => {
+      if (source === 'bad') throw new SyntaxError('bad')
+      return source.toUpperCase()
+    })
+    assert.deepEqual(profile.before.get('flow-remove-types'), { files: 0, ms: 0 })
+    assert.equal(strip('a'), 'A')
+    assert.throws(() => strip('bad'), SyntaxError)
+    const { files, ms } = profile.before.get('flow-remove-types')
+    assert.ok(files === 2 && ms >= 0)
+    // Of no profile, or no function: as it is.
+    const fn = () => 1
+    assert.equal(timedBefore(null, 'flow-remove-types', fn), fn)
+    assert.equal(timedBefore(profile, 'other', null), null)
+    assert.equal(profile.before.has('other'), false)
   })
 
   it('fails each transform of a worker that dies, none left waiting', { timeout: 10_000 }, async () => {

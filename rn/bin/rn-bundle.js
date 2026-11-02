@@ -43,7 +43,8 @@
 // files the main thread transforms itself, before any. --profile reports
 // the time each of the config's plugins takes, summed over Babel's
 // threads: the files its visitors ran in, their calls, and the time outside
-// the plugins. --self-test builds again, Babel without none of the config's
+// the plugins; and the main thread's before Babel: flow-remove-types'
+// stripping of the files of Flow. --self-test builds again, Babel without none of the config's
 // plugins it leaves out for having nothing to do (but those esbuild lowers
 // before it), and fails where a module's Babel output differs, as esbuild
 // prints each (its quotes, layout and comments alike); with it, --output
@@ -76,7 +77,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import { assetCatalogFiles, assetsDestFiles } from '../src/assets-dest.js'
-import { profileReport } from '../src/babel-worker.js'
+import { profileReport, timedBefore } from '../src/babel-worker.js'
 import { bundle } from '../src/bundle.js'
 import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, failer, flowStripper, peers, projectBabel } from '../src/cli.js'
 import { diskHost } from '../src/defaults.js'
@@ -163,7 +164,7 @@ const options = {
   outfile: values.output ?? 'rn-bundle.js',
   esbuild,
   projectRoot: cwd,
-  stripFlow: flowStripper(project, babel !== null),
+  stripFlow: timedBefore(babel?.profile ?? null, 'flow-remove-types', flowStripper(project, babel !== null)),
   babel: babel?.babel ?? null,
   babelPlugins: babel?.babelPlugins ?? null,
   esm: values.esm,
