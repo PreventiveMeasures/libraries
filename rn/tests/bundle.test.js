@@ -6,6 +6,7 @@ import { after, describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
 import { bundle, createBundler, lookingOnce } from '../src/bundle.js'
+import { diskHost } from '../src/defaults.js'
 import { png, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
@@ -91,6 +92,21 @@ describe('bundle', () => {
       writeFileSync(join(root, 'lib/value.js'), APP['lib/value.js'])
       await bundler.dispose()
     }
+  })
+
+  it('reads ahead each file it resolves, off the main thread, and loads it of what it read; else, failing, as the host reads it', async () => {
+    const ahead = []
+    const readFileAsync = (path) => {
+      ahead.push(basename(path))
+      return Promise.resolve(path.endsWith('value.js') ? Buffer.from('export const value = 5\n') : diskHost.readFile(path))
+    }
+    const result = await bundle({ ...options, host: { ...diskHost, readFileAsync } })
+    assert.deepEqual(run(js(result)), [5, 2, 'dep'])
+    assert.deepEqual(ahead.toSorted(), ['index.js', 'main.js', 'typed.ts', 'value.js'])
+    for (const file of files('index.js', 'lib/typed.ts', 'lib/value.js', 'node_modules/dep/lib/main.js')) assert.ok(result.files.includes(file), file)
+    const failing = await bundle({ ...options, host: { ...diskHost, readFileAsync: () => Promise.reject(new Error('EIO')) } })
+    assert.deepEqual(run(js(failing)), [1, 2, 'dep'])
+    assert.ok(failing.files.includes(join(root, 'lib/value.js')))
   })
 
   it("maps the bundle to each source, through esbuild's lowering and Babel's transform", async () => {
