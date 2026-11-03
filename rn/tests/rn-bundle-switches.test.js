@@ -75,6 +75,33 @@ describe("rn-bundle, of rn.config.json's babel: Babel plugins switched on and of
   })
 })
 
+describe("rn-bundle, of rn.config.json's babel switching block scoping off", () => {
+  // Keyed as Babel's block-scoping plugin, which lowers let to var: it counts its runs, which rn makes
+  // again where a plugin after it declares let; a plugin that does.
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    'babel.config.js': "module.exports = { plugins: ['./plugins/block.js', './plugins/adds-let.js'] }\n",
+    'plugins/block.js': "module.exports = ({ types: t }) => ({ name: 'transform-block-scoping', visitor: { VariableDeclaration(path) { path.node.kind = 'var' }, Program: { exit(path) { const runs = t.memberExpression(t.identifier('globalThis'), t.identifier('blockRuns')); path.unshiftContainer('body', t.expressionStatement(t.assignmentExpression('=', runs, t.binaryExpression('+', t.logicalExpression('||', t.cloneNode(runs), t.numericLiteral(0)), t.numericLiteral(1))))) } } } })\n",
+    // After the traversal, which visits none of it: as Reanimated's worklets are made.
+    'plugins/adds-let.js': "module.exports = ({ types: t }) => ({ name: 'adds-let', visitor: {}, post(file) { file.ast.program.body.push(t.variableDeclaration('let', [t.variableDeclarator(t.identifier('added'), t.numericLiteral(1))])) } })\n",
+    'index.js': 'console.log(JSON.stringify(globalThis.blockRuns ?? 0))\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const runs = async (config) => {
+    writeFileSync(join(root, 'rn.config.json'), JSON.stringify(config))
+    const r = await runBundle(['--platform=ios', '--output=out.js', 'index.js'], { cwd: root })
+    assert.equal(r.status, 0, r.stderr)
+    return JSON.parse(printed(join(root, 'out.js')))
+  }
+
+  it("runs it in neither pass: not again of the let a plugin after it declares", async () => {
+    // Its own run, and again of the let adds-let declares.
+    assert.equal(await runs({}), 2)
+    assert.equal(await runs({ babel: { 'transform-block-scoping': false } }), 0)
+  })
+})
+
 describe("rn-bundle, of rn.config.json's babel, of a project with no Babel config", () => {
   const { root, cleanup } = writeTree({ ...APP, 'rn.config.json': { babel: { 'transform-classes': false } } })
   after(cleanup)

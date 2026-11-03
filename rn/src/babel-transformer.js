@@ -10,6 +10,7 @@ import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
 const COMMONJS = 'transform-modules-commonjs'
+const BLOCK_SCOPING = 'transform-block-scoping'
 const LET = /\b(?:let|const)\b/u
 
 // -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, uncacheable?,
@@ -22,8 +23,10 @@ export function transformerOf({ corePath, options, profile }) {
   const cwd = given.cwd ?? process.cwd()
   // Metro's inline-requires, run after all of the config's plugins, its presets' included.
   const inlining = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
-  // rn.config.json's plugins switched on and off (babel-switches.js), loaded as the config's are.
-  const switched = switchesOf(core, switches, { cwd: given.cwd, root: given.root, caller: given.caller, envName: given.envName })
+  // rn.config.json's plugins switched on and off (babel-switches.js), loaded as the config's are:
+  // with the config, in loadConfig(), whose reads the fingerprint is of.
+  let switchedNow = null
+  const switchedOf = () => (switchedNow ??= switchesOf(core, switches, { cwd: given.cwd, root: given.root, caller: given.caller, envName: given.envName }, { ...given, filename: join(cwd, 'index.js') }))
   // A plugin switched off as the syntax it has Babel parse alone (its manipulateOptions, as of the
   // syntax plugin it inherits): none of its transform, nor its parser's or generator's override.
   const syntaxOf = memoized((plugin) => (plugin.manipulateOptions === undefined ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [() => ({ name: `${plugin.key}:syntax`, manipulateOptions: plugin.manipulateOptions })] }).plugins[0]))
@@ -43,6 +46,8 @@ export function transformerOf({ corePath, options, profile }) {
   // With the config's plugins, but those switched off, and those keyed in `without` and Reanimated's
   // where quiet, unless switched on; then those switched on that the config lacks, in order.
   const run = (source, filename, without) => {
+    const switched = switchedOf()
+    if (switched.errors.length > 0) throw new Error(switched.errors[0])
     const start = performance.now()
     const config = configOf(filename)
     profiler?.time('config', start)
@@ -66,7 +71,9 @@ export function transformerOf({ corePath, options, profile }) {
     // An ES module built without CommonJS (load.js, for --esm) that uses `module` or `exports`
     // unbound is built again with it, which binds them.
     if (namesCommonJs && without.includes(COMMONJS) && !switched.on.has(COMMONJS)) return run(source, filename, without.filter((key) => key !== COMMONJS))
-    return { code: lowered(core, config, result, given.sourceMaps), imports: [...imports], ...(result.externalDependencies?.size > 0 && { uncacheable: true }) }
+    // Of the plugins run, else (skipped where it had nothing to do) the config's: but switched off, none.
+    const blockScoping = switched.off.has(BLOCK_SCOPING) ? null : (plugins.find(({ key }) => key === BLOCK_SCOPING) ?? config.plugins.find(({ key }) => key === BLOCK_SCOPING) ?? null)
+    return { code: lowered(core, config, result, given.sourceMaps, blockScoping), imports: [...imports], ...(result.externalDependencies?.size > 0 && { uncacheable: true }) }
   }
   const transform = ({ source, filename, without }) => {
     const start = profiler?.start()
@@ -80,6 +87,7 @@ export function transformerOf({ corePath, options, profile }) {
   // Its errors are each file's, as that fails.
   const loadConfig = () => {
     try {
+      switchedOf()
       configOf(join(cwd, 'index.js'))
     } catch {}
   }
@@ -318,9 +326,8 @@ function lister() {
 // The code, with the config's block-scoping plugin run again where other plugins (Reanimated's worklets)
 // left let or const after it ran: Metro's output has none, and esbuild is told to add none (bundle.js).
 // The AST is checked, since most matches of the words are in strings, comments or property names.
-function lowered(core, config, result, sourceMaps) {
-  const blockScoping = config.plugins.find(({ key }) => key === 'transform-block-scoping')
-  if (blockScoping === undefined || !LET.test(result.code) || !declaresLet(core.types.VISITOR_KEYS, result.ast.program)) return result.code
+function lowered(core, config, result, sourceMaps, blockScoping) {
+  if (blockScoping === null || !LET.test(result.code) || !declaresLet(core.types.VISITOR_KEYS, result.ast.program)) return result.code
   // Parsed as the config parses, e.g. allowing a return outside a function.
   const parsing = { sourceType: config.sourceType ?? 'unambiguous', ...(config.parserOpts && { parserOpts: config.parserOpts }) }
   return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: config.cwd, filename: config.filename, compact: false, ...parsing, plugins: [blockScoping], ...(sourceMaps && { sourceMaps, inputSourceMap: true }) }).code

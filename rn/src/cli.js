@@ -131,7 +131,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
       babelPlugins: async (filename) => {
         const plugins = pluginsByKey((await loadCore().loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
         if (switched.length > 0) {
-          switchedKeys ??= switchesOf(loadCore(), switched, { cwd, root: cwd, caller, envName })
+          switchedKeys ??= switchesOf(loadCore(), switched, { cwd, root: cwd, caller, envName }, { ...options, filename: join(cwd, 'index.js') })
           for (const key of switchedKeys.off) plugins.delete(key)
           for (const { key, plugin } of switchedKeys.added) {
             if (plugins.has(key) || plugin !== null) plugins.set(key, { ...(plugins.get(key) ?? plugin.options), [FORCED]: true })
