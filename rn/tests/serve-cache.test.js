@@ -45,7 +45,7 @@ describe('lastBuilds', () => {
     for (const each of [request('./index', 'ios'), request('./index', 'ios', { kind: 'map' }), request('./index', 'ios', { shallow: true }), request('./index', 'android')]) await served.get(each)
     assert.deepEqual(served.files(), new Set(['kept']))
     const last = [kept(request('./index', 'ios')), kept(request('./index', 'android'))]
-    assert.deepEqual(await warmed(dir, '/app'), [last, ['rn-serve: building ./index for ios, dev; ./index for android, dev ahead of the app, as its last run did']])
+    assert.deepEqual(await warmed(dir, '/app'), [last, ['rn-serve: building ./index for ios; ./index for android']])
     // Of a run that served none, the last that did; of another project, its own.
     lastBuilds(dir, '/app')
     assert.deepEqual((await warmed(dir, '/app'))[0], last)
@@ -65,7 +65,7 @@ describe('lastBuilds', () => {
     assert.deepEqual(await warmed(dir, '/app'), [[], []])
   })
 
-  it("builds, of no run kept, the project's one bundle, for iOS on a Mac, else for Android, and says of several", async () => {
+  it("builds, of no run kept, the project's one bundle, for iOS on a Mac, else for Android; of several, none", async () => {
     const { root: project, cleanup: done } = writeTree({ 'index.js': '', 'ios/App/AppDelegate.swift': 'jsBundleURL(forBundleRoot: "index")\n' })
     try {
       const warm = async (system) => {
@@ -74,21 +74,21 @@ describe('lastBuilds', () => {
         await lastBuilds(join(root, `c-${system}`), project, { system }).warm(bundler, (line) => logged.push(line))
         return [bundler.asked, logged]
       }
-      assert.deepEqual(await warm('darwin'), [[kept(request('./index', 'ios'))], ["rn-serve: building ./index for ios, dev ahead of the app, the project's one bundle"]])
-      assert.deepEqual(await warm('linux'), [[kept(request('./index', 'android'))], ["rn-serve: building ./index for android, dev ahead of the app, the project's one bundle"]])
+      assert.deepEqual(await warm('darwin'), [[kept(request('./index', 'ios'))], ['rn-serve: building ./index for ios']])
+      assert.deepEqual(await warm('linux'), [[kept(request('./index', 'android'))], ['rn-serve: building ./index for android']])
       // For the platform of the app it launches, of any system.
       const bundler = bundlerOf()
       await lastBuilds(join(root, 'c-launch'), project, { system: 'linux', launched: 'ios' }).warm(bundler, () => {})
       assert.deepEqual(bundler.asked, [kept(request('./index', 'ios'))])
       writeFileSync(join(project, 'share.js'), '')
       writeFileSync(join(project, 'ios', 'App', 'AppDelegate.swift'), 'jsBundleURL(forBundleRoot: "index")\njsBundleURL(forBundleRoot: "share")\n')
-      assert.deepEqual(await warm('darwin'), [[], ["rn-serve: building none ahead of the app, of the project's bundles: ./index, ./share"]])
+      assert.deepEqual(await warm('darwin'), [[], []])
     } finally {
       done()
     }
   })
 
-  it('names a bundle by its entry, platform, dev and minify', () => {
-    assert.deepEqual([bundleName(request('./index', 'ios')), bundleName(request('./index', null, { dev: false, minify: true }))], ['./index for ios, dev', './index for no platform, minified'])
+  it('names a bundle by its entry and platform, and a release or minified one so', () => {
+    assert.deepEqual([bundleName(request('./index', 'ios')), bundleName(request('./index', null, { dev: false, minify: true }))], ['./index for ios', './index for no platform, release, minified'])
   })
 })

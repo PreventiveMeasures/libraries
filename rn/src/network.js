@@ -45,7 +45,7 @@ const headersOf = (value) => (isObject(value) ? Object.fromEntries(Object.entrie
 
 // -> { handler(connection), debuggerConnected(socket), reporter(client) ->
 // { onMessage, onClose } }.
-export function createNetworkInspector({ log = () => {}, wait = WAIT, maxBodies = MAX_BODIES } = {}) {
+export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } = {}) {
   const sessions = new Set()
   const reporters = new Set()
   const bodies = createBodies(maxBodies)
@@ -95,7 +95,7 @@ export function createNetworkInspector({ log = () => {}, wait = WAIT, maxBodies 
       session.socket?.once('close', () => end(session))
       return {
         handleDebuggerMessage: (message) => debuggerMessage(session, message, { bodies, retell }),
-        handleDeviceMessage: (message) => deviceMessage(session, message, { log, retell, ask }),
+        handleDeviceMessage: (message) => deviceMessage(session, message, { retell, ask }),
       }
     },
     // The socket of /inspector/debug a handler is made for as it connects,
@@ -149,7 +149,7 @@ function debuggerMessage(session, message, { bodies, retell }) {
 // A message of the app to its DevTools. -> true where it is rn-serve's: the
 // answer to what it asked, or an error of Network.enable, which rn-serve
 // answers in its place; its answer else says it reports its requests itself.
-function deviceMessage(session, message, { log, retell, ask }) {
+function deviceMessage(session, message, { retell, ask }) {
   if (!isObject(message)) return undefined
   if (message.method === 'Debugger.scriptParsed' && isObject(message.params) && typeof message.params.url === 'string' && message.params.url !== '') {
     session.scripts.set(message.params.url, String(message.params.scriptId))
@@ -168,7 +168,6 @@ function deviceMessage(session, message, { log, retell, ask }) {
     retell()
     return undefined
   }
-  if (session.network !== 'served') log(`rn-serve: ${session.device.appId} on ${session.device.name} reports no requests itself: its DevTools' Network panel has those its reporter tells of`)
   session.network = 'served'
   session.frontend.sendMessage({ id: message.id, result: {} })
   ask(session)

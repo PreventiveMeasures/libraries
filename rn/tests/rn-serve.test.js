@@ -176,7 +176,7 @@ describe('rn-serve', () => {
     assert.deepEqual([android.where, android.dev, android.env], ['android', false, 'production'])
     const minified = String((await fetchRaw(bundleUrl('platform=ios&minify=true'))).body)
     assert.ok(minified.length < code.length)
-    assert.match(server.output(), /built \.\/index for ios, dev in \d+\.\d s/u)
+    assert.match(server.output(), /built \.\/index for ios in \d+\.\d s/u)
   })
 
   it('streams a bundle to a client that takes multipart/mixed (the app), as Metro does: its progress, then it, or its error and status', async () => {
@@ -779,7 +779,7 @@ describe('rn-serve, its cache of each file as it loads', () => {
     const server = await serve(root, args, tmp)
     try {
       const code = String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)
-      const logged = await until(() => /rn-serve: built \S+ for ios, dev in \d+\.\d s, cache \d+\.\d s: ([^\n]*)\n/u.exec(server.output()), 'the build logged')
+      const logged = await until(() => /rn-serve: built \S+ for ios in \d+\.\d s, cache \d+\.\d s: ([^\n]*)\n/u.exec(server.output()), 'the build logged')
       return [run(code).result, transformed() - count, logged[1]]
     } finally {
       await server.stop()
@@ -817,8 +817,8 @@ describe('rn-serve, its cache of each file as it loads', () => {
   it('builds, as it starts, the bundles an app asked for of its last run, ahead of the app, which then has its bundle at once', async () => {
     const server = await serve(root, [], tmp, { warm: true })
     try {
-      await until(() => /rn-serve: built \.\/index for ios, dev in \d+\.\d s, cache [^\n]*: 2 hits, 0 misses\n/u.test(server.output()), 'the bundle built ahead of the app')
-      assert.match(server.output(), /rn-serve: building \.\/index for ios, dev ahead of the app, as its last run did\n/u)
+      await until(() => /rn-serve: built \.\/index for ios in \d+\.\d s, cache [^\n]*: 2 hits, 0 misses\n/u.test(server.output()), 'the bundle built ahead of the app')
+      assert.match(server.output(), /rn-serve: building \.\/index for ios\n/u)
       assert.equal(run(String((await fetchRaw(`${server.url}/index.bundle?platform=ios`)).body)).result, 'other')
       assert.equal(server.output().match(/rn-serve: built /gu).length, 1)
     } finally {
@@ -831,8 +831,8 @@ describe('rn-serve, its cache of each file as it loads', () => {
     const platform = process.platform === 'darwin' ? 'ios' : 'android'
     const server = await serve(root, [], fresh, { warm: true })
     try {
-      await until(() => new RegExp(`rn-serve: built \\./index for ${platform}, dev in \\d+\\.\\d s`, 'u').test(server.output()), 'the bundle built ahead of the app')
-      assert.match(server.output(), new RegExp(`rn-serve: building \\./index for ${platform}, dev ahead of the app, the project's one bundle\n`, 'u'))
+      await until(() => new RegExp(`rn-serve: built \\./index for ${platform} in \\d+\\.\\d s`, 'u').test(server.output()), 'the bundle built ahead of the app')
+      assert.match(server.output(), new RegExp(`rn-serve: building \\./index for ${platform}\n`, 'u'))
     } finally {
       await server.stop()
       rmSync(fresh, { recursive: true, force: true })
@@ -1063,7 +1063,7 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
         ['xcrun', 'simctl', 'launch', '--terminate-running-process', 'UDID-17', 'com.example.app', '-RCT_jsLocation', new URL(server.url).host],
       ])
       // Of no run before, iOS's, of any system.
-      assert.match(server.output(), /rn-serve: building \.\/index for ios, dev ahead of the app, the project's one bundle/u)
+      assert.match(server.output(), /rn-serve: building \.\/index for ios\n/u)
     } finally {
       await server.stop()
     }

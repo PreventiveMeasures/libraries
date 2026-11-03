@@ -108,7 +108,7 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
   const sources = sourceRoutes(projectRoot, watchFolders)
   // Of each app's, as Metro has one, its groups the apps'.
   const clientLog = clientLogs ? createClientLog(log, style) : null
-  const network = createNetworkInspector({ log })
+  const network = createNetworkInspector()
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()
