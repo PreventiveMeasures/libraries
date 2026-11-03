@@ -124,24 +124,21 @@ function rebased(piece, segment, { sourceAt, nameAt, source, line, column, name 
   return fields.map(vlq).join('')
 }
 
-// Pieces of code, each on lines of its own, as one map. `pieces`: [{ lines, piece }], `lines` the
-// piece's line count and `piece` pieceOf() its map, or null.
-export function concatMaps(pieces) {
-  const sources = []
-  const sourcesContent = []
-  const names = []
+// Pieces of code, each on lines of its own, as one map's mappings: each piece of a map (`piece` not null,
+// of a segment) given to `each`, in order. `pieces`: [{ lines, piece }], `lines` the piece's line count and
+// `piece` pieceOf() its map, or null.
+function mappingsOf(pieces, each) {
   const out = []
-  // Where the last segment with a source, and the last with a name, left the fields.
+  // Where the last segment with a source, and the last with a name, left the fields; and how many sources
+  // and names the pieces before have.
   let [source, line, column, name] = [0, 0, 0, 0]
+  let [sourceAt, nameAt] = [0, 0]
   for (const { lines, piece } of pieces) {
     if (piece === null || piece.first === null) {
       out.push(';'.repeat(lines - 1))
       continue
     }
-    const [sourceAt, nameAt] = [sources.length, names.length]
-    sources.push(...piece.sources)
-    sourcesContent.push(...piece.sourcesContent)
-    names.push(...piece.names)
+    each(piece)
     // Its first segment with a source, and its first with a name (that one or a later one), rebased.
     const from = { sourceAt, nameAt, source, line, column, name }
     let text = piece.mappings.slice(0, piece.first.start) + rebased(piece, piece.first, from)
@@ -151,6 +148,40 @@ export function concatMaps(pieces) {
     out.push(piece.lines >= lines ? text.split(';').slice(0, lines).join(';') : text + ';'.repeat(lines - piece.lines))
     ;[source, line, column] = [sourceAt + piece.end[0], piece.end[1], piece.end[2]]
     if (piece.named !== null) name = nameAt + piece.end[3]
+    sourceAt += piece.sources.length
+    nameAt += piece.names.length
   }
-  return { version: 3, sources, sourcesContent, names, mappings: out.join(';') }
+  return out.join(';')
+}
+
+// Pieces of code, each on lines of its own, as one map (mappingsOf()'s pieces).
+export function concatMaps(pieces) {
+  const sources = []
+  const sourcesContent = []
+  const names = []
+  const mappings = mappingsOf(pieces, (piece) => {
+    sources.push(...piece.sources)
+    sourcesContent.push(...piece.sourcesContent)
+    names.push(...piece.names)
+  })
+  return { version: 3, sources, sourcesContent, names, mappings }
+}
+
+// A piece's sources, sourcesContent and names, each as JSON, but its brackets: once of each piece, which
+// a module's build keeps while its source is the same.
+const FRAGMENTS = new WeakMap()
+const fragmentsOf = (piece) => {
+  if (!FRAGMENTS.has(piece)) FRAGMENTS.set(piece, [piece.sources, piece.sourcesContent, piece.names].map((each) => JSON.stringify(each).slice(1, -1)))
+  return FRAGMENTS.get(piece)
+}
+
+// JSON.stringify(concatMaps(pieces)), the same, of each piece's sources (each source's whole content among
+// them) as JSON once (fragmentsOf()): a dev bundle's, of the modules a build before had, not anew.
+export function concatMapsJson(pieces) {
+  const lists = [[], [], []]
+  const mappings = mappingsOf(pieces, (piece) => {
+    const fragments = fragmentsOf(piece)
+    for (let i = 0; i < 3; i++) if (fragments[i] !== '') lists[i].push(fragments[i])
+  })
+  return `{"version":3,"sources":[${lists[0].join(',')}],"sourcesContent":[${lists[1].join(',')}],"names":[${lists[2].join(',')}],"mappings":${JSON.stringify(mappings)}}`
 }

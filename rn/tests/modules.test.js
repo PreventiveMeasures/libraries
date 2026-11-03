@@ -70,6 +70,27 @@ describe('the module format', () => {
   }
   const CLIENT = 'http://localhost:8081/index.bundle?platform=ios&dev=true'
 
+  it("makes the bundle, and its map, each as it is first asked for, each module's record and definition the build before's where it is the same, to the bundle built anew", async () => {
+    const ids = new Map()
+    const builds = new Map()
+    const cache = new Map()
+    const make = (more = {}) => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids, builds, cache, ...more })
+    try {
+      const first = await make().rebuild()
+      assert.equal(typeof Object.getOwnPropertyDescriptor(first, 'js').get, 'function', 'made as it is asked for')
+      const again = await make().rebuild()
+      assert.ok([...again.modules].every(([id, record]) => record === first.modules.get(id)))
+      edit('label.js', APP['label.js'].replace("'world'", "'edited world'"))
+      const edited = await make().rebuild()
+      assert.deepEqual([...edited.modules.values()].filter((record) => record !== first.modules.get(record.id)).map(({ name }) => name), ['label.js'])
+      const anew = await make({ builds: new Map(), cache: new Map() }).rebuild()
+      assert.deepEqual([edited.js === anew.js, edited.map === anew.map], [true, true])
+      assert.match(edited.js, /edited world/u)
+    } finally {
+      restore()
+    }
+  })
+
   it("keeps each module's build in a store, which a run after takes, building none, to the same bundle", async () => {
     let built = 0
     const counting = { ...esbuild, build: (...args) => (built++, esbuild.build(...args)) }

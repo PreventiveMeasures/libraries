@@ -6,7 +6,7 @@ import { dirname, relative, resolve } from 'node:path'
 
 import { ANY, GLOBAL, assetSource, assetsOf, loadCached, lowersLetOf, newState, posixRelative, resolveImport, supportedOf } from './bundle.js'
 import { defaults, diskHost } from './defaults.js'
-import { concatMaps, pieceOf } from './mappings.js'
+import { concatMapsJson, pieceOf } from './mappings.js'
 
 const FACTORY = 'function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, exports, _dependencyMap)'
 // The key of the empty module, which Metro resolves some imports to.
@@ -17,7 +17,9 @@ const nameOf = (projectRoot, key) => (key === EMPTY ? EMPTY : posixRelative(proj
 // A wrapped script's or module's map pieces: its code between the wrapper's first and last lines.
 export const wrapped = ({ lines, piece }) => [{ lines: 1, piece: null }, { lines, piece }, { lines: 1, piece: null }]
 
-// rebuild() returns { js, map, modules, entryId, scripts, assets, files } or throws as createBundler()'s.
+// rebuild() returns { js, map, modules, entryId, scripts, assets, files, bundled } or throws as
+// createBundler()'s: `js` and `map` the bundle and its map, as bundled.js() and bundled.map() make each
+// when first asked for, not as each build is done (an edit's, which an update has the modules of alone).
 // `ids` (key => id) persist across builds, `builds` holds each module's build, `runtime` is metro-runtime's
 // require.js, and `injected` are rn's own modules run after those run first, resolved as the entry's imports.
 export function createModuleBundler(options) {
@@ -88,8 +90,10 @@ async function graphOf(run, state, { scripts, prelude }) {
   if (errors.length > 0) throw Object.assign(new Error(`Build failed with ${errors.length} error(s)`), { errors })
   const modules = new Map((await Promise.all(pending.values())).map((record) => [record.id, record]))
   const runs = [...before.map(({ key }) => key), entryKey].map(run.idOf)
+  const bundled = serialize({ prelude, scripts: built, modules, runs })
   // `scripts`, which no update can define anew, as they are.
-  return { ...serialize({ prelude, scripts: built, modules, runs }), modules, entryId: run.idOf(entryKey), scripts: built.map(({ text }) => text).join(''), assets: assetsOf(state), files: [...state.read] }
+  const result = { modules, entryId: run.idOf(entryKey), scripts: built.map(({ text }) => text).join(''), assets: assetsOf(state), files: [...state.read], bundled }
+  return Object.defineProperties(result, { js: { get: bundled.js, enumerable: true }, map: { get: bundled.map, enumerable: true } })
 }
 
 // The module a resolution is, { key, kind }, an asset's key its lowest path as in bundle(); null where nothing.
@@ -131,7 +135,21 @@ async function moduleOf(run, state, { key, kind, importer = key }, visit) {
     indices[specifier] = deps.length
     deps.push(child.key)
   }
-  return { id: run.idOf(key), key, name: nameOf(projectRoot, key), deps: deps.map(run.idOf), factory: factoryOf(built, indices), lines: built.lines, piece: built.piece }
+  return recordOf(run, key, built, deps.map(run.idOf), indices)
+}
+
+// A module's record, the one of the build before where its build, id, deps and their indices are the same
+// (its factory, and its definition, serialize()'s, made once): a build's are those of the one before but
+// an edit's.
+const RECORDS = new WeakMap()
+function recordOf(run, key, built, deps, indices) {
+  const id = run.idOf(key)
+  const at = JSON.stringify(indices)
+  const kept = RECORDS.get(built)
+  if (kept !== undefined && kept.at === at && kept.record.id === id && kept.record.deps.length === deps.length && kept.record.deps.every((each, i) => each === deps[i])) return kept.record
+  const record = { id, key, name: nameOf(run.projectRoot, key), deps, factory: factoryOf(built, indices), lines: built.lines, piece: built.piece }
+  RECORDS.set(built, { at, record })
+  return record
 }
 
 // Builds a module with esbuild as CommonJS, each import left a require call; kept while its source is the
@@ -206,26 +224,37 @@ async function scriptOf(run, state, path) {
   return { text: `(function (global) {\n${code}})(${GLOBAL});\n`, lines: lineCount(code), piece: pieceOf(JSON.parse(map)) }
 }
 
-// The bundle and its map: the prelude, the scripts, each module, each run.
+// Each record's definition (defineCall()'s), once: a record is the build before's where it is the same.
+const DEFINED = new WeakMap()
+const definedOf = (record) => {
+  if (!DEFINED.has(record)) DEFINED.set(record, defineCall(record))
+  return DEFINED.get(record)
+}
+
+// The bundle and its map, { js(), map() }, each made once, as it is first asked for: the prelude, the
+// scripts, each module (its definition and map once of its record: definedOf(), concatMapsJson()), each
+// run. A client that asks for the bundle may never ask for its map (a debugger's, symbolication's).
 function serialize({ prelude, scripts, modules, runs }) {
-  const parts = []
-  const pieces = []
-  if (prelude !== null) {
-    parts.push(`${prelude}\n`)
-    pieces.push({ lines: lineCount(`${prelude}\n`), piece: null })
-  }
-  for (const script of scripts) {
-    parts.push(script.text)
-    pieces.push(...wrapped(script))
-  }
   // By id: the same bundle of the same modules, whatever order they were built in.
-  for (const record of [...modules.values()].toSorted((a, b) => a.id - b.id)) {
-    parts.push(defineCall(record))
-    pieces.push(...wrapped(record))
+  let sorted = null
+  const ordered = () => (sorted ??= [...modules.values()].toSorted((a, b) => a.id - b.id))
+  let js = null
+  let map = null
+  const jsOf = () => {
+    const parts = prelude === null ? [] : [`${prelude}\n`]
+    for (const script of scripts) parts.push(script.text)
+    for (const record of ordered()) parts.push(definedOf(record))
+    parts.push(runs.map((id) => `__r(${id});\n`).join(''))
+    return parts.join('')
   }
-  parts.push(runs.map((id) => `__r(${id});\n`).join(''))
-  pieces.push({ lines: runs.length, piece: null })
-  return { js: parts.join(''), map: JSON.stringify(concatMaps(pieces.filter(({ lines }) => lines > 0))) }
+  const mapOf = () => {
+    const pieces = prelude === null ? [] : [{ lines: lineCount(`${prelude}\n`), piece: null }]
+    for (const script of scripts) pieces.push(...wrapped(script))
+    for (const record of ordered()) pieces.push(...wrapped(record))
+    pieces.push({ lines: runs.length, piece: null })
+    return concatMapsJson(pieces.filter(({ lines }) => lines > 0))
+  }
+  return { js: () => (js ??= jsOf()), map: () => (map ??= mapOf()) }
 }
 
 // esbuild's errors, else the error as one, located in the module where they have no location.
