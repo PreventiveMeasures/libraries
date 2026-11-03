@@ -227,8 +227,9 @@ function reported(reporter, text, { servedBy, told, askServed, bodies }) {
     if (typeof message.data === 'string' && Number.isSafeInteger(message.at)) bodies.add(requestId, message, message.base64 === true)
     return
   }
+  // Of EVENTS' own types alone: not toString, constructor, of its prototype.
+  if (!Object.hasOwn(EVENTS, message.type)) return
   const eventOf = EVENTS[message.type]
-  if (eventOf === undefined) return
   const event = (session) => eventOf(requestId, message, session)
   if (event(null) === null) return
   if (message.type === 'request') reporter.inflight.add(requestId)
