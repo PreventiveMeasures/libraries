@@ -15,41 +15,39 @@ export async function differences(esbuild, ours, kept) {
       found.push({ path, line: null, ours: a === undefined ? null : '', kept: b === undefined ? null : '' })
       continue
     }
-    // Where ours left module-resolver's aliases to the bundle, map its imports as the bundle does.
+    // Where ours left module-resolver's aliases to the bundle, both have their imports as the bundle
+    // has them, ours mapped by those aliases.
     const mapped = ours.get(path).result.pluginData?.aliases
     const map = mapped === undefined ? null : aliasing(mapped)
-    const print = (contents, of) => (map === null ? printed(esbuild, textOf(contents)) : withImports(esbuild, textOf(contents), path, of))
-    const [linesA, linesB] = (await Promise.all([print(a, map), print(b, null)])).map((code) => code.split('\n'))
-    const at = linesA.findIndex((line, index) => line !== linesB[index])
-    if (at === -1 && linesA.length === linesB.length) continue
-    const index = at === -1 ? linesA.length : at
+    const [printedA, printedB] = await Promise.all([
+      printed(esbuild, a, map === null ? null : (specifier) => map(path, specifier) ?? specifier),
+      printed(esbuild, b, map === null ? null : (specifier) => specifier),
+    ])
+    if (printedA === printedB) continue
+    const [linesA, linesB] = [printedA, printedB].map((code) => code.split('\n'))
+    let index = 0
+    while (linesA[index] === linesB[index]) index++
     found.push({ path, line: index + 1, ours: linesA[index] ?? '', kept: linesB[index] ?? '' })
   }
   return found
 }
 
-const utf8 = new TextDecoder('utf-8', { fatal: true })
-const textOf = (contents) => (typeof contents === 'string' ? contents : utf8.decode(contents))
+const UTF8 = new TextDecoder('utf-8', { fatal: true })
 const MAP = /\/\/# sourceMappingURL=data:[^\n]*\n?$/u
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 const ANY = /.*/
 
-// As printed(), with each import esbuild finds mapped by `map`, as the bundle maps it.
-async function withImports(esbuild, contents, path, map) {
-  const code = contents.replace(MAP, '')
-  const specifiers = { name: 'specifiers', setup: (build) => build.onResolve({ filter: ANY }, ({ path: specifier }) => ({ path: map?.(path, specifier) ?? specifier, external: true })) }
+// The module as esbuild prints it, without its inline source map: with each import `mapped` if given,
+// which esbuild bundles to find, else transformed. As it is where esbuild fails on it.
+async function printed(esbuild, contents, mapped = null) {
+  const text = typeof contents === 'string' ? contents : UTF8.decode(contents)
+  const code = text.replace(MAP, '')
   try {
+    if (mapped === null) return (await esbuild.transform(code, { loader: 'js', logLevel: 'silent' })).code
+    const specifiers = { name: 'specifiers', setup: (build) => build.onResolve({ filter: ANY }, ({ path }) => ({ path: mapped(path), external: true })) }
     const { outputFiles } = await esbuild.build({ stdin: { contents: code, loader: 'js' }, bundle: true, write: false, format: 'esm', platform: 'neutral', logLevel: 'silent', plugins: [specifiers] })
     return outputFiles[0].text
   } catch {
-    return printed(esbuild, code)
-  }
-}
-
-async function printed(esbuild, code) {
-  try {
-    return (await esbuild.transform(code.replace(MAP, ''), { loader: 'js', logLevel: 'silent' })).code
-  } catch {
-    return code
+    return mapped === null ? text : printed(esbuild, code)
   }
 }

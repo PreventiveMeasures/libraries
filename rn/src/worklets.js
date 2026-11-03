@@ -33,33 +33,27 @@ const VALUE = /\bvalue\b/u
 export function workletsGate({ cwd, envName = '' }) {
   const byEnv = RELEASE.test(process.env.BABEL_ENV ?? '') || RELEASE.test(process.env.NODE_ENV ?? '')
   const release = byEnv && (RELEASE.test(envName) || !/dev/iu.test(envName))
-  const words = new Map()
-  // The plugin's code: the files of it Babel loaded, from wherever (a preset's own node_modules),
-  // else its module as the project resolves it; null where none can be read.
-  const codeOf = (key) => {
-    const name = PACKAGES.get(key)
+  // What the plugin acts on, by its code: the files of it Babel loaded, from wherever (a preset's own
+  // node_modules), else its module as the project resolves it. Null where none can be read, which
+  // keeps the plugin.
+  const wordsOf = (name) => {
     const file = new RegExp(String.raw`[\\/]${name}[\\/]plugin(?:\.js$|[\\/].*\.c?js$)`, 'u')
     const loaded = Object.keys(LOADED).filter((path) => file.test(path))
     try {
       const paths = loaded.length > 0 ? loaded : [createRequire(join(cwd, 'package.json')).resolve(`${name}/plugin`)]
-      return paths.map((path) => readFileSync(path, 'utf8')).join('\n')
+      const code = paths.map((path) => readFileSync(path, 'utf8')).join('\n')
+      const names = new Set([...NAMES, ...Array.from(code.matchAll(NAMED), ([, , named]) => named)])
+      return new RegExp(`worklet|\\b(?:${[...names].join('|')})\\b`, 'u')
     } catch {
       return null
     }
   }
-  // null where the plugin's code can't be read, which keeps the plugin.
-  const wordsOf = (key) => {
-    if (!words.has(key)) {
-      const code = codeOf(key)
-      const names = code === null ? null : new Set([...NAMES, ...Array.from(code.matchAll(NAMED), ([, , name]) => name)])
-      words.set(key, names === null ? null : new RegExp(`worklet|\\b(?:${[...names].join('|')})\\b`, 'u'))
-    }
-    return words.get(key)
-  }
+  const words = new Map()
   return ({ key, options }, source) => {
     // For the web or a worklets bundle, it changes more.
     if (!PACKAGES.has(key) || options.substituteWebPlatformChecks || options.bundleMode) return false
-    const found = wordsOf(key)
+    if (!words.has(key)) words.set(key, wordsOf(PACKAGES.get(key)))
+    const found = words.get(key)
     if (found === null || found.test(source)) return false
     return release || options.disableInlineStylesWarning === true || !VALUE.test(source)
   }
