@@ -27,18 +27,17 @@ export function toNormalUrl(url) {
 export function bundleRequest(url) {
   const { origin, pathname: requestPath, searchParams, search, hash } = url
   const pathname = searchParams.get('bundleEntry') || requestPath
-  const kind = pathname.endsWith('.bundle') ? 'bundle' : pathname.endsWith('.map') ? 'map' : null
-  if (kind === null) return null
+  const kind = /\.(bundle|map)$/u.exec(pathname)?.[1]
+  if (kind === undefined) return null
   const flag = (name, fallback) => (searchParams.has(name) ? TRUE.has(searchParams.get(name)) : fallback)
   const named = /\.([^./]+)\.[^./]+$/u.exec(pathname)?.[1]
   return {
     kind,
-    entryFile: pathname.split('/').map(decodeURIComponent).join('/').replace(/^(?:\.?\/)?/u, './').replace(/\.[^/.]+$/u, ''),
+    entryFile: decodeURIComponent(pathname).replace(/^(?:\.?\/)?/u, './').replace(/\.[^/.]+$/u, ''),
     platform: searchParams.get('platform') || (PLATFORMS.has(named) ? named : null),
     dev: flag('dev', true),
     minify: flag('minify', false),
     shallow: flag('shallow', false),
-    modulesOnly: flag('modulesOnly', false),
     sourcePaths: searchParams.get('sourcePaths') === 'url-server' ? 'url-server' : 'absolute',
     excludeSource: flag('excludeSource', false),
     sourceUrl: toJscSafeUrl(`${origin}${requestPath.replace(/\.map$/u, '.bundle')}${search}${hash}`),

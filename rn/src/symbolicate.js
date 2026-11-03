@@ -2,6 +2,8 @@
 // Platforms, Inc. and affiliates): frames mapped to their sources, React Native's own collapsed as
 // @react-native/metro-config's customizeFrame does, and a code frame of the first frame left.
 
+import { toNormalUrl } from './bundle-url.js'
+
 const INTERNAL_CALLSITES = new RegExp([
   '/Libraries/BatchedBridge/MessageQueue\\.js$',
   '/Libraries/Core/.+\\.js$',
@@ -28,15 +30,15 @@ const FIELDS = [['file', 'string'], ['methodName', 'string'], ['lineNumber', 'nu
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
-// The stack of a request body, as Metro validates it; throws a TypeError if bad.
-// `normalUrl` undoes a JSC-safe URL.
-export function stackOf(body, normalUrl) {
+// The stack of a request body, as Metro validates it, its JSC-safe URLs made normal; throws a
+// TypeError if bad.
+export function stackOf(body) {
   if (!isObject(body) || !Array.isArray(body.stack)) throw new TypeError(`Bad symbolication input, expected object with stack array, got: ${JSON.stringify(body)}`)
   return body.stack.map((frame, at) => {
     if (!isObject(frame)) throw new TypeError(`Bad frame at line ${at}: Expected frame to be a JSON object`)
     const bad = FIELDS.find(([name, type]) => frame[name] != null && typeof frame[name] !== type)
     if (bad !== undefined) throw new TypeError(`Bad frame at line ${at}: Expected ${bad[0]} to be ${bad[1]} or nullish`)
-    return { ...frame, file: typeof frame.file === 'string' && frame.file.includes('://') ? normalUrl(frame.file) : frame.file }
+    return { ...frame, file: typeof frame.file === 'string' && frame.file.includes('://') ? toNormalUrl(frame.file) : frame.file }
   })
 }
 
@@ -52,18 +54,13 @@ export function symbolicate(stack, maps, readSource) {
     const out = file === undefined ? frame : { ...frame, file, lineNumber: position.line1, column: position.column0 }
     return { ...out, collapse: out.file != null && INTERNAL_CALLSITES.test(out.file) }
   })
-  return { codeFrame: codeFrame(symbolicated, maps, readSource), stack: symbolicated }
-}
-
-// Of the first frame not collapsed (any, if all are) in a source we have.
-function codeFrame(stack, maps, readSource) {
-  const allCollapsed = stack.every(({ collapse }) => collapse)
-  for (const { collapse, column, file, lineNumber } of stack) {
-    if ((collapse && !allCollapsed) || lineNumber == null || file == null || maps.has(file)) continue
-    const source = readSource(file)
-    if (source !== null) return { content: drawCodeFrame(source, lineNumber, column), location: { row: lineNumber, column }, fileName: file }
+  // A code frame of the first frame not collapsed (any, if all are) in a source we have.
+  const allCollapsed = symbolicated.every(({ collapse }) => collapse)
+  for (const { collapse, column, file, lineNumber } of symbolicated) {
+    const source = (!collapse || allCollapsed) && lineNumber != null && file != null ? readSource(file) : null
+    if (source !== null) return { codeFrame: { content: drawCodeFrame(source, lineNumber, column), location: { row: lineNumber, column }, fileName: file }, stack: symbolicated }
   }
-  return null
+  return { codeFrame: null, stack: symbolicated }
 }
 
 // @babel/code-frame's codeFrameColumns, uncolored, two lines above and three below.

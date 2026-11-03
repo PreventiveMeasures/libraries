@@ -12,17 +12,13 @@ const deviceOf = (request) => URL.parse(request.url, 'http://localhost')?.search
 // Listeners for each `ws` socket of dev-middleware's /inspector/device and /inspector/debug.
 // `open(device)` opens DevTools for the device (null: the app that connected last).
 export function createDevToolsOpener(open) {
-  // How many DevTools are connected to each device.
-  const debuggers = new Map()
+  // The device of each DevTools connected.
+  const debuggers = []
   return {
     debuggerConnected(socket, request) {
       const device = deviceOf(request)
-      debuggers.set(device, (debuggers.get(device) ?? 0) + 1)
-      socket.once('close', () => {
-        const left = debuggers.get(device) - 1
-        if (left === 0) debuggers.delete(device)
-        else debuggers.set(device, left)
-      })
+      debuggers.push(device)
+      socket.once('close', () => debuggers.splice(debuggers.indexOf(device), 1))
     },
     deviceConnected(socket, request) {
       const device = deviceOf(request)
@@ -37,7 +33,7 @@ export function createDevToolsOpener(open) {
         socket.off('message', listener)
         // Wait for dev-middleware's own listener, which runs after ours, to take in the pages.
         setImmediate(() => {
-          if (!debuggers.has(device)) open(device)
+          if (!debuggers.includes(device)) open(device)
         })
       }
       socket.on('message', listener)
