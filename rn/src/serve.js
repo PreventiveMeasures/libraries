@@ -15,7 +15,7 @@ import { createNetworkInspector } from './network.js'
 import { servedSourceMap, sourceOfRequest, sourceRoutes } from './source-map.js'
 import { bundleUrls, stackOf, symbolicate } from './symbolicate.js'
 import { createClientLog, printable } from './terminal.js'
-import { acceptWebSocket } from './websocket.js'
+import { acceptWebSocket, serverConnections } from './websocket.js'
 
 const MAX_BODY = 1024 * 1024
 const JS = { 'Content-Type': 'application/javascript; charset=UTF-8' }
@@ -64,8 +64,9 @@ const reply = (response, status, body, headers = {}) => {
 }
 const replyJson = (response, status, value) => reply(response, status, JSON.stringify(value), JSON_TYPE)
 
-// Returns { server, broadcast, hotError, hotUpdate, mount, network }; `network` is network.js's
-// inspector for DevTools' Network panel. `watchFolders` are the Metro config's, project root first.
+// Returns { server, broadcast, hotError, hotUpdate, mount, network, close }; `network` is network.js's
+// inspector for DevTools' Network panel; close() stops taking requests and ends each connection, each
+// app told the server is going away. `watchFolders` are the Metro config's, project root first.
 // With `clientLogs`, each app's console is logged (terminal.js), its labels styled by `style`.
 export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, log = () => {}, clientLogs = true, style }) {
   const sources = sourceRoutes(projectRoot, watchFolders)
@@ -75,18 +76,9 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
   const rootHeader = new URL(`file:///${projectRoot}`).pathname.slice(1)
   // dev-middleware's { middleware, websocketEndpoints }, once mounted.
   let mounted = { middleware: (request, response, next) => next(), websocketEndpoints: {} }
-  const messageClients = new Set()
-  // Sends `method` (reload, devMenu) to each app; returns how many.
-  const broadcast = (method) => {
-    const text = JSON.stringify({ version: 2, method })
-    for (const client of messageClients) client.send(text)
-    return messageClients.size
-  }
+  const { broadcast, connect: messageConnect } = createMessages()
   const sockets = {
-    '/message': (client) => {
-      messageClients.add(client)
-      return { onMessage: () => {}, onClose: () => messageClients.delete(client) }
-    },
+    '/message': messageConnect,
     '/hot': hot.connect,
     '/network': network.reporter,
   }
@@ -134,14 +126,15 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
       else reply(response, 500, 'rn-serve: internal error\n')
     })
   })
+  const connections = serverConnections(server)
   // A WebSocket the gate lets through: ours, else an endpoint's, else none.
   server.on('upgrade', (request, socket, head) => {
     socket.on('error', () => {})
     const pathname = URL.parse(request.url, 'http://localhost')?.pathname
     const endpoints = mounted.websocketEndpoints
     if (gate(request) !== null) socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
-    else if (Object.hasOwn(sockets, pathname)) acceptWebSocket(request, socket, head, sockets[pathname])
-    else if (Object.hasOwn(endpoints, pathname)) endpoints[pathname].handleUpgrade(request, socket, head, (ws) => endpoints[pathname].emit('connection', ws, request))
+    else if (Object.hasOwn(sockets, pathname)) acceptWebSocket(request, socket, head, connections.accepting(sockets[pathname]))
+    else if (Object.hasOwn(endpoints, pathname)) endpoints[pathname].handleUpgrade(request, connections.adopt(socket), head, (ws) => endpoints[pathname].emit('connection', ws, request))
     else socket.destroy()
   })
 
@@ -154,6 +147,7 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
       mounted = devMiddleware
     },
     network,
+    close: connections.close,
   }
 }
 
@@ -240,6 +234,23 @@ function serveAsset(request, response, rawPath, platform, devBundler) {
   const end = from === '' || to === '' ? size - 1 : Math.min(Number(to), size - 1)
   if (start > end || start >= size) return reply(response, 416, '', { ...headers, 'Content-Range': `bytes */${size}` })
   return reply(response, 206, bytes.subarray(start, end + 1), { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}` })
+}
+
+// The apps of /message: connect(client), and broadcast(method), which sends `method` (reload, devMenu)
+// to each app and returns how many.
+function createMessages() {
+  const clients = new Set()
+  return {
+    connect: (client) => {
+      clients.add(client)
+      return { onMessage: () => {}, onClose: () => clients.delete(client) }
+    },
+    broadcast: (method) => {
+      const text = JSON.stringify({ version: 2, method })
+      for (const client of clients) client.send(text)
+      return clients.size
+    },
+  }
 }
 
 // Fast Refresh over /hot, as Metro's HmrServer: each HMRClient, with the bundles it registered
