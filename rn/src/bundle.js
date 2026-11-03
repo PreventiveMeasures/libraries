@@ -80,7 +80,7 @@ export function withDefaults(options) {
     sourcemap: false,
     prelude: null,
     // Map<path, { contents, result, at }>: each file as last loaded (of the build at `at`, a dev bundler's
-    // version), reused while its contents are the same; and load-cache.js's store of loaded files, on disk
+    // version), reused while its contents are the same; and serve/load-cache.js's store of loaded files, on disk
     // across runs. changedAt(path): a dev bundler's version of the last change its watcher saw of the file,
     // or of a directory it is in.
     cache: null,
@@ -312,7 +312,7 @@ export function importWarnings({ checkImports, projectRoot, host }, modules, gra
 const named = (projectRoot, path, namespace) => ({ path: posixRelative(projectRoot, path), namespace })
 
 // Of a watcher-caused build (options.trusted), a file as options.cache has it, unread: a change the watcher
-// sees lets the file go from the cache (dev-bundler.js's changed()). Not one a build read before a change
+// sees lets the file go from the cache (serve/dev-bundler.js's changed()). Not one a build read before a change
 // of it the watcher saw (options.changedAt()): a load under way as it changes keeps what it read before.
 // Else undefined, the file read.
 export function trustedOf(options, path) {
@@ -324,7 +324,7 @@ export function trustedOf(options, path) {
 }
 
 // Loads a file of these bytes with loadFile(): from options.cache while its contents are the same, else from
-// options.store (load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
+// options.store (serve/load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
 // `uncacheable`. A file that isn't UTF-8 fails to load.
 export async function loadCached(options, path, bytes) {
   const contents = utf8(bytes)

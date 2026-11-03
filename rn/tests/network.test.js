@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-import { createNetworkInspector } from '../src/network.js'
+import { createNetworkInspector } from '../serve/network.js'
 
 const BUNDLE = 'http://localhost:8081/index.bundle?platform=ios&dev=true'
 
@@ -57,7 +57,7 @@ const report = (network, id = 'r1') => {
   return { told, say, close: reporter.onClose }
 }
 
-// A request, as app/network.js tells of one: sent, responded to, its body in two chunks, finished.
+// A request, as serve/app/network.js tells of one: sent, responded to, its body in two chunks, finished.
 const requestOf = (say, id, { url = 'https://api.example/user', stack } = {}) => {
   say({ type: 'request', id, url, method: 'GET', headers: { Accept: 'application/json' }, time: 1, wallTime: 1_700_000_000, stack })
   say({ type: 'response', id, url, status: 200, headers: { 'Content-Type': 'application/json' }, mimeType: 'application/json', time: 1.25 })

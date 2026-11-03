@@ -4,10 +4,10 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, trustedOf, withDefaults } from './bundle.js'
-import { EMPTY, newState, posixRelative, resolutionOf } from './build-host.js'
+import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, trustedOf, withDefaults } from '../src/bundle.js'
+import { EMPTY, newState, posixRelative, resolutionOf } from '../src/build-host.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
-import { GLOBAL } from './serializer.js'
+import { GLOBAL } from '../src/serializer.js'
 
 const FACTORY = 'function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, exports, _dependencyMap)'
 const OUTFILE = 'rn-serve.module.js'

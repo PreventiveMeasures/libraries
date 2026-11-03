@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { switchesOf } from './babel-switches.js'
 import { esModuleOf } from './es-module.js'
-import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
+import { fingerprintOf, readsOf, withDependencies } from './fingerprint.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
@@ -100,7 +100,7 @@ export function transformerOf({ corePath, options, profile }) {
     return { transform, fingerprint: null }
   }
   // Of the modules loaded and the files read with the config, before any file; given back with
-  // its inputs, which a later run checks to reuse it (load-cache.js).
+  // its inputs, which a later run checks to reuse it (serve/load-cache.js).
   const reads = [...readsOf(loadConfig)]
   const modules = withDependencies(Object.keys(createRequire(corePath).cache), cwd)
   return { transform, fingerprint: { fingerprint: fingerprintOf(modules, options, reads), options, modules, reads } }

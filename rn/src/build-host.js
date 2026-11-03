@@ -1,4 +1,4 @@
-// A build's view of the project, as both bundle formats (bundle.js, modules.js) have it: Metro's resolver
+// A build's view of the project, as both bundle formats (bundle.js, serve/modules.js) have it: Metro's resolver
 // over a host that notes each file it reads or looks for, for a watcher, and the assets built.
 
 import { basename, dirname, relative, resolve } from 'node:path'

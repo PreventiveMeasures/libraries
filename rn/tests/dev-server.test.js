@@ -6,15 +6,15 @@ import { createContext, runInContext } from 'node:vm'
 
 import esbuild from 'esbuild'
 
-import { bundleRequest, toJscSafeUrl, toNormalUrl } from '../src/bundle-url.js'
-import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
-import { indexMappings } from '../src/mappings.js'
-import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
-import { createClientLog, printable } from '../src/terminal.js'
-import { createDevBundler } from '../src/dev-bundler.js'
-import { moduleUrls } from '../src/hot.js'
+import { bundleRequest, toJscSafeUrl, toNormalUrl } from '../serve/bundle-url.js'
+import { createGate, hostnamesOf, isLoopback } from '../serve/gate.js'
+import { indexMappings } from '../serve/mappings.js'
+import { drawCodeFrame, stackOf, symbolicate } from '../serve/symbolicate.js'
+import { createClientLog, printable } from '../serve/terminal.js'
+import { createDevBundler } from '../serve/dev-bundler.js'
+import { moduleUrls } from '../serve/hot.js'
 import { servedSourceMap, sourceOfRequest, sourceRoutes } from '../src/source-map.js'
-import { createWatcher } from '../src/watch.js'
+import { createWatcher } from '../serve/watch.js'
 import { writeTree } from './fixtures.js'
 
 describe('the gate', () => {

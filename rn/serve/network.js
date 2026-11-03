@@ -6,7 +6,7 @@ import { STATUS_CODES } from 'node:http'
 import { fileURLToPath } from 'node:url'
 
 // Injected into each dev bundle when DevTools are available.
-export const REPORTER = fileURLToPath(new URL('../app/network.js', import.meta.url))
+export const REPORTER = fileURLToPath(new URL('app/network.js', import.meta.url))
 // Where app/network.js keeps the reporter's id on the global object.
 const REPORTER_GLOBAL = '__rnServeReporter'
 // Characters of response bodies kept, as React Native's own inspector keeps 100 MB.

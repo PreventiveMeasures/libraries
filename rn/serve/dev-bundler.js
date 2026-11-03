@@ -5,13 +5,13 @@
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { metroResolverOf } from './build-host.js'
-import { createBundler, utf8 } from './bundle.js'
-import { defaults, diskHost } from './defaults.js'
+import { metroResolverOf } from '../src/build-host.js'
+import { createBundler, utf8 } from '../src/bundle.js'
+import { defaults, diskHost } from '../src/defaults.js'
 import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall, wrapped } from './modules.js'
-import { prelude } from './serializer.js'
+import { prelude } from '../src/serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
 const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null), inlining: () => Promise.resolve(null), ownTransformOptions: false })
 // A build refused, for what of the Metro config it doesn't do.

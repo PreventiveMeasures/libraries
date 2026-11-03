@@ -9,8 +9,8 @@ import esbuild from 'esbuild'
 
 import { keptLookups, resolutionOf } from '../src/build-host.js'
 import { diskHost } from '../src/defaults.js'
-import { createDevBundler } from '../src/dev-bundler.js'
-import { createDevServer } from '../src/serve.js'
+import { createDevBundler } from '../serve/dev-bundler.js'
+import { createDevServer } from '../serve/serve.js'
 import { writeTree } from './fixtures.js'
 
 describe('keptLookups', () => {

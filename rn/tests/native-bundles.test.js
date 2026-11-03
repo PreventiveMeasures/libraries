@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { entriesOf } from '../src/serve-cache.js'
+import { entriesOf } from '../serve/serve-cache.js'
 import { writeTree } from './fixtures.js'
 
 // React Native's templates' (0.88's), of a bundle root of their own.

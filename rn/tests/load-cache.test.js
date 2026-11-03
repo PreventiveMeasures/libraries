@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 import { loadCached, lowersLetOf } from '../src/bundle.js'
 import { peers, projectBabel } from '../src/cli.js'
-import { configKeyOf, createLoadCache, fingerprintOf, ownModules, withDependencies } from '../src/load-cache.js'
+import { configKeyOf, fingerprintOf, withDependencies } from '../src/fingerprint.js'
+import { createLoadCache, ownModules } from '../serve/load-cache.js'
 import { packedRecords, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
@@ -457,7 +458,9 @@ describe('configKeyOf', () => {
 
 describe('ownModules', () => {
   it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
-    const src = fileURLToPath(new URL('../src/', import.meta.url))
-    assert.deepEqual(ownModules(), ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load-pack.js', 'load.js', 'mappings.js', 'module-resolver.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
+    const at = (dir) => (name) => join(fileURLToPath(new URL(`../${dir}/`, import.meta.url)), name)
+    const serve = ['load-cache.js', 'load-pack.js', 'mappings.js', 'modules.js'].map(at('serve'))
+    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'fingerprint.js', 'image-size.js', 'load.js', 'module-resolver.js', 'resolve.js', 'serializer.js', 'worklets.js'].map(at('src'))
+    assert.deepEqual(ownModules(), [...serve, ...src])
   })
 })

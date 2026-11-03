@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, readdirSync, statSync, symlinkSync, utimesSync, 
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { createPack } from '../src/load-pack.js'
-import { GRACE, STALE, prune } from '../src/load-prune.js'
+import { createPack } from '../serve/load-pack.js'
+import { GRACE, STALE, prune } from '../serve/load-prune.js'
 import { writeTree } from './fixtures.js'
 
 const HOUR = 60 * 60 * 1000

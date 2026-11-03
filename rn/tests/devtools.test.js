@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { describe, it } from 'node:test'
 import { setImmediate as tick } from 'node:timers/promises'
 
-import { createDevToolsOpener } from '../src/devtools.js'
+import { createDevToolsOpener } from '../serve/devtools.js'
 
 // An inspector socket, as dev-middleware's `ws` server has it, of its
 // request: `url`, its path.

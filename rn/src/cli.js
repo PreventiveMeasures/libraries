@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createAliases } from './babel-aliases.js'
 import { FORCED, switchesOf } from './babel-switches.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
-import { configKeyOf } from './load-cache.js'
+import { configKeyOf } from './fingerprint.js'
 import { babelrcFinder } from './babelrc.js'
 
 export const failer = (name) => (message) => {
@@ -139,7 +139,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
         }
         return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
       },
-      // For load-cache.js's cache of each file.
+      // For serve/load-cache.js's cache of each file.
       ...(fingerprint && {
         workerOptions,
         fingerprint: babel.fingerprint,
