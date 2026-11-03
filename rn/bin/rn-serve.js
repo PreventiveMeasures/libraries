@@ -238,11 +238,11 @@ server.listen(port, host, () => {
   const serverUrl = `http://${urlHost}:${server.address().port}`
   log(`rn-serve: ${serverUrl} for ${projectRoot} (esbuild ${esbuild.version})`)
   if (!isLoopback(host)) log(`rn-serve: ${wildcard ? 'on every network interface' : `on ${host}`}: anyone on the network can fetch the app and its source${devMiddleware === null ? '' : ', and debug the app: run code in it, and have the server fetch a URL'}`)
-  if (metro.file === null && metro.polyfills(null).length === 0) log("rn-serve: no @react-native/js-polyfills, as @react-native/metro-config has it: bundles have Metro's prelude but no polyfills")
-  if (devMiddleware === null) log('rn-serve: no @react-native/dev-middleware, as react-native has it: no debugger')
+  if (metro.file === null && metro.polyfills(null).length === 0) log('rn-serve: no @react-native/js-polyfills: bundles have no polyfills')
+  if (devMiddleware === null) log('rn-serve: no @react-native/dev-middleware: no debugger')
   else mountDebugger(serverUrl)
-  if (runtime === null) log("rn-serve: no metro-runtime, as react-native has it: no Fast Refresh, a change reloads the app")
-  else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh, as react-native has it: Fast Refresh keeps no component's state")
+  if (runtime === null) log('rn-serve: no metro-runtime: no Fast Refresh, a change reloads the app')
+  else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
   if (values.warm) void last?.warm(devBundler, log)
   if (launch !== null) void launchApp(`${urlHost}:${server.address().port}`)
@@ -337,17 +337,21 @@ function quit() {
 process.on('SIGINT', quit)
 process.on('SIGTERM', quit)
 
+// The keys, on one line: each bold and cyan where stdout takes colors, a
+// dim dot between.
 function keys(serverUrl) {
-  log(`rn-serve: r reload, d dev menu${devMiddleware === null ? '' : ', j debugger'}, ctrl-c quit`)
+  const each = [['r', 'reload'], ['d', 'dev menu'], ...(devMiddleware === null ? [] : [['j', 'debugger']]), ['ctrl-c', 'quit']]
+  log(`rn-serve: ${each.map(([key, what]) => `${style(['bold', 'cyan'], key)} ${what}`).join(style('dim', ' \u00B7 '))}`)
   emitKeypressEvents(process.stdin)
   process.stdin.setRawMode(true)
   process.stdin.on('keypress', (text, key) => {
     if (key?.ctrl && (key.name === 'c' || key.name === 'd')) {
       process.stdin.setRawMode(false)
       quit()
-    } else if (text === 'r' || text === 'd') {
-      const method = text === 'r' ? 'reload' : 'devMenu'
-      log(`rn-serve: ${method} to ${devServer.broadcast(method)} app(s)`)
+    } else if (text === 'r') {
+      log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
+    } else if (text === 'd') {
+      log(`rn-serve: dev menu on ${devServer.broadcast('devMenu')} app(s)`)
     } else if (text === 'j' && devMiddleware !== null) {
       void openDebugger(serverUrl)
     }

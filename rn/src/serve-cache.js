@@ -43,8 +43,9 @@ export function cacheDirOf(reset, log) {
   return null
 }
 
-// A bundle request by its entry, platform, dev and minify: './index for ios, dev'.
-export const bundleName = ({ entryFile, platform, dev, minify }) => `${entryFile} for ${platform ?? 'no platform'}${dev ? ', dev' : ''}${minify ? ', minified' : ''}`
+// A bundle request by its entry, platform, dev and minify: './index for ios',
+// but a release's or a minified one's: './index for ios, release, minified'.
+export const bundleName = ({ entryFile, platform, dev, minify }) => `${entryFile} for ${platform ?? 'no platform'}${dev ? '' : ', release'}${minify ? ', minified' : ''}`
 const keyOf = ({ entryFile, platform, dev, minify }) => JSON.stringify([entryFile, platform, dev, minify])
 // A request as a dev bundler takes it (bundle-url.js's bundleRequest()), of
 // the fields kept; null of one that is none.
@@ -104,11 +105,10 @@ export function lastBuilds(dir, projectRoot, { system = process.platform, launch
     }),
     warm: (devBundler, log) => {
       let requests = last
-      if (requests.length > 0) log(`rn-serve: building ${requests.map(bundleName).join('; ')} ahead of the app, as its last run did`)
+      if (requests.length > 0) log(`rn-serve: building ${requests.map(bundleName).join('; ')}`)
       else {
-        const { request, several } = oneBundleOf(projectRoot, launched ?? (system === 'darwin' ? 'ios' : 'android'))
-        if (request !== null) log(`rn-serve: building ${bundleName(request)} ahead of the app, the project's one bundle`)
-        if (several.length > 0) log(`rn-serve: building none ahead of the app, of the project's bundles: ${several.join(', ')}`)
+        const { request } = oneBundleOf(projectRoot, launched ?? (system === 'darwin' ? 'ios' : 'android'))
+        if (request !== null) log(`rn-serve: building ${bundleName(request)}`)
         requests = request === null ? [] : [request]
       }
       return requests.reduce((done, request) => done.then(() => devBundler.get(request).catch(() => {})), Promise.resolve())
