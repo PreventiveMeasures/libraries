@@ -1,12 +1,10 @@
-// The host a build looks up and reads its files through (bundle.js's): of
-// what it reads or looks for, for a watcher; each path looked up once;
-// whether a path is a file or a directory as its directory lists it.
+// Hosts a build looks up and reads its files through (bundle.js): noting what it reads or looks for, for
+// a watcher; looking each path up once; and telling files from directories by their directory's listing.
 
 import { basename, dirname } from 'node:path'
 
-// The host, each file read or looked for through it added to `read`: a
-// file not there yet (an import written before its module) is a file a
-// watcher sees made.
+// The host, noting in `read` each file read or looked for: one not there yet (an import written before
+// its module) is a file a watcher sees made.
 const look = (read, path, found) => {
   read.add(path)
   return found
@@ -22,12 +20,9 @@ export const reading = (host, read) => ({
   },
 })
 
-// The host, each path's isFile, isDirectory and realpath looked up once:
-// Metro's resolver (metro-resolver's own too, as its fileSystemLookup) looks
-// up each spelling of a module (each platform and extension), and each
-// directory up to its package.json, of each import, as a build's files,
-// which it reads anew, don't change in it; as Metro's file map has them,
-// not from the disk at each import.
+// The host, looking up each path's isFile, isDirectory and realpath once, as Metro's file map does:
+// the resolver tries every spelling of each import (platform, extension) and each directory up to its
+// package.json, and a build's files don't change during it.
 export function lookingOnce(host) {
   const known = { isFile: new Map(), isDirectory: new Map(), realpath: new Map() }
   const once = (name) => (path) => {
@@ -38,29 +33,23 @@ export function lookingOnce(host) {
   return { ...host, isFile: once('isFile'), isDirectory: once('isDirectory'), realpath: once('realpath') }
 }
 
-// The host, where it lists a directory's entries of their types (its
-// `dirents`: not @preventive/vfs's `entries`, an archive's), whether a
-// path is a file or a directory as its directory lists it, each directory
-// listed once: as Metro's file map has a module's
-// spellings (each platform and extension the resolver tries), of its names
-// as they are, not a lookup on the disk of each. A link, an entry of no
-// type, or a path in a directory there but not to be listed (EACCES, of
-// one searchable alone), as the host has it.
+// The host, telling a file from a directory by its directory's typed entries (`dirents`, not
+// @preventive/vfs's `entries`, an archive's), each directory listed once, as Metro's file map does.
+// A link, an entry of no type, or a directory that can't be listed (EACCES) is left to the host.
 export function listing(host) {
   if (typeof host.dirents !== 'function') return host
   const dirs = new Map()
   const listed = (dir) => {
-    if (!dirs.has(dir)) {
-      let entries
-      try {
-        entries = new Map(host.dirents(dir).map((entry) => [entry.name, entry]))
-      } catch (error) {
-        // No directory there: nothing in it. Else none, each path looked up.
-        entries = error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? new Map() : null
-      }
-      dirs.set(dir, entries)
+    if (dirs.has(dir)) return dirs.get(dir)
+    let entries
+    try {
+      entries = new Map(host.dirents(dir).map((entry) => [entry.name, entry]))
+    } catch (error) {
+      // No directory there has nothing in it; null leaves each path in one not listed to the host.
+      entries = error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? new Map() : null
     }
-    return dirs.get(dir)
+    dirs.set(dir, entries)
+    return entries
   }
   const of = (name) => (path) => {
     const dir = dirname(path)

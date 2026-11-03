@@ -1,6 +1,5 @@
-// A source map's `mappings`, indexed by line as Metro's LineIndexedMappings
-// indexes them: one pass keeps where each line starts and the state its
-// segments start from; a lookup decodes the one line it needs.
+// Source map `mappings`, indexed by line as Metro's LineIndexedMappings does: one pass notes where each line
+// starts and the state its segments start from, and a lookup decodes only its line. Also joins maps of pieces.
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 const DIGITS = new Int8Array(128).fill(-1)
@@ -8,8 +7,7 @@ for (let i = 0; i < BASE64.length; i++) DIGITS[BASE64.codePointAt(i)] = i
 const COMMA = 44
 const SEMICOLON = 59
 
-// Reads the segment at `from` into `fields`; -> the offset after it, and
-// the number of its fields as fields.count.
+// Reads the segment at `from` into `fields`, its number of fields as fields.count; returns the offset after it.
 function readSegment(mappings, from, fields) {
   let at = from
   let count = 0
@@ -20,8 +18,7 @@ function readSegment(mappings, from, fields) {
     let shift = 0
     let digit
     do {
-      const char = at < mappings.length ? mappings.codePointAt(at) : 128
-      digit = char < 128 ? DIGITS[char] : -1
+      digit = DIGITS[mappings.codePointAt(at)] ?? -1
       if (digit === -1) throw new SyntaxError(`mappings: bad VLQ at ${at}`)
       value += (digit & 31) * 2 ** shift
       shift += 5
@@ -34,12 +31,11 @@ function readSegment(mappings, from, fields) {
   return at
 }
 
-// -> { originalPositionFor(line1, column0) }: the source index, 1-based line
-// and 0-based column the segment at or before the position on its line maps
-// to; null where none does.
+// originalPositionFor(line1, column0) gives the source index, 1-based line and 0-based column that the
+// segment at or before the position on its line maps to, or null.
 export function indexMappings(mappings) {
   const starts = [0]
-  // The source, its line and its column each line's first segment is relative to.
+  // The source, line and column each line's first segment is relative to.
   const states = [0, 0, 0]
   const fields = [0, 0, 0, 0, 0]
   let [source, line, column] = [0, 0, 0]
@@ -92,9 +88,8 @@ const vlq = (value) => {
   return out
 }
 
-// A map, ready to be put after others: where its first segment with a source
-// is, and with a name, each of whose fields are from 0 and are written anew
-// from where the map before ends; and where it ends.
+// A map made ready to follow others: where its first segment with a source and its first with a name are,
+// whose fields concatMaps() rewrites relative to the map before, and the state where it ends.
 export function pieceOf(map) {
   const { mappings } = map
   const fields = [0, 0, 0, 0, 0]
@@ -118,13 +113,7 @@ export function pieceOf(map) {
       if (named === null) named = { start, end: at, fields: fields.slice(0, 5) }
     }
   }
-  return { sources: map.sources, sourcesContent: map.sourcesContent ?? map.sources.map(() => null), names: map.names ?? [], mappings, first, named, end: first === null ? null : state, lines: linesOf(mappings) }
-}
-
-const linesOf = (mappings) => {
-  let count = 1
-  for (let at = mappings.indexOf(';'); at !== -1; at = mappings.indexOf(';', at + 1)) count++
-  return count
+  return { sources: map.sources, sourcesContent: map.sourcesContent ?? map.sources.map(() => null), names: map.names ?? [], mappings, first, named, end: first === null ? null : state, lines: mappings.split(';').length }
 }
 
 // A piece's segment, its fields from where the map before left them.
@@ -135,9 +124,8 @@ function rebased(piece, segment, { sourceAt, nameAt, source, line, column, name 
   return fields.map(vlq).join('')
 }
 
-// Pieces of code, one after another, each on lines of its own, as one map:
-// `pieces`, [{ lines, piece }], `lines` a piece's line count, `piece`
-// pieceOf() its map, or null.
+// Pieces of code, each on lines of its own, as one map. `pieces`: [{ lines, piece }], `lines` the
+// piece's line count and `piece` pieceOf() its map, or null.
 export function concatMaps(pieces) {
   const sources = []
   const sourcesContent = []
@@ -154,13 +142,12 @@ export function concatMaps(pieces) {
     sources.push(...piece.sources)
     sourcesContent.push(...piece.sourcesContent)
     names.push(...piece.names)
-    // Its first segment with a source, and its first with a name (the same
-    // one, or one after), from where the map before left the fields.
+    // Its first segment with a source, and its first with a name (that one or a later one), rebased.
     const from = { sourceAt, nameAt, source, line, column, name }
     let text = piece.mappings.slice(0, piece.first.start) + rebased(piece, piece.first, from)
     if (piece.named === null || piece.named.start === piece.first.start) text += piece.mappings.slice(piece.first.end)
     else text += piece.mappings.slice(piece.first.end, piece.named.start) + rebased(piece, piece.named, from) + piece.mappings.slice(piece.named.end)
-    // Its lines exactly: those it maps, and the rest.
+    // Exactly its lines: those it maps, and the rest.
     out.push(piece.lines >= lines ? text.split(';').slice(0, lines).join(';') : text + ';'.repeat(lines - piece.lines))
     ;[source, line, column] = [sourceAt + piece.end[0], piece.end[1], piece.end[2]]
     if (piece.named !== null) name = nameAt + piece.end[3]

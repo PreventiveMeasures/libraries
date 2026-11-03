@@ -1,48 +1,35 @@
-// The bundles a dev server serves: one for each entry, platform, dev and
-// minify asked for (the last `maxBuilds` of them), each built again once a
-// file changes, each file's transform kept in memory while its source is the
-// same, with its source map. A dev bundle in Metro's module format, for Fast
-// Refresh (modules.js), where metro-runtime's require is given (`runtime`);
-// else, as rn-bundle builds a bundle, on an esbuild context, as Metro's
-// serializer has it (serializer.js).
+// The bundles a dev server serves, one per entry, platform, dev and minify asked for (the last `maxBuilds`),
+// each rebuilt once a file changes, each file's transform kept in memory while its source is the same. A dev
+// bundle is in Metro's module format (modules.js) where metro-runtime's require is given, else as rn-bundle's.
 
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { createBundler, metroResolverOf } from './bundle.js'
+import { createBundler, metroResolverOf, utf8 } from './bundle.js'
 import { defaults, diskHost } from './defaults.js'
 import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
-import { createModuleBundler, defineCall } from './modules.js'
+import { createModuleBundler, defineCall, wrapped } from './modules.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
 const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null) })
 // A build refused, for what of the Metro config it doesn't do.
 const refused = (version, text) => ({ ok: false, version, errors: [{ text, location: null }], files: new Set() })
-const decoder = new TextDecoder('utf-8', { fatal: true })
 
 export const inside = (root, path) => {
   const rel = relative(root, path)
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
-// `targetOptions({ platform, dev, inlineRequires })` -> the options bundle()
-// takes for the project's files: jsx, stripFlow, babel..., aliases, define,
-// store (load-cache.js's); inlineRequires, the bundle's, as the Metro config
-// gives it. `onBuild({ request, outcome, ms, cached })` after each build:
-// `cached`, its store's tally of the files it loaded (load-cache.js's
-// finish()), or null.
-// `metro`: the project's Metro config, as metroOptions() has it; Metro's
-// defaults where not given. A minified bundle fails with its minifyRefusal;
-// each, with its transformRefusal, where it has one. `injected`: rn's own
-// modules each dev bundle in the module format runs before the entry
-// (createModuleBundler()'s).
+// targetOptions({ platform, dev, inlineRequires }) gives bundle()'s options for the project's files, and
+// onBuild({ request, outcome, ms, cached }) follows each build, `cached` its store's tally or null.
+// `metro` is metroOptions()'s config, Metro's defaults where not given; `injected`, createModuleBundler()'s.
 export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, metro = NO_METRO, runtime = null, injected = [], maxBuilds = 8, onBuild = () => {} }) {
   const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, injected, onBuild, caches: new Map(), ids: new Map() }
   const builds = new Map()
   let version = 0
 
-  // Built anew where a file changed since; one build of each at a time.
+  // Rebuilds where a file changed since, one build of each bundle at a time.
   const outcomeOf = (build) => {
     if (build.last?.version === version) return build.last
     if (build.pending?.version === version) return build.pending.promise
@@ -53,7 +40,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return promise
   }
 
-  // The least recently asked for, out at once, disposed after.
+  // Evicts the least recently asked for at once, disposing of them after.
   const evict = (limit) => {
     const dropped = []
     while (builds.size > limit) {
@@ -64,20 +51,19 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return Promise.all(dropped)
   }
 
-  // -> an outcome: { ok: true, js, map, assets, files, index() }, and in the
-  // module format `modules` and `entryId`; { ok: false, errors, files }; null
-  // where the request names no entry here; `onProgress(done, total)` as it
-  // builds. A `shallow` request, a module's: its module of the last build.
+  // An outcome: { ok: true, js, map, assets, files, index() }, with `modules` and `entryId` in the module
+  // format, or { ok: false, errors, files }; null where the request names no entry here. A `shallow`
+  // request is a module's, from the last build.
   const get = async (request, { onProgress = null } = {}) => {
     if (request.shallow) return moduleOutcome(builds, request, projectRoot)
     if (request.minify && metro.minifyRefusal !== null) return refused(version, metro.minifyRefusal)
-    const entry = entryOf(config, request)
-    if (entry === null) return null
+    const entryPath = entryOf(config, request)
+    if (entryPath === null) return null
     // As Metro asks the config for each bundle.
-    const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal, metro.inlineRequires].map((ask) => ask(entry.path, { platform: request.platform, dev: request.dev })))
+    const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal, metro.inlineRequires].map((ask) => ask(entryPath, { platform: request.platform, dev: request.dev })))
     if (transformRefusal !== null) return refused(version, transformRefusal)
-    const key = [entry.path, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath: entry.path, ...open(config, request, entry, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve(), waiting: new Set() }
+    const key = [entryPath, request.platform, request.dev, request.minify].join('\0')
+    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve(), waiting: new Set() }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
@@ -95,17 +81,15 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     changed() {
       version++
     },
-    // -> [{ request, before, after, good }] of each bundle served, built
-    // anew, `good` its last build that didn't fail before; of the entry its
-    // request names now, where a file added or removed (an `index.ios.js`)
-    // makes that another, whose `good` is null.
+    // Rebuilds each bundle served: [{ request, before, after, good }], `good` its last build that didn't
+    // fail. Where a file added or removed (an `index.ios.js`) makes the request name another entry, `good` is null.
     async refresh() {
       const out = []
       for (const [key, build] of [...builds]) {
         if (build.last === null) continue
         const { last: before, good } = build
-        const entry = entryOf(config, build.request)
-        if (entry === null || entry.path === build.entryPath) {
+        const entryPath = entryOf(config, build.request)
+        if (entryPath === null || entryPath === build.entryPath) {
           out.push({ request: build.request, before, after: await outcomeOf(build), good })
           continue
         }
@@ -127,23 +111,13 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     },
     // A file a bundle was built from, its bytes, else null.
     sourceFile: (path) => (files().has(path) ? host.readFile(path) : null),
-    // A source a bundle was built from, else null.
-    readSource: (path) => (files().has(path) ? textOf(host, path) : null),
+    // A source a bundle was built from, as text; else null, as where it isn't UTF-8.
+    readSource: (path) => (files().has(path) ? utf8(host.readFile(path)) : null),
     dispose: () => evict(0),
   }
 }
 
-// A file's text, null where it is not UTF-8 (now).
-function textOf(host, path) {
-  const bytes = host.readFile(path)
-  try {
-    return decoder.decode(bytes)
-  } catch {
-    return null
-  }
-}
-
-// A build, disposed once those asked for are done.
+// A build, disposed of once those asked for are done.
 async function drop(build) {
   await build.chain
   try {
@@ -153,45 +127,42 @@ async function drop(build) {
   }
 }
 
-// The entry a request names, as Metro resolves it from the project root,
-// and only there.
+// The entry a request names, as Metro resolves it from the project root, and only there.
 function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
   const resolution = metroResolverOf({ host, assetExts: metro.assetExts, resolver: { ...metro.resolver, dev }, blockList: metro.blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
-  return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? { path: resolution.filePath } : null
+  return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? resolution.filePath : null
 }
 
-// Its files cached of each platform, dev, minify and inline requires, which
-// make them; with `esm`, those left CommonJS of them too, which a file's
-// cached build is of. -> { bundler, store }, the store its options have.
-function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injected, caches, ids }, { platform, dev, minify }, entry, inlineRequires = null) {
+// Its files are cached per platform, dev, minify and inline requires, which make them; with `esm`, so are
+// those left CommonJS, which a file's cached build depends on. Returns { bundler, store }.
+function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injected, caches, ids }, { platform, dev, minify }, entryPath, inlineRequires) {
   const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map(), commonJs: new Set() })
+  const cached = caches.get(target)
   const options = targetOptions({ platform, dev, inlineRequires })
   const common = {
     ...options,
-    entry: entry.path,
+    entry: entryPath,
     platform,
     esbuild,
     host,
     projectRoot,
     minify,
-    cache: caches.get(target).files,
-    commonJs: caches.get(target).commonJs,
+    cache: cached.files,
+    commonJs: cached.commonJs,
     assetExts: metro.assetExts,
     resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,
     polyfills: metro.polyfills(platform),
-    runBeforeMain: metro.runBeforeMain?.(entry.path) ?? null,
+    runBeforeMain: metro.runBeforeMain?.(entryPath) ?? null,
     assetRegistryPath: metro.assetRegistryPath,
     prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
   }
-  const store = options.store ?? null
-  if (dev && runtime !== null) return { bundler: createModuleBundler({ ...common, runtime, injected, ids, builds: caches.get(target).modules }), store }
-  return { bundler: createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true }), store }
+  const bundler = dev && runtime !== null ? createModuleBundler({ ...common, runtime, injected, ids, builds: cached.modules }) : createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true })
+  return { bundler, store: options.store ?? null }
 }
 
 async function run({ projectRoot, onBuild }, build, at) {
-  if (build.last?.version === at) return build.last
   const bundler = await build.bundler
   const start = performance.now()
   build.store?.start()
@@ -212,23 +183,19 @@ async function run({ projectRoot, onBuild }, build, at) {
   return build.last
 }
 
-// A module of the last build of a bundle for the request's platform, dev and
-// minify that has it, by its path, as an update names it, as an outcome: its
-// definition and map.
+// The module an update names by its path, as an outcome of its definition and map, from the last build
+// that has it of a bundle for the request's platform, dev and minify.
 function moduleOutcome(builds, { entryFile, platform, dev, minify }, projectRoot) {
   const name = moduleName(entryFile)
-  for (const build of [...builds.values()].toReversed()) {
-    if (build.request.platform !== platform || build.request.dev !== dev || build.request.minify !== minify || build.last?.modules === undefined) continue
-    for (const record of build.last.modules.values()) {
-      if (record.name !== name) continue
-      const map = JSON.stringify(concatMaps([{ lines: 1, piece: null }, { lines: record.lines, piece: record.piece }, { lines: 1, piece: null }]))
-      return withIndex({ ok: true, version: build.last.version, js: defineCall(record), map, assets: [], files: new Set() }, projectRoot)
-    }
+  for (const { request, last } of [...builds.values()].toReversed()) {
+    if (request.platform !== platform || request.dev !== dev || request.minify !== minify || last?.modules === undefined) continue
+    const record = [...last.modules.values()].find((each) => each.name === name)
+    if (record !== undefined) return withIndex({ ok: true, version: last.version, js: defineCall(record), map: JSON.stringify(concatMaps(wrapped(record))), assets: [], files: new Set() }, projectRoot)
   }
   return null
 }
 
-// The outcome's source map, indexed when first asked for.
+// The outcome, its source map indexed when first asked for.
 function withIndex(outcome, projectRoot) {
   let index = null
   return {

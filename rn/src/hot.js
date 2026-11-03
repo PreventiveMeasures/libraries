@@ -1,23 +1,19 @@
-// Fast Refresh's updates, as Metro's HmrServer sends them (hmrJSBundle; MIT,
-// Copyright (c) Meta Platforms, Inc. and affiliates): from one build of a
-// bundle in the module format (modules.js) to the next, each module added
-// or changed, defined anew with its inverse dependencies, which
-// metro-runtime's require takes as an update, and each deleted.
+// Fast Refresh updates from one build of a module-format bundle (modules.js) to the next: each module added
+// or changed, defined anew with its inverse dependencies as metro-runtime's require takes them, and each deleted.
+// Ported from Metro's HmrServer (hmrJSBundle; MIT, Copyright (c) Meta Platforms, Inc. and affiliates).
 
 import { toJscSafeUrl } from './bundle-url.js'
 import { defineCall } from './modules.js'
 
-// A module's path in a URL, each segment encoded; a parent, which a URL
-// takes off, as `[..]`, which moduleName() reads back.
-const urlPath = (name) => name.split('/').map((segment) => (segment === '..' ? PARENT : encodeURIComponent(segment))).join('/')
+// A URL drops `..` segments, so a parent is written `[..]`, which moduleName() reads back.
 const PARENT = '[..]'
+const urlPath = (name) => name.split('/').map((segment) => (segment === '..' ? PARENT : encodeURIComponent(segment))).join('/')
 
 // The module a path of moduleUrls() names, `entryFile` as bundleRequest() reads it.
 export const moduleName = (entryFile) => entryFile.replace(/^\.\//u, '').split('/').map((segment) => (segment === PARENT ? '..' : segment)).join('/')
 
-// The URLs of a module's code and map, as Metro has them: the client's
-// bundle URL, its path the module's, for the module alone; but with the
-// module's extension kept, as config.js and config.json are two.
+// A module's code and map URLs, as Metro has them: the client's bundle URL for the module alone, but
+// keeping the module's extension, as config.js and config.json are two modules.
 export function moduleUrls(clientUrl, name) {
   const url = new URL(clientUrl)
   url.protocol = 'http:'
@@ -36,8 +32,7 @@ export function moduleUrls(clientUrl, name) {
   return { sourceURL: toJscSafeUrl(url.toString()), sourceMappingURL }
 }
 
-// Each module's, and each of theirs on, up to the entry, as Metro's
-// getInverseDependencies has them: { [id]: [ids of its dependents] }.
+// The module's dependents, and theirs, up to the entry, as Metro's getInverseDependencies: { [id]: [ids] }.
 function inverseDependencies(id, dependents) {
   const out = {}
   const queue = [id]
@@ -52,10 +47,8 @@ function inverseDependencies(id, dependents) {
 
 const same = (a, b) => a.factory === b.factory && a.name === b.name && a.deps.length === b.deps.length && a.deps.every((id, i) => id === b.deps[i])
 
-// What changed from `before` to `after`, builds of one bundle. -> the body of
-// Metro's `update` message, for the client of `clientUrl`, or null where
-// nothing did, unless `always`: then one of nothing, which tells the client
-// a build failed no more.
+// What changed from `before` to `after`, as the body of Metro's `update` message for the client of
+// `clientUrl`; null where nothing did, unless `always`, giving an empty one to tell a build failed no more.
 export function hotUpdate(before, after, clientUrl, { always = false } = {}) {
   const added = []
   const modified = []
