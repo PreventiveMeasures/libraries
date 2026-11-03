@@ -377,11 +377,16 @@ describe('rn-serve', () => {
     android.ws.close()
   })
 
-  it('reloads each app on /reload, as the CLI does', async () => {
+  it('reloads each app on /reload, as the CLI does, building nothing anew', async () => {
+    const builds = () => server.output().match(/rn-serve: built /gu)?.length ?? 0
+    await fetchRaw(bundleUrl())
+    const built = builds()
     const message = await socket(`${server.url}/message`)
     assert.equal(String((await fetchRaw(`${server.url}/reload`)).body), 'OK')
     await until(() => message.messages.length === 1, 'a reload')
     message.ws.close()
+    assert.equal((await fetchRaw(bundleUrl())).status, 200)
+    assert.equal(builds(), built)
   })
 
   it("prints each app's console as Metro's terminal does, by default: each line labelled by its level, of its mode where not the bridge", async () => {

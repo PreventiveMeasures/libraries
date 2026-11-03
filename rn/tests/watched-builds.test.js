@@ -203,7 +203,7 @@ describe('a dev bundler, of a change as it builds, and of files no build reads',
 })
 
 describe('a dev server, of /reload', () => {
-  it('builds each bundle anew after it, not as the watcher\'s changes leave the build before, as `r` does', async () => {
+  it('reloads the apps alone, of the bundles as the watcher\'s changes leave them, as `r` does (`b` builds them anew)', async () => {
     const calls = []
     const devBundler = { changed: (...args) => calls.push(args) }
     const { server } = createDevServer({ projectRoot: process.cwd(), esbuild, devBundler, gate: () => null })
@@ -212,7 +212,7 @@ describe('a dev server, of /reload', () => {
     })
     try {
       const response = await fetch(`http://127.0.0.1:${server.address().port}/reload`)
-      assert.deepEqual([response.status, await response.text(), calls], [200, 'OK', [[]]])
+      assert.deepEqual([response.status, await response.text(), calls], [200, 'OK', []])
     } finally {
       server.close()
     }

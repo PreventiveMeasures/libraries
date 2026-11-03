@@ -323,10 +323,11 @@ process.on('SIGTERM', quit)
 // A terminal's keys, listed as rn-serve starts; ctrl-c and ctrl-d quit.
 function keys(serverUrl) {
   const each = [
+    { key: 'r', what: 'reload', action: reloadApps },
     // Built anew, each file resolved and read again, not as the watcher's changes leave the build before.
     {
-      key: 'r',
-      what: 'reload',
+      key: 'b',
+      what: 'rebuild',
       action: () => {
         devBundler.changed()
         reloadApps()
