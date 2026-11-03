@@ -6,6 +6,7 @@ import { dirname, relative, resolve } from 'node:path'
 
 import { EMPTY, newState, posixRelative } from '../src/build-host.js'
 import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, withDefaults } from '../src/bundle.js'
+import { jsval } from '../src/jsval.js'
 import { GLOBAL } from '../src/serializer.js'
 import { keptOf } from './bundler.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
@@ -122,14 +123,15 @@ async function moduleOf(run, state, { key, kind, importer = key }, visit) {
     resolved = resolveAll(built)
   }
   const deps = []
-  const indices = {}
+  // By specifier, in a Map: a specifier `__proto__` set on an object would set its prototype.
+  const indices = new Map()
   for (const { specifier, found } of resolved) {
-    if (found === null || Object.hasOwn(indices, specifier)) continue
+    if (found === null || indices.has(specifier)) continue
     visit(found)
-    indices[specifier] = deps.length
+    indices.set(specifier, deps.length)
     deps.push(found.key)
   }
-  return recordOf(run, key, built, deps.map(idOf), indices)
+  return recordOf(run, key, built, deps.map(idOf), Object.fromEntries(indices))
 }
 
 // The build before's record where its build, id, deps and their indices are the same, so that serialize()
@@ -197,12 +199,12 @@ const STRICT = '"use strict";'
 function factoryOf(code, indices) {
   const strict = code.startsWith(STRICT)
   const body = strict ? ' '.repeat(STRICT.length) + code.slice(STRICT.length) : code.startsWith('#!') ? code.slice(code.indexOf('\n')) : code
-  const require = `var _$$_AT = ${JSON.stringify(indices)}; var require = function (name) { if (!Object.prototype.hasOwnProperty.call(_$$_AT, name)) { var error = new Error("Cannot find module '" + name + "'"); error.code = "MODULE_NOT_FOUND"; throw error } return _$$_REQUIRE(_dependencyMap[_$$_AT[name]], name) };`
+  const require = `var _$$_AT = ${jsval(indices)}; var require = function (name) { if (!Object.prototype.hasOwnProperty.call(_$$_AT, name)) { var error = new Error("Cannot find module '" + name + "'"); error.code = "MODULE_NOT_FOUND"; throw error } return _$$_REQUIRE(_dependencyMap[_$$_AT[name]], name) };`
   return `${FACTORY} {${strict ? STRICT : ''}${require}\n${body}}`
 }
 
 // `__d(...)`, as Metro defines a module; with `inverse`, as an update does.
-export const defineCall = (record, inverse) => `__d(${record.factory},${record.id},${JSON.stringify(record.deps)},${JSON.stringify(record.name)}${inverse === undefined ? '' : `,${JSON.stringify(inverse)}`});\n`
+export const defineCall = (record, inverse) => `__d(${record.factory},${record.id},${jsval(record.deps)},${jsval(record.name)}${inverse === undefined ? '' : `,${jsval(inverse)}`});\n`
 
 // A polyfill or metro-runtime's require: a script given the global object, as Metro wraps one.
 async function scriptOf(run, state, path) {

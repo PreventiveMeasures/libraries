@@ -91,6 +91,7 @@
     "src/esm-imports.js",
     "src/exports.js",
     "src/image-size.js",
+    "src/jsval.js",
     "src/load.js",
     "src/metro-config.js",
     "src/metro-options.js",

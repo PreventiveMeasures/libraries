@@ -464,7 +464,7 @@ describe('ownModules', () => {
   it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
     const at = (dir) => (name) => join(fileURLToPath(new URL(`../${dir}/`, import.meta.url)), name)
     const serve = ['bundler.js', 'fingerprint.js', 'load-cache.js', 'load-pack.js', 'mappings.js', 'modules.js', 'resolution.js'].map(at('serve'))
-    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'load.js', 'module-resolver.js', 'resolve.js', 'serializer.js', 'worklets.js'].map(at('src'))
+    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'jsval.js', 'load.js', 'module-resolver.js', 'resolve.js', 'serializer.js', 'worklets.js'].map(at('src'))
     assert.deepEqual(ownModules(), [...serve, ...src])
   })
 })
