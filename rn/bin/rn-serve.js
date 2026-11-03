@@ -76,7 +76,7 @@ const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
 const metroConfig = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
-const metro = withInlineRequires(metroConfig, (dev) => inlineRequiresOf(values['inline-requires'], rnConfig, dev))
+const metro = withInlineRequires(metroConfig, (dev) => inlineRequiresOf(values['inline-requires'], rnConfig, dev), esmOf)
 const port = values.port === undefined ? (rnConfig.port ?? metro.port ?? 8081) : Number(values.port)
 // For Fast Refresh: the module system of dev bundles, and the Babel plugin that registers components.
 // Without Babel, metro-runtime < 0.83.3 reloads on an ES module edit: esbuild's export getters aren't a boundary to it.
@@ -108,9 +108,9 @@ const devBundler = createDevBundler({
   injected: devMiddleware === null ? [] : [REPORTER],
   targetOptions: (target) => {
     const babel = babelFor?.(target) ?? null
-    // With inline requires, Babel makes each module CommonJS, esm checking their imports alone.
+    // Its imports checked with inline requires (esm off: transformRefusal), and with esm.
     const esm = esmOf(target.dev).on
-    return { stripFlow, ...babel, aliases, esm: esm && target.inlineRequires === null, checkImports: esm, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
+    return { stripFlow, ...babel, aliases, esm, checkImports: esm || target.inlineRequires !== null, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
   },
   onBuild: built,
 })

@@ -192,6 +192,16 @@ describe('inlineRequires', () => {
     assert.equal(await refusal({ ...own, transformRefusal: () => Promise.resolve('refused') }, undefined, { inlineRequires: false }), 'refused')
   })
 
+  it('refuses a bundle of esm where they are on, naming what sets them; not where they are off', async () => {
+    const linking = (config, flag) => (dev) => flagOf(flag, config, 'esm', dev)
+    const refusalOf = (given, config, esmFlag, forTarget = target) => withInlineRequires(given, (dev) => inlineRequiresOf(undefined, config, dev), linking(config, esmFlag)).transformRefusal('index.js', forTarget)
+    const turnOff = ": turn them off for it (--no-inline-requires, or rn.config.json's inlineRequires false), or leave esm off, the imports checked all the same"
+    assert.equal(await refusalOf(metro, { esm: true }), `rn.config.json's esm links ES modules, each run as it is imported, and metro.config.js's transformer.getTransformOptions inlines requires, each module run where first used${turnOff}`)
+    assert.equal(await refusalOf({ ...metro, file: null }, {}, true), `--esm links ES modules, each run as it is imported, and React Native's defaults inlines requires, each module run where first used${turnOff}`)
+    assert.equal(await refusalOf(none, { inlineRequires: true, esm: true }), `rn.config.json's esm links ES modules, each run as it is imported, and rn.config.json's inlineRequires inlines requires, each module run where first used${turnOff}`)
+    for (const [given, config] of [[none, { esm: true }], [metro, { esm: true, inlineRequires: false }], [metro, {}], [metro, { production: { esm: true } }]]) assert.equal(await refusalOf(given, config), null, JSON.stringify(config))
+  })
+
   it('refuses a bundle it inlines the requires of without metro-transform-plugins', async () => {
     const lacking = { ...none, inlining: () => Promise.resolve(null) }
     assert.equal(await refusal(lacking, undefined, { inlineRequires: true }), "rn.config.json's inlineRequires inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins")

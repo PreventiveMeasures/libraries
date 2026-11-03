@@ -2,10 +2,13 @@
 // their flags, which override it. Its lists add to Metro's defaults; a Metro config that sets one
 // differently is an error, so asset-exts.js can skip reading it. Unknown or mistyped options are errors.
 // `babel` switches Babel plugins on and off (babel-switches.js). `inlineRequires` sets Metro's inline
-// requires, a Metro config of its own getTransformOptions that sets them otherwise an error; with them,
-// `esm` checks ES modules' imports, as Babel makes each CommonJS. `development` and `production` set the
-// options of dev builds and release builds (babel, esm, inlineRequires): an option is set either at the
-// top level, for both, or in either or both of them, never in both places.
+// requires, a Metro config of its own getTransformOptions that sets them otherwise an error. A build has
+// one of three modes: inline requires, each module run where first used and each import of an ES module
+// checked as esbuild links them (esm-imports.js); or none, its modules made CommonJS by Babel; or none and
+// `esm`, its ES modules linked by esbuild, each run as it is imported: `esm` with inline requires is an
+// error. `development` and `production` set the options of dev builds and release builds (babel, esm,
+// inlineRequires): an option is set either at the top level, for both, or in either or both of them,
+// never in both places.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -151,23 +154,35 @@ export const inlineRequiresOf = (flag, config, dev) => flagOf(flag, config, 'inl
 
 // metroOptions()'s `metro` with inline requires as `wanted(dev)` (inlineRequiresOf()'s) sets them, else as
 // the Metro config does. Where rn.config.json sets them, a Metro config whose getTransformOptions is its
-// own and sets them otherwise refuses the bundle (transformRefusal), as does a lack of metro-transform-plugins.
-export function withInlineRequires(metro, wanted) {
+// own and sets them otherwise refuses the bundle (transformRefusal), as does a lack of metro-transform-plugins;
+// and `esm(dev)` (flagOf()'s) on where they are, as esbuild links ES modules each run as it is imported.
+export function withInlineRequires(metro, wanted, esm = () => ({ on: false })) {
+  const inlined = (entryPath, target) => {
+    const { on } = wanted(target.dev)
+    if (on === null) return metro.inlineRequires(entryPath, target)
+    return on ? metro.inlining(entryPath, target) : Promise.resolve(null)
+  }
+  // Where the build's inline requires are set.
+  const sourceOf = ({ on, by }) => {
+    if (on === null) return metro.file === null ? "React Native's defaults" : `${metro.file}'s transformer.getTransformOptions`
+    return by
+  }
   return {
     ...metro,
-    inlineRequires: (entryPath, target) => {
-      const { on } = wanted(target.dev)
-      if (on === null) return metro.inlineRequires(entryPath, target)
-      return on ? metro.inlining(entryPath, target) : Promise.resolve(null)
-    },
+    inlineRequires: inlined,
     transformRefusal: async (entryPath, target) => {
       const refusal = await metro.transformRefusal(entryPath, target)
-      const { on, by, flag } = wanted(target.dev)
-      if (refusal !== null || on === null) return refusal
+      const set = wanted(target.dev)
+      const { on, by, flag } = set
+      if (refusal !== null) return refusal
       if (on && (await metro.inlining(entryPath, target)) === null) return `${by} inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins`
-      if (flag || !metro.ownTransformOptions) return null
-      const given = (await metro.inlineRequires(entryPath, target)) !== null
-      return given === on ? null : `${by} is ${on}, and ${metro.file}'s transformer.getTransformOptions gives inlineRequires ${given}: set it in one of them, or alike in both`
+      if (on !== null && !flag && metro.ownTransformOptions) {
+        const given = (await metro.inlineRequires(entryPath, target)) !== null
+        if (given !== on) return `${by} is ${on}, and ${metro.file}'s transformer.getTransformOptions gives inlineRequires ${given}: set it in one of them, or alike in both`
+      }
+      const linking = esm(target.dev)
+      if (!linking.on || (await inlined(entryPath, target)) === null) return null
+      return `${linking.by} links ES modules, each run as it is imported, and ${sourceOf(set)} inlines requires, each module run where first used: turn them off for it (--no-inline-requires, or rn.config.json's inlineRequires false), or leave esm off, the imports checked all the same`
     },
   }
 }

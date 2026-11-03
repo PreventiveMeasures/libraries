@@ -391,10 +391,10 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     assert.match(r.stderr, /esbuild resolved __tests__\/fixture\.js where Metro resolves nothing/u)
   })
 
-  it('takes esm where Babel runs, as --esm, --no-esm over it', async () => {
-    const r = await bundleWith({ metroConfig: false, esm: true })
+  it('takes esm where Babel runs, inline requires off, as --esm, --no-esm over it', async () => {
+    const r = await bundleWith({ metroConfig: false, inlineRequires: false, esm: true })
     assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: rn.config.json's esm keeps ES modules through the project's Babel config, and it has none\n"])
-    const over = await bundleWith({ metroConfig: false, esm: true }, ['--no-esm'])
+    const over = await bundleWith({ metroConfig: false, inlineRequires: false, esm: true }, ['--no-esm'])
     assert.equal(over.status, 0, over.stderr)
   })
 
@@ -580,8 +580,16 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
     assert.deepEqual(await run(unloaded.root), ['react', 'index', 'a', 'b', 'b 19'])
   })
 
-  it('runs a module where it is first used with --esm too, Babel making each module CommonJS, in a dev build and a release build alike', async () => {
-    for (const args of [['--esm'], ['--esm', '--dev']]) assert.deepEqual(await run(inlining.root, args), ['react', 'index', 'a', 'b', 'b 19'], args.join(' '))
+  it('refuses --esm where they are on, naming what sets them: esbuild runs each ES module as it is imported', async () => {
+    const turnOff = ": turn them off for it (--no-inline-requires, or rn.config.json's inlineRequires false), or leave esm off, the imports checked all the same\n"
+    for (const args of [['--esm'], ['--esm', '--dev']]) {
+      const r = await built(inlining.root, args)
+      assert.deepEqual([r.status, r.stderr], [1, `rn-bundle: --esm links ES modules, each run as it is imported, and metro.config.js's transformer.getTransformOptions inlines requires, each module run where first used${turnOff}`], args.join(' '))
+    }
+    const r = await built(unloaded.root, ['--esm'])
+    assert.deepEqual([r.status, r.stderr], [1, `rn-bundle: --esm links ES modules, each run as it is imported, and React Native's defaults inlines requires, each module run where first used${turnOff}`])
+    const set = await built(eager.root, ['--esm', '--inline-requires'])
+    assert.deepEqual([set.status, set.stderr], [1, `rn-bundle: --esm links ES modules, each run as it is imported, and --inline-requires inlines requires, each module run where first used${turnOff}`])
   })
 
   it('links the ES modules with --esm and --no-inline-requires, each run as it is imported', async () => {
@@ -604,8 +612,8 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
     assert.deepEqual(await run(kept.root, ['--inline-requires']), ['react', 'index', 'b', 'a', 'b 19'])
   })
 
-  it('warns with --esm of an import of what its ES module lacks, as esbuild does where it links them; not without', async () => {
-    for (const args of [['--esm'], ['--esm', '--dev']]) {
+  it('warns of an import of what its ES module lacks with them, the bundle the same, as esbuild does where --esm links them; not without either', async () => {
+    for (const args of [[], ['--dev']]) {
       const r = await built(unmatched.root, args)
       assert.equal(r.status, 0, r.stderr)
       assert.match(r.stderr, /No matching export in "b\.js" for import "nope": the import is undefined, as in Metro/u)
@@ -613,7 +621,7 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
       assert.deepEqual(printed(join(unmatched.root, 'out.js')).trim().split('\n'), ['index', 'a', 'b', 'b undefined'])
     }
     assert.match((await built(unmatched.root, ['--esm', '--no-inline-requires'])).stderr, /No matching export in "b\.js" for import "nope": left CommonJS/u)
-    assert.doesNotMatch((await built(unmatched.root)).stderr, /No matching export/u)
+    assert.doesNotMatch((await built(unmatched.root, ['--no-inline-requires'])).stderr, /No matching export/u)
   })
 })
 

@@ -799,12 +799,12 @@ describe('rn-serve --esm', () => {
   })
 })
 
-describe("rn-serve --esm, with rn.config.json's inlineRequires", () => {
+describe("rn-serve, with rn.config.json's inlineRequires", () => {
   const { root, cleanup } = writeTree({
     ...APP,
     'node_modules/metro-runtime': linked('metro-runtime'),
     'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
-    'rn.config.json': { esm: true, inlineRequires: true },
+    'rn.config.json': { inlineRequires: true },
     // An import of what lib/b.js doesn't export.
     'lazy.js': "import { run } from './lib/a'\nimport { nope } from './lib/b'\nconst log = (globalThis.log ??= [])\nlog.push('index')\nrun(nope)\nglobalThis.result = log\n",
     'lib/a.js': "import { b } from './b'\n;(globalThis.log ??= []).push('a')\nexport const run = (x) => globalThis.log.push(b + ' ' + x)\n",
@@ -836,6 +836,17 @@ describe("rn-serve --esm, with rn.config.json's inlineRequires", () => {
     writeFileSync(join(root, 'lib/a.js'), `${readFileSync(join(root, 'lib/a.js'), 'utf8')}// edited\n`)
     await until(() => (builds() >= built + 2 ? true : null), 'the bundles built again')
     assert.equal(warned(), 2)
+  })
+
+  it('refuses each bundle of --esm, which esbuild links each ES module of as it is imported', async () => {
+    const linking = await serve(root, ['--esm'])
+    try {
+      const { status, body } = await fetchRaw(`${linking.url}/lazy.bundle?platform=ios`)
+      assert.equal(status, 500)
+      assert.match(String(body), /--esm links ES modules, each run as it is imported, and rn\.config\.json's inlineRequires inlines requires/u)
+    } finally {
+      await linking.stop()
+    }
   })
 })
 

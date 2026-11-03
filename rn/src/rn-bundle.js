@@ -88,7 +88,7 @@ async function run(args, { cwd, stderr, closing }) {
   const project = peers(cwd, fail)
   const esbuild = project.peer('esbuild', 'bundling')
   const metroConfig = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(args['metro-config'], rnConfig), name: 'rn-bundle', minify: args.minify }), rnConfig, fail)
-  const metro = withInlineRequires(metroConfig, (forDev) => inlineRequiresOf(args['inline-requires'], rnConfig, forDev))
+  const metro = withInlineRequires(metroConfig, (forDev) => inlineRequiresOf(args['inline-requires'], rnConfig, forDev), (forDev) => flagOf(args.esm, rnConfig, 'esm', forDev))
   const entryPath = resolve(cwd, entry)
   const target = { platform, dev }
   const transformRefusal = await metro.transformRefusal(entryPath, target)
@@ -133,9 +133,9 @@ async function run(args, { cwd, stderr, closing }) {
     stripFlow: timedBefore(babel?.profile ?? null, 'flow-remove-types', flowStripper(project, babel !== null)),
     // Its babel and babelPlugins, if the project has a Babel config.
     ...babel,
-    // With inline requires, Babel makes each module CommonJS, esm checking their imports alone.
-    esm: esm.on && inlineRequires === null,
-    checkImports: esm.on,
+    // Its imports checked with inline requires (esm off: transformRefusal), and with esm.
+    esm: esm.on,
+    checkImports: esm.on || inlineRequires !== null,
     assetExts: metro.assetExts,
     resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,
