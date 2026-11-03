@@ -14,11 +14,10 @@ const boundBy = (node) => {
   return node.type === 'RestElement' ? boundBy(node.argument) : []
 }
 // The values a declaration exports: not a type's (TS's or Flow's), which has no value.
-const VALUE_DECLARATIONS = new Set(['FunctionDeclaration', 'ClassDeclaration', 'TSEnumDeclaration', 'EnumDeclaration'])
+const VALUE_DECLARATIONS = new Set(['FunctionDeclaration', 'ClassDeclaration', 'TSEnumDeclaration', 'EnumDeclaration', 'TSModuleDeclaration'])
 function declaredBy(declaration) {
   if (declaration.type === 'VariableDeclaration') return declaration.declarations.flatMap(({ id }) => boundBy(id))
-  if (declaration.type === 'TSModuleDeclaration') return declaration.declare || declaration.id.type !== 'Identifier' ? [] : [declaration.id.name]
-  return VALUE_DECLARATIONS.has(declaration.type) && !declaration.declare && declaration.id != null ? [declaration.id.name] : []
+  return VALUE_DECLARATIONS.has(declaration.type) && !declaration.declare && declaration.id?.type === 'Identifier' ? [declaration.id.name] : []
 }
 
 // An ES module's { imports: [{ specifier, names }], exports, stars }: the names it imports of each module
@@ -32,9 +31,8 @@ export function esModuleOf(program) {
   let esm = false
   const importing = (specifier, names) => names.length > 0 && imports.push({ specifier, names })
   for (const node of program.body) {
-    const typed = TYPE_KINDS.has(node.importKind ?? node.exportKind)
-    if (!typed && /^(?:Import|Export(?:All|Default|Named))Declaration$/u.test(node.type)) esm = true
-    if (typed) continue
+    if (TYPE_KINDS.has(node.importKind ?? node.exportKind)) continue
+    esm ||= /^(?:Import|Export(?:All|Default|Named))Declaration$/u.test(node.type)
     if (node.type === 'ImportDeclaration') {
       importing(node.source.value, node.specifiers.flatMap((each) => (each.type === 'ImportDefaultSpecifier' ? ['default'] : each.type === 'ImportSpecifier' && !TYPE_KINDS.has(each.importKind) ? [nameOf(each.imported)] : [])))
     } else if (node.type === 'ExportAllDeclaration') {

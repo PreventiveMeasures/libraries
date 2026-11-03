@@ -25,9 +25,8 @@ const IN_BAND = 16
 const READY = 'ready'
 
 // -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
-// corePath, leaving out the config's plugins keyed in `without` (options: transformerOf()). Runs up to
-// `max` workers (defaultWorkers() if null), `warm` starting them all now; has close(), and fingerprint()
-// with options.fingerprinter.
+// corePath, less the config's plugins keyed in `without` (options: transformerOf()). Runs up to `max`
+// workers (defaultWorkers() if null), all started now if `warm`; has close(), and fingerprint() with a fingerprinter.
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false } = {}) {
   const most = max ?? defaultWorkers()
   const workers = []
@@ -36,12 +35,13 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     // The answers it owes, which it gives in turn.
     const info = { worker, asked: [], ready: false }
     worker.on('message', (answer) => {
-      if (answer === READY) info.ready = true
-      else info.asked.shift().resolve(answer)
+      // READY is its first message, so any means it is ready.
+      info.ready = true
+      if (answer !== READY) info.asked.shift().resolve(answer)
       // Only a busy worker keeps the process alive.
       if (info.asked.length === 0) worker.unref()
     })
-    // A dead worker leaves the pool and fails what it was given, which would otherwise wait forever.
+    // A dead worker leaves the pool and fails what it owes, which would otherwise wait forever.
     let failure
     worker.on('error', (error) => (failure = error))
     worker.on('exit', (code) => {
@@ -62,8 +62,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     worker.postMessage(message)
     return answer.promise
   }
-  // With keepPlugins (--self-test's second build), nothing runs in band, where the first build's
-  // plugins are already gated (resolverGate()); a worker starts at once.
+  // keepPlugins (--self-test's second build) runs nothing in band, where the first build gated the plugins.
   if (options.keepPlugins) made()
   if (warm) while (workers.length < most) made()
   let inBand = null
@@ -72,8 +71,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     if (options.keepPlugins || (handled >= IN_BAND && workers.some(({ ready }) => ready))) return inWorker(message)
     // Past IN_BAND, start a worker if there is none (or it died).
     if (++handled >= IN_BAND && workers.length === 0) made()
-    // A fingerprint is only ever a worker's: the main thread has loaded more than Babel. A failure
-    // to load is each file's.
+    // No fingerprint: the main thread has loaded more than Babel. A failure to load is each file's.
     inBand ??= Promise.try(() => transformerOf({ corePath, options, profile: profile !== null }))
     return (await inBand).transform(message)
   }

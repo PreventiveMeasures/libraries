@@ -12,7 +12,7 @@ export const RESOLVER = 'module-resolver'
 const CALLS = ['require.resolve', 'jest.genMockFromModule', 'jest.mock', 'jest.unmock', 'jest.doMock', 'jest.dontMock', 'jest.setMock', 'jest.requireActual', 'jest.requireMock', 'require.requireActual', 'require.requireMock', 'System.import']
 // Plugins, by key, that read no import, require or export-from specifier, or read an alias and its
 // mapped relative path alike (readers()): Babel's, @react-native/babel-preset's, Reanimated's
-// outside bundle mode, and the inlining one rn adds.
+// outside bundle mode, and rn's inlining.
 const READS_NONE = new Set([
   ...['async-generator-functions', 'async-to-generator', 'arrow-functions', 'block-scoped-functions', 'block-scoping', 'class-properties', 'class-static-block', 'classes', 'computed-properties', 'destructuring', 'dotall-regex', 'duplicate-keys', 'dynamic-import', 'exponentiation-operator', 'explicit-resource-management', 'export-namespace-from', 'flow-enums', 'flow-strip-types', 'for-of', 'function-name', 'instanceof', 'json-strings', 'literals', 'logical-assignment-operators', 'member-expression-literals', 'modules-commonjs', 'named-capturing-groups-regex', 'new-target', 'nullish-coalescing-operator', 'numeric-separator', 'object-assign', 'object-rest-spread', 'object-super', 'optional-catch-binding', 'optional-chaining', 'parameters', 'private-methods', 'private-property-in-object', 'property-literals', 'react-display-name', 'react-jsx', 'react-jsx-development', 'react-jsx-self', 'react-jsx-source', 'regenerator', 'reserved-words', 'runtime', 'shorthand-properties', 'spread', 'sticky-regex', 'template-literals', 'typeof-symbol', 'typescript', 'unicode-escapes', 'unicode-property-regex', 'unicode-regex', 'unicode-sets-regex'].map((name) => `transform-${name}`),
   ...['class-properties', 'class-static-block', 'decorators', 'dynamic-import', 'export-default-from', 'export-namespace-from', 'flow', 'hermes-parser', 'jsx', 'nullish-coalescing-operator', 'numeric-separator', 'object-rest-spread', 'optional-catch-binding', 'optional-chaining', 'typescript'].map((name) => `syntax-${name}`),
@@ -37,8 +37,7 @@ const ESCAPED = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\n': ''
 // as one), so a failing match takes linear time.
 const BODIES = { "'": /(?:\\(?:\r\n|[^])|[^\\\n\r'])*'/uy, '"': /(?:\\(?:\r\n|[^])|[^\\\n\r"])*"/uy, '`': /(?:\\[^]|[^\\`$]|\$(?!\{))*`/uy }
 
-// What resolverOf() reads of module-resolver's options, by options object; Babel's helpers by
-// project root.
+// prepare() by options object; Babel's helpers by project root.
 const PREPARED = new WeakMap()
 const HELPERS = new Map()
 
@@ -52,10 +51,10 @@ const memo = (cache, key, make) => {
 // apply instead, where that is provably the same. `code` is Babel's input, if given.
 export function resolverOf(options, contents, plugins, path, projectRoot, code = null) {
   if (options === undefined) return 'babel'
-  const { aliases, mapped, calls, writes } = memo(PREPARED, options, () => prepare(options))
+  const { aliased, mapped, calls, writes } = memo(PREPARED, options, () => prepare(options))
   // A code point escape (`\x23`) may spell an alias.
-  if (aliases === null || /\\[ux0-9]/u.test(contents) || writesAliased(writes, aliases, plugins, contents, projectRoot)) return 'babel'
-  const named = stringsIn(contents).filter((value) => aliases.some((alias) => alias.test(value)))
+  if (aliased === null || /\\[ux0-9]/u.test(contents) || writesAliased(writes, aliased, plugins, contents, projectRoot)) return 'babel'
+  const named = stringsIn(contents).filter(aliased)
   if (named.length === 0) return null
   // A call is seen only with types erased (by esbuild): `jest.mock!(`, `(jest as any).mock(`.
   if (mapped === null || code === contents || [contents, code ?? ''].some((text) => calls.test(text) || BINDS_REQUIRE.test(text))) return 'babel'
@@ -78,7 +77,7 @@ function prepare(options) {
     && (transformFunctions === undefined || (Array.isArray(transformFunctions) && transformFunctions.every((call) => typeof call === 'string')))
   return {
     // Null where module-resolver may map more than its aliases.
-    aliases: options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 ? null : aliasesOf(alias),
+    aliased: options.instances !== undefined || options.resolvePath !== undefined || [options.root ?? []].flat().length > 0 ? null : aliasesOf(alias),
     // The cwd defaults to the process's, as module-resolver's does (Babel runs in rn's process).
     mapped: mappable ? { alias, cwd: cwd || process.cwd() } : null,
     calls: mappable ? callsOf(transformFunctions ?? []) : null,
@@ -87,7 +86,7 @@ function prepare(options) {
   }
 }
 
-// RegExps of what the aliases match, as module-resolver's normalizeAlias has them: a key starting
+// (string) => whether an alias matches it, as module-resolver's normalizeAlias has them: a key starting
 // `^` or ending `$` is a RegExp of its own; the others match themselves and what is under them.
 // Null if a key is no valid RegExp.
 function aliasesOf(alias) {
@@ -96,8 +95,9 @@ function aliasesOf(alias) {
   const names = keys.filter((key) => !patterns.includes(key))
   try {
     // eslint-disable-next-line require-unicode-regexp -- module-resolver compiles a key with no flags
-    const compiled = patterns.map((key) => new RegExp(key))
-    return names.length === 0 ? compiled : [...compiled, new RegExp(`^(?:${names.map(RegExp.escape).join('|')})(?:/|$)`, 'su')]
+    const regExps = patterns.map((key) => new RegExp(key))
+    if (names.length > 0) regExps.push(new RegExp(`^(?:${names.map(RegExp.escape).join('|')})(?:/|$)`, 'su'))
+    return (value) => regExps.some((regExp) => regExp.test(value))
   } catch {
     return null
   }
@@ -162,8 +162,7 @@ function readers(plugins, path) {
       // Metro's inlining skips the names it's given, and @babel/runtime's.
       if (key === 'inline-requires') {
         const names = new Set([...(options.ignoredRequires ?? []), ...(options.nonMemoizedModules ?? [])])
-        const runtime = (name) => name.startsWith('@babel/runtime/')
-        reads.push((specifier, mapped) => !names.has(specifier) && !names.has(mapped) && runtime(specifier) === runtime(mapped))
+        reads.push((specifier, mapped) => !names.has(specifier) && !names.has(mapped) && sameFor((name) => name.startsWith('@babel/runtime/'), specifier, mapped))
       }
       // `lazy` and `importInterop` of a source, as Babel's helper-module-transforms reads them.
       if (key === 'transform-modules-commonjs') {
@@ -179,18 +178,17 @@ function readers(plugins, path) {
 // Whether an alias matches what Babel's plugins may write into a file that had none: the
 // automatic JSX runtime of each importSource (and the file's @jsxImportSource), transform-runtime's
 // helpers and regenerator. True when that is unknown: with core-js, absoluteRuntime or no helper list.
-function writesAliased(writes, aliases, plugins, contents, projectRoot) {
+function writesAliased(writes, aliased, plugins, contents, projectRoot) {
   const sources = ['transform-react-jsx', 'transform-react-jsx-development'].flatMap((key) => instances(plugins, key)).map(({ importSource = 'react' }) => importSource)
   const runtimes = instances(plugins, 'transform-runtime')
   if (runtimes.some(({ corejs, absoluteRuntime }) => corejs || absoluteRuntime)) return true
   const modules = runtimes.map(({ moduleName = '@babel/runtime' }) => moduleName)
   const jsxRuntimes = (source) => [`${source}/jsx-runtime`, `${source}/jsx-dev-runtime`]
-  const matched = (specifiers) => specifiers.some((specifier) => aliases.some((alias) => alias.test(specifier)))
   const pragma = /@jsxImportSource\s+(\S+)/u.exec(contents)?.[1]
-  if (sources.length > 0 && pragma !== undefined && matched(jsxRuntimes(pragma))) return true
+  if (sources.length > 0 && pragma !== undefined && jsxRuntimes(pragma).some(aliased)) return true
   return memo(writes, JSON.stringify([sources, modules]), () => {
     const helpers = modules.length === 0 ? [] : helpersOf(projectRoot)
-    return helpers === null || matched([...sources.flatMap(jsxRuntimes), ...modules.flatMap((module) => [`${module}/regenerator`, ...helpers.flatMap((name) => [`${module}/helpers/${name}`, `${module}/helpers/esm/${name}`])])])
+    return helpers === null || [...sources.flatMap(jsxRuntimes), ...modules.flatMap((module) => [`${module}/regenerator`, ...helpers.flatMap((name) => [`${module}/helpers/${name}`, `${module}/helpers/esm/${name}`])])].some(aliased)
   })
 }
 
