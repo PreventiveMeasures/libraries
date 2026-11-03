@@ -136,6 +136,8 @@ async function run(args, { cwd, stderr, closing }) {
     assetRegistryPath: metro.assetRegistryPath,
     define,
     minify: args.minify,
+    // Of a release build, dead branches dropped though not minified, as Metro folds them.
+    minifySyntax: !dev,
     sourcemap,
     prelude: prelude(define.__DEV__, env),
     polyfills: metro.polyfills(platform),

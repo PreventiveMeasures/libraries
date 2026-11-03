@@ -188,6 +188,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injec
     host,
     projectRoot,
     minify,
+    minifySyntax: !dev,
     cache: cached.files,
     changedAt: (path) => changedAt(edits, path),
     commonJs: cached.commonJs,

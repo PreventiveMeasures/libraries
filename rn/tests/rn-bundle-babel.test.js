@@ -177,9 +177,10 @@ describe("rn-bundle, with Babel, with a sourceRoot in the Babel config", () => {
   // esbuild lowers first, of its absolute path (b.ts).
   const { root, cleanup } = writeTree({
     'babel.config.js': "module.exports = { sourceRoot: __dirname + '/' }\n",
-    'index.js': "import { a } from './lib/a'\nimport { b } from './lib/b'\nconsole.log(a + b)\n",
-    'lib/a.js': 'export const a = 1\n',
-    'lib/b.ts': 'export const b: number = 2\n',
+    // Functions, which a release build's folding of constants keeps, as it would inline 1 and 2.
+    'index.js': "import { a } from './lib/a'\nimport { b } from './lib/b'\nconsole.log(a() + b())\n",
+    'lib/a.js': 'export function a() {\n  return 1\n}\n',
+    'lib/b.ts': 'export function b(): number {\n  return 2\n}\n',
     'node_modules/@babel/core': linked('@babel/core'),
   })
   after(cleanup)

@@ -72,9 +72,12 @@ export function withDefaults(options) {
     assetExts: defaults.assetExts,
     resolver: {},
     blockList: null,
-    // The bundle's.
+    // The bundle's. minifySyntax, of a release build, where it isn't minified: esbuild folds constants
+    // and drops dead branches (of __DEV__, process.env.NODE_ENV, Platform.OS inlined), as Metro's
+    // constant folding does of a release build, keeping names and layout.
     define: {},
     minify: false,
+    minifySyntax: false,
     sourcemap: false,
     prelude: null,
     // Map<path, { contents, result, at }>: each file as last loaded (of the build at `at`, a dev bundler's
@@ -181,7 +184,7 @@ export async function lowersLetOf({ babel, babelPlugins, host = diskHost, projec
 
 // keepNames: with `esm`, esbuild joins the ES modules in one scope, renaming clashes (`Text3`) and so
 // their functions' `name`, which React shows; Babel's CommonJS keeps it. Not when minifying, as in Metro.
-function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prelude, sourcemap, esm }, plugin, main, lowersLet) {
+function buildOptions({ entry, outfile, projectRoot, define, minify, minifySyntax, babel, prelude, sourcemap, esm }, plugin, main, lowersLet) {
   return {
     entryPoints: [main ? MAIN : entry],
     absWorkingDir: projectRoot,
@@ -193,6 +196,7 @@ function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prel
     logLevel: 'silent',
     define,
     minify,
+    ...(minifySyntax && !minify && { minifySyntax }),
     ...(esm !== false && !minify && { keepNames: true }),
     supported: supportedOf(babel, lowersLet),
     plugins: [plugin],
