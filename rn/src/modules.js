@@ -34,12 +34,12 @@ export function createModuleBundler(options) {
   const supported = lowersLetOf(run).catch(() => false).then((lowersLet) => ({ ...supportedOf(run.babel, lowersLet), 'dynamic-import': false }))
   return {
     // `changes`, a watcher's since the build before ({ path, event }); null, a full build, which resolves and
-    // reads anew what a watcher-caused one keeps of the build before.
-    async rebuild(onProgress = null, changes = null) {
+    // reads anew what a watcher-caused one keeps of the build before. `at`, a dev bundler's version of it.
+    async rebuild(onProgress = null, changes = null, at = null) {
       const read = new Set()
       try {
         const state = newState({ ...run, changes }, read)
-        return await graphOf({ ...run, onProgress, supported: await supported, trusted: changes !== null }, state, [runtime, ...run.polyfills])
+        return await graphOf({ ...run, onProgress, supported: await supported, trusted: changes !== null, at }, state, [runtime, ...run.polyfills])
       } catch (error) {
         throw Object.assign(new Error(error?.message ?? String(error)), { errors: errorsOf(error, null), files: [...read] })
       }

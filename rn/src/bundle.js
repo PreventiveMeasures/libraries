@@ -77,10 +77,13 @@ export function withDefaults(options) {
     minify: false,
     sourcemap: false,
     prelude: null,
-    // Map<path, { contents, result }>: each file as last loaded, reused while its contents are the same;
-    // and load-cache.js's store of loaded files, on disk across runs.
+    // Map<path, { contents, result, at }>: each file as last loaded (of the build at `at`, a dev bundler's
+    // version), reused while its contents are the same; and load-cache.js's store of loaded files, on disk
+    // across runs. changedAt(path): a dev bundler's version of the last change its watcher saw of the file,
+    // or of a directory it is in.
     cache: null,
     store: null,
+    changedAt: null,
     ...given,
     esm: given.esm === true ? (given.commonJs ?? new Set()) : false,
   }
@@ -113,11 +116,13 @@ export async function createBundler(options) {
   const context = await run.esbuild.context(buildOptions(run, graph.plugin, true, lowersLet))
   return {
     // Throws as esbuild does, with the error's `files` those the build read or looked for. `changes`, a
-    // watcher's since the build before ({ path, event }); null, a full build.
-    rebuild: (onProgress = null, changes = null) => {
+    // watcher's since the build before ({ path, event }); null, a full build. `at`, a dev bundler's version
+    // of the build, its files read after each change of an earlier one.
+    rebuild: (onProgress = null, changes = null, at = null) => {
       graph.onProgress = onProgress
       run.changes = changes
       run.trusted = changes !== null
+      run.at = at
       return linking(run, async () => graph.result(await context.rebuild())).catch((error) => {
         throw Object.assign(error, { files: graph.files() })
       })
@@ -285,11 +290,15 @@ function metroGraph(run, first = null) {
 const named = (projectRoot, path, namespace) => ({ path: posixRelative(projectRoot, path), namespace })
 
 // Of a watcher-caused build (options.trusted), a file as options.cache has it, unread: a change the watcher
-// sees lets the file go from the cache (dev-bundler.js's changed()). Else undefined, the file read.
+// sees lets the file go from the cache (dev-bundler.js's changed()). Not one a build read before a change
+// of it the watcher saw (options.changedAt()): a load under way as it changes keeps what it read before.
+// Else undefined, the file read.
 export function trustedOf(options, path) {
   const hit = options.trusted ? options.cache?.get(path) : undefined
-  if (hit !== undefined) options.store?.note('memory')
-  return hit?.result
+  const since = options.changedAt?.(path) ?? null
+  if (hit === undefined || (since !== null && !(hit.at >= since))) return undefined
+  options.store?.note('memory')
+  return hit.result
 }
 
 // Loads a file of these bytes with loadFile(): from options.cache while its contents are the same, else from
@@ -314,6 +323,6 @@ export async function loadCached(options, path, bytes) {
     if (unkept === null) store.set(key, result)
     else store.note('unkept', unkept)
   }
-  if (result.errors === undefined) cache?.set(path, { contents, result })
+  if (result.errors === undefined) cache?.set(path, { contents, result, at: options.at ?? null })
   return result
 }

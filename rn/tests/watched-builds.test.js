@@ -132,6 +132,76 @@ describe('a dev bundler, of watcher-caused builds', () => {
   })
 })
 
+describe('a dev bundler, of a change as it builds, and of files no build reads', () => {
+  const runtime = createRequire(import.meta.url).resolve('metro-runtime/src/polyfills/require.js')
+  const request = { kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false }
+  // A dev bundler of a project of these files, its host calling onRead(path) as it reads one; -> { root,
+  // built() (the bundle's result), changed(path, event), cleanup() }.
+  const projectOf = (tree, onRead = () => {}) => {
+    const { root, cleanup } = writeTree(tree)
+    const host = {
+      ...diskHost,
+      readFile: (path) => {
+        const bytes = diskHost.readFile(path)
+        if (path.startsWith(root)) onRead(relative(root, path))
+        return bytes
+      },
+    }
+    const devBundler = createDevBundler({ projectRoot: root, esbuild, runtime, host, targetOptions: () => ({ define: {} }) })
+    const built = async () => {
+      const context = createContext({})
+      runInContext((await devBundler.get(request)).js, context)
+      return context.result
+    }
+    return { root, built, devBundler, cleanup: async () => (await devBundler.dispose(), cleanup()) }
+  }
+
+  it('reads again a file the watcher saw change as a build read it, which that build kept as it read it', async () => {
+    let edit = null
+    const project = projectOf({ 'index.js': "import { a } from './a'\nglobalThis.result = a\n", 'a.js': "export const a = 'one'\n" }, (path) => {
+      if (path === 'a.js' && edit !== null) edit = edit()
+    })
+    const { root, built, devBundler } = project
+    try {
+      assert.equal(await built(), 'one')
+      writeFileSync(join(root, 'a.js'), "export const a = 'two'\n")
+      devBundler.changed(join(root, 'a.js'), 'change')
+      // As the build reads 'two', the file changes again, the watcher seeing it.
+      edit = () => {
+        writeFileSync(join(root, 'a.js'), "export const a = 'three'\n")
+        devBundler.changed(join(root, 'a.js'), 'change')
+        return null
+      }
+      assert.equal(await built(), 'two')
+      assert.equal(await built(), 'three')
+    } finally {
+      await project.cleanup()
+    }
+  })
+
+  it('reads again a file kept in memory that a build no longer read, which the watcher then watched no more', async () => {
+    const project = projectOf({ 'index.js': "import { a } from './a'\nglobalThis.result = a\n", 'a.js': "import { b } from './b'\nexport const a = b\n", 'b.js': "export const b = 'b'\n" })
+    const { root, built, devBundler } = project
+    const changed = (path, event = 'change') => devBundler.changed(join(root, path), event)
+    try {
+      assert.equal(await built(), 'b')
+      writeFileSync(join(root, 'a.js'), "export const a = 'no b'\n")
+      changed('a.js')
+      assert.equal(await built(), 'no b')
+      // A reload's build, of a resolver anew, which no longer looks b.js up: the watcher sees no change of it.
+      devBundler.changed()
+      assert.equal(await built(), 'no b')
+      assert.equal(devBundler.files().has(join(root, 'b.js')), false)
+      writeFileSync(join(root, 'b.js'), "export const b = 'b, changed unwatched'\n")
+      writeFileSync(join(root, 'a.js'), "import { b } from './b'\nexport const a = b\n")
+      changed('a.js')
+      assert.equal(await built(), 'b, changed unwatched')
+    } finally {
+      await project.cleanup()
+    }
+  })
+})
+
 describe('a dev server, of /reload', () => {
   it('builds each bundle anew after it, not as the watcher\'s changes leave the build before, as `r` does', async () => {
     const calls = []
