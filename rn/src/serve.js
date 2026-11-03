@@ -102,6 +102,8 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
     if (url === null) return reply(response, 400, 'rn-serve: bad URL\n')
     if (url.pathname === '/status') return reply(response, 200, 'packager-status:running', { 'X-React-Native-Project-Root': rootHeader })
     if (url.pathname === '/reload') {
+      // As `r`: built anew, not as the watcher's changes leave the build before.
+      devBundler.changed?.()
       broadcast('reload')
       return reply(response, 200, 'OK')
     }

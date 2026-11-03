@@ -64,7 +64,8 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal(entryPath, target), metro.inlineRequires(entryPath, target)])
     if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entryPath, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, version: null, outcome: Promise.resolve(), waiting: new Set() }
+    // Its `changes`, a watcher's since its last build started; null, a full build: its first, or one asked for.
+    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, version: null, outcome: Promise.resolve(), waiting: new Set(), changes: null }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
@@ -78,9 +79,17 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
   return {
     get,
-    // A file changed: each build is stale.
-    changed() {
+    // A file changed, as a watcher saw it (`path`, its `event`, fs.watch()'s): each build is stale, and the
+    // next builds again what the change may make another: the file, and each under it (a directory), let go
+    // from the files kept in memory, and its resolutions (build-host.js's resolutionOf()) of the change. Of
+    // no path (a reload `r` asks for), each builds all anew, resolving and reading each file again.
+    changed(path = null, event = null) {
       version++
+      for (const build of builds.values()) {
+        if (path === null) build.changes = null
+        else build.changes?.push({ path, event })
+      }
+      if (path !== null) forget(config.caches, path)
     },
     // Rebuilds each bundle served: [{ request, before, after, good }], `good` its last build that didn't
     // fail. Where a file added or removed (an `index.ios.js`) makes the request name another entry, `good` is null.
@@ -109,6 +118,15 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     // A source a bundle was built from, as text; else null, as where it isn't UTF-8.
     readSource: (path) => (files().has(path) ? utf8(host.readFile(path)) : null),
     dispose: () => evict(0),
+  }
+}
+
+// The file at `path`, and each under it (a directory), let go from the files each target keeps in memory.
+function forget(caches, path) {
+  const under = `${path}${sep}`
+  for (const { files: kept } of caches.values()) {
+    kept.delete(path)
+    for (const key of kept.keys()) if (key.startsWith(under)) kept.delete(key)
   }
 }
 
@@ -162,10 +180,13 @@ async function run({ projectRoot, onBuild }, build, at) {
   const bundler = await build.bundler
   const start = performance.now()
   build.store?.start()
+  // Those seen since: a change seen as it builds is the next build's.
+  const { changes } = build
+  build.changes = []
   try {
     const result = await bundler.rebuild((done, total) => {
       for (const onProgress of build.waiting) onProgress?.(done, total)
-    })
+    }, changes)
     // Not js or map: a module bundler's are getters, each made when a client first asks for it.
     const { outputFiles, modules, entryId, scripts, assets, files, bundled = null } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text

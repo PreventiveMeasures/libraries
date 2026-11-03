@@ -4,8 +4,8 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { ANY, loadCached, lowersLetOf, supportedOf, withDefaults } from './bundle.js'
-import { EMPTY, newState, posixRelative } from './build-host.js'
+import { ANY, loadCached, lowersLetOf, supportedOf, trustedOf, withDefaults } from './bundle.js'
+import { EMPTY, newState, posixRelative, resolutionOf } from './build-host.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
 import { GLOBAL } from './serializer.js'
 
@@ -29,13 +29,17 @@ export function createModuleBundler(options) {
   }
   // With `esm`, Babel leaves import and export to esbuild, which makes each module CommonJS, but `commonJs`'s.
   const run = { ...withDefaults(options), injected, builds, idOf }
+  // Its resolver, kept in memory across its watcher-caused builds (build-host.js's resolutionOf()).
+  run.resolution = resolutionOf(run)
   const supported = lowersLetOf(run).catch(() => false).then((lowersLet) => ({ ...supportedOf(run.babel, lowersLet), 'dynamic-import': false }))
   return {
-    async rebuild(onProgress = null) {
+    // `changes`, a watcher's since the build before ({ path, event }); null, a full build, which resolves and
+    // reads anew what a watcher-caused one keeps of the build before.
+    async rebuild(onProgress = null, changes = null) {
       const read = new Set()
       try {
-        const state = newState(run, read)
-        return await graphOf({ ...run, onProgress, supported: await supported }, state, [runtime, ...run.polyfills])
+        const state = newState({ ...run, changes }, read)
+        return await graphOf({ ...run, onProgress, supported: await supported, trusted: changes !== null }, state, [runtime, ...run.polyfills])
       } catch (error) {
         throw Object.assign(new Error(error?.message ?? String(error)), { errors: errorsOf(error, null), files: [...read] })
       }
@@ -92,7 +96,7 @@ async function graphOf(run, state, scripts) {
 // A file loaded as bundle() loads it, with its map; throws its errors.
 async function loaded(run, state, path) {
   state.read.add(path)
-  const source = await loadCached({ ...run, sourcemap: true }, path, run.host.readFile(path))
+  const source = trustedOf(run, path) ?? (await loadCached({ ...run, sourcemap: true }, path, run.host.readFile(path)))
   if (source.errors !== undefined) throw Object.assign(new Error('load'), { errors: source.errors })
   return source
 }

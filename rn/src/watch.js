@@ -21,7 +21,8 @@ function dirsOf(projectRoot, files) {
   return found
 }
 
-// Calls `onChange(path)` on each relevant change; update(files) sets the files builds read.
+// Calls `onChange(path, event)` on each relevant change, `event` fs.watch()'s ('change' of a file's contents,
+// 'rename' of one added, removed or renamed); update(files) sets the files builds read.
 export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursive = RECURSIVE, onError = () => {} } = {}) {
   const watchers = new Map()
   let read = new Set()
@@ -33,13 +34,13 @@ export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursiv
         // Only the build's directories count, of all the recursive watch sees. There, edits count only to files a build
         // read (a log written beside them mustn't rebuild); adds, removes and renames count for any, as they may change resolution.
         if (!dirs.has(dirname(path)) && !dirs.has(path)) return
-        if (event !== 'change' || read.has(path)) onChange(path)
+        if (event !== 'change' || read.has(path)) onChange(path, event)
       })
       // A watch that fails (its directory removed, say) counts as a change.
       watcher.on('error', () => {
         watcher.close()
         watchers.delete(dir)
-        onChange(dir)
+        onChange(dir, 'rename')
       })
       watchers.set(dir, watcher)
     } catch (error) {
