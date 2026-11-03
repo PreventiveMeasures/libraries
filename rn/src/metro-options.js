@@ -70,6 +70,15 @@ function inlineRequiresOf(getTransformOptions, plugin, hot) {
   }
 }
 
+// Inline requires turned on for a bundle, whatever getTransformOptions gives of inlineRequires, as the rest
+// of what it gives (nonInlinedRequires) sets them, for rn.config.json's inlineRequires (rn-config.js):
+// async (entryPath, { platform, dev }) => inliningOf()'s, null without the plugin.
+function forcedInliningOf(getTransformOptions, plugin, hot) {
+  if (plugin === null) return () => Promise.resolve(null)
+  if (typeof getTransformOptions !== 'function') return () => Promise.resolve(inliningOf(plugin))
+  return async (entryPath, target) => inliningOf(plugin, (await transformOf(getTransformOptions, entryPath, target, hot)).transform)
+}
+
 // A package as the Metro at `metro` (a path, or null) requires it.
 const besideMetro = (metro, name) => (metro === null ? null : tryResolve(createRequire(metro), name))
 
@@ -141,8 +150,8 @@ function reactNativePolyfills(project, fail) {
 }
 
 // Without a config: Metro's defaults as @react-native/metro-config sets them, with react-native's
-// own modules before the entry and asset registry. `plugin`, metro-transform-plugins', or null.
-function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null), plugin = project.locate?.('metro-transform-plugins') ?? null) {
+// own modules before the entry and asset registry; `inlining`, forcedInliningOf()'s.
+function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null), inlining = forcedInliningOf(null, project.locate?.('metro-transform-plugins') ?? null, false)) {
   let polyfills = null
   return {
     file: null,
@@ -155,7 +164,7 @@ function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.r
     babelRCLookup: true,
     babelRuntime: true,
     inlineRequires,
-    inlining: inliningOf(plugin),
+    inlining,
     ownTransformOptions: false,
     port: null,
     watchFolders: null,
@@ -192,7 +201,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   // metro-transform-plugins: the project's, else rn's, else its Metro's (which pnpm only exposes there).
   if (file === false) {
     const plugins = project.locate('metro-transform-plugins') ?? besideMetro(locateThrough(project, 'metro', ['react-native', '@react-native/community-cli-plugin']) ?? locateThrough(project, 'metro', ['@react-native/metro-config', 'metro-config']), 'metro-transform-plugins')
-    return fallback(project, fail, { packageExports: true }, inlineRequiresOf(reactNativeTransformOptions, plugins, serving), plugins)
+    return fallback(project, fail, { packageExports: true }, inlineRequiresOf(reactNativeTransformOptions, plugins, serving), forcedInliningOf(reactNativeTransformOptions, plugins, serving))
   }
   const given = typeof file === 'string' ? resolve(cwd, file) : undefined
   if (given !== undefined && !existsSync(given)) fail(`no such Metro config: ${file}`)
@@ -213,7 +222,8 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   // @react-native/metro-config does, if the project has it.
   if (isEmpty) {
     const baselines = await baselinesOf(metro, project, cwd)
-    return fallback(project, fail, { packageExports: Boolean(baselines[0].resolver.unstable_enablePackageExports) }, inlineRequiresOf(baselines.at(-1).transformer?.getTransformOptions, plugins, hot), plugins)
+    const getTransformOptions = baselines.at(-1).transformer?.getTransformOptions
+    return fallback(project, fail, { packageExports: Boolean(baselines[0].resolver.unstable_enablePackageExports) }, inlineRequiresOf(getTransformOptions, plugins, hot), forcedInliningOf(getTransformOptions, plugins, hot))
   }
   const shown = relative(cwd, filepath)
   let config
@@ -255,9 +265,9 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     babelRCLookup: transformer.enableBabelRCLookup !== false,
     babelRuntime: transformer.enableBabelRuntime ?? true,
     inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
-    // Inline requires as Metro's defaults set them, for rn.config.json's inlineRequires (rn-config.js); and
-    // whether the config's getTransformOptions is its own, which may set them otherwise.
-    inlining: inliningOf(plugins),
+    // Inline requires turned on, for rn.config.json's inlineRequires (rn-config.js); and whether the
+    // config's getTransformOptions is its own, which may set them otherwise.
+    inlining: forcedInliningOf(transformer.getTransformOptions, plugins, hot),
     ownTransformOptions: !baselines.some((baseline) => same(transformer.getTransformOptions, baseline.transformer?.getTransformOptions)),
     port: server?.port ?? null,
     watchFolders: config.watchFolders.map((folder) => realPathOf(resolve(cwd, folder))),

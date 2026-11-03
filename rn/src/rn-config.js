@@ -155,16 +155,16 @@ export const inlineRequiresOf = (flag, config, dev) => flagOf(flag, config, 'inl
 export function withInlineRequires(metro, wanted) {
   return {
     ...metro,
-    inlineRequires: async (entryPath, target) => {
+    inlineRequires: (entryPath, target) => {
       const { on } = wanted(target.dev)
       if (on === null) return metro.inlineRequires(entryPath, target)
-      return on ? ((await metro.inlineRequires(entryPath, target)) ?? metro.inlining) : null
+      return on ? metro.inlining(entryPath, target) : Promise.resolve(null)
     },
     transformRefusal: async (entryPath, target) => {
       const refusal = await metro.transformRefusal(entryPath, target)
       const { on, by, flag } = wanted(target.dev)
       if (refusal !== null || on === null) return refusal
-      if (on && metro.inlining === null) return `${by} inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins`
+      if (on && (await metro.inlining(entryPath, target)) === null) return `${by} inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins`
       if (flag || !metro.ownTransformOptions) return null
       const given = (await metro.inlineRequires(entryPath, target)) !== null
       return given === on ? null : `${by} is ${on}, and ${metro.file}'s transformer.getTransformOptions gives inlineRequires ${given}: set it in one of them, or alike in both`

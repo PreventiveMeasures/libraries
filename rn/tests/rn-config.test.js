@@ -155,7 +155,7 @@ describe('flagOf', () => {
 describe('inlineRequires', () => {
   const inlining = { plugin: 'metro-transform-plugins', options: {}, blockList: [] }
   // A Metro config that inlines them, as Metro's defaults set them.
-  const metro = { file: 'metro.config.js', inlining, ownTransformOptions: false, transformRefusal: () => Promise.resolve(null), inlineRequires: () => Promise.resolve(inlining) }
+  const metro = { file: 'metro.config.js', inlining: () => Promise.resolve(inlining), ownTransformOptions: false, transformRefusal: () => Promise.resolve(null), inlineRequires: () => Promise.resolve(inlining) }
   const none = { ...metro, inlineRequires: () => Promise.resolve(null) }
   const target = { platform: 'ios', dev: true }
   const of = (given, flag, config) => withInlineRequires(given, (dev) => inlineRequiresOf(flag, config, dev))
@@ -176,9 +176,9 @@ describe('inlineRequires', () => {
     assert.equal(await inlined(none, undefined, { inlineRequires: true }), inlining)
     assert.equal(await inlined(none, true, {}), inlining)
     assert.equal(await inlined(metro, undefined, { production: { inlineRequires: false } }), inlining)
-    // The Metro config's own, with its options, where it inlines them too.
-    const own = { ...inlining, blockList: ['/app/a.js'] }
-    assert.equal(await inlined({ ...metro, inlineRequires: () => Promise.resolve(own) }, undefined, { inlineRequires: true }), own)
+    // Turned on as the Metro config's other options set them, where it inlines none.
+    const own = { ...inlining, options: { ignoredRequires: ['./kept'] } }
+    assert.equal(await inlined({ ...none, inlining: () => Promise.resolve(own) }, undefined, { inlineRequires: true }), own)
     for (const config of [{}, { inlineRequires: true }, { inlineRequires: false }]) assert.equal(await refusal(metro, undefined, config), null)
   })
 
@@ -193,7 +193,7 @@ describe('inlineRequires', () => {
   })
 
   it('refuses a bundle it inlines the requires of without metro-transform-plugins', async () => {
-    const lacking = { ...none, inlining: null }
+    const lacking = { ...none, inlining: () => Promise.resolve(null) }
     assert.equal(await refusal(lacking, undefined, { inlineRequires: true }), "rn.config.json's inlineRequires inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins")
     assert.equal(await refusal(lacking, undefined, { inlineRequires: false }), null)
   })

@@ -13,7 +13,7 @@ import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall, wrapped } from './modules.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
-const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null), inlining: null, ownTransformOptions: false })
+const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null), inlining: () => Promise.resolve(null), ownTransformOptions: false })
 // A build refused, for what of the Metro config it doesn't do.
 const refused = (version, text) => ({ ok: false, version, errors: [{ text, location: null }], files: new Set() })
 

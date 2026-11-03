@@ -78,6 +78,12 @@ describe('unmatchedImports', () => {
     assert.deepEqual(check(modules, { 'index.js': { './a': 'a.js' }, 'a.js': { './b': 'b.js' }, 'b.js': { './c': 'c.js', './a': 'a.js' } }), [['No matching export in "a.js" for import "default"', { file: 'index.js' }]])
   })
 
+  it('has each module of a cycle of `export *`s export all of it, whichever is checked first', () => {
+    // a.js exports all of b.js, then of c.js; b.js all of a.js.
+    const modules = { 'index.js': esm([], [{ specifier: './a', names: ['x'] }, { specifier: './b', names: ['x'] }]), 'a.js': esm([], [], ['./b', './c']), 'b.js': esm([], [], ['./a']), 'c.js': esm(['x']) }
+    assert.deepEqual(check(modules, { 'index.js': { './a': 'a.js', './b': 'b.js' }, 'a.js': { './b': 'b.js', './c': 'c.js' }, 'b.js': { './a': 'a.js' } }), [])
+  })
+
   it('takes any name of a module whose exports are not known: CommonJS, or one exporting all of such a module', () => {
     const modules = { 'index.js': esm([], [{ specifier: './cjs', names: ['x'] }, { specifier: './both', names: ['y'] }, { specifier: './star', names: ['z'] }, { specifier: './gone', names: ['w'] }]), 'both.js': { ...esm([]), commonJs: true }, 'star.js': esm([], [], ['./cjs']) }
     assert.deepEqual(check(modules, { 'index.js': { './cjs': 'cjs.js', './both': 'both.js', './star': 'star.js', './gone': null }, 'star.js': { './cjs': 'cjs.js' } }), [])

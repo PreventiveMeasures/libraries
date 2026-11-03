@@ -20,25 +20,30 @@ export function unmatchedImports({ modules, graph, projectRoot, source }) {
     const resolution = graph.get(importer)?.get(specifier)
     return resolution?.type === 'sourceFile' ? resolution.filePath : null
   }
-  // The names a module exports; null where it may export any. Within a cycle of `export *`, those found so far.
+  // The names a module exports: its own, and those but `default` of each module it reaches through its
+  // `export *`s, through any cycle of them; null where it may export any (one of them CommonJS, or unknown).
   const known = new Map()
   const exportsOf = (path) => {
-    if (known.has(path)) return known.get(path)
+    if (!known.has(path)) known.set(path, reachedOf(path))
+    return known.get(path)
+  }
+  const reachedOf = (path) => {
     const module = modules.get(path)
-    if (module === undefined || module.commonJs) {
-      known.set(path, null)
-      return null
-    }
+    if (module === undefined || module.commonJs) return null
     const names = new Set(module.exports)
-    known.set(path, names)
-    for (const star of module.stars) {
-      const target = targetOf(path, star)
-      const more = target === null ? null : exportsOf(target)
-      if (more === null) {
-        known.set(path, null)
-        return null
+    const seen = new Set([path])
+    const queue = [path]
+    while (queue.length > 0) {
+      const from = queue.pop()
+      for (const star of modules.get(from).stars) {
+        const target = targetOf(from, star)
+        const reached = target === null ? undefined : modules.get(target)
+        if (reached === undefined || reached.commonJs) return null
+        if (seen.has(target)) continue
+        seen.add(target)
+        queue.push(target)
+        for (const name of reached.exports) if (name !== 'default') names.add(name)
       }
-      for (const name of more) if (name !== 'default') names.add(name)
     }
     return names
   }
