@@ -440,7 +440,7 @@ describe("rn-bundle, of a project's rn.config.json", () => {
 
   it('refuses an option it does not know, and takes devtools, which is of rn-serve', async () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, babel, devtools, port, launch, ios, development, production\n'])
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, development, production\n'])
     assert.equal((await bundleWith({ metroConfig: false, devtools: true })).status, 0)
   })
 })
@@ -539,11 +539,24 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
     'node_modules/metro-config/index.js': never,
     'node_modules/metro': { link: metro },
   })
-  after(() => {
-    for (const tree of [inlining, eager, unloaded]) tree.cleanup()
+  const RN_DEFAULTS = "const { getDefaultConfig } = require('@react-native/metro-config')\nmodule.exports = getDefaultConfig(__dirname)\n"
+  // rn.config.json's inlineRequires false over React Native's defaults.
+  const off = writeTree({ ...APP_FILES, ...METRO_CONFIG, 'metro.config.js': RN_DEFAULTS, 'rn.config.json': { inlineRequires: false } })
+  // A Metro config whose getTransformOptions is its own, inlining them.
+  const own = writeTree({
+    ...APP_FILES,
+    ...METRO_CONFIG,
+    'metro.config.js': "const { getDefaultConfig } = require('@react-native/metro-config')\nconst config = getDefaultConfig(__dirname)\nmodule.exports = { ...config, transformer: { ...config.transformer, getTransformOptions: async () => ({ transform: { inlineRequires: true } }) } }\n",
+    'rn.config.json': { inlineRequires: false },
   })
+  // An import of what b.js doesn't export.
+  const unmatched = writeTree({ ...APP_FILES, ...METRO_CONFIG, 'metro.config.js': RN_DEFAULTS, 'index.js': "import { run } from './a'\nimport { nope } from './b'\nconsole.log('index')\nrun(nope)\n" })
+  after(() => {
+    for (const tree of [inlining, eager, unloaded, off, own, unmatched]) tree.cleanup()
+  })
+  const built = (root, args = []) => runBundle(['--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root })
   const run = async (root, args = []) => {
-    const r = await runBundle(['--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root })
+    const r = await built(root, args)
     assert.equal(r.status, 0, r.stderr)
     return printed(join(root, 'out.js')).trim().split('\n')
   }
@@ -559,6 +572,38 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
 
   it("inlines them as React Native's defaults have it, of rn.config.json's metroConfig false, loading none of Metro's config", async () => {
     assert.deepEqual(await run(unloaded.root), ['react', 'index', 'a', 'b', 'b 19'])
+  })
+
+  it('runs a module where it is first used with --esm too, Babel making each module CommonJS, in a dev build and a release build alike', async () => {
+    for (const args of [['--esm'], ['--esm', '--dev']]) assert.deepEqual(await run(inlining.root, args), ['react', 'index', 'a', 'b', 'b 19'], args.join(' '))
+  })
+
+  it('links the ES modules with --esm and --no-inline-requires, each run as it is imported', async () => {
+    assert.deepEqual(await run(inlining.root, ['--esm', '--no-inline-requires']), ['b', 'c', 'a', 'react', 'index', 'b 19'])
+  })
+
+  it("takes rn.config.json's inlineRequires over React Native's defaults, and the flag over both", async () => {
+    assert.deepEqual(await run(off.root), ['b', 'c', 'a', 'react', 'index', 'b 19'])
+    assert.deepEqual(await run(off.root, ['--inline-requires']), ['react', 'index', 'a', 'b', 'b 19'])
+    assert.deepEqual(await run(eager.root, ['--inline-requires']), ['react', 'index', 'a', 'b', 'b 19'])
+  })
+
+  it("refuses rn.config.json's inlineRequires where the Metro config's own getTransformOptions sets them otherwise, but the flag's", async () => {
+    const r = await built(own.root)
+    assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: rn.config.json's inlineRequires is false, and metro.config.js's transformer.getTransformOptions gives inlineRequires true: set it in one of them, or alike in both\n"])
+    assert.deepEqual(await run(own.root, ['--no-inline-requires']), ['b', 'c', 'a', 'react', 'index', 'b 19'])
+  })
+
+  it('warns with --esm of an import of what its ES module lacks, as esbuild does where it links them; not without', async () => {
+    for (const args of [['--esm'], ['--esm', '--dev']]) {
+      const r = await built(unmatched.root, args)
+      assert.equal(r.status, 0, r.stderr)
+      assert.match(r.stderr, /No matching export in "b\.js" for import "nope": the import is undefined, as in Metro/u)
+      assert.match(r.stderr, /index\.js:2:21:/u)
+      assert.deepEqual(printed(join(unmatched.root, 'out.js')).trim().split('\n'), ['index', 'a', 'b', 'b undefined'])
+    }
+    assert.match((await built(unmatched.root, ['--esm', '--no-inline-requires'])).stderr, /No matching export in "b\.js" for import "nope": left CommonJS/u)
+    assert.doesNotMatch((await built(unmatched.root)).stderr, /No matching export/u)
   })
 })
 

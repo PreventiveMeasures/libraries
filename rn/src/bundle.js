@@ -6,6 +6,7 @@ import { dirname, relative, resolve } from 'node:path'
 
 import { EMPTY, newState, posixRelative, resolutionOf } from './build-host.js'
 import { defaults, diskHost } from './defaults.js'
+import { unmatchedImports } from './esm-imports.js'
 import { loadFile } from './load.js'
 import { GLOBAL } from './serializer.js'
 
@@ -51,6 +52,7 @@ export const supportedOf = (babel, lowersLet) => (babel === null ? {} : { ...LOW
 
 // The options of bundle(), createBundler() and createModuleBundler(), with their defaults. `esm` is false, or
 // the Set of files left CommonJS (`commonJs`, kept across builds); the rest are ES modules esbuild links.
+// `checkImports` checks the imports of ES modules where esbuild doesn't link them (esm-imports.js).
 export function withDefaults(options) {
   const given = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined))
   return {
@@ -84,6 +86,7 @@ export function withDefaults(options) {
     cache: null,
     store: null,
     changedAt: null,
+    checkImports: false,
     ...given,
     esm: given.esm === true ? (given.commonJs ?? new Set()) : false,
   }
@@ -213,6 +216,8 @@ function metroGraph(run, first = null) {
   // transforms those before it. A read that failed is made again as it loads, failing as the host does.
   let resolved = new Map()
   let loaded = 0
+  // Each ES module loaded, its imports and exports, for checkImports.
+  let esModules = new Map()
   const file = (path) => {
     if (!resolved.has(path)) resolved.set(path, run.trusted && run.cache?.has(path) ? null : host.readFileAsync?.(path).catch(() => null))
     return { path: esbuildPath(path) }
@@ -221,12 +226,15 @@ function metroGraph(run, first = null) {
     const bytes = resolved.get(path)
     if (bytes !== undefined) resolved.set(path, undefined)
     read.add(path)
-    return trustedOf(run, path) ?? loadCached(run, path, (await bytes) ?? host.readFile(path))
+    const source = await (trustedOf(run, path) ?? loadCached(run, path, (await bytes) ?? host.readFile(path)))
+    if (source.pluginData?.module !== undefined) esModules.set(path, source.pluginData.module)
+    return source
   }
   const setup = (build) => {
     build.onStart(() => {
       resolved = new Map()
       loaded = 0
+      esModules = new Map()
       read = next?.read ?? new Set()
       // Taken as soon as it is made: where finding react-native's modules then fails, the build goes on with it.
       state = next ?? newState(run, read, (made) => (state = made))
@@ -279,10 +287,24 @@ function metroGraph(run, first = null) {
   const graph = {
     onProgress: null,
     plugin: { name: 'metro-graph', setup },
-    result: ({ outputFiles, warnings }) => ({ outputFiles: outputFiles.map(realSources), warnings, assets: state.assets(), graph: state.graph, files: [...read] }),
+    result: ({ outputFiles, warnings }) => ({ outputFiles: outputFiles.map(realSources), warnings: [...warnings, ...importWarnings(run, esModules, state.graph, run.esm !== false)], assets: state.assets(), graph: state.graph, files: [...read] }),
     files: () => [...read],
   }
   return graph
+}
+
+// With checkImports, each import of a name its ES module doesn't export, unless esbuild links the modules
+// (`linked`), which tells it as linking() does.
+export function importWarnings({ checkImports, projectRoot, host }, modules, graph, linked) {
+  if (!checkImports || linked) return []
+  const source = (path) => {
+    try {
+      return utf8(host.readFile(path))
+    } catch {
+      return null
+    }
+  }
+  return unmatchedImports({ modules, graph, projectRoot, source })
 }
 
 // A path in one of this plugin's namespaces, which esbuild prints as is (in comments and module names):

@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 import { switchesOf } from './babel-switches.js'
+import { esModuleOf } from './es-module.js'
 import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
@@ -13,7 +14,7 @@ const COMMONJS = 'transform-modules-commonjs'
 const BLOCK_SCOPING = 'transform-block-scoping'
 const LET = /\b(?:let|const)\b/u
 
-// -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, uncacheable?,
+// -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, module?, uncacheable?,
 // spent? } or { error, loc? }; fingerprint is null but with options.fingerprint. The options are Babel's, plus
 // refresh, keepPlugins, inlineRequires, fingerprint and oneBuild (cli.js's projectBabel()).
 export function transformerOf({ corePath, options, profile }) {
@@ -67,13 +68,16 @@ export function transformerOf({ corePath, options, profile }) {
     const babelOptions = { ...config, plugins: listOf(plugins), ast: true }
     const result = core.transformSync(source, profiler?.timing(babelOptions) ?? babelOptions)
     // None where a plugin before IMPORTS stops the traversal.
-    const { imports, namesCommonJs } = result.metadata.rnBundle ?? { imports: [], namesCommonJs: false }
+    const { imports, namesCommonJs, module = null } = result.metadata.rnBundle ?? { imports: [], namesCommonJs: false }
     // An ES module built without CommonJS (load.js, for --esm) that uses `module` or `exports`
     // unbound is built again with it, which binds them.
     if (namesCommonJs && without.includes(COMMONJS) && !switched.on.has(COMMONJS)) return run(source, filename, without.filter((key) => key !== COMMONJS))
     // Of the plugins run, else (skipped where it had nothing to do) the config's: but switched off, none.
     const blockScoping = switched.off.has(BLOCK_SCOPING) ? null : (plugins.find(({ key }) => key === BLOCK_SCOPING) ?? config.plugins.find(({ key }) => key === BLOCK_SCOPING) ?? null)
-    return { code: lowered(core, config, result, given.sourceMaps, blockScoping), imports: [...imports], ...(result.externalDependencies?.size > 0 && { uncacheable: true }) }
+    // `module`, of an ES module: one that names `module` or `exports` is CommonJS too, whose exports
+    // aren't only those it declares.
+    const esModule = module === null ? {} : { module: { ...module, ...(namesCommonJs && { commonJs: true }) } }
+    return { code: lowered(core, config, result, given.sourceMaps, blockScoping), imports: [...imports], ...esModule, ...(result.externalDependencies?.size > 0 && { uncacheable: true }) }
   }
   const transform = ({ source, filename, without }) => {
     const start = profiler?.start()
@@ -121,12 +125,21 @@ const MEMOIZED = new WeakSet()
 
 // Records in a file's metadata its import and export-from specifiers (not type-only ones), as Metro's
 // importLocationsPlugin does: Metro resolves the requires Babel's CommonJS makes of them as ESM imports
-// (bundle.js). Also whether an ES module uses `module` or `exports` unbound, which esbuild won't bind.
+// (bundle.js). Also whether an ES module uses `module` or `exports` unbound, which esbuild won't bind;
+// and its imports by name and its exports (es-module.js), on the program's exit, else, where a plugin's
+// exit before this one's made it CommonJS (the config's own CommonJS plugin, before a preset's), its entry.
 const IMPORTS = {
   name: 'rn-bundle-imports',
   visitor: {
-    Program(path, { file }) {
-      file.metadata.rnBundle = { imports: new Set(), namesCommonJs: path.node.sourceType === 'module' && (path.scope.hasGlobal('module') || path.scope.hasGlobal('exports')) }
+    Program: {
+      enter(path, { file }) {
+        file.metadata.rnBundle = { imports: new Set(), namesCommonJs: path.node.sourceType === 'module' && (path.scope.hasGlobal('module') || path.scope.hasGlobal('exports')), module: esModuleOf(path.node) }
+      },
+      // As the visitors leave it, types stripped (a Flow enum with them, where the config strips them
+      // first), unless a plugin's exit before this one's made it CommonJS.
+      exit(path, { file }) {
+        file.metadata.rnBundle.module = esModuleOf(path.node) ?? file.metadata.rnBundle.module
+      },
     },
     'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'({ node }, { file }) {
       if (node.source != null && node.loc != null && (node.importKind ?? node.exportKind) !== 'type') file.metadata.rnBundle.imports.add(node.source.value)

@@ -1,9 +1,11 @@
 // A project's rn.config.json, in the root where rn-bundle, rn-serve and rn-cli run: defaults for
 // their flags, which override it. Its lists add to Metro's defaults; a Metro config that sets one
 // differently is an error, so asset-exts.js can skip reading it. Unknown or mistyped options are errors.
-// `babel` switches Babel plugins on and off (babel-switches.js). `development` and `production` set
-// the options of dev builds and release builds (babel, esm): an option is set either at the top level,
-// for both, or in either or both of them, never in both places.
+// `babel` switches Babel plugins on and off (babel-switches.js). `inlineRequires` sets Metro's inline
+// requires, a Metro config of its own getTransformOptions that sets them otherwise an error; with them,
+// `esm` checks ES modules' imports, as Babel makes each CommonJS. `development` and `production` set the
+// options of dev builds and release builds (babel, esm, inlineRequires): an option is set either at the
+// top level, for both, or in either or both of them, never in both places.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -24,7 +26,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 // Babel plugins by name, each true or false, in order.
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
 // The options a dev build's and a release build's own section may set.
-const MODE = { babel: switches, esm: boolean }
+const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
 // Each option's [validator, description]; a section is an object of its own options.
 const OPTIONS = {
   metroConfig: [(value) => typeof value === 'boolean' || (typeof value === 'string' && value !== ''), 'true, false or the path of a Metro config'],
@@ -33,6 +35,7 @@ const OPTIONS = {
   assetResolutions: [listOf(isScale), 'a list of scales ("0.75", or 0.75)'],
   maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
+  inlineRequires: boolean,
   babel: switches,
   devtools: boolean,
   port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
@@ -132,11 +135,39 @@ export function extendedMetro(metro, config, fail) {
   return { ...metro, assetExts, resolver: { ...metro.resolver, sourceExts, assetResolutions }, maxWorkers: config.maxWorkers ?? metro.maxWorkers }
 }
 
-// A boolean flag: --name if given, else the config's `name` (of a dev build's or a release build's
-// section, given `dev`, where it is set there), else false; `by` names its source for errors.
-export function flagOf(flag, config, name, dev) {
-  if (flag !== undefined) return { on: flag, by: `--${name}` }
+// A boolean flag: --name (`flagName`) if given, else the config's `name` (of a dev build's or a release
+// build's section, given `dev`, where it is set there), else `unset`; `by` names its source for errors,
+// and `flag` whether it is the flag.
+export function flagOf(flag, config, name, dev, { flagName = name, unset = false } = {}) {
+  if (flag !== undefined) return { on: flag, by: `--${flag ? '' : 'no-'}${flagName}`, flag: true }
   const mode = dev === undefined ? null : modeOf(dev)
-  if (mode !== null && config[mode]?.[name] !== undefined) return { on: config[mode][name], by: `${RN_CONFIG}'s ${mode}.${name}` }
-  return { on: config[name] ?? false, by: `${RN_CONFIG}'s ${name}` }
+  if (mode !== null && config[mode]?.[name] !== undefined) return { on: config[mode][name], by: `${RN_CONFIG}'s ${mode}.${name}`, flag: false }
+  return { on: config[name] ?? unset, by: `${RN_CONFIG}'s ${name}`, flag: false }
+}
+
+// --inline-requires, else rn.config.json's inlineRequires, of a dev build or a release build: on is
+// null where neither sets them.
+export const inlineRequiresOf = (flag, config, dev) => flagOf(flag, config, 'inlineRequires', dev, { flagName: 'inline-requires', unset: null })
+
+// metroOptions()'s `metro` with inline requires as `wanted(dev)` (inlineRequiresOf()'s) sets them, else as
+// the Metro config does. Where rn.config.json sets them, a Metro config whose getTransformOptions is its
+// own and sets them otherwise refuses the bundle (transformRefusal), as does a lack of metro-transform-plugins.
+export function withInlineRequires(metro, wanted) {
+  return {
+    ...metro,
+    inlineRequires: async (entryPath, target) => {
+      const { on } = wanted(target.dev)
+      if (on === null) return metro.inlineRequires(entryPath, target)
+      return on ? ((await metro.inlineRequires(entryPath, target)) ?? metro.inlining) : null
+    },
+    transformRefusal: async (entryPath, target) => {
+      const refusal = await metro.transformRefusal(entryPath, target)
+      const { on, by, flag } = wanted(target.dev)
+      if (refusal !== null || on === null) return refusal
+      if (on && metro.inlining === null) return `${by} inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins`
+      if (flag || !metro.ownTransformOptions) return null
+      const given = (await metro.inlineRequires(entryPath, target)) !== null
+      return given === on ? null : `${by} is ${on}, and ${metro.file}'s transformer.getTransformOptions gives inlineRequires ${given}: set it in one of them, or alike in both`
+    },
+  }
 }

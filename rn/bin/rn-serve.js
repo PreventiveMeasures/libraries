@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE] [--max-workers=N] [--define=K=V ...]
-//   [--babel-aliases=FILE] [--esm | --no-esm] [--devtools | --no-devtools] [--reset-cache] [--no-warm]
+//   [--babel-aliases=FILE] [--esm | --no-esm] [--inline-requires | --no-inline-requires] [--devtools | --no-devtools]
+//   [--reset-cache] [--no-warm]
 //   [--no-client-logs] [--launch=ios [--simulator=NAME] [--binary-path=APP] | --no-launch]
 // A Metro-compatible dev server: bundles built as rn-bundle builds them, assets, symbolication, client
 // logs, Fast Refresh and, with @react-native/dev-middleware, the debugger. Loaded files are cached on disk
@@ -24,7 +25,7 @@ import { createLoadCache } from '../src/load-cache.js'
 import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { REPORTER } from '../src/network.js'
-import { babelSwitchesOf, extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
+import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from '../src/rn-config.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
 import { printable } from '../src/terminal.js'
@@ -42,6 +43,7 @@ const { values } = parseArgs({
     define: { type: 'string', multiple: true, default: [] },
     'babel-aliases': { type: 'string' },
     esm: { type: 'boolean' },
+    'inline-requires': { type: 'boolean' },
     devtools: { type: 'boolean' },
     'reset-cache': { type: 'boolean', default: false },
     warm: { type: 'boolean', default: true },
@@ -73,7 +75,8 @@ const devtools = flagOf(values.devtools, rnConfig, 'devtools').on
 const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
-const metro = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
+const metroConfig = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
+const metro = withInlineRequires(metroConfig, (dev) => inlineRequiresOf(values['inline-requires'], rnConfig, dev))
 const port = values.port === undefined ? (rnConfig.port ?? metro.port ?? 8081) : Number(values.port)
 // For Fast Refresh: the module system of dev bundles, and the Babel plugin that registers components.
 // Without Babel, metro-runtime < 0.83.3 reloads on an ES module edit: esbuild's export getters aren't a boundary to it.
@@ -85,6 +88,8 @@ const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, re
 for (const dev of babelFor === null ? [true, false] : []) {
   const esm = esmOf(dev)
   if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
+  const inlining = inlineRequiresOf(values['inline-requires'], rnConfig, dev)
+  if (inlining.on) fail(`${inlining.by} inlines requires through the project's Babel config, and it has none`)
   if (babelSwitchesOf(rnConfig, dev).length > 0) fail("rn.config.json's babel switches the plugins of the project's Babel config, and it has none")
 }
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
@@ -103,7 +108,9 @@ const devBundler = createDevBundler({
   injected: devMiddleware === null ? [] : [REPORTER],
   targetOptions: (target) => {
     const babel = babelFor?.(target) ?? null
-    return { stripFlow, ...babel, aliases, esm: esmOf(target.dev).on, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
+    // With inline requires, Babel makes each module CommonJS, esm checking their imports alone.
+    const esm = esmOf(target.dev).on
+    return { stripFlow, ...babel, aliases, esm: esm && target.inlineRequires === null, checkImports: esm, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
   },
   onBuild: built,
 })
@@ -181,14 +188,21 @@ function status(ms, cached) {
   return `in ${seconds(ms)}, cache ${seconds(taken)}: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
 }
 
-// Logs each build, built or failed.
+// Logs each build, built or failed, and its warnings: of a bundle, those its build before didn't have.
+const warned = new Map()
 function built({ request, outcome, ms, cached }) {
   watcher.update(devBundler.files())
   // Prune once per run, after the first build has touched its packs; also drop the old Babel-only cache.
   if (cacheDir !== null) pruned ??= prune(cacheDir, { before: [usersOwn('rn-serve-babel')] })
   const what = `${bundleName(request)} ${status(ms, cached)}`
-  if (outcome.ok) return log(`rn-serve: built ${what}`)
-  return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
+  if (!outcome.ok) return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
+  log(`rn-serve: built ${what}`)
+  const keyOf = (warning) => JSON.stringify([warning.text, warning.location])
+  const before = warned.get(bundleName(request)) ?? new Set()
+  const warnings = outcome.warnings ?? []
+  const fresh = warnings.filter((warning) => !before.has(keyOf(warning)))
+  warned.set(bundleName(request), new Set(warnings.map(keyOf)))
+  return fresh.length === 0 ? undefined : esbuild.formatMessages(fresh, { kind: 'warning' }).then((lines) => log(lines.join('').trimEnd()))
 }
 
 // Rebuilds every bundle. Apps get a hot update from their last good module-format build if its scripts

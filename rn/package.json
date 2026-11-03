@@ -68,6 +68,8 @@
     "src/defaults.js",
     "src/dev-bundler.js",
     "src/devtools.js",
+    "src/es-module.js",
+    "src/esm-imports.js",
     "src/exports.js",
     "src/gate.js",
     "src/hot.js",
