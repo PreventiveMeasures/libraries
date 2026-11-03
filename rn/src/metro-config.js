@@ -21,8 +21,16 @@ const named = (node) => (node.type === 'Identifier' ? node.name : node.type === 
 // The extensions a config's AST adds to assetExts; what it spreads in is taken as Metro's defaults.
 export function metroAssetExts(program) {
   const declarators = []
+  // What assetExts is set to, and what is pushed to it, as an array of those elements.
+  const lists = []
   walk(program, (node) => {
     if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init) declarators.push(node)
+    const [name, value] = node.type === 'Property' && !node.computed ? [node.key.name ?? node.key.value, node.value]
+      : node.type === 'VariableDeclarator' ? [named(node.id), node.init]
+      : node.type === 'AssignmentExpression' ? [named(node.left), node.right]
+      : []
+    if (name === 'assetExts') lists.push(value)
+    else if (['push', 'unshift'].includes(method(node)) && named(node.callee.object) === 'assetExts') lists.push({ type: 'ArrayExpression', elements: node.arguments })
   })
   const inits = Map.groupBy(declarators, ({ id }) => id.name)
   const exts = new Set()
@@ -38,7 +46,10 @@ export function metroAssetExts(program) {
     } else if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') {
       for (const side of node.type === 'LogicalExpression' ? [node.left, node.right] : [node.consequent, node.alternate]) read(side, list)
     } else if (list && node.type === 'ArrayExpression') {
-      readEach(node.elements)
+      for (const element of node.elements) {
+        const spread = element?.type === 'SpreadElement'
+        read(spread ? element.argument : element, spread)
+      }
     } else if (list && LIST_METHODS.has(method(node))) {
       read(node.callee.object, true)
       if (method(node) === 'concat') for (const arg of node.arguments) read(arg, true)
@@ -46,20 +57,7 @@ export function metroAssetExts(program) {
       exts.add(string(node))
     }
   }
-  const readEach = (nodes) => {
-    for (const node of nodes) {
-      if (node?.type === 'SpreadElement') read(node.argument, true)
-      else read(node, false)
-    }
-  }
-  walk(program, (node) => {
-    const [name, value] = node.type === 'Property' && !node.computed ? [node.key.name ?? node.key.value, node.value]
-      : node.type === 'VariableDeclarator' ? [named(node.id), node.init]
-      : node.type === 'AssignmentExpression' ? [named(node.left), node.right]
-      : []
-    if (name === 'assetExts') read(value, true)
-    else if (['push', 'unshift'].includes(method(node)) && named(node.callee.object) === 'assetExts') readEach(node.arguments)
-  })
+  for (const list of lists) read(list, true)
   return [...exts]
 }
 

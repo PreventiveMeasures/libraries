@@ -4,6 +4,7 @@
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import { defaults } from './defaults.js'
 
@@ -35,91 +36,77 @@ const OPTIONS = {
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
-// The error of `value` for `key` of `options`, shown as `name`, or null.
+// The first error of the options in `values`, of those in `options`, each named after `prefix`; or null.
+const errorIn = (options, values, prefix) => Object.entries(values).map(([key, value]) => errorOf(options, key, value, `${prefix}${key}`)).find((error) => error !== null) ?? null
+
+// The error of `value` as `key` of `options`, shown as `name`; or null.
 function errorOf(options, key, value, name) {
   if (!Object.hasOwn(options, key)) return `no such option ${name}: it has ${Object.keys(options).join(', ')}`
   const option = options[key]
   if (Array.isArray(option)) return option[0](value) ? null : `${name} is ${option[1]}, not ${JSON.stringify(value)}`
   if (!isObject(value)) return `${name} is an object of options (${Object.keys(option).join(', ')}), not ${JSON.stringify(value)}`
-  return Object.entries(value).map(([inner, each]) => errorOf(option, inner, each, `${name}.${inner}`)).find((error) => error !== null) ?? null
+  return errorIn(option, value, `${name}.`)
 }
 
 // The project's rn.config.json: {} if it has none.
 export function readRnConfig(projectRoot, fail) {
-  let text
-  try {
-    text = readFileSync(resolve(projectRoot, RN_CONFIG), 'utf8')
-  } catch (error) {
-    return error.code === 'ENOENT' ? {} : fail(`${RN_CONFIG}: ${error.message}`)
-  }
   let config
   try {
-    config = JSON.parse(text)
+    config = JSON.parse(readFileSync(resolve(projectRoot, RN_CONFIG), 'utf8'))
   } catch (error) {
-    return fail(`${RN_CONFIG}: not JSON: ${error.message}`)
+    if (error.code === 'ENOENT') return {}
+    return fail(`${RN_CONFIG}: ${error instanceof SyntaxError ? 'not JSON: ' : ''}${error.message}`)
   }
   if (!isObject(config)) return fail(`${RN_CONFIG}: not an object of options`)
-  for (const [key, value] of Object.entries(config)) {
-    const error = errorOf(OPTIONS, key, value, key)
-    if (error !== null) return fail(`${RN_CONFIG}: ${error}`)
-  }
-  return config
+  const error = errorIn(OPTIONS, config, '')
+  return error === null ? config : fail(`${RN_CONFIG}: ${error}`)
 }
 
 // metroOptions()'s `file`: --metro-config, else metroConfig (true is null: the one Metro finds).
 export const metroConfigOf = (flag, { metroConfig = true }) => flag ?? (metroConfig === true ? null : metroConfig)
 
 const LISTS = ['assetExts', 'sourceExts', 'assetResolutions']
+// metroOptions()'s list, Metro's default where it has none (no config loaded).
+const listIn = (metro, key) => (key === 'assetExts' ? metro.assetExts : metro.resolver[key]) ?? defaults[key]
 // `base`, then each of `more` it lacks, once.
-export const added = (base, more) => [...base, ...more.filter((each, i) => !base.includes(each) && more.indexOf(each) === i)]
-const unique = (list) => [...new Set(list.map(String))]
+export const added = (base, more) => [...base, ...new Set(more).difference(new Set(base))]
 // Whether two lists build alike: sourceExts in order, as imports try them in order; the rest as sets.
 function alike(key, a, b) {
-  const [ours, theirs] = [unique(a), unique(b)]
-  return ours.length === theirs.length && (key === 'sourceExts' ? ours.every((each, i) => each === theirs[i]) : ours.every((each) => theirs.includes(each)))
+  const [ours, theirs] = [a, b].map((list) => new Set(list.map(String)))
+  return key === 'sourceExts' ? isDeepStrictEqual([...ours], [...theirs]) : ours.symmetricDifference(theirs).size === 0
 }
 const shown = (list) => (list.length > 5 ? `${list.slice(0, 5).join(', ')} and ${list.length - 5} more` : list.join(', '))
 
-// The error of a list in `config` that the loaded Metro config sets other than a default
-// does, with or without the config's additions; or null.
-function listConflict(metro, config) {
-  if (metro.defaultLists == null) return null
-  for (const key of LISTS) {
-    if (config[key] === undefined) continue
-    const additions = config[key].map(String)
-    const current = (key === 'assetExts' ? metro.assetExts : metro.resolver[key]).map(String)
-    if (metro.defaultLists.some((base) => alike(key, current, base[key]) || alike(key, current, added(base[key], additions)))) continue
-    const expected = added(metro.defaultLists.at(-1)[key], additions)
-    const extra = current.filter((each) => !expected.includes(each))
-    const missing = expected.filter((each) => !current.includes(each))
-    const how = [extra.length > 0 && `has ${shown(extra)}`, missing.length > 0 && `lacks ${shown(missing)}`].filter(Boolean).join(' and ') || 'has them in another order'
-    return `${RN_CONFIG}: ${key} is Metro's defaults${additions.length === 0 ? '' : ` and ${shown(additions)}`}, and ${metro.file}'s resolver.${key} ${how}: set it in one of them, or alike in both`
-  }
-  return null
+// The error of a list rn.config.json adds `additions` to that the loaded Metro config (`metro`) sets
+// other than a default does, with or without them; or null.
+function conflictOf(metro, key, additions) {
+  const current = listIn(metro, key).map(String)
+  if (metro.defaultLists.some((base) => alike(key, current, base[key]) || alike(key, current, added(base[key], additions)))) return null
+  const expected = added(metro.defaultLists.at(-1)[key], additions)
+  const extra = current.filter((each) => !expected.includes(each))
+  const missing = expected.filter((each) => !current.includes(each))
+  const how = [extra.length > 0 && `has ${shown(extra)}`, missing.length > 0 && `lacks ${shown(missing)}`].filter(Boolean).join(' and ') || 'has them in another order'
+  return `${RN_CONFIG}: ${key} is Metro's defaults${additions.length === 0 ? '' : ` and ${shown(additions)}`}, and ${metro.file}'s resolver.${key} ${how}: set it in one of them, or alike in both`
 }
 
 // metroOptions()'s `metro` with the config's list additions and maxWorkers; `metro` itself if it has none.
 export function extendedMetro(metro, config, fail) {
-  const { assetExts = [], sourceExts = [], assetResolutions = [], maxWorkers } = config
-  const conflict = listConflict(metro, config)
-  if (conflict !== null) return fail(conflict)
-  if (assetExts.length + sourceExts.length + assetResolutions.length === 0 && maxWorkers === undefined) return metro
-  const assets = added(metro.assetExts, assetExts)
-  const sources = added(metro.resolver.sourceExts ?? defaults.sourceExts, sourceExts)
-  for (const [key, list, other, otherKey] of [['assetExts', assetExts, sources, 'sourceExts'], ['sourceExts', sourceExts, assets, 'assetExts']]) {
-    const both = list.find((ext) => other.includes(ext))
+  const [assetExts, sourceExts, assetResolutions] = LISTS.map((key) => {
+    const additions = (config[key] ?? []).map(String)
+    // Without defaultLists, no Metro config was loaded to compare with.
+    const conflict = config[key] === undefined || !metro.defaultLists ? null : conflictOf(metro, key, additions)
+    return conflict === null ? added(listIn(metro, key), additions) : fail(conflict)
+  })
+  if (LISTS.every((key) => !config[key]?.length) && config.maxWorkers === undefined) return metro
+  for (const [key, other, otherKey] of [['assetExts', sourceExts, 'sourceExts'], ['sourceExts', assetExts, 'assetExts']]) {
+    const both = config[key]?.find((ext) => other.includes(ext))
     if (both !== undefined) return fail(`${RN_CONFIG}: ${key} adds ${both}, which ${otherKey} has: Metro takes a file of it for an asset, and ${RN_CONFIG} removes none`)
   }
-  return {
-    ...metro,
-    assetExts: assets,
-    resolver: { ...metro.resolver, sourceExts: sources, assetResolutions: added(metro.resolver.assetResolutions ?? defaults.assetResolutions, assetResolutions.map(String)) },
-    maxWorkers: maxWorkers ?? metro.maxWorkers,
-  }
+  return { ...metro, assetExts, resolver: { ...metro.resolver, sourceExts, assetResolutions }, maxWorkers: config.maxWorkers ?? metro.maxWorkers }
 }
 
-// A boolean flag: --name if given, else the config's `key`, else false; `by` names its source for errors.
-export function flagOf(flag, config, key, name) {
+// A boolean flag: --name if given, else the config's `name`, else false; `by` names its source for errors.
+export function flagOf(flag, config, name) {
   if (flag !== undefined) return { on: flag, by: `--${name}` }
-  return { on: config[key] ?? false, by: `${RN_CONFIG}'s ${key}` }
+  return { on: config[name] ?? false, by: `${RN_CONFIG}'s ${name}` }
 }

@@ -15,7 +15,7 @@ const USAGE = 'usage: rn-cli bundle --entry-file FILE --bundle-output FILE [--pl
 
 // How each option takes a value: `value`, after `=` or as the next argument; `optional`, the
 // next argument unless it is an option; `flag`, none.
-const OPTIONS = new Map(Object.entries({
+const OPTIONS = {
   'entry-file': 'value',
   platform: 'value',
   'bundle-output': 'value',
@@ -37,62 +37,65 @@ const OPTIONS = new Map(Object.entries({
   'unstable-transform-profile': 'value',
   transformer: 'value',
   'resolver-option': 'value',
-}))
+}
 
 const fail = failer('rn-cli')
 
 // Parses as commander does, into a Map of each name to its value or true.
 function parse(argv) {
   const values = new Map()
-  let at = 0
-  while (at < argv.length) {
-    const match = /^--([a-z-]+)(?:=(.*))?$/su.exec(argv[at])
-    if (match === null) fail(`no such argument ${argv[at]}: \`rn-cli bundle\` takes options alone`)
-    const [, name, inline] = match
-    const kind = OPTIONS.get(name)
-    if (kind === undefined) fail(`no such option --${name}`)
-    if (kind === 'flag' && inline !== undefined) fail(`--${name} takes no value`)
+  for (let at = 0; at < argv.length; at++) {
+    const [, name, inline] = /^--([a-z-]+)(?:=(.*))?$/su.exec(argv[at]) ?? []
+    if (name === undefined) fail(`no such argument ${argv[at]}: \`rn-cli bundle\` takes options alone`)
+    const kind = Object.hasOwn(OPTIONS, name) ? OPTIONS[name] : fail(`no such option --${name}`)
     const next = argv[at + 1]
-    const takesNext = inline === undefined && next !== undefined && (kind === 'value' || (kind === 'optional' && !next.startsWith('-')))
-    if (inline === undefined && kind === 'value' && !takesNext) fail(`--${name} needs a value`)
-    values.set(name, inline ?? (takesNext ? next : true))
-    at += takesNext ? 2 : 1
+    if (inline !== undefined) {
+      if (kind === 'flag') fail(`--${name} takes no value`)
+      values.set(name, inline)
+    } else if (kind === 'value' || (kind === 'optional' && next !== undefined && !next.startsWith('-'))) {
+      if (next === undefined) fail(`--${name} needs a value`)
+      values.set(name, next)
+      at++
+    } else {
+      values.set(name, true)
+    }
   }
   return values
 }
 
-// As Metro's [boolean] options read a value.
-const bool = (value) => value !== 'false'
-
 // rn-bundle's arguments for Metro's options.
 function translate(values, cwd) {
-  const has = (name) => values.has(name)
-  const get = (name) => values.get(name)
-  if (has('transformer')) fail('--transformer: rn-bundle transforms by esbuild and the project\'s Babel config alone')
-  if (has('resolver-option')) fail('--resolver-option: rn-bundle resolves as Metro does by default alone')
-  if (has('bundle-encoding') && !['utf8', 'utf-8'].includes(String(get('bundle-encoding')).toLowerCase())) fail('--bundle-encoding: rn-bundle writes utf8 alone')
+  if (values.has('transformer')) fail('--transformer: rn-bundle transforms by esbuild and the project\'s Babel config alone')
+  if (values.has('resolver-option')) fail('--resolver-option: rn-bundle resolves as Metro does by default alone')
+  if (values.has('bundle-encoding') && !['utf8', 'utf-8'].includes(String(values.get('bundle-encoding')).toLowerCase())) fail('--bundle-encoding: rn-bundle writes utf8 alone')
   for (const name of ['entry-file', 'bundle-output']) {
-    if (!has(name)) fail(`--${name} is required`)
+    if (!values.has(name)) fail(`--${name} is required`)
   }
-  if (get('asset-catalog-dest') === true) fail('--asset-catalog-dest needs a directory')
-  const platform = get('platform') ?? 'ios'
-  const dev = has('dev') ? bool(get('dev')) : true
-  const args = [`--platform=${platform}`, `--output=${get('bundle-output')}`]
+  if (values.get('asset-catalog-dest') === true) fail('--asset-catalog-dest needs a directory')
+  // As Metro's [boolean] options read a value.
+  const bool = (name, otherwise) => (values.has(name) ? values.get(name) !== 'false' : otherwise)
+  const platform = values.get('platform') ?? 'ios'
+  const dev = bool('dev', true)
+  const args = [`--platform=${platform}`, `--output=${values.get('bundle-output')}`]
+  // An option rn-bundle takes as it is, if given.
+  const pass = (name) => {
+    if (values.has(name)) args.push(`--${name}=${values.get(name)}`)
+  }
   if (dev) args.push('--dev')
-  if (has('minify') ? bool(get('minify')) : !dev) args.push('--minify')
-  if (has('assets-dest')) args.push(`--assets-dest=${get('assets-dest')}`)
+  if (bool('minify', !dev)) args.push('--minify')
+  pass('assets-dest')
   // Metro fills the catalog only for iOS and only while saving to --assets-dest.
-  if (has('asset-catalog-dest') && has('assets-dest') && platform === 'ios') args.push(`--asset-catalog-dest=${get('asset-catalog-dest')}`)
-  if (has('sourcemap-output')) {
-    args.push(`--sourcemap-output=${get('sourcemap-output')}`)
-    if (has('sourcemap-sources-root')) args.push(`--sourcemap-sources-root=${get('sourcemap-sources-root')}`)
-    if (has('sourcemap-use-absolute-path')) args.push('--sourcemap-use-absolute-path')
+  if (values.has('assets-dest') && platform === 'ios') pass('asset-catalog-dest')
+  if (values.has('sourcemap-output')) {
+    pass('sourcemap-output')
+    pass('sourcemap-sources-root')
+    if (values.has('sourcemap-use-absolute-path')) args.push('--sourcemap-use-absolute-path')
   }
-  if (has('config')) args.push(`--metro-config=${resolve(cwd, get('config'))}`)
-  if (has('max-workers')) args.push(`--max-workers=${get('max-workers')}`)
+  if (values.has('config')) args.push(`--metro-config=${resolve(cwd, values.get('config'))}`)
+  pass('max-workers')
   // 'default' is rn-bundle's default too, so it isn't passed.
-  if (has('unstable-transform-profile') && get('unstable-transform-profile') !== 'default') args.push(`--unstable-transform-profile=${get('unstable-transform-profile')}`)
-  return [...args, '--', get('entry-file')]
+  if (values.get('unstable-transform-profile') !== 'default') pass('unstable-transform-profile')
+  return [...args, '--', values.get('entry-file')]
 }
 
 const [command, ...argv] = process.argv.slice(2)

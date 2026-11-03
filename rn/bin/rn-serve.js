@@ -62,8 +62,8 @@ defines(true, values.define, fail)
 
 const projectRoot = realpathSync(process.cwd())
 const rnConfig = readRnConfig(projectRoot, fail)
-const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
-const devtools = flagOf(values.devtools, rnConfig, 'devtools', 'devtools').on
+const esm = flagOf(values.esm, rnConfig, 'esm')
+const devtools = flagOf(values.devtools, rnConfig, 'devtools').on
 const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')

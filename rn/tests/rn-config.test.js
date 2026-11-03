@@ -137,9 +137,9 @@ describe('extendedMetro', () => {
 
 describe('flagOf', () => {
   it("is the flag's, else the config's, else off, of what set it", () => {
-    assert.deepEqual(flagOf(undefined, {}, 'esm', 'esm'), { on: false, by: "rn.config.json's esm" })
-    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm', 'esm'), { on: true, by: "rn.config.json's esm" })
-    assert.deepEqual(flagOf(false, { esm: true }, 'esm', 'esm'), { on: false, by: '--esm' })
-    assert.deepEqual(flagOf(true, {}, 'devtools', 'devtools'), { on: true, by: '--devtools' })
+    assert.deepEqual(flagOf(undefined, {}, 'esm'), { on: false, by: "rn.config.json's esm" })
+    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm'), { on: true, by: "rn.config.json's esm" })
+    assert.deepEqual(flagOf(false, { esm: true }, 'esm'), { on: false, by: '--esm' })
+    assert.deepEqual(flagOf(true, {}, 'devtools'), { on: true, by: '--devtools' })
   })
 })
