@@ -111,8 +111,8 @@ const reloadApps = () => log(`rn-serve: reloading ${devServer.broadcast('reload'
 // A change rebuilds every bundle, 50 ms after the last one, a refresh at a time.
 let timer = null
 let refreshing = Promise.resolve()
-const watcher = createWatcher(projectRoot, () => {
-  devBundler.changed()
+const watcher = createWatcher(projectRoot, (path, event) => {
+  devBundler.changed(path, event)
   clearTimeout(timer)
   timer = setTimeout(() => {
     refreshing = refreshing.then(refresh).catch((error) => log(`rn-serve: ${error?.stack ?? error}`))
@@ -260,7 +260,15 @@ process.on('SIGTERM', quit)
 // A terminal's keys, listed as rn-serve starts; ctrl-c and ctrl-d quit.
 function keys(serverUrl) {
   const each = [
-    { key: 'r', what: 'reload', action: reloadApps },
+    // Built anew, each file resolved and read again, not as the watcher's changes leave the build before.
+    {
+      key: 'r',
+      what: 'reload',
+      action: () => {
+        devBundler.changed()
+        reloadApps()
+      },
+    },
     { key: 'd', what: 'dev menu', action: () => log(`rn-serve: dev menu on ${devServer.broadcast('devMenu')} app(s)`) },
     ...(devMiddleware === null ? [] : [{ key: 'j', what: 'debugger', action: () => void openDebugger(serverUrl) }]),
   ]

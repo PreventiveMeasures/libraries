@@ -2,7 +2,7 @@
 // each rebuilt once a file changes, each file's transform kept in memory while its source is the same. A dev
 // bundle is in Metro's module format (modules.js) where metro-runtime's require is given, else as rn-bundle's.
 
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 import { metroResolverOf } from './build-host.js'
@@ -26,7 +26,8 @@ export const inside = (root, path) => {
 // onBuild({ request, outcome, ms, cached }) follows each build, `cached` its store's tally or null.
 // `metro` is metroOptions()'s config, Metro's defaults where not given; `injected`, createModuleBundler()'s.
 export function createDevBundler({ projectRoot, esbuild, targetOptions, host = diskHost, metro = NO_METRO, runtime = null, injected = [], maxBuilds = 8, onBuild = () => {} }) {
-  const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, injected, onBuild, caches: new Map(), ids: new Map() }
+  // `edits`: the version of each path's last change the watcher saw.
+  const config = { projectRoot, esbuild, targetOptions, host, metro, runtime, injected, onBuild, caches: new Map(), ids: new Map(), edits: new Map() }
   const builds = new Map()
   let version = 0
 
@@ -35,7 +36,10 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     if (build.version !== version) {
       const at = version
       build.version = at
-      build.outcome = build.outcome.catch(() => {}).then(() => run(config, build, at))
+      build.outcome = build.outcome
+        .catch(() => {})
+        .then(() => run(config, build, at))
+        .finally(uncovered)
     }
     return build.outcome
   }
@@ -64,7 +68,8 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal(entryPath, target), metro.inlineRequires(entryPath, target)])
     if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entryPath, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, version: null, outcome: Promise.resolve(), waiting: new Set() }
+    // Its `changes`, a watcher's since its last build started; null, a full build: its first, or one asked for.
+    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, version: null, outcome: Promise.resolve(), waiting: new Set(), changes: null }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
@@ -74,13 +79,25 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return outcome
   }
 
-  const files = () => new Set([...builds.values()].flatMap((build) => [...(build.last?.files ?? [])]))
+  // Those each build read, and its last good one: watched while a build fails, as its app runs those.
+  const files = () => new Set([...builds.values()].flatMap((build) => [...(build.last?.files ?? []), ...(build.good?.files ?? [])]))
+  const uncovered = () => unwatched(config.caches, files())
 
   return {
     get,
-    // A file changed: each build is stale.
-    changed() {
+    // A file changed, as a watcher saw it (`path`, its `event`, fs.watch()'s): each build is stale, and the
+    // next builds again what the change may make another: the file, and each under it (a directory), let go
+    // from the files kept in memory, and its resolutions (build-host.js's resolutionOf()) of the change. Of
+    // no path (a reload `r` asks for), each builds all anew, resolving and reading each file again.
+    changed(path = null, event = null) {
       version++
+      for (const build of builds.values()) {
+        if (path === null) build.changes = null
+        else build.changes?.push({ path, event })
+      }
+      if (path === null) return
+      config.edits.set(path, version)
+      forget(config.caches, path)
     },
     // Rebuilds each bundle served: [{ request, before, after, good }], `good` its last build that didn't
     // fail. Where a file added or removed (an `index.ios.js`) makes the request name another entry, `good` is null.
@@ -112,6 +129,30 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   }
 }
 
+// The files kept in memory that no build read (`watched`, the dev bundler's files()) let go: the watcher sees
+// no change of them, which a watcher-caused build would take unread (bundle.js's trustedOf()).
+function unwatched(caches, watched) {
+  for (const { files: kept } of caches.values()) for (const path of kept.keys()) if (!watched.has(path)) kept.delete(path)
+}
+
+// The version of the last change the watcher saw of `path`, or of a directory it is in; 0 of none.
+function changedAt(edits, path) {
+  let at = 0
+  for (let each = path; ; each = dirname(each)) {
+    at = Math.max(at, edits.get(each) ?? 0)
+    if (dirname(each) === each) return at
+  }
+}
+
+// The file at `path`, and each under it (a directory), let go from the files each target keeps in memory.
+function forget(caches, path) {
+  const under = `${path}${sep}`
+  for (const { files: kept } of caches.values()) {
+    kept.delete(path)
+    for (const key of kept.keys()) if (key.startsWith(under)) kept.delete(key)
+  }
+}
+
 // A build, disposed of once those asked for are done.
 async function drop(build) {
   await build.outcome.catch(() => {})
@@ -133,7 +174,7 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
 
 // Its files are cached per platform, dev, minify and inline requires, which make them; with `esm`, so are
 // those left CommonJS, which a file's cached build depends on. Returns { bundler, store }.
-function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injected, caches, ids }, { platform, dev, minify }, entryPath, inlineRequires) {
+function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injected, caches, ids, edits }, { platform, dev, minify }, entryPath, inlineRequires) {
   const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
   if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map(), commonJs: new Set() })
   const cached = caches.get(target)
@@ -148,6 +189,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injec
     projectRoot,
     minify,
     cache: cached.files,
+    changedAt: (path) => changedAt(edits, path),
     commonJs: cached.commonJs,
     polyfills: metro.polyfills(platform),
     runBeforeMain: metro.runBeforeMain?.(entryPath),
@@ -162,10 +204,17 @@ async function run({ projectRoot, onBuild }, build, at) {
   const bundler = await build.bundler
   const start = performance.now()
   build.store?.start()
+  // Those seen since: a change seen as it builds is the next build's.
+  const { changes } = build
+  build.changes = []
   try {
-    const result = await bundler.rebuild((done, total) => {
-      for (const onProgress of build.waiting) onProgress?.(done, total)
-    })
+    const result = await bundler.rebuild(
+      (done, total) => {
+        for (const onProgress of build.waiting) onProgress?.(done, total)
+      },
+      changes,
+      at,
+    )
     // Not js or map: a module bundler's are getters, each made when a client first asks for it.
     const { outputFiles, modules, entryId, scripts, assets, files, bundled = null } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text
