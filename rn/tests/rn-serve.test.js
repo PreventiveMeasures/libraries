@@ -1258,6 +1258,7 @@ describe("rn-serve --launch=android, of rn.config.json's launch and android", ()
     ...APP,
     'sdk/adb': fake('adb', [
       "if (line === 'devices') console.log('List of devices attached\\nemulator-5554\\tdevice\\n')",
+      "else if (line.endsWith('getprop sys.boot_completed')) console.log('1')",
       `else if (line.includes('resolve-activity')) console.log('priority=0 preferredOrder=0 match=0x108000\\n${ACTIVITY}')`,
       `else if (line.includes(' am start ')) console.log('Starting: Intent { cmp=${ACTIVITY} }')`,
       "else if (line.includes(' install ')) console.log('Success')",
@@ -1288,6 +1289,7 @@ describe("rn-serve --launch=android, of rn.config.json's launch and android", ()
       assert.deepEqual(commands(), [
         ['adb', 'version'],
         ['adb', 'devices'],
+        ['adb', '-s', 'emulator-5554', 'shell', 'getprop', 'sys.boot_completed'],
         ['adb', '-s', 'emulator-5554', 'install', '-r', '-d', join(root, APK, 'app-debug.apk')],
         ['adb', '-s', 'emulator-5554', 'reverse', `tcp:${port}`, `tcp:${port}`],
         ['adb', '-s', 'emulator-5554', 'shell', 'cmd', 'package', 'resolve-activity', '--brief', ...MAIN, ID],

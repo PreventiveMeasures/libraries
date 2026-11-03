@@ -92,10 +92,11 @@ describe('launchAndroid', () => {
   }
   const MAIN = ['-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER']
 
-  it("installs it on the device online, reverses the dev server's port to this machine, and starts its launcher activity", async () => {
+  it("installs it on the device online, once booted, reverses the dev server's port to this machine, and starts its launcher activity", async () => {
     const { calls, logged, result } = await launched()
     assert.deepEqual(calls, [
       ['adb', 'devices'],
+      ['adb', '-s', 'emulator-5554', 'shell', 'getprop', 'sys.boot_completed'],
       ['adb', '-s', 'emulator-5554', 'install', '-r', '-d', '/app/app-debug.apk'],
       ['adb', '-s', 'emulator-5554', 'reverse', 'tcp:8082', 'tcp:8082'],
       ['adb', '-s', 'emulator-5554', 'shell', 'cmd', 'package', 'resolve-activity', '--brief', ...MAIN, 'com.example.app'],
@@ -112,6 +113,13 @@ describe('launchAndroid', () => {
     const { calls, result } = await launched(both, { device: 'Pixel_8' })
     assert.deepEqual(result.devices, ['emulator-5554'])
     assert.deepEqual(calls[1], ['adb', '-s', 'emulator-5554', 'emu', 'avd', 'name'])
+  })
+
+  it('waits for a device online to have booted, as adb has one online before it has', async () => {
+    const { calls, starts } = await launched({ booted: ['', '0', '1'] })
+    assert.deepEqual(starts, [])
+    assert.deepEqual(calls.slice(1, 5).map((line) => line.slice(3).join(' ')), ['shell getprop sys.boot_completed', 'shell getprop sys.boot_completed', 'shell getprop sys.boot_completed', 'install -r -d /app/app-debug.apk'])
+    await assert.rejects(launched({ booted: ['0'] }, { timeouts: { online: 0, booted: 0 } }), { message: 'emulator-5554 to boot took longer than 0 s' })
   })
 
   it('starts the emulator of the first AVD where no device is online, or of the one named, and waits till it has booted', async () => {

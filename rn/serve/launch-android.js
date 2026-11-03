@@ -94,7 +94,7 @@ async function poll(get, { interval, timeout, what }) {
 
 // The serials to launch on: the one `wanted` names by serial or by its AVD's name, else each online, as
 // run-android installs on each. With none, an emulator started, of the AVD wanted, else the first, and
-// waited for till it has booted.
+// waited for till adb has it online.
 async function devicesFor({ run, adb, emulator, start, wanted, log, interval, timeouts }) {
   const online = async () => devicesOf(await run(adb, ['devices'])).filter(({ state }) => state === 'device').map(({ serial }) => serial)
   const avdOf = async (serial) => (serial.startsWith('emulator-') ? (await run(adb, ['-s', serial, 'emu', 'avd', 'name']).catch(() => '')).split('\n')[0].trim() : '')
@@ -114,14 +114,14 @@ async function devicesFor({ run, adb, emulator, start, wanted, log, interval, ti
     for (const each of await online().catch(() => [])) if (!serials.includes(each) && (await avdOf(each)) === avd) return each
     return null
   }, { interval, timeout: timeouts.online, what: `the emulator ${avd} to come online` })
-  await poll(async () => ((await run(adb, ['-s', serial, 'shell', 'getprop', 'sys.boot_completed']).catch(() => '')).trim() === '1' ? true : null), { interval, timeout: timeouts.booted, what: `the emulator ${avd} to boot` })
   return [serial]
 }
 
 const MAIN = ['-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER']
 
 // Installs and launches the APK at `apkPath` on each device of `device` (see devicesFor()), its dev server
-// port `port` reversed to this machine's, as run-android reverses it: the app, built for that port, reaches
+// port `port` reversed to this machine's, as run-android reverses it, once it has booted (adb has a
+// device online before its package service is up, which install needs): the app, built for that port, reaches
 // the dev server at localhost on a device, and at 10.0.2.2 (this machine) on an emulator. Its launcher
 // activity is the one Android resolves, of its package: `applicationId`, else the APK's own. Rejects if a
 // step fails. -> { applicationId, devices }.
@@ -130,6 +130,7 @@ export async function launchAndroid({ apkPath, applicationId = null, device = nu
   const id = applicationId ?? (await packageOf(run, apkPath, env))
   const devices = await devicesFor({ run, adb, emulator: sdkTool('emulator/emulator', env), start, wanted: device, log, interval, timeouts })
   for (const serial of devices) {
+    await poll(async () => ((await run(adb, ['-s', serial, 'shell', 'getprop', 'sys.boot_completed']).catch(() => '')).trim() === '1' ? true : null), { interval, timeout: timeouts.booted, what: `${serial} to boot` })
     log(`rn-serve: launching ${id} (${basename(apkPath)}) on ${serial}`)
     await run(adb, ['-s', serial, 'install', '-r', '-d', apkPath])
     await run(adb, ['-s', serial, 'reverse', `tcp:${port}`, `tcp:${port}`])
