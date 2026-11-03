@@ -2,6 +2,8 @@
 // up: the prelude, the polyfills, the modules run before the entry, then the entry.
 // Ported from Metro 0.87's getPreludeCode and getAppendScripts (MIT, Copyright (c) Meta Platforms, Inc. and affiliates).
 
+import { jsval } from './jsval.js'
+
 // Newest first: react-native 0.87's, then those of before.
 const SETUP = ['react-native/setup-env', 'react-native/Libraries/Core/InitializeCore']
 const ASSET_REGISTRY = ['react-native/asset-registry', 'react-native/Libraries/Image/AssetRegistry']
@@ -9,7 +11,7 @@ const ASSET_REGISTRY = ['react-native/asset-registry', 'react-native/Libraries/I
 export const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this"
 
 // Metro's getPreludeCode, with only the globals metro-runtime's require reads. `dev` is __DEV__'s value.
-export const prelude = (dev, nodeEnv) => `var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=${dev},process=globalThis.process||{},__METRO_GLOBAL_PREFIX__='';process.env=process.env||{};process.env.NODE_ENV=process.env.NODE_ENV||${JSON.stringify(nodeEnv)};`
+export const prelude = (dev, nodeEnv) => `var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=${dev},process=globalThis.process||{},__METRO_GLOBAL_PREFIX__='';process.env=process.env||{};process.env.NODE_ENV=process.env.NODE_ENV||${jsval(nodeEnv)};`
 
 // The module to run before the entry and the asset registry of the react-native the entry resolves, the first
 // of each that resolves. Without react-native, none to run and the old registry, for an error to name.

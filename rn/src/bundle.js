@@ -7,6 +7,7 @@ import { dirname, relative, resolve } from 'node:path'
 import { EMPTY, newState, posixRelative } from './build-host.js'
 import { defaults, diskHost } from './defaults.js'
 import { unmatchedImports } from './esm-imports.js'
+import { jsval } from './jsval.js'
 import { loadFile } from './load.js'
 import { GLOBAL } from './serializer.js'
 
@@ -249,7 +250,7 @@ export function metroGraph(run, first = null) {
     // The main module, and each polyfill, loaded as any file and run as a script.
     build.onLoad({ filter: ANY, namespace: MAIN }, () => {
       const specifiers = [...polyfills.map((path) => POLYFILL + path), ...state.before, ENTRY]
-      return { contents: specifiers.map((specifier) => `import ${JSON.stringify(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
+      return { contents: specifiers.map((specifier) => `import ${jsval(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
     })
     build.onLoad({ filter: ANY, namespace: 'metro-polyfill' }, async ({ path }) => {
       const polyfill = resolve(projectRoot, path)

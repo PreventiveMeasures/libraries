@@ -59,6 +59,26 @@ function run(js) {
 }
 const value = (context, expression) => JSON.parse(runInContext(`JSON.stringify(${expression})`, context))
 
+describe('the module format, of names JSON and JavaScript read otherwise', () => {
+  // A package named __proto__, which a key of JSON.stringify() in code would make the prototype of the
+  // module's dependency map; and a file named with U+2028, which ends a string literal before ES2019.
+  const LS = String.fromCodePoint(0x2028)
+  const { root, cleanup } = writeTree({
+    'index.js': `import proto from '__proto__'\nimport separated from './a${LS}b'\nglobalThis.out = [proto, separated]\n`,
+    [`a${LS}b.js`]: "export default 'separated'\n",
+    'node_modules/__proto__/package.json': { name: '__proto__', main: 'index.js' },
+    'node_modules/__proto__/index.js': "module.exports = 'proto'\n",
+  })
+  after(cleanup)
+
+  it('requires each, its name in its definition escaped', async () => {
+    const { js } = await createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids: new Map(), builds: new Map(), cache: new Map() }).rebuild()
+    assert.ok(!js.includes(LS))
+    const { context } = run(js)
+    assert.deepEqual(value(context, 'globalThis.out'), ['proto', 'separated'])
+  })
+})
+
 describe('the module format', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)

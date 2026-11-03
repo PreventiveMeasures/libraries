@@ -7,6 +7,7 @@ import { basename, dirname, extname, join, posix } from 'node:path'
 
 import { defaults, diskHost } from './defaults.js'
 import { imageSize } from './image-size.js'
+import { jsval } from './jsval.js'
 
 const DEFAULT_ASSET_EXTS = new Set(defaults.assetExts)
 
@@ -96,5 +97,5 @@ export function assetData(assetPath, { urlPath, platform = null, publicPath = '/
 export function assetModule(data, assetRegistryPath) {
   if (typeof assetRegistryPath !== 'string' || assetRegistryPath === '') throw new TypeError('assetModule: assetRegistryPath is required')
   const { files: _files, fileSystemLocation: _location, path: _path, ...descriptor } = data
-  return `module.exports = require(${JSON.stringify(assetRegistryPath)}).registerAsset(${JSON.stringify(descriptor)});\n`
+  return `module.exports = require(${jsval(assetRegistryPath)}).registerAsset(${jsval(descriptor)});\n`
 }
