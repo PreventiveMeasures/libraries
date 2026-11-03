@@ -94,7 +94,7 @@ function babelConfigOf(cwd, project) {
 // without a config, or with only the preset and no @babel/core. ownPlugins(dev): [path, options]
 // run on the project's own files after the config's (rn-serve's Fast Refresh). `fingerprinter`:
 // the module the workers fingerprint with (babel-worker.js), for a cache of their output.
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, switches = () => [] } = {}) {
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, eager = false, switches = () => [] } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -121,7 +121,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     // rn.config.json's Babel plugins switched on and off for the build (babel-switches.js).
     const switched = switches(dev)
     const workerOptions = { ...options, compact: false, ...maps, ownPlugins: ownPlugins(dev), keepPlugins, inlineRequires, switches: switched }
-    const babel = babelWorkers(corePath, { ...workerOptions, fingerprinter, oneBuild }, timed, maxWorkers, { warm })
+    const babel = babelWorkers(corePath, { ...workerOptions, fingerprinter, oneBuild }, timed, maxWorkers, { warm, eager })
     let switchedKeys = null
     return {
       profile: timed,
