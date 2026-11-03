@@ -1,6 +1,5 @@
-// A file's transform by the project's @babel/core and its config, as
-// babelWorkers() has it done: in a worker of its, or in band, on the main
-// thread.
+// Transforms a file with the project's @babel/core and config, in one of babelWorkers()'s
+// workers or on the main thread.
 
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -9,68 +8,70 @@ import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
-// The key of the config's plugin that makes modules CommonJS.
 const COMMONJS = 'transform-modules-commonjs'
 
-// ({ corePath, options, profile }) -> (message) => its answer, of the
-// @babel/core at corePath and the config, which it loads as it is called:
-// of { source, filename, without }, { code, imports, uncacheable?, spent? }
-// or { error, loc? }; of { fingerprint: true }, { fingerprint, ...inputs }
-// (babelWorkers()).
+// -> (message) => { code, imports, uncacheable?, spent? } or { error, loc? } for { source, filename,
+// without }, and the fingerprint with its inputs for { fingerprint: true }. The options are Babel's,
+// plus refresh, keepPlugins, inlineRequires, fingerprint and oneBuild (cli.js's projectBabel()).
 export function transformerOf({ corePath, options: { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, ...given }, profile }) {
   const core = createRequire(corePath)(corePath)
   memoizeHelpers(core)
   const cwd = given.cwd ?? process.cwd()
   const imports = importsOf()
-  const inlining = inliningOf(core, inlineRequires, given.cwd)
-  // As Metro's transformer has it, a file in node_modules has no component to edit.
+  // Metro's inline-requires, run after all of the config's plugins, its presets' included.
+  const inlining = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
+  // Within one build, Babel's .babelrc lookup is skipped where it would find nothing.
   const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
-  const optionsOf = (filename) => ({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins: [...(given.plugins ?? []), imports.plugin, ...(refresh === null || filename.includes('node_modules') ? [] : [[refresh, { skipEnvCheck: true }]])] })
+  const optionsOf = (filename) => {
+    const plugins = [...(given.plugins ?? []), imports.plugin]
+    // As Metro's transformer has it, no Fast Refresh in node_modules.
+    if (refresh !== null && !filename.includes('node_modules')) plugins.push([refresh, { skipEnvCheck: true }])
+    return { ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins }
+  }
   const profiler = profile ? profilerOf(corePath) : null
   const gateResolver = resolverGate(core, cwd, () => profiler?.skip())
-  // Reanimated's plugin, left out of a file it leaves as it is (but with
-  // keepPlugins, as --self-test builds again).
+  // keepPlugins (--self-test's second build) runs every plugin in full.
   const quiet = keepPlugins ? null : workletsGate({ cwd, envName: given.envName })
   const listOf = lister()
-  // The options transformSync takes for the file of source: the config's, as
-  // Babel loads them for it, its plugins, loaded, as they are, but those of
-  // the keys in without, and Reanimated's where quiet, and the inlining one.
+  // The config's plugins for the file, but those keyed in `without` and Reanimated's where quiet.
   const optionsFor = (filename, source, without) => {
     const start = performance.now()
     const config = core.loadOptionsSync(optionsOf(filename))
     profiler?.time('config', start)
-    const plugins = listOf([...config.plugins.filter((plugin) => !without.includes(plugin.key) && !quiet?.(plugin, source)), ...inlining(filename)])
-    // module-resolver traverses, as its plugin does, with keepPlugins.
+    const plugins = config.plugins.filter((plugin) => !without.includes(plugin.key) && !quiet?.(plugin, source))
+    if (inlining !== null && !inlineRequires.blockList.includes(filename)) plugins.push(inlining)
     if (!keepPlugins) plugins.forEach(gateResolver)
-    return { ...config, plugins }
+    return { ...config, plugins: listOf(plugins) }
   }
-  // Sync: one file at a time. Its AST given back too, for lowerLeft().
+  // Keeps the AST for lowerLeft().
   const transform = (source, options) => core.transformSync(source, { ...(profiler?.timing(options) ?? options), ast: true })
   const lowerLeft = lowerer(core, optionsOf, given)
-  // The config loaded at once, as a file at the project's root has it,
-  // before the first file is sent: its plugins and presets loaded, which
-  // Babel then has of each file. Its errors are each file's, as it fails.
+  // Loads the config's plugins and presets before the first file, as for a file at the root.
+  // Its errors are each file's, as that fails.
   const loadConfig = () => {
     try {
       core.loadOptionsSync(optionsOf(join(cwd, 'index.js')))
     } catch {}
   }
-  // With options.fingerprint, what the config reads or looks for as it
-  // loads too, for the fingerprint, of the modules loaded by now, with the
-  // config: before any file, which a plugin may require more for. Asked, its
-  // inputs too, which a run after may make it of again (load-cache.js).
-  const reads = fingerprinted ? readsOf(loadConfig) : loadConfig()
-  const inputs = fingerprinted ? { options: { refresh, keepPlugins, inlineRequires, ...given }, modules: withDependencies(Object.keys(createRequire(corePath).cache), cwd), reads: [...reads] } : null
-  const fingerprint = fingerprinted ? fingerprintOf(inputs.modules, inputs.options, reads) : null
+  // Of the modules loaded and the files read with the config, before any file; given back with
+  // its inputs, which a later run checks to reuse it (load-cache.js).
+  let fingerprint = { fingerprint: null }
+  if (fingerprinted) {
+    const reads = readsOf(loadConfig)
+    const options = { refresh, keepPlugins, inlineRequires, ...given }
+    const modules = withDependencies(Object.keys(createRequire(corePath).cache), cwd)
+    fingerprint = { fingerprint: fingerprintOf(modules, options, reads), options, modules, reads: [...reads] }
+  } else {
+    loadConfig()
+  }
   return ({ source, filename, without, fingerprint: asked = false }) => {
-    if (asked) return { fingerprint, ...inputs }
+    if (asked) return fingerprint
     const start = profiler?.start()
     imports.clear()
     try {
       let result = transform(source, optionsFor(filename, source, without))
-      // An ES module without the config's CommonJS plugin (load.js's, of
-      // --esm) that names `module` or `exports` unbound: made CommonJS
-      // after all, which binds them.
+      // An ES module built without CommonJS (load.js, for --esm) that uses `module` or `exports`
+      // unbound is built again with it, which binds them.
       if (without.includes(COMMONJS) && imports.namesCommonJs()) {
         imports.clear()
         result = transform(source, optionsFor(filename, source, without.filter((key) => key !== COMMONJS)))
@@ -83,11 +84,8 @@ export function transformerOf({ corePath, options: { refresh = null, keepPlugins
   }
 }
 
-// @babel/core's File#availableHelper(name, versionRange), which
-// transform-runtime asks of each helper a file uses: semver's intersects()
-// of two ranges it parses anew each time, some 1% of Babel's work. Of the
-// helper's name and the range alone (Babel's helpers, of their versions),
-// each answer is had once.
+// Memoizes File#availableHelper(name, versionRange), which transform-runtime calls for each helper a
+// file uses, parsing both semver ranges anew each time (~1% of Babel's work).
 export function memoizeHelpers(core) {
   const proto = core.File?.prototype
   const available = proto?.availableHelper
@@ -104,15 +102,9 @@ export function memoizeHelpers(core) {
 }
 const MEMOIZED = new WeakSet()
 
-// The specifiers of the file's import and export-from declarations, but
-// types', as Metro's transformer records where each is (its
-// importLocationsPlugin): the require call Babel's CommonJS makes of one,
-// Metro resolves as an ESM import (bundle.js); and whether the file is an
-// ES module that names `module` or `exports` unbound, as its scope has
-// them as Babel parsed it (not in a comment, a string, a property's name,
-// nor of a binding of its own), which Babel's CommonJS binds to its own and
-// esbuild, linking ES modules, leaves unbound. -> { plugin, clear(), list(),
-// namesCommonJs() }.
+// Records a file's import and export-from specifiers (not type-only ones), as Metro's importLocationsPlugin
+// does: Metro resolves the requires Babel's CommonJS makes of them as ESM imports (bundle.js). Also whether
+// an ES module uses `module` or `exports` unbound, which Babel's CommonJS binds and esbuild would not.
 function importsOf() {
   let imports = new Set()
   let namesCommonJs = false
@@ -134,45 +126,26 @@ function importsOf() {
   return { plugin, clear, list: () => [...imports], namesCommonJs: () => namesCommonJs }
 }
 
-// As Metro's transform worker inlines requires, after its Babel
-// transformer, by its metro-transform-plugins: a module required at the
-// top, of a name (a var of its require call, or of a member of it, or
-// destructured) each use of which can take a call, required where used, not before the
-// module runs, and not at all where unused; not those of nonInlinedRequires
-// (React's, react-native) or of @babel/runtime, nor an interop's (Babel's
-// default and namespace imports), nor in a file of its blockList. After
-// the config's plugins, its presets' too (which run after its plugins),
-// the last, which does it all on Program's exit, after each other plugin's:
-// as a pass of its own after Babel, but on Babel's tree. -> (filename) =>
-// the plugins to add for the file.
-function inliningOf(core, inlineRequires, cwd) {
-  const plugin = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
-  return (filename) => (plugin === null || inlineRequires.blockList.includes(filename) ? [] : [plugin])
-}
-
-// Metro's inline-requires plugin, but on Program's exit only where the
-// program has what it inlines: a top-level declaration of a var of an
-// inlineable call (require, or one of its inlineableCalls) of a module named,
-// or of a member expression of one, its object or its computed property
-// (which Metro 0.78 on inlines not, of no property name, but its member
-// alias takes in either), but not of its ignoredRequires nor @babel/runtime's,
-// as it takes them. Elsewhere it crawls the program's scopes and walks it
-// for none, to no change: there, it is left out.
+// Metro's inline-requires plugin, whose Program exit only runs where a top-level var is initialized by an
+// inlineable call (require or one of inlineableCalls) of a module it doesn't ignore, or by a member of
+// one. Elsewhere it would crawl the program's scopes and walk it for no change.
 export function gatedInlining(plugin) {
   return (api, options) => {
     const instance = plugin(api, options)
     const program = instance.visitor.Program
     const calls = new Set(['require', ...(options?.inlineableCalls ?? [])])
     const ignored = new Set(options?.ignoredRequires ?? [])
-    // The module an inlineable call names, as the plugin reads it: of a
-    // string, or of require.resolve's; else null.
+    // The string module name of require(name) or require(require.resolve(name)), else null.
     const moduleOf = (node) => {
-      if (node?.type !== 'CallExpression' || node.callee.type !== 'Identifier' || !calls.has(node.callee.name) || node.arguments.length === 0) return null
+      if (node?.type !== 'CallExpression' || node.callee.type !== 'Identifier' || !calls.has(node.callee.name)) return null
       const [first] = node.arguments
-      if (first.type === 'StringLiteral') return first.value
-      const resolve = first.type === 'CallExpression' && first.callee.type === 'MemberExpression' && first.callee.object.type === 'Identifier' && calls.has(first.callee.object.name)
-      return resolve && first.callee.property.type === 'Identifier' && first.callee.property.name === 'resolve' && first.arguments[0]?.type === 'StringLiteral' ? first.arguments[0].value : null
+      if (first?.type === 'StringLiteral') return first.value
+      const { callee, arguments: args } = first?.type === 'CallExpression' ? first : {}
+      const resolves = callee?.type === 'MemberExpression' && callee.object.type === 'Identifier' && calls.has(callee.object.name) && callee.property.type === 'Identifier' && callee.property.name === 'resolve'
+      return resolves && args[0]?.type === 'StringLiteral' ? args[0].value : null
     }
+    // Also a member's object or computed property: Metro 0.78+ won't inline the latter, but its
+    // member aliasing may still act on it.
     const inlinable = ({ init }) => {
       const name = moduleOf(init) ?? (init?.type === 'MemberExpression' ? (moduleOf(init.object) ?? moduleOf(init.property)) : null)
       return name !== null && !ignored.has(name) && !name.startsWith('@babel/runtime/')
@@ -186,20 +159,15 @@ export function gatedInlining(plugin) {
   }
 }
 
-// The time of each plugin's visitors and hooks, by its key, and of Babel's
-// own work, by what it is (babel-worker.js's OWN), in the file being
-// transformed. -> { start() (its start, the file's times anew), time(name,
-// start), timing(options) (the options transformSync takes, timed), skip()
-// (the call under way a gated visitor's that didn't run), spent(start) }.
+// Times, in the file being transformed, each plugin's visitors and hooks by key (each call net of the
+// plugin calls it makes), and Babel's own work outside plugins by babel-worker.js's OWN names.
 function profilerOf(corePath) {
-  // By plugin key, the calls and own time of its visitors and hooks, in the
-  // file being transformed: a call's own, not that of a plugin it calls.
+  // By key: [calls, own ms, whether it worked in the file (a visitor, parser or printer ran)].
   let spent = new Map()
+  let own = new Map()
+  // The time of finished nested calls, and how deep in timed calls we are.
   let inner = 0
-  // Plugin calls, and Babel's own work timed, under way.
   let depth = 0
-  // Each call counted, its file one the plugin worked in where it does:
-  // a visitor's, a parser's or printer's, not a pre or post hook's.
   const add = (map, key, ms, works = true, calls = 1) => {
     const [counted, time, worked] = map.get(key) ?? [0, 0, false]
     map.set(key, [counted + calls, time + ms, worked || works])
@@ -221,10 +189,8 @@ function profilerOf(corePath) {
         inner = before + elapsed
       }
     }
-  // By each of OWN, Babel's own work in the file, outside a plugin's call: in
-  // one, a plugin's (a scope it crawls, code it parses or prints).
-  let own = new Map()
   const time = (name, start) => add(own, name, performance.now() - start)
+  // Within a plugin's call, the work is the plugin's.
   const timeOwn = (name, object, method) => {
     const fn = object[method]
     object[method] = function (...args) {
@@ -239,7 +205,7 @@ function profilerOf(corePath) {
       }
     }
   }
-  // What @babel/core calls, of its own dependencies, as it calls it.
+  // @babel/core's own dependencies, as it requires them.
   const ofCore = createRequire(corePath)
   timeOwn('parsing', ofCore('@babel/parser'), 'parse')
   timeOwn('scopes', ofCore('@babel/traverse').Scope.prototype, 'crawl')
@@ -258,10 +224,11 @@ function profilerOf(corePath) {
       return performance.now()
     },
     time,
+    // The options transformSync takes, with each plugin timed.
     timing: (options) => {
       options.plugins.forEach(timeHooks)
       for (const { key } of options.plugins) spent.set(key, [0, 0, false])
-      // Timed as the config's own visitor wrapper, if any, makes it.
+      // Inside the config's own visitor wrapper, if any.
       const wrap = options.wrapPluginVisitorMethod
       return { ...options, wrapPluginVisitorMethod: (key, phase, fn) => timed(key, wrap === undefined ? fn : wrap(key, phase, fn)) }
     },
@@ -270,24 +237,13 @@ function profilerOf(corePath) {
   }
 }
 
-// babel-plugin-module-resolver traverses each file on Program's enter and
-// exit for the source of each import and export declaration and the first
-// argument of each call of one of its transformFunctions or of import(),
-// which, a string, it maps by its resolvePath and replaces (its
-// mapPathString). With no `root` and no `resolvePath` of its own, as its
-// options, normalized by its pre hook for the file, have them, it changes
-// nothing where no string in the file names an alias: there each
-// instance's traversal is left out, else done by a walk of the file's
-// nodes, as Babel has them as it would start (with what other plugins
-// added by then), each such string mapped by its module's own resolvePath,
-// where the plugin is its module's. A traversal left out is its time, not
-// a call of it: skip() is called. -> (plugin) => void, of a plugin of the
-// config's, its Program visitor gated where it is module-resolver.
+// babel-plugin-module-resolver walks each file on Program enter and exit to map the strings of imports,
+// exports and calls of its transformFunctions. Without `root` or a custom resolvePath, it changes only
+// strings naming an alias: files with none skip the walk (calling skip()), others get a fast walk.
 function resolverGate(core, cwd, skip) {
   const t = core.types
   const gated = new WeakSet()
-  // Its module's resolvePath, where the plugin's Program visitor is its
-  // module's: as the project resolves the module, as its Babel config does.
+  // The resolvePath of the project's module-resolver, if the plugin's Program visitor is that module's.
   const resolvePathOf = (enter) => {
     try {
       const resolver = createRequire(join(cwd, 'package.json'))('babel-plugin-module-resolver')
@@ -297,10 +253,9 @@ function resolverGate(core, cwd, skip) {
       return null
     }
   }
-  // Whether a call is of one of the patterns, as module-resolver's matchesPattern has it.
+  // As module-resolver's matchesPattern.
   const transforms = ({ callee }, patterns) => t.isImport(callee) || patterns.some((pattern) => (t.isMemberExpression(callee) ? t.matchesPattern(callee, pattern) : t.isIdentifier(callee) && !pattern.includes('.') && callee.name === pattern))
-  // -> null where no string in the node names an alias, else the nodes
-  // module-resolver maps a string of: [node, key, index].
+  // The [node, key, index?] sites whose string module-resolver maps; null where no string names an alias.
   const sitesOf = (node, { alias, transformFunctions }) => {
     let named = false
     const sites = []
@@ -311,7 +266,7 @@ function resolverGate(core, cwd, skip) {
     })
     return named ? sites : null
   }
-  // As module-resolver's mapPathString maps each, each node of it visited once.
+  // As module-resolver's mapPathString, visiting each node once.
   const resolve = (sites, pass, resolvePath) => {
     const visited = pass.moduleResolverVisited
     for (const [owner, key, index] of sites) {
@@ -332,7 +287,7 @@ function resolverGate(core, cwd, skip) {
   const aliasesAlone = (options) => options?.root?.length === 0 && options.customResolvePath === undefined && Array.isArray(options.alias) && options.alias.every(([regExp]) => regExp instanceof RegExp) && Array.isArray(options.transformFunctions) && options.transformFunctions.every((pattern) => typeof pattern === 'string')
   const gate = (fn, resolvePath) =>
     function (path, ...rest) {
-      // `this`, the instance's pass, with its options for the file.
+      // `this` is the plugin pass, its options normalized for the file by the plugin's pre hook.
       const options = this?.normalizedOpts
       if (!aliasesAlone(options)) return fn.call(this, path, ...rest)
       const sites = sitesOf(path.node, options)
@@ -346,16 +301,14 @@ function resolverGate(core, cwd, skip) {
     if (plugin.key !== 'module-resolver' || gated.has(plugin) || program === undefined) return
     gated.add(plugin)
     const resolvePath = resolvePathOf(program.enter?.[0])
-    // Its own, not the Program visitor its instances share.
+    // A Program visitor of its own, not the one its instances share.
     const phases = Object.entries(program).map(([phase, fns]) => [phase, (phase === 'enter' || phase === 'exit') && Array.isArray(fns) ? fns.map((fn) => gate(fn, resolvePath)) : fns])
     plugin.visitor = { ...plugin.visitor, Program: Object.fromEntries(phases) }
   }
 }
 
-// One array of each list of plugins, the same for each file of it: as
-// transformSync loads its options again, Babel takes the plugins of one
-// it has had for loaded, their descriptors cached by the array. ->
-// (plugins) => the list's array.
+// The same array for the same list of plugins: as transformSync loads its options again, Babel reuses
+// the plugins it loaded for an array it has seen.
 function lister() {
   const ids = new WeakMap()
   let count = 0
@@ -367,15 +320,9 @@ function lister() {
   }
 }
 
-// What the config's other plugins leave of let and const after its block
-// scoping plugin, as code they insert once it has run (Reanimated's
-// worklets), that plugin lowers again: Metro's output has none there, and
-// esbuild, told so, adds none after Babel (bundle.js). Only where the
-// output declares one: the words alone, in a string, a comment or a
-// property's name (`exports.const`), are most of those that have them, and
-// a pass of Babel's over the file again (some 5 ms) prints it as it was,
-// but for the layout of Babel's helpers, which esbuild prints anew. ->
-// (result, filename) => the result, lowered where it needs to be.
+// Runs the config's block-scoping plugin again where other plugins (Reanimated's worklets) left let or
+// const after it ran: Metro's output has none, and esbuild is told to add none (bundle.js). The AST is
+// checked, since most matches of the words are in strings, comments or property names.
 function lowerer(core, optionsOf, given) {
   const LET = /\b(?:let|const)\b/u
   const KEYS = core.types.VISITOR_KEYS
@@ -385,7 +332,7 @@ function lowerer(core, optionsOf, given) {
     const config = core.loadOptionsSync(optionsOf(filename))
     const blockScoping = config?.plugins.find(({ key }) => key === 'transform-block-scoping')
     if (blockScoping === undefined) return result
-    // Parsed as the config parses (a return outside a function, if it takes one).
+    // Parsed as the config parses, e.g. allowing a return outside a function.
     const parsing = { sourceType: config.sourceType ?? 'unambiguous', ...(config.parserOpts && { parserOpts: config.parserOpts }) }
     return core.transformSync(result.code, { babelrc: false, configFile: false, cwd: given.cwd, filename, compact: false, ...parsing, plugins: [blockScoping], ...(given.sourceMaps && { sourceMaps: given.sourceMaps, inputSourceMap: true }) })
   }

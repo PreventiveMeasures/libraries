@@ -1,8 +1,5 @@
-// Babel's transforms, off the main thread but for a build's first files:
-// each worker loads the project's @babel/core and its config once, and
-// transforms what it is sent (babel-transformer.js); asked, gives a
-// fingerprint of what its output is of (load-cache.js), which the main
-// thread's is of too.
+// Babel transforms in worker threads, each loading the project's @babel/core and config once
+// (babel-transformer.js); a build's first files are transformed on the main thread instead.
 
 import { once } from 'node:events'
 import { enableCompileCache } from 'node:module'
@@ -12,72 +9,29 @@ import { MessageChannel, Worker, parentPort, workerData } from 'node:worker_thre
 
 import { transformerOf } from './babel-transformer.js'
 
-// How many workers Babel runs in where nothing says: 3, of 4 CPUs or more,
-// else 1; not Metro's getMaxWorkers of the CPUs (6 of 8, 8 of 12), which
-// made a build slower. The main thread loads, resolves and hands out each
-// file, about a sixth of a file's work, which the workers don't share, and
-// each worker loads Babel and compiles its code anew (CPU and some 300 MB
-// of each): workers the main thread can't keep busy cost that for nothing,
-// and the threads, as many more as the CPUs' fast cores, slow it. Of 4
-// CPUs, a build of React Native's, its workers made as it starts
-// (rn-bundle's), took 0.4-0.7 s less of 3 than of 2 (8.8 s of 9.3 s, of
-// 1.4k files), in some 2 s more CPU; of 4, no less than of 3.
+// 3 workers with 4+ CPUs, else 1. Metro's getMaxWorkers (6 of 8 CPUs) made builds slower: the main
+// thread can't keep more busy, and each worker costs ~300 MB and Babel's startup. On 4 CPUs, a
+// React Native build took 0.4-0.7 s less with 3 than with 2, and no less with 4.
 export function defaultWorkers(cores = availableParallelism()) {
   return cores >= 4 ? 3 : 1
 }
 
-// The files each worker has waiting before one more is made.
+// Files queued on each worker before another is started.
 const BACKLOG = 8
-// The files a build's Babel transforms on the main thread before it makes
-// a worker (babelWorkers()): more than a test's fixture has, fewer than
-// the main thread does as one loads Babel and the config.
+// Files transformed on the main thread before a worker is started, and until it is ready:
+// its ~300 ms startup doesn't pay off for a few files.
 const IN_BAND = 16
 
-// (corePath, options, profile, max) => async (source, filename, without = []) =>
-// { code, imports }, by the @babel/core at corePath, with options (all but
-// the filename) for each file, its config's plugins of the keys in without
-// left out; with options.refresh, react-refresh's Babel plugin at that path
-// for each file outside node_modules, as Metro's transformer adds it for Fast
-// Refresh; with options.keepPlugins, module-resolver as its plugin has it
-// (gateResolver()); with options.inlineRequires, metroOptions()'s, each
-// file's requires inlined after its config's plugins, as Metro's transform
-// worker inlines them (inlining()). `imports`, the specifiers of the file's import and
-// export-from declarations (IMPORTS); `uncacheable` where a plugin's output
-// is of files it names (its addExternalDependency), which may change. With
-// options.fingerprint, the function's fingerprint() -> (a promise of) {
-// fingerprint, options, modules, reads }: what its output is of but a
-// file's own config and its source (load-cache.js's fingerprintOf()), as
-// its workers have it once they load the config, and what it is a digest
-// of. Its close() -> (a promise of) each worker stopped. With
-// options.oneBuild, of one build, whose files don't change as it
-// runs, Babel's .babelrc lookup of each file left out where it would find
-// none (babelrcFinder()), as its directories are read once. Where profile
-// is newProfile()'s, the time of each
-// transform is added to it, and that of each plugin: its visitors' and
-// hooks', by its key. At most `max` workers (defaultWorkers() where null),
-// one more made only as files wait: as each has BACKLOG of them or more. One
-// starting costs some 300 ms of CPU, loading Babel and the config, which a
-// few files, done by one in less, don't make up for: the first IN_BAND files,
-// and those till a worker is ready, are transformed in band, on the main
-// thread, as a worker would (but with keepPlugins). The fingerprint is a
-// worker's alone, one made for it where none is: what the main thread has
-// loaded is the process's, not Babel's alone, and the config it has loaded
-// (in band, configKeyOf(), babelPlugins()) reads nothing anew. With `warm`,
-// of a build of many files (cli.js's bigBuild()), each of the `max` is made
-// at once, loading Babel and the config as the build starts, the main
-// thread transforming in band till one is ready, as it does till then.
+// -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
+// corePath, leaving out the config's plugins keyed in `without` (options: transformerOf()). Runs up to
+// `max` workers (defaultWorkers() if null), `warm` starting them all now; has fingerprint() and close().
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false } = {}) {
   const most = max ?? defaultWorkers()
   const workers = []
-  const pick = () => {
-    const least = workers.reduce((a, b) => (a === undefined || b.busy < a.busy ? b : a), undefined)
-    return least !== undefined && (least.busy < BACKLOG || workers.length >= most) ? least : made()
-  }
   const made = () => {
     const info = { worker: new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } }), busy: 0, pending: new Set(), ready: false }
     info.worker.once('message', () => (info.ready = true))
-    // A worker that dies leaves the pool, failing what it was given, which
-    // would wait forever; one more is made where needed.
+    // A dead worker leaves the pool and fails what it was given, which would otherwise wait forever.
     let failure
     info.worker.on('error', (error) => (failure = error))
     info.worker.on('exit', (code) => {
@@ -87,26 +41,20 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     workers.push(info)
     return info
   }
-  // The first IN_BAND files transformed in band, on the main thread, which
-  // has @babel/core and the config loaded (cli.js's babelPlugins()): a
-  // worker loads them anew, which a build of a few files doesn't make up
-  // for. Then a worker's made, the main thread transforming until one is
-  // ready. With a cache's fingerprint too (rn-serve's), which a worker gives
-  // where the one kept is no longer (load-cache.js): a run whose files the
-  // cache has makes none. But with keepPlugins (--self-test's build after
-  // another, in band of plugins the first's gated: babel-transformer.js's
-  // resolverGate()): then one made at once, which loads Babel and the
-  // config as the build starts; idle, it keeps the process alive no more
-  // than one made for a file.
-  let inBand = options.keepPlugins ? null : undefined
+  const pick = () => {
+    const least = workers.reduce((a, b) => (b.busy < a.busy ? b : a), workers[0])
+    return least !== undefined && (least.busy < BACKLOG || workers.length >= most) ? least : made()
+  }
+  let inBand = null
   let handled = 0
-  if (inBand === null) pick().worker.unref()
-  // Idle, as one made for a file is.
+  // With keepPlugins (--self-test's second build), nothing runs in band, where the first build's
+  // plugins are already gated (resolverGate()); a worker starts at once.
+  if (options.keepPlugins) made().worker.unref()
   if (warm) while (workers.length < most) made().worker.unref()
   const inBandOf = () => {
-    if (inBand === undefined) {
+    if (inBand === null) {
       try {
-        // Of no fingerprint: the main thread's is not a worker's.
+        // A fingerprint is only ever a worker's: the main thread has loaded more than Babel.
         inBand = transformerOf({ corePath, options: { ...options, fingerprint: false }, profile: profile !== null })
       } catch (error) {
         inBand = () => {
@@ -116,17 +64,16 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     }
     return inBand
   }
-  // -> a worker's answer to the message, or the main thread's, but `ofWorker`.
   const ask = async (message, ofWorker = false) => {
-    if (!ofWorker && inBand !== null && (handled < IN_BAND || !workers.some(({ ready }) => ready))) {
-      // One made, past IN_BAND, where none is (or one died).
-      if (++handled >= IN_BAND && workers.length === 0) pick().worker.unref()
+    if (!ofWorker && !options.keepPlugins && (handled < IN_BAND || !workers.some(({ ready }) => ready))) {
+      // Past IN_BAND, start a worker if there is none (or it died).
+      if (++handled >= IN_BAND && workers.length === 0) made().worker.unref()
       return inBandOf()(message)
     }
     const info = pick()
     const { port1, port2 } = new MessageChannel()
     const { promise: failed, reject } = Promise.withResolvers()
-    // Busy, a worker keeps the process alive; idle, it doesn't.
+    // Only a busy worker keeps the process alive.
     if (info.busy++ === 0) info.worker.ref()
     info.pending.add(reject)
     try {
@@ -141,33 +88,28 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
   }
   const transform = async (source, filename, without = []) => {
     const { code, imports, uncacheable, error, loc, spent } = await ask({ source, filename, without })
-    // Babel's error, with where in the file Babel says, if it does.
-    if (error !== undefined) throw Object.assign(new Error(error), loc === undefined ? {} : { loc })
+    if (error !== undefined) throw Object.assign(new Error(error), loc && { loc })
     if (spent !== undefined) addSpent(profile, spent)
     return { code, imports, ...(uncacheable && { uncacheable }) }
   }
   let fingerprint = null
-  // close(): each worker stopped, of a build done in a process that goes
-  // on (an embedder's, a test's): idle, they would keep their memory.
-  const close = () => Promise.all(workers.map(({ worker }) => worker.terminate()))
-  return Object.assign(transform, { fingerprint: () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer)), close })
+  transform.fingerprint = () => (fingerprint ??= ask({ fingerprint: true }, true).then((answer) => answer.fingerprint == null ? Promise.reject(new Error('no fingerprint: not asked for one')) : answer))
+  // For a process that goes on after the build (an embedder's, a test's): idle workers keep their memory.
+  transform.close = () => Promise.all(workers.map(({ worker }) => worker.terminate()))
+  return transform
 }
 
-// Babel's own work, outside its plugins, by what it is.
+// Babel's own work outside its plugins.
 const OWN = ['config', 'parsing', 'scopes', 'printing']
 
-// { files, ms, plugins, own, before }, which babelWorkers adds to: plugins a
-// Map<key, { files, calls, ms }>, `files` those a plugin's visitors (or its
-// parser or printer) ran in, not all it is in; own one by each of OWN;
-// before, the main thread's work before Babel, by name: { files, ms }
-// (timedBefore()'s).
+// plugins and own map a key to { files, calls, ms }, `files` counting those where a plugin's visitors
+// (or parser or printer) ran; before maps main-thread work before Babel to { files, ms }.
 export function newProfile() {
   return { files: 0, ms: 0, plugins: new Map(), own: new Map(), before: new Map() }
 }
 
-// fn, each call of it, of a file, timed in the profile's `before`, by name:
-// work of the main thread's before Babel, as flow-remove-types' stripping
-// of a file's Flow. fn as it is where the profile or fn is null.
+// fn, with each call timed in profile.before under name (main-thread work before Babel, such as
+// stripping Flow); fn itself where profile or fn is null.
 export function timedBefore(profile, name, fn) {
   if (profile === null || fn === null) return fn
   profile.before.set(name, { files: 0, ms: 0 })
@@ -194,10 +136,8 @@ function addSpent(profile, { ms, plugins, own }) {
   }
 }
 
-// A table of the time each plugin took, most first, then Babel's own, by
-// what it is, and the rest; then the main thread's before Babel, of no
-// share of Babel's. Keys that are paths, of plugins with no name, are made
-// relative to root.
+// A table of each plugin's time, most first, then Babel's own work and the rest, then main-thread work
+// before Babel (no share of Babel's time). Plugin keys that are paths are shown relative to root.
 export function profileReport({ files, ms, plugins, own, before = new Map() }, root) {
   const line = (...cells) => cells.map((cell, i) => String(cell).padStart([8, 6, 7, 9, 0][i])).join('  ')
   const row = (time, ...cells) => line(Math.round(time), ms > 0 ? ((100 * time) / ms).toFixed(1) : '0.0', ...cells)
@@ -217,14 +157,14 @@ export function profileReport({ files, ms, plugins, own, before = new Map() }, r
 }
 
 if (workerData?.babel !== undefined) {
-  // A thread's own, as the bin's: @babel/core and the config's plugins compiled once.
+  // As the bin does: @babel/core and the config's plugins compiled once.
   enableCompileCache()
   const handle = transformerOf(workerData.babel)
   parentPort.on('message', ({ port, ...message }) => {
     port.postMessage(handle(message))
     port.close()
   })
-  // Ready for files, the config loaded.
+  // Ready: the config is loaded.
   // eslint-disable-next-line unicorn/require-post-message-target-origin -- a worker's port, of no origin
   parentPort.postMessage('ready')
 }

@@ -1,26 +1,18 @@
-// Reanimated's Babel plugin, left out of each file it would leave as it is.
+// Skips Reanimated's Babel plugin in files it would leave unchanged.
 
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
-// Each one's key, and its module: Reanimated 3's own, Reanimated 4's of
-// react-native-worklets.
-const PLUGINS = new Map([
-  ['reanimated', 'react-native-reanimated/plugin'],
-  ['worklets', 'react-native-worklets/plugin'],
+// The package of each plugin key: Reanimated 3's own, Reanimated 4's react-native-worklets.
+const PACKAGES = new Map([
+  ['reanimated', 'react-native-reanimated'],
+  ['worklets', 'react-native-worklets'],
 ])
-// The paths of each one's code: its module, or a file in its directory.
-const FILES = new Map([
-  ['reanimated', /[\\/]react-native-reanimated[\\/]plugin(?:\.js$|[\\/].*\.c?js$)/u],
-  ['worklets', /[\\/]react-native-worklets[\\/]plugin(?:\.js$|[\\/].*\.c?js$)/u],
-])
-// The modules loaded, Babel's of the config's plugins too: one cache of a thread's.
+// The thread's require cache, which holds the plugin files Babel loaded for the config.
 const LOADED = createRequire(import.meta.url).cache
-// What they make a worklet of the callbacks to, by name: Reanimated's hooks,
-// animations and what runs a function on another runtime, gesture
-// handler's hooks, a Gesture's object (its onStart, onUpdate...), a layout
-// animation's withCallback.
+// Calls whose callbacks the plugin makes worklets: Reanimated's hooks, animations and
+// runOn* functions, gesture handler's hooks and Gesture builders, and withCallback.
 const NAMES = [
   'useFrameCallback', 'useAnimatedStyle', 'useAnimatedProps', 'createAnimatedPropAdapter', 'useDerivedValue', 'useAnimatedScrollHandler',
   'useAnimatedReaction', 'useWorkletCallback', 'useAnimatedGestureHandler', 'withTiming', 'withSpring', 'withDecay', 'withRepeat', 'withCallback',
@@ -28,40 +20,34 @@ const NAMES = [
   'scheduleOnRuntime', 'runOnRuntimeSyncWithId', 'scheduleOnRuntimeWithId', 'useTapGesture', 'usePanGesture', 'usePinchGesture',
   'useRotationGesture', 'useFlingGesture', 'useLongPressGesture', 'useNativeGesture', 'useManualGesture', 'useHoverGesture', 'Gesture',
 ]
-// Each name of that kind the plugin's own code has, of a version that has
-// more than these.
+// More such names, as quoted in the plugin's own code, for versions newer than NAMES.
 const NAMED = /(["'])((?:use|with|run|schedule|execute|create)[A-Z][A-Za-z]*)\1/gu
-// As each has it (isRelease()), where it warns of a shared value read in an
-// inline style: Reanimated 3 of BABEL_ENV or NODE_ENV, 4 of Babel's env first.
+// The plugin's isRelease(), which decides whether it warns of `.value` read in an inline style:
+// Reanimated 3 reads BABEL_ENV or NODE_ENV, 4 Babel's envName first.
 const RELEASE = /(prod|release|stag[ei])/iu
 const VALUE = /\bvalue\b/u
 
-// ({ cwd, envName }) -> (plugin, source) => whether the file's source has
-// nothing the plugin, if Reanimated's, acts on, which leaves it as it is,
-// though it visits each call, function, class and JSX attribute of it (and
-// Reanimated 4's walks it all once more first): a worklet's directive or a
-// marker of one (`worklet` in each), the names it makes a worklet of the
-// callbacks to, of NAMES and of the plugin's code; or, but in a release,
-// the word `value`, of a member `.value` however it is spaced or commented
-// (a shared value's, in a style, which it warns of). With its
-// options of the web or of a bundle of worklets, it changes more: kept.
+// ({ cwd, envName }) -> (plugin, source) => whether the plugin is Reanimated's and leaves the source as is,
+// though it would still visit every call, function, class and JSX attribute: the source has no
+// `worklet`, none of the names above, and (outside a release) no `value`, however `.value` is spaced.
 export function workletsGate({ cwd, envName = '' }) {
   const byEnv = RELEASE.test(process.env.BABEL_ENV ?? '') || RELEASE.test(process.env.NODE_ENV ?? '')
   const release = byEnv && (RELEASE.test(envName) || !/dev/iu.test(envName))
   const words = new Map()
-  // The plugin's code: of the files of it Babel loaded, by the config's
-  // plugin, wherever from (a preset's own, a parent's node_modules); else of
-  // its module as the project resolves it; null where none can be read.
+  // The plugin's code: the files of it Babel loaded, from wherever (a preset's own node_modules),
+  // else its module as the project resolves it; null where none can be read.
   const codeOf = (key) => {
-    const loaded = Object.keys(LOADED).filter((path) => FILES.get(key).test(path))
+    const name = PACKAGES.get(key)
+    const file = new RegExp(String.raw`[\\/]${name}[\\/]plugin(?:\.js$|[\\/].*\.c?js$)`, 'u')
+    const loaded = Object.keys(LOADED).filter((path) => file.test(path))
     try {
-      const paths = loaded.length > 0 ? loaded : [createRequire(join(cwd, 'package.json')).resolve(PLUGINS.get(key))]
+      const paths = loaded.length > 0 ? loaded : [createRequire(join(cwd, 'package.json')).resolve(`${name}/plugin`)]
       return paths.map((path) => readFileSync(path, 'utf8')).join('\n')
     } catch {
       return null
     }
   }
-  // The plugin's words, or null where its code can't be read, which keeps it.
+  // null where the plugin's code can't be read, which keeps the plugin.
   const wordsOf = (key) => {
     if (!words.has(key)) {
       const code = codeOf(key)
@@ -71,7 +57,8 @@ export function workletsGate({ cwd, envName = '' }) {
     return words.get(key)
   }
   return ({ key, options }, source) => {
-    if (!PLUGINS.has(key) || options.substituteWebPlatformChecks || options.bundleMode) return false
+    // For the web or a worklets bundle, it changes more.
+    if (!PACKAGES.has(key) || options.substituteWebPlatformChecks || options.bundleMode) return false
     const found = wordsOf(key)
     if (found === null || found.test(source)) return false
     return release || options.disableInlineStylesWarning === true || !VALUE.test(source)
