@@ -233,8 +233,11 @@ function match({ mainFields, redirects }, subpaths, pkg) {
       const value = pkg[field]
       if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
       for (const [key, to] of Object.entries(value)) {
-        if (typeof to === 'string' || to === false) merged.set(key, to)
-        else merged.delete(key)
+        if (typeof to === 'string' || to === false) {
+          merged.set(key, to)
+        } else {
+          merged.delete(key)
+        }
       }
     }
     return merged

@@ -26,8 +26,11 @@ export function metroAssetExts(program) {
       : node.type === 'VariableDeclarator' ? [named(node.id), node.init]
       : node.type === 'AssignmentExpression' ? [named(node.left), node.right]
       : []
-    if (name === 'assetExts') lists.push(value)
-    else if (['push', 'unshift'].includes(method(node)) && named(node.callee.object) === 'assetExts') lists.push({ type: 'ArrayExpression', elements: node.arguments })
+    if (name === 'assetExts') {
+      lists.push(value)
+    } else if (['push', 'unshift'].includes(method(node)) && named(node.callee.object) === 'assetExts') {
+      lists.push({ type: 'ArrayExpression', elements: node.arguments })
+    }
   })
   const inits = Map.groupBy(declarators, ({ id }) => id.name)
   const exts = new Set()

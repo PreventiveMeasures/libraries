@@ -555,10 +555,16 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
     ...METRO_CONFIG,
     'metro.config.js': "const { getDefaultConfig } = require('@react-native/metro-config')\nconst config = getDefaultConfig(__dirname)\nmodule.exports = { ...config, transformer: { ...config.transformer, getTransformOptions: async () => ({ transform: { inlineRequires: false, nonInlinedRequires: ['react', './b'] } }) } }\n",
   })
+  // A Metro config of its own that gives inlineRequires null.
+  const nulled = writeTree({
+    ...APP_FILES,
+    ...METRO_CONFIG,
+    'metro.config.js': "const { getDefaultConfig } = require('@react-native/metro-config')\nconst config = getDefaultConfig(__dirname)\nmodule.exports = { ...config, transformer: { ...config.transformer, getTransformOptions: async () => ({ transform: { inlineRequires: null } }) } }\n",
+  })
   // An import of what b.js doesn't export.
   const unmatched = writeTree({ ...APP_FILES, ...METRO_CONFIG, 'metro.config.js': RN_DEFAULTS, 'index.js': "import { run } from './a'\nimport { nope } from './b'\nconsole.log('index')\nrun(nope)\n" })
   after(() => {
-    for (const tree of [inlining, eager, unloaded, off, own, kept, unmatched]) tree.cleanup()
+    for (const tree of [inlining, eager, unloaded, off, own, kept, nulled, unmatched]) tree.cleanup()
   })
   const built = (root, args = []) => runBundle(['--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root })
   const run = async (root, args = []) => {
@@ -610,6 +616,8 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
 
   it("inlines them with --inline-requires as the Metro config's other options have them: its nonInlinedRequires run as imported", async () => {
     assert.deepEqual(await run(kept.root, ['--inline-requires']), ['react', 'index', 'b', 'a', 'b 19'])
+    // Of none, where it gives inlineRequires null.
+    assert.deepEqual(await run(nulled.root, ['--inline-requires']), ['react', 'index', 'a', 'b', 'b 19'])
   })
 
   it('warns of an import of what its ES module lacks with them, the bundle the same, as esbuild does where --esm links them; not without either', async () => {

@@ -55,7 +55,7 @@ async function transformOf(getTransformOptions, entryPath, { platform, dev }, ho
 const inliningOf = (plugin, transform = {}) => ({
   plugin,
   options: { ignoredRequires: transform.nonInlinedRequires || NOT_INLINED, memoizeCalls: transform.unstable_memoizeInlineRequires || false, nonMemoizedModules: transform.unstable_nonMemoizedInlineRequires || [] },
-  blockList: typeof transform.inlineRequires === 'object' ? Object.keys(transform.inlineRequires.blockList ?? {}) : [],
+  blockList: Object.keys(transform.inlineRequires?.blockList ?? {}),
 })
 
 const NONE = () => Promise.resolve(null)

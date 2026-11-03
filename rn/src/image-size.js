@@ -37,9 +37,7 @@ function parseJpeg(content) {
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue
     const length = content.readUInt16BE(offset)
     if (length < 2 || offset + length > content.length) return null
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return length < 7 ? null : { width: content.readUInt16BE(offset + 5), height: content.readUInt16BE(offset + 3) }
-    }
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return length < 7 ? null : { width: content.readUInt16BE(offset + 5), height: content.readUInt16BE(offset + 3) }
     offset += length
   }
   return null
@@ -144,9 +142,7 @@ function parseWebp(content) {
         height: 1 + (((content[data + 4] & 0x0f) << 10) | (content[data + 3] << 2) | ((content[data + 2] & 0xc0) >> 6)),
       }
     }
-    if (type === 'VP8 ' && length >= 10 && content.readUIntBE(data + 3, 3) === 0x9d012a) {
-      return { width: content.readUInt16LE(data + 6) & 0x3fff, height: content.readUInt16LE(data + 8) & 0x3fff }
-    }
+    if (type === 'VP8 ' && length >= 10 && content.readUIntBE(data + 3, 3) === 0x9d012a) return { width: content.readUInt16LE(data + 6) & 0x3fff, height: content.readUInt16LE(data + 8) & 0x3fff }
     // Chunks are padded to an even length.
     offset = data + length + (length % 2)
   }
