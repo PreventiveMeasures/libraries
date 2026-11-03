@@ -1,6 +1,6 @@
 {
   "name": "@preventive/rn",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "React Native tooling: Metro resolution, assets, bundling, a `react-native bundle` for Xcode and Gradle, and a dev server with Fast Refresh",
   "type": "module",
   "exports": {
