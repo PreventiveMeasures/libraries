@@ -7,7 +7,7 @@ import { createContext, runInContext } from 'node:vm'
 
 import esbuild from 'esbuild'
 
-import { keptLookups, resolutionOf } from '../src/build-host.js'
+import { keptLookups, resolutionOf } from '../serve/resolution.js'
 import { diskHost } from '../src/defaults.js'
 import { createDevBundler } from '../serve/dev-bundler.js'
 import { createDevServer } from '../serve/serve.js'

@@ -1,11 +1,12 @@
 // What a file's load (load.js) depends on besides its own source, for rn-serve's on-disk cache of each
-// (serve/load-cache.js): a Babel worker's fingerprint (its options, the code it loaded, what its config
-// read or looked for) and each file's Babel config key. Here, not in serve/, as Babel's workers make them.
+// (load-cache.js): a Babel worker's fingerprint (its options, the code it loaded, what its config read or
+// looked for), which the worker makes, loading this module (babel-worker.js's fingerprinter); and each
+// file's Babel config key.
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import fs, { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
-import { Module } from 'node:module'
+import { Module, createRequire } from 'node:module'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -101,6 +102,15 @@ export function withDependencies(modules, from = null) {
     for (const name of Object.keys({ ...manifest?.dependencies, ...manifest?.optionalDependencies, ...manifest?.peerDependencies })) add(dependencyOf(dirname(path), name))
   }
   return [...new Set([...modules, ...found])]
+}
+
+// A Babel worker's fingerprint, as `load` loads its config (babel-transformer.js's loadConfig()): of the
+// modules then loaded and the files read or looked for, given back with its inputs, which a later run
+// checks to reuse it (load-cache.js). `options`, the worker's.
+export function workerFingerprint({ load, corePath, cwd, options }) {
+  const reads = [...readsOf(load)]
+  const modules = withDependencies(Object.keys(createRequire(corePath).cache), cwd)
+  return { fingerprint: fingerprintOf(modules, options, reads), options, modules, reads }
 }
 
 // What a Babel worker's output depends on besides each file's own config and source: its options, the

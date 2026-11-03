@@ -1,12 +1,13 @@
 // rn-serve's on-disk cache of each file as loadFile() (load.js) loads it, keyed by all its output
 // depends on: the file, rn's own code, esbuild and flow-remove-types, the project's Babel config and
-// what it loads or reads (src/fingerprint.js), and the loadFile() options that change it (--esm's among them).
+// what it loads or reads (fingerprint.js), and the loadFile() options that change it (--esm's among them).
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
-import { digest, envOf, fileDigest, fingerprintOf, memo, signatureOf, withDependencies } from '../src/fingerprint.js'
+import { configKeyOf, digest, envOf, fileDigest, fingerprintOf, memo, signatureOf, withDependencies } from './fingerprint.js'
 import { createPack, pause, readEntry, touch, writeEntry } from './load-pack.js'
 
 // rn's modules whose code shapes the cached output: loadFile(), Babel's worker, dev module builds, this file.
@@ -66,6 +67,9 @@ async function fingerprintFor(babel, entries) {
 }
 
 const hashOf = (head, parts, text) => createHash('sha256').update(`${head}\0${JSON.stringify(parts)}\0`).update(text).digest('hex')
+// Each target's key of a file's Babel config (fingerprint.js's configKeyOf()), made at its first use.
+const CONFIG_KEYS = new WeakMap()
+const configKeysOf = (babel) => memo(CONFIG_KEYS, babel, () => configKeyOf(babel.core(), babel.configOptions, createRequire(import.meta.url).cache))
 const newTally = () => ({ hits: 0, misses: 0, memory: 0, unkept: {}, ms: 0 })
 
 // A target's store: its keys, its pack, and a tally per build.
@@ -101,7 +105,7 @@ function storeOf(babel, target, { salt, entries, track }) {
   const keyOf = async (path, contents, variant) => {
     const base = await target().base
     if (base === null) return { key: null, why: 'fingerprint' }
-    const config = babel === null ? '' : timed(() => babel.configKey(path, base.covered))
+    const config = babel === null ? '' : timed(() => configKeysOf(babel)(path, base.covered))
     if (config === null) return { key: null, why: 'config' }
     return { key: timed(() => hashOf(base.prefix, [path, variant, config], contents)) }
   }
@@ -138,7 +142,7 @@ function storeOf(babel, target, { salt, entries, track }) {
     },
     start: () => {
       tally = newTally()
-      babel?.configStart()
+      if (babel !== null) CONFIG_KEYS.get(babel)?.start()
       void target().pack.then((made) => made.start())
     },
     // The build's tally, and a promise of its pack written.

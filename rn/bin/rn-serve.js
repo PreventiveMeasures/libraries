@@ -14,6 +14,7 @@ import { isIP } from 'node:net'
 import { hostname } from 'node:os'
 import { join, resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 import { parseArgs, format as printf, styleText } from 'node:util'
 
 import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
@@ -84,7 +85,12 @@ const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js',
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const cacheDir = cacheDirOf(values['reset-cache'], log)
 const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch === null ? null : 'ios' })
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
+// Of a dev bundle in Metro's module format, each of the project's own files has react-refresh's plugin,
+// as Metro's transformer has it.
+const ownPlugins = (dev) => (dev && runtime !== null && refreshPlugin !== null ? [[refreshPlugin, { skipEnvCheck: true }]] : [])
+// The cache's fingerprint of Babel's workers, which they make with this module.
+const fingerprinter = cacheDir === null ? null : fileURLToPath(new URL('../serve/fingerprint.js', import.meta.url))
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, ownPlugins, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprinter, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
 for (const dev of babelFor === null ? [true, false] : []) {
   const esm = esmOf(dev)
   if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)

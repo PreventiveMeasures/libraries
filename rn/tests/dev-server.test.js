@@ -13,7 +13,7 @@ import { drawCodeFrame, stackOf, symbolicate } from '../serve/symbolicate.js'
 import { createClientLog, printable } from '../serve/terminal.js'
 import { createDevBundler } from '../serve/dev-bundler.js'
 import { moduleUrls } from '../serve/hot.js'
-import { servedSourceMap, sourceOfRequest, sourceRoutes } from '../src/source-map.js'
+import { servedSourceMap, sourceOfRequest, sourceRoutes } from '../serve/source-map.js'
 import { createWatcher } from '../serve/watch.js'
 import { writeTree } from './fixtures.js'
 
