@@ -1,8 +1,6 @@
-// GET /assets/<path>@<scale>x.<type>?platform= as Metro answers it
-// (Server._processSingleAssetRequest, Assets.getAsset; MIT, Copyright (c)
-// Meta Platforms, Inc. and affiliates), but only of an asset a bundle the
-// server built has: the file of the scale asked for, else the next up, else
-// the largest; a byte range of it where asked, as AVPlayer asks for video.
+// GET /assets/<path>@<scale>x.<type>?platform= as Metro answers it (Server._processSingleAssetRequest;
+// MIT, Copyright (c) Meta Platforms, Inc. and affiliates), but only for assets of bundles it built.
+// Serves the scale asked for, else the next up, else the largest; and byte ranges, as AVPlayer asks.
 
 import { extname, join, posix } from 'node:path'
 
@@ -17,42 +15,41 @@ const TYPES = new Map(Object.entries({
   otf: 'font/otf', ttf: 'font/ttf', zip: 'application/zip',
 }))
 const RANGE = /^bytes=(\d*)-(\d*)$/u
+const MISSING = { status: 404, headers: {}, body: 'rn-serve: no such asset in a bundle served\n' }
 
-// `rawPath`: the request's path, `..` segments kept, as assetData's
-// httpServerLocation keeps them. -> { status, headers, body }.
-export function assetResponse(rawPath, { platform = null, range, find, host = diskHost }) {
+// `rawPath` keeps its `..` segments, as assetData's httpServerLocation does.
+export function assetResponse(rawPath, { platform, range, find }) {
   let rel
   try {
-    rel = rawPath.slice('/assets/'.length).split('/').map((segment) => decodeURIComponent(segment)).join('/')
+    rel = rawPath.slice('/assets/'.length).split('/').map(decodeURIComponent).join('/')
   } catch {
     return { status: 400, headers: {}, body: 'rn-serve: bad asset path\n' }
   }
   const asked = parseAssetPath(rel, platform)
+  if (asked === null) return MISSING
   const dir = posix.dirname(rel)
-  const location = dir.startsWith('..') ? `/assets/${dir}` : posix.join('/assets', dir)
-  const data = asked === null ? null : find(location, asked.name, asked.type)
-  const missing = { status: 404, headers: {}, body: 'rn-serve: no such asset in a bundle served\n' }
-  if (data === null) return missing
+  const data = find(dir.startsWith('..') ? `/assets/${dir}` : posix.join('/assets', dir), asked.name, asked.type)
+  if (data === null) return MISSING
   let file
   let bytes
   try {
-    const { files, scales } = assetRecord(join(data.fileSystemLocation, `${data.name}.${data.type}`), { platform, host })
-    const at = scales.findIndex((scale) => scale >= asked.resolution)
-    file = files[at === -1 ? files.length - 1 : at]
-    bytes = host.readFile(file)
+    const { files, scales } = assetRecord(join(data.fileSystemLocation, `${data.name}.${data.type}`), { platform, host: diskHost })
+    // The first scale at least as large as asked, else (-1) the largest.
+    file = files.at(scales.findIndex((scale) => scale >= asked.resolution))
+    bytes = diskHost.readFile(file)
   } catch {
     // Gone since the build.
-    return missing
+    return MISSING
   }
   const headers = { 'Content-Type': TYPES.get(extname(file).slice(1).toLowerCase()) ?? 'application/octet-stream', 'Accept-Ranges': 'bytes' }
   return { status: 200, headers, body: bytes, ...ranged(bytes, range, headers) }
 }
 
 function ranged(bytes, range, headers) {
-  const match = RANGE.exec(range ?? '')
-  if (match === null || (match[1] === '' && match[2] === '')) return {}
+  const [, from, to] = RANGE.exec(range ?? '') ?? []
+  if (!from && !to) return {}
   const size = bytes.length
-  const [start, end] = match[1] === '' ? [Math.max(size - Number(match[2]), 0), size - 1] : [Number(match[1]), match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1)]
+  const [start, end] = from === '' ? [Math.max(size - Number(to), 0), size - 1] : [Number(from), to === '' ? size - 1 : Math.min(Number(to), size - 1)]
   if (start > end || start >= size) return { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` }, body: '' }
   return { status: 206, headers: { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}` }, body: bytes.subarray(start, end + 1) }
 }

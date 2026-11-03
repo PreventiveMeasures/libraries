@@ -1,12 +1,11 @@
-// The server's side of a WebSocket (RFC 6455), for what React Native's dev
-// clients send: small text messages, no extensions, no subprotocols. Frames
-// from a client must be masked; a message is at most MAX_MESSAGE bytes.
+// The server side of a WebSocket (RFC 6455), for what React Native's dev clients send: small
+// text messages, no extensions, no subprotocols. Client frames must be masked.
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-export const MAX_MESSAGE = 1024 * 1024
+const MAX_MESSAGE = 1024 * 1024
 const [CONTINUATION, TEXT, BINARY, CLOSE, PING, PONG] = [0, 1, 2, 8, 9, 10]
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -26,8 +25,8 @@ const frameOf = (opcode, payload) => {
   return Buffer.concat([head, payload])
 }
 
-// Completes the handshake of an upgrade request. -> { request, send(text),
-// close(code) }, or null where it is no WebSocket handshake (answered 400).
+// Completes the handshake of an upgrade request and returns { request, send(text), close(code) },
+// or null if it's no WebSocket handshake (answered 400).
 export function acceptWebSocket(request, socket, head, { onMessage = () => {}, onClose = () => {} } = {}) {
   const key = request.headers['sec-websocket-key']
   if (request.method !== 'GET' || request.headers.upgrade?.toLowerCase() !== 'websocket' || request.headers['sec-websocket-version'] !== '13' || typeof key !== 'string' || Buffer.from(key, 'base64').length !== 16) {
@@ -54,23 +53,22 @@ export function acceptWebSocket(request, socket, head, { onMessage = () => {}, o
     socket.end()
     end()
   }
-  const client = { request, send: (text) => write(TEXT, Buffer.from(text)), close }
-  const reader = frameReader({ onMessage: (text) => onMessage(text, client), ping: (payload) => write(PONG, payload), close })
+  const reader = frameReader(onMessage, (payload) => write(PONG, payload), close)
   socket.on('data', reader)
   socket.on('error', end)
   socket.on('close', end)
   if (head.length > 0) reader(head)
-  return client
+  return { request, send: (text) => write(TEXT, Buffer.from(text)), close }
 }
 
-function frameReader({ onMessage, ping, close: closeSocket }) {
+function frameReader(onMessage, pong, closeSocket) {
   let buffer = Buffer.alloc(0)
   let done = false
   const close = (code) => {
     done = true
     closeSocket(code)
   }
-  // The data frames of a message so far, and its opcode, while it lasts.
+  // The fragmented message being received, if any: its frames, opcode and size.
   let parts = null
   let kind = 0
   let size = 0
@@ -80,10 +78,10 @@ function frameReader({ onMessage, ping, close: closeSocket }) {
     parts.push(payload)
     size += payload.length
     if (size > MAX_MESSAGE) return close(1009)
-    if (!fin) return true
+    if (!fin) return
     const data = Buffer.concat(parts)
     parts = null
-    if (kind !== TEXT) return true
+    if (kind !== TEXT) return
     let text
     try {
       text = utf8.decode(data)
@@ -91,14 +89,12 @@ function frameReader({ onMessage, ping, close: closeSocket }) {
       return close(1007)
     }
     onMessage(text)
-    return true
   }
   const frame = (fin, opcode, payload) => {
     if (opcode === TEXT || opcode === BINARY || opcode === CONTINUATION) return message(fin, opcode, payload)
     if (!fin || payload.length > 125) return close(1002)
-    if (opcode === PING) ping(payload)
-    if (opcode === PING || opcode === PONG) return true
-    return close(opcode === CLOSE ? 1000 : 1002)
+    if (opcode === PING) pong(payload)
+    else if (opcode !== PONG) close(opcode === CLOSE ? 1000 : 1002)
   }
   return (chunk) => {
     if (done) return
@@ -122,7 +118,8 @@ function frameReader({ onMessage, ping, close: closeSocket }) {
       const payload = Buffer.from(buffer.subarray(at + 4, at + 4 + length))
       for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3]
       buffer = buffer.subarray(at + 4 + length)
-      if (frame((first & 0x80) !== 0, first & 0x0f, payload) !== true) return
+      frame((first & 0x80) !== 0, first & 0x0f, payload)
+      if (done) return
     }
   }
 }

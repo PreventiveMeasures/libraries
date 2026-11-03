@@ -1,30 +1,6 @@
-// A React Native dev server, as the app and its tools talk to Metro's (Metro
-// 0.87's Server and HmrServer, @react-native-community/cli-server-api; MIT,
-// Copyright (c) Meta Platforms, Inc. and affiliates). Each request passes
-// the gate first. HTTP:
-//   /status                    packager-status:running
-//   /<entry>.bundle?platform=  the bundle, its sourceMappingURL and sourceURL;
-//                              with &shallow=true, a module of one, as an
-//                              update names it; to a client that takes
-//                              multipart/mixed (the app's), its progress
-//                              first, as Metro's
-//   /<entry>.map?platform=     its source map, its sources as Metro names
-//                              them: absolute, else, with
-//                              sourcePaths=url-server, at
-//   /[metro-project]/<path>    a source, of a file a bundle was built from;
-//                              /[metro-watchFolders]/<n>/<path> too
-//   /assets/<path>?platform=   an asset of a bundle served
-//   POST /symbolicate          LogBox's stack frames, at their sources
-//   /reload                    reload each app
-// and anything else to `middleware` (@react-native/dev-middleware's), if any.
-// WebSockets:
-//   /message                   reload and devMenu, to each app
-//   /hot                       each app's HMRClient: Fast Refresh's updates
-//                              (hotUpdate), and build errors
-//   /network                   each app's network reporter: its requests, for
-//                              React Native DevTools' Network panel (network.js)
-// and `websocketEndpoints`, `ws` servers (dev-middleware's inspector).
-// Nothing runs a command or opens a file a request names.
+// The React Native dev server, answering as Metro 0.87's Server and HmrServer do (MIT, Copyright (c)
+// Meta Platforms, Inc. and affiliates). Every request passes the gate first; dev-middleware gets what
+// isn't ours. Nothing runs a command or opens a file a request names.
 
 import { Buffer } from 'node:buffer'
 import { createServer } from 'node:http'
@@ -32,7 +8,6 @@ import { resolve } from 'node:path'
 
 import { bundleRequest, toNormalUrl } from './bundle-url.js'
 import { createClientLog } from './client-log.js'
-import { diskHost } from './defaults.js'
 import { SAFE_HEADERS } from './gate.js'
 import { hotUpdate } from './hot.js'
 import { createNetworkInspector } from './network.js'
@@ -46,11 +21,12 @@ const MAX_BODY = 1024 * 1024
 const JS = 'application/javascript; charset=UTF-8'
 const JSON_TYPE = 'application/json; charset=UTF-8'
 const TEXT = 'text/plain; charset=UTF-8'
+// RN DevTools fetch source maps and sources from this origin.
+const DEVTOOLS = { 'Access-Control-Allow-Origin': 'devtools://devtools' }
 
-// Metro's error JSON, which the app shows: in its red screen for a bundle,
-// in LogBox from /hot.
+// Metro's error JSON, which the app shows: in its red screen for a bundle, in LogBox from /hot.
 export async function bundlingError(esbuild, errors, projectRoot) {
-  // A path in a namespace of bundle()'s is a path too.
+  // Strip bundle()'s namespace (metro-polyfill:, ...) off a path.
   const at = (location) => ({ filename: resolve(projectRoot, location.file.replace(/^metro-[a-z]+:/u, '')), lineNumber: location.line })
   const located = errors.find(({ location }) => location)
   const message = (await esbuild.formatMessages(errors, { kind: 'error', color: false })).join('').trim()
@@ -62,13 +38,15 @@ export async function bundlingError(esbuild, errors, projectRoot) {
   }
 }
 
-// Which bundle a request is for, as its URL names it.
 const bundleKey = ({ entryFile, platform, dev, minify }) => [entryFile, platform, dev, minify].join('\0')
-const keyOfUrl = (url) => {
+
+// The bundle a URL names, else null.
+const bundleOfUrl = (url) => {
   try {
-    const bundle = URL.canParse(url) ? bundleRequest(new URL(toNormalUrl(url))) : null
-    return bundle === null ? null : bundleKey(bundle)
+    const parsed = URL.parse(url)
+    return parsed === null ? null : bundleRequest(parsed)
   } catch {
+    // A path that doesn't decode.
     return null
   }
 }
@@ -80,141 +58,124 @@ const reply = (request, response, status, body, headers = {}) => {
 }
 const replyJson = (request, response, status, value) => reply(request, response, status, JSON.stringify(value), { 'Content-Type': JSON_TYPE })
 
-function readBody(request) {
-  return new Promise((done, fail) => {
-    const chunks = []
-    let size = 0
-    request.on('data', (chunk) => {
-      size += chunk.length
-      if (size > MAX_BODY) {
-        request.destroy()
-        done(null)
-      } else {
-        chunks.push(chunk)
-      }
-    })
-    request.on('end', () => done(Buffer.concat(chunks).toString('utf8')))
-    request.on('error', fail)
-  })
+// The body as text, or null if larger than MAX_BODY.
+async function readBody(request) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of request) {
+    size += chunk.length
+    if (size > MAX_BODY) {
+      request.destroy()
+      return null
+    }
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
-// -> { server, broadcast(method), hotError(error, requests),
-// hotUpdate(request, before, after, { recovered }), mount({ middleware,
-// websocketEndpoints }), network, clients() }; `network`, the Network
-// panel's (network.js's createNetworkInspector()). `watchFolders`: the
-// Metro config's, the project root the first, as Metro has them. With
-// `clientLogs`, each app's console logged as Metro's terminal prints it
-// (client-log.js), its labels styled by `style` (util.styleText's).
-export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, host = diskHost, log = () => {}, clientLogs = true, style }) {
+// Returns { server, broadcast, hotError, hotUpdate, mount, network }; `network` is network.js's
+// inspector for DevTools' Network panel. `watchFolders` are the Metro config's, project root first.
+// With `clientLogs`, each app's console is logged (client-log.js), its labels styled by `style`.
+export function createDevServer({ projectRoot, watchFolders = [projectRoot], esbuild, devBundler, gate, log = () => {}, clientLogs = true, style }) {
   const sources = sourceRoutes(projectRoot, watchFolders)
-  // Of each app's, as Metro has one, its groups the apps'.
-  const clientLog = clientLogs ? createClientLog(log, style) : null
+  // One client log, and so one group state, for all apps, as in Metro.
+  const hot = createHot(clientLogs ? createClientLog(log, style) : null)
   const network = createNetworkInspector()
+  const rootHeader = new URL(`file:///${projectRoot}`).pathname.slice(1)
   let middleware = null
   let websocketEndpoints = {}
   const messageClients = new Set()
-  // Each HMRClient, and the bundles it is for, as its URL names one and as it
-  // registers them: Map<key, the URL it names it by>.
-  const hotClients = new Map()
+  // Sends `method` (reload, devMenu) to each app; returns how many.
   const broadcast = (method) => {
     const text = JSON.stringify({ version: 2, method })
     for (const client of messageClients) client.send(text)
     return messageClients.size
   }
-  // To each app of a bundle of `requests` that failed so; to one that named none, too.
-  const hotError = (body, requests) => {
-    const text = JSON.stringify({ type: 'error', body })
-    const failed = new Set(requests.map(bundleKey))
-    for (const [client, bundles] of hotClients) {
-      if (bundles.size === 0 || [...bundles.keys()].some((key) => failed.has(key))) client.send(text)
-    }
-  }
-
-  const routes = {
-    '/status': (request, response) => reply(request, response, 200, 'packager-status:running', { 'X-React-Native-Project-Root': new URL(`file:///${projectRoot}`).pathname.slice(1) }),
-    '/reload': (request, response) => {
-      broadcast('reload')
-      reply(request, response, 200, 'OK')
-    },
-    '/symbolicate': (request, response) => serveSymbolicate(request, response, devBundler),
-  }
 
   const handle = (request, response) => {
     for (const [name, value] of Object.entries(SAFE_HEADERS)) response.setHeader(name, value)
+    const answer = (status, body, headers) => reply(request, response, status, body, headers)
+    const notFound = () => answer(404, 'rn-serve: not found\n')
     const refusal = gate(request)
-    if (refusal !== null) return reply(request, response, 403, `rn-serve: refused ${refusal}\n`)
+    if (refusal !== null) return answer(403, `rn-serve: refused ${refusal}\n`)
     request.url = toNormalUrl(request.url)
-    // A path, as clients send: its origin the Host the gate let in, whatever it holds.
-    const url = request.url.startsWith('/') && URL.canParse(`http://${request.headers.host}${request.url}`) ? new URL(`http://${request.headers.host}${request.url}`) : null
-    if (url === null) return reply(request, response, 400, 'rn-serve: bad URL\n')
-    if (Object.hasOwn(routes, url.pathname)) return routes[url.pathname](request, response)
-    const read = request.method === 'GET' || request.method === 'HEAD'
-    // By the path as sent: an asset outside the project root is at
-    // /assets/../, which the URL takes the `..` off.
-    const rawPath = request.url.split('?')[0]
-    if (read && rawPath.startsWith('/assets/')) {
-      const { status, headers, body } = assetResponse(rawPath, { platform: url.searchParams.get('platform'), range: request.headers.range, find: devBundler.asset, host })
-      return reply(request, response, status, body, headers)
+    // Resolved against the Host the gate let in, whatever it holds.
+    const url = request.url.startsWith('/') ? URL.parse(`http://${request.headers.host}${request.url}`) : null
+    if (url === null) return answer(400, 'rn-serve: bad URL\n')
+    if (url.pathname === '/status') return answer(200, 'packager-status:running', { 'X-React-Native-Project-Root': rootHeader })
+    if (url.pathname === '/reload') {
+      broadcast('reload')
+      return answer(200, 'OK')
     }
-    const source = read ? sourceOfRequest(url.pathname, sources) : undefined
-    if (source !== undefined) {
-      const data = source === null ? null : devBundler.sourceFile(source)
-      // RN DevTools may need it, as the source map.
-      return data === null ? reply(request, response, 404, 'rn-serve: not found\n') : reply(request, response, 200, data, { 'Access-Control-Allow-Origin': 'devtools://devtools' })
+    if (url.pathname === '/symbolicate') return serveSymbolicate(request, response, devBundler)
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      // The raw path: URL parsing drops the `..` of /assets/../x, an asset outside the project root.
+      const rawPath = request.url.split('?')[0]
+      if (rawPath.startsWith('/assets/')) {
+        const { status, headers, body } = assetResponse(rawPath, { platform: url.searchParams.get('platform'), range: request.headers.range, find: devBundler.asset })
+        return answer(status, body, headers)
+      }
+      const source = sourceOfRequest(url.pathname, sources)
+      if (source !== undefined) {
+        const data = source === null ? null : devBundler.sourceFile(source)
+        return data === null ? notFound() : answer(200, data, DEVTOOLS)
+      }
+      let bundle
+      try {
+        bundle = bundleRequest(url)
+      } catch {
+        return answer(400, 'rn-serve: bad bundle path\n')
+      }
+      if (bundle !== null) return serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot, sources })
     }
-    let bundle
-    try {
-      bundle = read ? bundleRequest(url) : null
-    } catch {
-      return reply(request, response, 400, 'rn-serve: bad bundle path\n')
-    }
-    if (bundle !== null) return serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot, sources })
-    if (middleware !== null) return middleware(request, response, () => reply(request, response, 404, 'rn-serve: not found\n'))
-    return reply(request, response, 404, 'rn-serve: not found\n')
+    return middleware === null ? notFound() : middleware(request, response, notFound)
   }
 
   const server = createServer((request, response) => {
-    Promise.resolve().then(() => handle(request, response)).catch((error) => {
+    Promise.try(handle, request, response).catch((error) => {
       log(printable(`rn-serve: ${request.method} ${request.url}: ${error?.stack ?? error}`, { colors: false }))
       if (response.headersSent) response.destroy()
       else reply(request, response, 500, 'rn-serve: internal error\n')
     })
   })
-  // A first build may take longer than Node's timeouts.
+  // A first build may take longer than Node's request timeout.
   server.requestTimeout = 0
-  server.timeout = 0
 
   const sockets = {
     '/message': (client) => {
       messageClients.add(client)
       return { onClose: () => messageClients.delete(client) }
     },
-    '/hot': (client) => hotSocket(client, hotClients, { clientLog }),
-    '/network': (client) => network.reporter(client),
+    '/hot': hot.connect,
+    '/network': network.reporter,
   }
   server.on('upgrade', (request, socket, head) => upgrade(request, socket, head, { gate, sockets, endpoints: websocketEndpoints }))
 
-  const mount = (mounted) => {
-    ;({ middleware, websocketEndpoints } = mounted)
+  return {
+    server,
+    broadcast,
+    hotError: hot.error,
+    hotUpdate: hot.update,
+    // dev-middleware's { middleware, websocketEndpoints }.
+    mount(mounted) {
+      ;({ middleware, websocketEndpoints } = mounted)
+    },
+    network,
   }
-  return { server, broadcast, hotError, hotUpdate: (request, before, after, options) => sendUpdate(hotClients, request, before, after, options), mount, network, clients: () => ({ message: messageClients.size, hot: hotClients.size }) }
 }
 
-// Metro's multipart response (its MultipartResponse), to a client that takes
-// one, as the app's loader does: each part's headers, then its body. A part
-// of progress as the build goes ({ done, total, percent }, percent as Metro
-// eases it, a part where it grows), which the app shows as it loads, and
-// again while the build goes quiet, for the app's request not to time out
-// (iOS's after 60 s of nothing); then the bundle, or its error with its
-// status in X-Http-Status, the last. -> null where the client takes none.
+// Metro's multipart response (MultipartResponse), for clients that take one, as the app's loader does:
+// progress parts while building (repeated when quiet, so iOS doesn't time out after 60 s), then the
+// bundle, or its error with the status in X-Http-Status. Null if the client takes none.
 const BOUNDARY = '3beqjf3apnqeu3h5jqorms4i'
 const QUIET = 10_000
 function multipart(request, response) {
   if (request.method !== 'GET' || !/\bmultipart\/mixed\b/iu.test(request.headers.accept ?? '')) return null
   response.writeHead(200, { 'Content-Type': `multipart/mixed; boundary="${BOUNDARY}"` })
   response.write('If you are seeing this, your client does not support multipart response')
+  const open = () => !response.writableEnded && !response.destroyed
   const part = (headers, body) => {
-    if (response.writableEnded || response.destroyed) return
+    if (!open()) return
     response.write(`\r\n--${BOUNDARY}\r\n${Object.entries(headers).map(([name, value]) => `${name}: ${value}`).join('\r\n')}\r\n\r\n`)
     response.write(body)
   }
@@ -223,16 +184,17 @@ function multipart(request, response) {
   const progressed = () => part({ 'Content-Type': 'application/json' }, JSON.stringify(last))
   const quiet = setInterval(() => last !== null && progressed(), QUIET)
   return {
+    // Eased as Metro does; sent when the whole percentage grows.
     progress: (done, total) => {
       const eased = Math.min(Math.max((done / Math.max(total, 10)) ** 2, ratio), 0.999)
       last = { done, total, percent: Math.floor(eased * 100) }
-      if (Math.floor(eased * 100) > Math.floor(ratio * 100)) progressed()
+      if (last.percent > Math.floor(ratio * 100)) progressed()
       ratio = eased
     },
     end: (status, body, headers) => {
       const data = Buffer.from(body)
       part({ ...(status !== 200 && { 'X-Http-Status': status }), ...headers, 'Content-Length': data.length }, data)
-      if (!response.writableEnded && !response.destroyed) response.end(`\r\n--${BOUNDARY}--\r\n`)
+      if (open()) response.end(`\r\n--${BOUNDARY}--\r\n`)
     },
     close: () => clearInterval(quiet),
   }
@@ -241,34 +203,19 @@ function multipart(request, response) {
 async function serveBundle(request, response, bundle, { devBundler, esbuild, projectRoot, sources }) {
   const parts = bundle.kind === 'bundle' ? multipart(request, response) : null
   const send = (status, body, headers) => (parts === null ? reply(request, response, status, body, headers) : parts.end(status, body, headers))
+  const sendJson = (status, value) => send(status, JSON.stringify(value), { 'Content-Type': JSON_TYPE })
   try {
     const outcome = await devBundler.get(bundle, { onProgress: parts?.progress ?? null })
-    if (outcome === null) return send(404, JSON.stringify({ type: 'NotFoundError', message: `rn-serve: the project has no entry ${bundle.entryFile}`, errors: [] }), { 'Content-Type': JSON_TYPE })
-    if (!outcome.ok) return send(500, JSON.stringify(await bundlingError(esbuild, outcome.errors, projectRoot)), { 'Content-Type': JSON_TYPE })
-    // Chrome DevTools may need the source map.
+    if (outcome === null) return sendJson(404, { type: 'NotFoundError', message: `rn-serve: the project has no entry ${bundle.entryFile}`, errors: [] })
+    if (!outcome.ok) return sendJson(500, await bundlingError(esbuild, outcome.errors, projectRoot))
     if (bundle.kind === 'map') {
       const map = servedSourceMap(outcome.map, { projectRoot, routes: sources, urlServer: bundle.sourcePaths === 'url-server', excludeSource: bundle.excludeSource })
-      return reply(request, response, 200, map, { 'Content-Type': JSON_TYPE, 'Access-Control-Allow-Origin': 'devtools://devtools' })
+      return send(200, map, { 'Content-Type': JSON_TYPE, ...DEVTOOLS })
     }
     return send(200, `${outcome.js}//# sourceMappingURL=${bundle.sourceMapUrl}\n//# sourceURL=${bundle.sourceUrl}\n`, { 'Content-Type': JS })
   } finally {
     parts?.close()
   }
-}
-
-// What changed in a bundle, from the build its apps have, to each; with
-// `recovered`, though nothing did, as an app shows a build error until an
-// update. -> how many it went to.
-function sendUpdate(hotClients, request, before, after, { recovered = false } = {}) {
-  const key = bundleKey(request)
-  let sent = 0
-  for (const [client, bundles] of hotClients) {
-    const body = bundles.has(key) ? hotUpdate(before, after, bundles.get(key), { always: recovered }) : null
-    if (body === null) continue
-    for (const message of [{ type: 'update-start', body: { isInitialUpdate: false } }, { type: 'update', body }, { type: 'update-done', body: {} }]) client.send(JSON.stringify(message))
-    sent++
-  }
-  return sent
 }
 
 // A WebSocket the gate lets through: ours, else an endpoint's, else none.
@@ -278,8 +225,9 @@ function upgrade(request, socket, head, { gate, sockets, endpoints }) {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
     return
   }
-  const { pathname } = URL.canParse(request.url, 'http://localhost') ? new URL(request.url, 'http://localhost') : {}
+  const pathname = URL.parse(request.url, 'http://localhost')?.pathname
   if (Object.hasOwn(sockets, pathname)) {
+    // Frames in `head` arrive before the socket's handlers are known.
     const handlers = {}
     const client = acceptWebSocket(request, socket, head, { onMessage: (text) => handlers.onMessage?.(text), onClose: () => handlers.onClose?.() })
     if (client !== null) Object.assign(handlers, sockets[pathname](client))
@@ -290,38 +238,67 @@ function upgrade(request, socket, head, { gate, sockets, endpoints }) {
   }
 }
 
-// An HMRClient, for the bundle its URL names (`?bundleEntry=index.bundle&platform=ios`),
-// on the host it asked, and each it registers.
-function hotSocket(client, hotClients, { clientLog }) {
-  const bundles = new Map()
-  const register = (url) => {
-    const key = typeof url === 'string' ? keyOfUrl(url) : null
-    if (key !== null) bundles.set(key, toNormalUrl(url))
+// Fast Refresh over /hot, as Metro's HmrServer: each HMRClient, with the bundles it registered
+// (bundle key -> the URL it named it by).
+function createHot(clientLog) {
+  const clients = new Map()
+  const sendAll = (client, messages) => {
+    for (const message of messages) client.send(JSON.stringify(message))
   }
-  const query = new URL(client.request.url, 'http://localhost').searchParams
-  register(`http://${client.request.headers.host}/${query.get('bundleEntry') ?? ''}?platform=${encodeURIComponent(query.get('platform') ?? '')}`)
-  hotClients.set(client, bundles)
-  return { onMessage: (text) => onHotMessage(client, text, { clientLog, register }), onClose: () => hotClients.delete(client) }
-}
-
-// HMRClient's messages, as Metro's HmrServer answers them: an initial update
-// of nothing, as the app's bundle is the latest build, which tells it it's
-// connected; its console, logged (`clientLog`, where not null).
-function onHotMessage(client, text, { clientLog, register }) {
-  let data
-  try {
-    data = JSON.parse(text)
-  } catch {
-    return
+  const connect = (client) => {
+    const bundles = new Map()
+    const register = (url) => {
+      if (typeof url !== 'string') return
+      const normal = toNormalUrl(url)
+      const bundle = bundleOfUrl(normal)
+      if (bundle !== null) bundles.set(bundleKey(bundle), normal)
+    }
+    // The bundle its own URL names (?bundleEntry=index.bundle&platform=ios), on the Host it used.
+    const query = new URL(client.request.url, 'http://localhost').searchParams
+    register(`http://${client.request.headers.host}/${query.get('bundleEntry') ?? ''}?platform=${encodeURIComponent(query.get('platform') ?? '')}`)
+    clients.set(client, bundles)
+    const onMessage = (text) => {
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch {
+        return
+      }
+      if (data?.type === 'register-entrypoints') {
+        if (Array.isArray(data.entryPoints)) data.entryPoints.forEach(register)
+        // An empty initial update (the app has the latest build) tells HMRClient it's connected.
+        sendAll(client, [{ type: 'update-start', body: { isInitialUpdate: true } }, { type: 'update-done', body: {} }, { type: 'bundle-registered' }])
+      } else if (data?.type === 'heartbeat') {
+        client.send(text)
+      } else if (data?.type === 'log' && clientLog !== null) {
+        clientLog(data.level, data.mode, data.data)
+      }
+    }
+    return { onMessage, onClose: () => clients.delete(client) }
   }
-  if (data?.type === 'register-entrypoints') {
-    if (Array.isArray(data.entryPoints)) data.entryPoints.forEach(register)
-    for (const message of [{ type: 'update-start', body: { isInitialUpdate: true } }, { type: 'update-done', body: {} }, { type: 'bundle-registered' }]) client.send(JSON.stringify(message))
-  } else if (data?.type === 'heartbeat') {
-    client.send(text)
-  } else if (data?.type === 'log' && clientLog !== null) {
-    clientLog(data.level, data.mode, data.data)
+  // To each app of a bundle among `requests`, and to each that registered none.
+  const error = (body, requests) => {
+    const text = JSON.stringify({ type: 'error', body })
+    const failed = new Set(requests.map(bundleKey))
+    for (const [client, bundles] of clients) {
+      if (bundles.size === 0 || bundles.keys().some((key) => failed.has(key))) client.send(text)
+    }
   }
+  // Sends each app of the bundle what changed; with `recovered`, even if nothing did, since an app
+  // shows a build error until an update. Returns how many apps it went to.
+  const update = (request, before, after, { recovered } = {}) => {
+    const key = bundleKey(request)
+    let sent = 0
+    for (const [client, bundles] of clients) {
+      const url = bundles.get(key)
+      const body = url === undefined ? null : hotUpdate(before, after, url, { always: recovered })
+      if (body === null) continue
+      sendAll(client, [{ type: 'update-start', body: { isInitialUpdate: false } }, { type: 'update', body }, { type: 'update-done', body: {} }])
+      sent++
+    }
+    return sent
+  }
+  return { connect, error, update }
 }
 
 async function serveSymbolicate(request, response, devBundler) {
@@ -336,12 +313,7 @@ async function serveSymbolicate(request, response, devBundler) {
   }
   const maps = new Map()
   for (const file of bundleUrls(stack)) {
-    let bundle = null
-    try {
-      bundle = URL.canParse(file) ? bundleRequest(new URL(file)) : null
-    } catch {
-      // A path that doesn't decode: no bundle of ours.
-    }
+    const bundle = bundleOfUrl(file)
     const outcome = bundle === null ? null : await devBundler.get(bundle)
     if (outcome?.ok) maps.set(file, outcome.index())
   }

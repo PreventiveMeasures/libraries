@@ -1,27 +1,18 @@
-// React Native DevTools opened for each app as it connects (rn-serve's
-// --devtools, rn.config.json's devtools), as `j` opens them: of the app's
-// device, once its runtime lists a page DevTools debugs, unless a DevTools
-// is connected to that device already (one left open as the app relaunched,
-// which dev-middleware connects to it anew). Once of each connection of a
-// device: DevTools closed, they are opened again as the app connects anew.
+// Opens React Native DevTools for each app as it connects (--devtools), as `j` does: once its
+// runtime lists a debuggable page, unless DevTools are already connected to that device (one left
+// open across a relaunch, which dev-middleware reconnects). Once per device connection.
 
-// A page DevTools debug, as dev-middleware's /open-debugger takes them: one
-// that reloads in place (React Native's modern runtime); else, of a runtime
-// before it, one whose title names React, as dev-middleware's Device finds
-// it, of which it makes the page /open-debugger takes ("React Native
-// Experimental (Improved Chrome Reloads)", which no runtime lists itself).
+// What dev-middleware's /open-debugger can debug: a page that reloads in place (the modern runtime),
+// else one whose title names React, from which dev-middleware's Device makes its own page.
 const debuggable = (page) => page?.capabilities?.nativePageReloads === true || (typeof page?.title === 'string' && page.title.includes('React'))
 
-// The device an inspector socket is of, as its URL names it; null where it
-// names none (dev-middleware numbers it then).
-const deviceOf = (request) => (URL.canParse(request.url, 'http://localhost') ? new URL(request.url, 'http://localhost').searchParams.get('device') || null : null)
+// The device an inspector socket's URL names; null if none (dev-middleware numbers it then).
+const deviceOf = (request) => URL.parse(request.url, 'http://localhost')?.searchParams.get('device') || null
 
-// -> { deviceConnected(socket, request), debuggerConnected(socket, request) },
-// listeners of dev-middleware's /inspector/device and /inspector/debug, of
-// each `ws` socket as it connects. `open(device)` opens DevTools of the
-// device (its id; null, the app last connected).
+// Listeners for each `ws` socket of dev-middleware's /inspector/device and /inspector/debug.
+// `open(device)` opens DevTools for the device (null: the app that connected last).
 export function createDevToolsOpener(open) {
-  // Of each device, how many DevTools are connected to it.
+  // How many DevTools are connected to each device.
   const debuggers = new Map()
   return {
     debuggerConnected(socket, request) {
@@ -44,8 +35,7 @@ export function createDevToolsOpener(open) {
         }
         if (message?.event !== 'getPages' || !Array.isArray(message.payload) || !message.payload.some(debuggable)) return
         socket.off('message', listener)
-        // Once dev-middleware has the pages, of this message too, which its
-        // own listener reads after this one.
+        // Wait for dev-middleware's own listener, which runs after ours, to take in the pages.
         setImmediate(() => {
           if (!debuggers.has(device)) open(device)
         })

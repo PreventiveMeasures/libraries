@@ -1,9 +1,6 @@
-// POST /symbolicate as Metro 0.87 answers it for LogBox (Server._symbolicate,
-// Server/symbolicate; MIT, Copyright (c) Meta Platforms, Inc. and
-// affiliates): each frame in a bundle the server built mapped to its source,
-// React Native's own frames collapsed as @react-native/metro-config's
-// symbolicator.customizeFrame collapses them, and a code frame, as
-// @babel/code-frame draws it uncolored, of the first frame left.
+// POST /symbolicate as Metro 0.87 answers LogBox (Server._symbolicate; MIT, Copyright (c) Meta
+// Platforms, Inc. and affiliates): frames mapped to their sources, React Native's own collapsed as
+// @react-native/metro-config's customizeFrame does, and a code frame of the first frame left.
 
 const INTERNAL_CALLSITES = new RegExp([
   '/Libraries/BatchedBridge/MessageQueue\\.js$',
@@ -27,54 +24,44 @@ const INTERNAL_CALLSITES = new RegExp([
   '^\\[native code\\]$',
 ].map((pattern) => pattern.replaceAll('/', '[/\\\\]')).join('|'), 'u')
 const NEWLINE = /\r\n|[\n\r\u2028\u2029]/u
+const FIELDS = [['file', 'string'], ['methodName', 'string'], ['lineNumber', 'number'], ['column', 'number']]
 
-const isNullish = (value) => value === null || value === undefined
-const nullishOr = (type) => (value) => isNullish(value) || typeof value === type
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
-// The stack of a request body, as Metro takes it; throws a TypeError where
-// it takes none. `normalUrl` undoes a JSC-safe URL.
+// The stack of a request body, as Metro validates it; throws a TypeError if bad.
+// `normalUrl` undoes a JSC-safe URL.
 export function stackOf(body, normalUrl) {
-  if (body === null || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.stack)) throw new TypeError(`Bad symbolication input, expected object with stack array, got: ${JSON.stringify(body)}`)
+  if (!isObject(body) || !Array.isArray(body.stack)) throw new TypeError(`Bad symbolication input, expected object with stack array, got: ${JSON.stringify(body)}`)
   return body.stack.map((frame, at) => {
-    const why = frameError(frame)
-    if (why !== null) throw new TypeError(`Bad frame at line ${at}: ${why}`)
+    if (!isObject(frame)) throw new TypeError(`Bad frame at line ${at}: Expected frame to be a JSON object`)
+    const bad = FIELDS.find(([name, type]) => frame[name] != null && typeof frame[name] !== type)
+    if (bad !== undefined) throw new TypeError(`Bad frame at line ${at}: Expected ${bad[0]} to be ${bad[1]} or nullish`)
     return { ...frame, file: typeof frame.file === 'string' && frame.file.includes('://') ? normalUrl(frame.file) : frame.file }
   })
 }
 
-function frameError(frame) {
-  if (frame === null || typeof frame !== 'object' || Array.isArray(frame)) return 'Expected frame to be a JSON object'
-  if (!nullishOr('string')(frame.file)) return 'Expected file to be string or nullish'
-  if (!nullishOr('string')(frame.methodName)) return 'Expected methodName to be string or nullish'
-  if (!nullishOr('number')(frame.lineNumber)) return 'Expected lineNumber to be number or nullish'
-  if (!nullishOr('number')(frame.column)) return 'Expected column to be number or nullish'
-  return null
-}
-
-// The URLs of bundles in a stack.
 export const bundleUrls = (stack) => new Set(stack.map(({ file }) => file).filter((file) => typeof file === 'string' && file.startsWith('http') && !file.endsWith('/debuggerWorker.js')))
 
-// `maps`: Map<url, { originalPositionFor(line1, column0), sources: string[] }>
-// -> { stack, codeFrame } as Metro answers. `readSource(path)` -> the text
-// of a source the server built from, else null.
+// `maps`: Map<bundle URL, { originalPositionFor(line1, column0), sources }>; `readSource(path)`
+// returns the text of a source the server built from, else null.
 export function symbolicate(stack, maps, readSource) {
   const symbolicated = stack.map((frame) => {
     const map = maps.get(frame.file)
-    const position = map === undefined || isNullish(frame.lineNumber) || isNullish(frame.column) ? null : map.originalPositionFor(frame.lineNumber, frame.column)
-    const at = position === null || map.sources[position.source] === undefined ? {} : { file: map.sources[position.source], lineNumber: position.line1, column: position.column0 }
-    const out = { ...frame, ...at }
-    return { ...out, collapse: !isNullish(out.file) && INTERNAL_CALLSITES.test(out.file) }
+    const position = map === undefined || frame.lineNumber == null || frame.column == null ? null : map.originalPositionFor(frame.lineNumber, frame.column)
+    const file = position === null ? undefined : map.sources[position.source]
+    const out = file === undefined ? frame : { ...frame, file, lineNumber: position.line1, column: position.column0 }
+    return { ...out, collapse: out.file != null && INTERNAL_CALLSITES.test(out.file) }
   })
-  return { codeFrame: codeFrame(symbolicated, new Set(maps.keys()), readSource), stack: symbolicated }
+  return { codeFrame: codeFrame(symbolicated, maps, readSource), stack: symbolicated }
 }
 
-function codeFrame(stack, urls, readSource) {
+// Of the first frame not collapsed (any, if all are) in a source we have.
+function codeFrame(stack, maps, readSource) {
   const allCollapsed = stack.every(({ collapse }) => collapse)
   for (const { collapse, column, file, lineNumber } of stack) {
-    if ((!allCollapsed && collapse) || isNullish(lineNumber) || isNullish(file) || urls.has(file)) continue
+    if ((collapse && !allCollapsed) || lineNumber == null || file == null || maps.has(file)) continue
     const source = readSource(file)
-    if (source === null) continue
-    return { content: drawCodeFrame(source, lineNumber, column), location: { row: lineNumber, column }, fileName: file }
+    if (source !== null) return { content: drawCodeFrame(source, lineNumber, column), location: { row: lineNumber, column }, fileName: file }
   }
   return null
 }
@@ -90,7 +77,7 @@ export function drawCodeFrame(source, line1, column0) {
     const gutter = `${String(number).padStart(width)} |`
     const line = text.length > 0 ? ` ${text}` : ''
     if (number !== line1) return ` ${gutter}${line}`
-    const caret = isNullish(column0) ? '' : `\n ${gutter.replaceAll(/\d/gu, ' ')} ${text.slice(0, column0).replaceAll(/[^\t]/gu, ' ')}^`
+    const caret = column0 == null ? '' : `\n ${gutter.replaceAll(/\d/gu, ' ')} ${text.slice(0, column0).replaceAll(/[^\t]/gu, ' ')}^`
     return `>${gutter}${line}${caret}`
   }).join('\n')
 }
