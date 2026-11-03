@@ -39,7 +39,7 @@ describe('createPack', () => {
     const pack = createPack(dir)
     pack.start()
     assert.equal(pack.get(key(1)), null, 'none before it is read')
-    assert.deepEqual(Object.keys(await pack.load()), ['bytes', 'unpacked', 'segments'])
+    await pack.load()
     assert.equal(pack.get(key(1)), 'one')
     await pack.finish()
     pack.start()

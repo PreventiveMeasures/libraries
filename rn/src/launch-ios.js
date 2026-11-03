@@ -13,21 +13,13 @@ const exec = (file, args) => new Promise((done, failed) => {
 
 // The iOS simulators of `xcrun simctl list devices available --json`, newest runtime first.
 export function simulatorsOf(json) {
-  const runtimes = Object.entries(JSON.parse(json).devices ?? {}).flatMap(([runtime, devices]) => {
-    const match = /\.SimRuntime\.iOS-(\d+(?:-\d+)*)$/u.exec(runtime)
-    return match === null ? [] : [{ version: match[1].replaceAll('-', '.'), devices }]
+  const simulators = Object.entries(JSON.parse(json).devices ?? {}).flatMap(([runtime, devices]) => {
+    const version = /\.SimRuntime\.iOS-(\d+(?:-\d+)*)$/u.exec(runtime)?.[1].replaceAll('-', '.')
+    if (version === undefined) return []
+    return devices.filter((device) => device.isAvailable !== false).map(({ udid, name, state, lastBootedAt }) => ({ udid, name, state, version, lastBootedAt: lastBootedAt ?? null }))
   })
-  const newestFirst = (a, b) => {
-    const [x, y] = [a.version.split('.').map(Number), b.version.split('.').map(Number)]
-    for (let i = 0; i < Math.max(x.length, y.length); i++) {
-      const diff = (y[i] ?? 0) - (x[i] ?? 0)
-      if (diff !== 0) return diff
-    }
-    return 0
-  }
-  return runtimes.toSorted(newestFirst).flatMap(({ version, devices }) => devices
-    .filter((device) => device.isAvailable !== false)
-    .map(({ udid, name, state, lastBootedAt }) => ({ udid, name, state, version, lastBootedAt: lastBootedAt ?? null })))
+  // Numeric collation compares each run of digits as a number: 18.10 is newer than 18.6.
+  return simulators.toSorted((a, b) => b.version.localeCompare(a.version, 'en', { numeric: true }))
 }
 
 // The simulator `wanted` names by UDID, name, or as run-ios takes it, name and version ("iPhone 17 (26.0)"),
@@ -67,7 +59,7 @@ async function infoOf(run, appPath, key, format) {
 // Rejects if a step fails, except opening the window, which is only logged.
 export async function launchIos({ appPath, simulator: wanted = null, location, log = () => {}, run = exec, exists = existsSync }) {
   const bundleId = await infoOf(run, appPath, 'CFBundleIdentifier', 'raw')
-  if (typeof bundleId !== 'string') throw new Error(`${appPath} has no CFBundleIdentifier in its Info.plist: it is no app`)
+  if (bundleId === null) throw new Error(`${appPath} has no CFBundleIdentifier in its Info.plist: it is no app`)
   const platforms = await infoOf(run, appPath, 'CFBundleSupportedPlatforms', 'json')
   if (Array.isArray(platforms) && !platforms.includes('iPhoneSimulator')) throw new Error(`${basename(appPath)} is built for ${platforms.join(', ')}, not a simulator: build it for one (xcodebuild -sdk iphonesimulator)`)
   const simulator = chooseSimulator(simulatorsOf(await run('xcrun', ['simctl', 'list', 'devices', 'available', '--json'])), wanted)

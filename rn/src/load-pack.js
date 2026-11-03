@@ -1,19 +1,23 @@
-// A target's pack: its cached loads and module builds (load-cache.js) in a few segment files read
-// whole, since a file per entry cost 25 s on macOS for an app's 27k reads. A segment is zstd frames,
-// each headed by its packed and unpacked u32 LE lengths, of records: 64-hex key, u32 LE length, JSON.
+// rn-serve's cache on disk (load-cache.js's): a pack per target of its loads and module builds, in a few
+// segment files read whole, since a file per entry cost 25 s on macOS for an app's 27k reads; and loose
+// entries, a JSON file each. A segment is zstd frames of records: a 64-hex key, a u32 LE length, JSON.
 
 import { Buffer } from 'node:buffer'
-import { mkdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, utimesSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { constants, zstdCompress, zstdDecompress } from 'node:zlib'
 
 const KEY = 64
+const RECORD_HEAD = KEY + 4
 const SEGMENT = '.pack'
 // Once a run has read this many segments, its last build rewrites them as one.
 const SEGMENTS = 8
-// About this many bytes of records per frame; frames unpack in parallel, off the main thread.
+// About this many bytes of records per frame; frames unpack in parallel, off the main thread. Each is
+// headed by its packed and unpacked u32 LE lengths.
 const CHUNK = 8 * 1024 * 1024
 const HEAD = 8
 // zstd level 3: a fifth of the records' size, as fast to read as raw, and smaller than gzip or
@@ -21,21 +25,16 @@ const HEAD = 8
 const PACKING = { chunkSize: 1024 * 1024, params: { [constants.ZSTD_c_compressionLevel]: 3, [constants.ZSTD_c_checksumFlag]: 1 } }
 const pack = promisify(zstdCompress)
 const unpack = promisify(zstdDecompress)
-let segments = 0
 
 // Yield to the event loop after this many ms of work, so build progress and sockets get a turn:
 // reading cached files does no I/O that would yield on its own.
 const TURN = 20
 let turned = performance.now()
-export const pause = () => {
-  if (performance.now() - turned < TURN) return null
-  return new Promise((done) => {
-    setImmediate(() => {
-      turned = performance.now()
-      done()
-    })
-  })
+const turn = async () => {
+  await nextTurn()
+  turned = performance.now()
 }
+export const pause = () => (performance.now() - turned < TURN ? null : turn())
 
 // Stamps a pack's or entries' directory as used now: load-prune.js removes what no run uses.
 export function touch(dir) {
@@ -47,90 +46,78 @@ export function touch(dir) {
   }
 }
 
-function indexRecords(index, records) {
-  for (let at = 0; at + KEY + 4 <= records.length; ) {
-    const start = at + KEY + 4
-    const end = start + records.readUInt32LE(at + KEY)
-    if (end > records.length) break
-    index.set(records.toString('latin1', at, at + KEY), records.subarray(start, end))
-    at = end
-  }
-}
-
-// Reads every segment in `dir` whole, unpacking its frames in parallel. A truncated segment keeps
-// its whole frames; a frame that fails to unpack (corrupt) is skipped.
-async function segmentsOf(dir) {
+// Reads every segment in `dir` whole, unpacking its frames in parallel: the index of each record by its
+// key, and the names read. A truncated segment keeps its whole frames; a corrupt frame is skipped.
+async function readSegments(dir) {
+  const names = (await readdir(dir).catch(() => [])).filter((name) => name.endsWith(SEGMENT))
   const index = new Map()
   const read = []
-  let bytes = 0
-  let unpacked = 0
-  const names = await readdir(dir).then((all) => all.filter((name) => name.endsWith(SEGMENT)), () => [])
+  const indexed = (records) => {
+    for (let at = 0; at + RECORD_HEAD <= records.length; ) {
+      const end = at + RECORD_HEAD + records.readUInt32LE(at + KEY)
+      if (end > records.length) break
+      index.set(records.toString('latin1', at, at + KEY), records.subarray(at, end))
+      at = end
+    }
+  }
   const each = async (name) => {
     const buffer = await readFile(join(dir, name)).catch(() => null)
     if (buffer === null) return
     read.push(name)
-    bytes += buffer.length
     const frames = []
     for (let at = 0; at + HEAD <= buffer.length; ) {
       const end = at + HEAD + buffer.readUInt32LE(at)
       if (end > buffer.length) break
       // Unpacked into one chunk of its size: zlib's default 16 KB chunks each cost a thread-pool round trip.
-      frames.push(unpack(buffer.subarray(at + HEAD, end), { chunkSize: Math.min(Math.max(buffer.readUInt32LE(at + 4), 64), 8 * CHUNK) }).catch(() => null))
+      const chunkSize = Math.min(Math.max(buffer.readUInt32LE(at + 4), 64), 8 * CHUNK)
+      frames.push(unpack(buffer.subarray(at + HEAD, end), { chunkSize }).then(indexed, () => {}))
       at = end
     }
-    for (const records of await Promise.all(frames)) {
-      if (records === null) continue
-      unpacked += records.length
-      indexRecords(index, records)
-    }
+    await Promise.all(frames)
   }
   await Promise.all(names.map(each))
-  return { index, read, bytes, unpacked }
+  return { index, read }
 }
 
-// Writes `records` ([key, JSON buffer]) as a new segment in `dir`, then removes the segments `gone`.
+// Writes `records` as a new segment in `dir`, aside and then renamed into place, so that a run reading the
+// pack meanwhile sees all of it or none; then removes the segments `gone`.
 async function writeSegment(dir, records, gone) {
-  const name = `${Date.now().toString(36)}-${process.pid}-${segments++}${SEGMENT}`
-  const temporary = join(dir, `${name}.tmp`)
   const chunks = []
-  let parts = []
-  let size = 0
-  for (const [key, value] of records) {
-    const head = Buffer.alloc(KEY + 4)
-    head.write(key, 'latin1')
-    head.writeUInt32LE(value.length, KEY)
-    parts.push(head, value)
-    size += head.length + value.length
+  let size = CHUNK
+  for (const record of records) {
     if (size >= CHUNK) {
-      chunks.push(Buffer.concat(parts, size))
-      parts = []
+      chunks.push([])
       size = 0
     }
+    chunks.at(-1).push(record)
+    size += record.length
   }
-  if (parts.length > 0) chunks.push(Buffer.concat(parts, size))
-  const framed = async (chunk) => {
-    const frame = await pack(chunk, PACKING)
-    const head = Buffer.alloc(HEAD)
-    head.writeUInt32LE(frame.length, 0)
-    head.writeUInt32LE(chunk.length, 4)
-    return [head, frame]
-  }
+  const frames = await Promise.all(
+    chunks.map(async (chunk) => {
+      const joined = Buffer.concat(chunk)
+      const frame = await pack(joined, PACKING)
+      const head = Buffer.alloc(HEAD)
+      head.writeUInt32LE(frame.length, 0)
+      head.writeUInt32LE(joined.length, 4)
+      return [head, frame]
+    }),
+  )
+  const path = join(dir, `${randomUUID()}${SEGMENT}`)
   try {
-    const frames = await Promise.all(chunks.map(framed))
     await mkdir(dir, { recursive: true })
-    await writeFile(temporary, frames.flat())
-    await rename(temporary, join(dir, name))
-    await Promise.all(gone.map((each) => rm(join(dir, each), { force: true })))
-  } catch {
-    await rm(temporary, { force: true }).catch(() => {})
+    await writeFile(`${path}.tmp`, frames.flat())
+    await rename(`${path}.tmp`, path)
+  } finally {
+    await rm(`${path}.tmp`, { force: true })
   }
+  await Promise.all(gone.map((name) => rm(join(dir, name), { force: true })))
 }
 
 // The pack in `dir`. load() reads it whole once; the last build's finish() writes the records set
 // since as a new segment, compacting the records builds asked for into it once SEGMENTS were read,
-// then lets go of what it read, since each file is in memory by then. Failures only cost cache hits.
+// then lets go of what it read, since each file is in memory by then. A failed write only costs hits.
 export function createPack(dir) {
-  let index = null
+  let index = new Map()
   let read = []
   let loading = null
   let done = false
@@ -138,56 +125,48 @@ export function createPack(dir) {
   const asked = new Set()
   const fresh = []
   const load = async () => {
-    if (done) return null
     touch(dir)
-    const { bytes, unpacked, ...found } = await segmentsOf(dir)
-    // Its builds finished while reading.
-    if (done) return null
-    ;({ index, read } = found)
-    return { bytes, unpacked, segments: read.length }
+    const found = await readSegments(dir)
+    // None if its builds finished meanwhile.
+    if (!done) ({ index, read } = found)
   }
   return {
     load: () => (loading ??= load()),
     get: (key) => {
-      const value = index?.get(key)
-      if (value === undefined) return null
-      asked.add(key)
-      try {
-        return JSON.parse(value.toString('utf8'))
-      } catch {
-        return null
-      }
+      const record = index.get(key)
+      if (record === undefined) return null
+      asked.add(record)
+      return JSON.parse(record.toString('utf8', RECORD_HEAD))
     },
     set: (key, value) => {
-      fresh.push([key, Buffer.from(JSON.stringify(value))])
+      const json = Buffer.from(JSON.stringify(value))
+      const head = Buffer.alloc(RECORD_HEAD)
+      head.write(key, 'latin1')
+      head.writeUInt32LE(json.length, KEY)
+      fresh.push(Buffer.concat([head, json]))
     },
     start: () => {
       building++
     },
-    finish: () => {
-      if (--building > 0) return Promise.resolve()
+    finish: async () => {
+      if (--building > 0) return
       touch(dir)
-      let records = fresh.splice(0)
-      let gone = []
-      if (index !== null && read.length >= SEGMENTS) {
-        // concat(), not push(...): an app's records exceed the arguments a call takes.
-        records = [...asked].map((key) => [key, index.get(key)]).concat(records)
-        gone = read
-      }
-      index = null
+      const compacting = read.length >= SEGMENTS
+      const records = [...(compacting ? asked : []), ...fresh.splice(0)]
+      const gone = compacting ? read : []
+      index = new Map()
       read = []
       done = true
       asked.clear()
-      return records.length === 0 && gone.length === 0 ? Promise.resolve() : writeSegment(dir, records, gone)
+      if (records.length > 0 || gone.length > 0) await writeSegment(dir, records, gone)
     },
   }
 }
 
-// Loose entries: one JSON file per key.
-const entryPath = (dir, key) => join(dir, key.slice(0, 2), key.slice(2))
+// A loose entry: a JSON file named by its key.
 export function readEntry(dir, key) {
   try {
-    return JSON.parse(readFileSync(entryPath(dir, key), 'utf8'))
+    return JSON.parse(readFileSync(join(dir, key), 'utf8'))
   } catch {
     return null
   }
@@ -195,15 +174,12 @@ export function readEntry(dir, key) {
 
 // Written aside and renamed into place, since another rn-serve may be reading it.
 export function writeEntry(dir, key, value) {
-  const path = entryPath(dir, key)
-  const written = `${path}.${process.pid}`
+  const written = join(dir, `${key}.${process.pid}`)
   try {
-    mkdirSync(dirname(path), { recursive: true })
+    mkdirSync(dir, { recursive: true })
     writeFileSync(written, JSON.stringify(value))
-    renameSync(written, path)
+    renameSync(written, join(dir, key))
   } catch {
-    try {
-      rmSync(written, { force: true })
-    } catch {}
+    void rm(written, { force: true }).catch(() => {})
   }
 }

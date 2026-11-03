@@ -234,8 +234,8 @@ describe('babelWorkers, asked for a fingerprint', () => {
     assert.match(fingerprint, /^[\da-f]{64}$/u)
     assert.ok(modules.includes(CORE) && modules.includes(join(root, 'mark.cjs')))
     assert.ok(Array.isArray(reads))
-    assert.deepEqual(given, { refresh: null, keepPlugins: false, inlineRequires: null, ...options })
-    await assert.rejects(babelWorkers(CORE, options, null, 1).fingerprint(), /no fingerprint/u)
+    assert.deepEqual(given, { ...options, fingerprint: true })
+    assert.equal(babelWorkers(CORE, options, null, 1).fingerprint, undefined)
   })
 
   it("transforms in band still, but gives a worker's: of what Babel loaded, not of what the main thread has", async () => {

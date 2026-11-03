@@ -7,11 +7,10 @@ import { createContext, runInContext } from 'node:vm'
 import esbuild from 'esbuild'
 
 import { bundleRequest, toJscSafeUrl, toNormalUrl } from '../src/bundle-url.js'
-import { createClientLog } from '../src/client-log.js'
 import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
 import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
-import { printable } from '../src/terminal.js'
+import { createClientLog, printable } from '../src/terminal.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { moduleUrls } from '../src/hot.js'
 import { servedSourceMap, sourceOfRequest, sourceRoutes } from '../src/source-map.js'
@@ -70,7 +69,6 @@ describe('bundle URLs', () => {
       dev: false,
       minify: true,
       shallow: false,
-      modulesOnly: false,
       sourcePaths: 'absolute',
       excludeSource: false,
       sourceUrl: 'http://localhost:8081/index.bundle//&platform=ios&dev=false&minify=1&lazy=true',
@@ -245,11 +243,10 @@ describe('symbolication', () => {
   })
 
   it('takes a stack as Metro does, and refuses what it does not', () => {
-    const normal = (url) => url.replace('//&', '?')
-    assert.deepEqual(stackOf({ stack: [{ file: 'http://h/index.bundle//&platform=ios', lineNumber: 1, column: 2, methodName: 'f' }, {}] }, normal), [{ file: 'http://h/index.bundle?platform=ios', lineNumber: 1, column: 2, methodName: 'f' }, { file: undefined }])
-    assert.throws(() => stackOf({ frames: [] }, normal), /expected object with stack array/u)
-    assert.throws(() => stackOf({ stack: [{ lineNumber: '1' }] }, normal), /Bad frame at line 0: Expected lineNumber to be number or nullish/u)
-    assert.throws(() => stackOf({ stack: [null] }, normal), /Expected frame to be a JSON object/u)
+    assert.deepEqual(stackOf({ stack: [{ file: 'http://h/index.bundle//&platform=ios', lineNumber: 1, column: 2, methodName: 'f' }, {}] }), [{ file: 'http://h/index.bundle?platform=ios', lineNumber: 1, column: 2, methodName: 'f' }, { file: undefined }])
+    assert.throws(() => stackOf({ frames: [] }), /expected object with stack array/u)
+    assert.throws(() => stackOf({ stack: [{ lineNumber: '1' }] }), /Bad frame at line 0: Expected lineNumber to be number or nullish/u)
+    assert.throws(() => stackOf({ stack: [null] }), /Expected frame to be a JSON object/u)
   })
 
   it("collapses React Native's own frames, and frames it has no map of stay", () => {

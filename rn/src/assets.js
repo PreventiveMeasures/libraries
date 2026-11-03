@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { basename, dirname, extname, join, posix } from 'node:path'
 
 import { defaults, diskHost } from './defaults.js'
-import { asBuffer, imageDimensions, isAssetTypeAnImage } from './image-size.js'
+import { imageSize } from './image-size.js'
 
 const DEFAULT_ASSET_EXTS = new Set(defaults.assetExts)
 
@@ -20,17 +20,17 @@ export function isAssetFile(filePath, assetExts = DEFAULT_ASSET_EXTS) {
   return false
 }
 
-const PLATFORM_FILE = /^(.+?)(\.([^.]+))?\.([^.]+)$/u
-const SCALED = /^(.+?)(@([\d.]+)x)?$/u
+const PLATFORM_FILE = /^(.+?)(?:\.([^.]+))?\.([^.]+)$/u
+const SCALED = /^(.+?)(?:@([\d.]+)x)?$/u
 
 // AssetPaths.tryParse: `a@2x.ios.png` is the asset `a.png` at scale 2 for ios; another
 // platform's suffix is part of the name. Null without an extension.
 export function parseAssetPath(filePath, platform = null) {
   const match = PLATFORM_FILE.exec(basename(filePath))
   if (match === null) return null
-  const [, base, , suffix = null, type] = match
+  const [, base, suffix = null, type] = match
   const own = suffix === null || suffix === platform
-  const [, name, , scale] = SCALED.exec(own ? base : `${base}.${suffix}`)
+  const [, name, scale] = SCALED.exec(own ? base : `${base}.${suffix}`)
   const resolution = Number.parseFloat(scale)
   return { assetName: join(dirname(filePath), `${name}.${type}`), name, platform: own ? suffix : null, resolution: Number.isNaN(resolution) ? 1 : resolution, type }
 }
@@ -71,22 +71,18 @@ export function assetData(assetPath, { urlPath, platform = null, publicPath = '/
   if (typeof urlPath !== 'string') throw new TypeError('assetData: urlPath is required')
   const { files, scales } = assetRecord(assetPath, { platform, host })
   const { name, type } = parseAssetPath(assetPath, platform)
-  const contents = files.map((file) => asBuffer(host.readFile(file)))
+  const contents = files.map((file) => host.readFile(file))
   const hash = createHash('md5')
   for (const content of contents) hash.update(content)
-  let dimensions = null
-  if (isAssetTypeAnImage(type)) {
-    if (contents[0].length === 0) throw new Error(`Image asset \`${files[0]}\` cannot be an empty file.`)
-    dimensions = imageDimensions(type, contents[0], files[0])
-  }
+  const size = imageSize(type, contents[0], files[0])
   // Metro keeps a leading `..`, which a join would fold.
   const dir = posix.dirname(urlPath)
   return {
     __packager_asset: true,
     fileSystemLocation: dirname(assetPath),
     httpServerLocation: urlPath.startsWith('..') ? `${publicPath.replace(/\/$/u, '')}/${dir}` : posix.join(publicPath, dir),
-    width: dimensions === null ? undefined : dimensions.width / scales[0],
-    height: dimensions === null ? undefined : dimensions.height / scales[0],
+    width: size === null ? undefined : size.width / scales[0],
+    height: size === null ? undefined : size.height / scales[0],
     scales,
     files,
     hash: hash.digest('hex'),

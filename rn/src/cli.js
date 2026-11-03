@@ -100,13 +100,9 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   // Loaded here only when first needed, after the workers load their own.
   let core = null
   const loadCore = () => (core ??= project.load(corePath))
-  const targets = new Map()
   // In one build files don't change, so .babelrc lookups that find nothing can be skipped.
   const finds = oneBuild && babelRCLookup ? babelrcFinder() : null
-  // A target per inlineRequires too, as Metro caches a file's transform per transform options.
-  return ({ platform, dev, inlineRequires = null }) => {
-    const key = `${platform}\0${dev}\0${JSON.stringify(inlineRequires)}`
-    if (targets.has(key)) return targets.get(key)
+  const targetOf = (platform, dev, inlineRequires) => {
     // Metro's caller. The profile is always named: @react-native/babel-preset 0.87+ takes none
     // as Hermes V1's, which leaves classes.
     const caller = { name: 'metro', bundler: 'metro', platform, inlinePlatform: true, unstable_transformProfile: transformProfile }
@@ -119,10 +115,11 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const timed = profile ? newProfile() : null
     // Inline maps for esbuild, with no sourceRoot, which Metro ignores and esbuild would prefix
     // to every source. Without maps, Babel needn't read input maps.
-    const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
-    const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers, { warm })
+    const maps = sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }
+    const workerOptions = { ...options, compact: false, ...maps, refresh: dev ? refresh : null, keepPlugins, inlineRequires }
+    const babel = babelWorkers(corePath, { ...workerOptions, fingerprint, oneBuild }, timed, maxWorkers, { warm })
     let configKey = null
-    const target = {
+    return {
       profile: timed,
       babel,
       // The config's plugins, then Metro's inline-requires, which the workers run after them.
@@ -138,8 +135,13 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
         configStart: () => configKey?.start(),
       }),
     }
-    targets.set(key, target)
-    return target
+  }
+  // A target per inlineRequires too, as Metro caches a file's transform per transform options.
+  const targets = new Map()
+  return ({ platform, dev, inlineRequires = null }) => {
+    const key = JSON.stringify([platform, dev, inlineRequires])
+    if (!targets.has(key)) targets.set(key, targetOf(platform, dev, inlineRequires))
+    return targets.get(key)
   }
 }
 

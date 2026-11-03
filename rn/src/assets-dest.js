@@ -4,14 +4,13 @@
 
 import { join } from 'node:path'
 
-const IOS_SCALES = new Set([1, 2, 3])
 const DENSITIES = new Map([['0.75', 'ldpi'], ['1', 'mdpi'], ['1.5', 'hdpi'], ['2', 'xhdpi'], ['3', 'xxhdpi'], ['4', 'xxxhdpi']])
 const DRAWABLE_TYPES = new Set(['gif', 'heic', 'heif', 'jpeg', 'jpg', 'ktx', 'png', 'webp', 'xml'])
 const CATALOG_TYPES = new Set(['png', 'jpg', 'jpeg'])
 
 // The indices of the scales iOS takes: 1x to 3x, else the first above, else the largest.
 function iosScales(scales) {
-  const kept = scales.flatMap((scale, index) => (IOS_SCALES.has(scale) ? [index] : []))
+  const kept = [...scales.keys()].filter((index) => [1, 2, 3].includes(scales[index]))
   if (kept.length > 0 || scales.length === 0) return kept
   const above = scales.findIndex((scale) => scale > 3)
   return [above === -1 ? scales.length - 1 : above]
@@ -45,6 +44,7 @@ export function assetDestPath(asset, scale, platform) {
 }
 
 // Each file to copy (a file reached twice goes where it last goes), plus Android's raw/keep.xml.
+// A scale is kept by its value, so each file of a kept scale is copied.
 export function assetsDestFiles(assets, platform) {
   const copies = new Map()
   for (const asset of assets) {
@@ -64,22 +64,19 @@ export function assetsDestFiles(assets, platform) {
 // iOS's png and jpg assets as image sets of an asset catalog, named as on Android, with each
 // set's Contents.json; `rest` are the other assets, for --assets-dest.
 export function assetCatalogFiles(assets) {
-  const files = []
-  const rest = []
-  for (const asset of assets) {
-    if (!CATALOG_TYPES.has(asset.type)) {
-      rest.push(asset)
-      continue
-    }
+  const inCatalog = (asset) => CATALOG_TYPES.has(asset.type)
+  const files = assets.filter(inCatalog).flatMap((asset) => {
     const name = resourceName(asset)
     // A fallback scale outside 1x to 3x is rounded up into that range.
     const images = iosScales(asset.scales).map((index) => {
       const scale = Math.min(3, Math.max(1, Math.ceil(asset.scales[index])))
-      return { scale, src: asset.files[index], filename: scaledName(name, scale, asset.type) }
+      return { src: asset.files[index], filename: scaledName(name, scale, asset.type), scale: `${scale}x` }
     })
-    for (const { src, filename } of images) files.push({ src, dest: join(`${name}.imageset`, filename) })
-    const contents = { images: images.map(({ filename, scale }) => ({ filename, idiom: 'universal', scale: `${scale}x` })), info: { author: 'xcode', version: 1 } }
-    files.push({ dest: join(`${name}.imageset`, 'Contents.json'), contents: JSON.stringify(contents) })
-  }
-  return { files, rest }
+    const contents = { images: images.map(({ filename, scale }) => ({ filename, idiom: 'universal', scale })), info: { author: 'xcode', version: 1 } }
+    return [
+      ...images.map(({ src, filename }) => ({ src, dest: join(`${name}.imageset`, filename) })),
+      { dest: join(`${name}.imageset`, 'Contents.json'), contents: JSON.stringify(contents) },
+    ]
+  })
+  return { files, rest: assets.filter((asset) => !inCatalog(asset)) }
 }

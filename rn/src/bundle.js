@@ -4,29 +4,28 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { assetData, assetModule } from './assets.js'
+import { EMPTY, newState, posixRelative } from './build-host.js'
 import { defaults, diskHost } from './defaults.js'
-import { aliasing } from './babel-aliases.js'
-import { listing, lookingOnce, reading } from './build-host.js'
 import { loadFile } from './load.js'
-import { createMetroResolver } from './resolve.js'
-import { reactNativeOf } from './serializer.js'
+import { GLOBAL } from './serializer.js'
 
 // Syntax Babel leaves, for esbuild to lower.
-const LOWERED = {
-  'class-field': false,
-  'class-private-accessor': false,
-  'class-private-brand-check': false,
-  'class-private-field': false,
-  'class-private-method': false,
-  'class-private-static-accessor': false,
-  'class-private-static-field': false,
-  'class-private-static-method': false,
-  'class-static-blocks': false,
-  'class-static-field': false,
-  'import-attributes': false,
-  using: false,
-}
+const LOWERED = Object.fromEntries(
+  [
+    'class-field',
+    'class-private-accessor',
+    'class-private-brand-check',
+    'class-private-field',
+    'class-private-method',
+    'class-private-static-accessor',
+    'class-private-static-field',
+    'class-private-static-method',
+    'class-static-blocks',
+    'class-static-field',
+    'import-attributes',
+    'using',
+  ].map((name) => [name, false]),
+)
 // Babel's output of a TS file is JS, which esbuild still loads as TS: keep each import, define fields.
 const TS_AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
 // Fails on bytes that aren't UTF-8 instead of decoding them to U+FFFD.
@@ -37,10 +36,6 @@ export const ANY = /.*/
 const MAIN = 'metro-main'
 const POLYFILL = 'metro-polyfill:'
 const ENTRY = 'metro-entry:'
-// The global object, as Metro passes it to a polyfill.
-export const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this"
-
-export const posixRelative = (from, to) => relative(from, to).replaceAll('\\', '/')
 
 // A file's text, or null where it isn't UTF-8.
 export function utf8(bytes) {
@@ -52,41 +47,74 @@ export function utf8(bytes) {
 }
 
 // esbuild's `supported`: where Babel lowers let and const (lowersLetOf()), esbuild must add none.
-export const supportedOf = (babel, lowersLet) => (babel == null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) })
+export const supportedOf = (babel, lowersLet) => (babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) })
+
+// The options of bundle(), createBundler() and createModuleBundler(), with their defaults. `esm` is false, or
+// the Set of files left CommonJS (`commonJs`, kept across builds); the rest are ES modules esbuild links.
+export function withDefaults(options) {
+  const given = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined))
+  return {
+    host: diskHost,
+    stripFlow: null,
+    // (source, path, without) => the project's Babel output; async (path) => a Map of its config's plugins
+    // for a file to their options; with keepPlugins, those that have nothing to do kept (load.js).
+    babel: null,
+    babelPlugins: null,
+    keepPlugins: false,
+    // (file, specifier) => the specifier an alias rewrites it to, or null.
+    aliases: null,
+    // Metro's transformer.assetRegistryPath and serializer.getModulesRunBeforeMainModule, the project's
+    // react-native's where null; serializer.getPolyfills, paths of scripts to run first.
+    assetRegistryPath: null,
+    runBeforeMain: null,
+    polyfills: [],
+    // Metro's resolver options, and its blockList: RegExps of files Metro doesn't see.
+    assetExts: defaults.assetExts,
+    resolver: {},
+    blockList: null,
+    // The bundle's.
+    define: {},
+    minify: false,
+    sourcemap: false,
+    prelude: null,
+    // Map<path, { contents, result }>: each file as last loaded, reused while its contents are the same;
+    // and load-cache.js's store of loaded files, on disk across runs.
+    cache: null,
+    store: null,
+    ...given,
+    esm: given.esm === true ? (given.commonJs ?? new Set()) : false,
+  }
+}
 
 // The result's `files` are those the build read or looked for.
 export async function bundle(options) {
-  const lowersLet = await lowersLetOf(options)
-  const esm = options.esm === true ? new Set() : false
-  // With `esm`, files loaded are kept for linking()'s rebuilds.
-  const run = { ...options, esm, cache: options.cache ?? (esm === false ? null : new Map()) }
+  const run = withDefaults(options)
+  // With `esm`, files loaded are kept for linking()'s builds again.
+  if (run.esm !== false) run.cache ??= new Map()
+  const lowersLet = await lowersLetOf(run)
   return linking(run, async () => {
-    // A graph per build, made first to know what runs before the entry.
-    const graph = metroGraph(run, { reuseFirst: true })
-    const main = graph.before().length > 0 || (options.polyfills?.length ?? 0) > 0
-    return graph.result(await options.esbuild.build(buildOptions(options, graph, { main, lowersLet })))
+    // Its state made first, to know what runs before the entry: through a main module only where something does.
+    const state = newState(run)
+    const graph = metroGraph(run, state)
+    const main = run.polyfills.length > 0 || state.before.length > 0
+    return graph.result(await run.esbuild.build(buildOptions(run, graph.plugin, main, lowersLet)))
   })
 }
 
 // bundle() on one esbuild context: each rebuild resolves and reads every file anew, but `cache`'s.
-// With `esm`, `commonJs` is the Set of files left CommonJS, kept across rebuilds as `cache` is.
 export async function createBundler(options) {
-  const esm = options.esm === true ? (options.commonJs ?? new Set()) : false
-  const run = { ...options, esm }
-  const graph = metroGraph(run, { reuseFirst: false })
-  const lowersLet = await lowersLetOf(options).catch(() => false)
+  const run = withDefaults(options)
+  const graph = metroGraph(run)
+  const lowersLet = await lowersLetOf(run).catch(() => false)
   // Always through the main module, as what runs before the entry may change.
-  const context = await options.esbuild.context(buildOptions(options, graph, { main: true, lowersLet }))
+  const context = await run.esbuild.context(buildOptions(run, graph.plugin, true, lowersLet))
   return {
     // Throws as esbuild does, with the error's `files` those the build read or looked for.
-    rebuild: async (onProgress = null) => {
-      graph.progress.on = onProgress
-      try {
-        return await linking(run, async () => graph.result(await context.rebuild()))
-      } catch (error) {
-        if (error !== null && typeof error === 'object') error.files = graph.files()
-        throw error
-      }
+    rebuild: (onProgress = null) => {
+      graph.onProgress = onProgress
+      return linking(run, async () => graph.result(await context.rebuild())).catch((error) => {
+        throw Object.assign(error, { files: graph.files() })
+      })
     },
     dispose: () => context.dispose(),
   }
@@ -95,7 +123,7 @@ export async function createBundler(options) {
 // Builds until esbuild links. With `esm`, a file it finds no matching export in is left CommonJS
 // (the import undefined, as in Metro), with a warning, and the build is made again.
 const FILE = new Set(['', 'file'])
-async function linking({ esm, cache = null, projectRoot = process.cwd() }, build) {
+async function linking({ esm, cache, projectRoot }, build) {
   const warnings = []
   for (;;) {
     try {
@@ -133,7 +161,7 @@ const realSources = (file) => {
 // Whether the entry's Babel config lowers let and const, as @react-native/babel-preset does for Hermes
 // (whose don't bind per loop iteration). esbuild then adds none, its helpers having closures in
 // `for (let ...)` loops, and fails on any left. Kept in `store` where given, sparing a later run the config.
-export async function lowersLetOf({ babel = null, babelPlugins = null, host = diskHost, projectRoot = process.cwd(), entry, store = null }) {
+export async function lowersLetOf({ babel, babelPlugins, host = diskHost, projectRoot, entry, store }) {
   if (babel === null) return false
   const path = host.realpath(resolve(projectRoot, entry))
   const lowers = async () => (await babelPlugins?.(path))?.has('transform-block-scoping') === true
@@ -142,20 +170,20 @@ export async function lowersLetOf({ babel = null, babelPlugins = null, host = di
 
 // keepNames: with `esm`, esbuild joins the ES modules in one scope, renaming clashes (`Text3`) and so
 // their functions' `name`, which React shows; Babel's CommonJS keeps it. Not when minifying, as in Metro.
-function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}, minify = false, babel = null, prelude = null, sourcemap = false, esm = false }, { plugin }, { main, lowersLet }) {
+function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prelude, sourcemap, esm }, plugin, main, lowersLet) {
   return {
     entryPoints: [main ? MAIN : entry],
     absWorkingDir: projectRoot,
+    outfile: resolve(projectRoot, outfile),
     bundle: true,
     write: false,
-    outfile: resolve(projectRoot, outfile),
     format: 'iife',
     platform: 'neutral',
+    logLevel: 'silent',
     define,
     minify,
-    ...(esm === true && !minify && { keepNames: true }),
+    ...(esm !== false && !minify && { keepNames: true }),
     supported: supportedOf(babel, lowersLet),
-    logLevel: 'silent',
     plugins: [plugin],
     ...(babel !== null && { tsconfigRaw: TS_AS_JS }),
     ...(prelude !== null && { banner: { js: prelude } }),
@@ -163,198 +191,102 @@ function buildOptions({ entry, outfile, projectRoot = process.cwd(), define = {}
   }
 }
 
-function metroGraph({
-  entry,
-  platform,
-  esbuild,
-  host = diskHost,
-  projectRoot = process.cwd(),
-  stripFlow = null,
-  // (source, path, without) => the project's Babel output (load.js).
-  babel = null,
-  // false, or the Set of files left CommonJS; the rest are ES modules esbuild links (load.js).
-  esm = false,
-  // Keep the config's plugins that have nothing to do (load.js).
-  keepPlugins = false,
-  // async (path) => a Map of the Babel config's plugins for a file to their options (load.js).
-  babelPlugins = null,
-  // (file, specifier) => the specifier an alias rewrites it to, or null.
-  aliases = null,
-  // Metro's transformer.assetRegistryPath; the project's react-native's where null.
-  assetRegistryPath = null,
-  assetExts = defaults.assetExts,
-  // Metro's other resolver options, and its blockList: RegExps of files Metro doesn't see.
-  resolver = {},
-  blockList = null,
-  // Metro's serializer.getPolyfills: paths of scripts to run first.
-  polyfills = [],
-  // Metro's serializer.getModulesRunBeforeMainModule; the project's react-native's where null.
-  runBeforeMain = null,
-  sourcemap = false,
-  // Map<path, { contents, result }>: each file as last loaded, reused while its contents are the same.
-  cache = null,
-  // load-cache.js's store of loaded files, on disk across runs.
-  store = null,
-}, { reuseFirst }) {
-  const options = { esbuild, projectRoot, stripFlow, babel, babelPlugins, sourcemap, esm, keepPlugins, store }
+// The plugin resolving each import as Metro does, loading only the files Metro resolves. Each build makes
+// its state as it starts, but the first where it is given; graph.onProgress(loaded, resolved) follows it.
+function metroGraph(run, first = null) {
+  const { host, projectRoot, entry, polyfills } = run
+  let next = first
   let state = null
-  let ahead = null
-  const progress = { loaded: 0, on: null }
-  const fresh = () => {
-    ahead = readingAhead(host)
-    newState({ host, assetExts, resolver, blockList, projectRoot, entry, platform }, (made) => {
-      state = made
-    })
-  }
-  // bundle() makes its state before the build, createBundler() as each build starts.
-  if (reuseFirst) fresh()
-  const before = () => runBeforeMain ?? state.reactNative.runBeforeMain
-  const load = (path) => loadCached(options, ahead.hostOf(path, state.read), cache, path)
-  // Only files Metro resolved may load.
+  let read = new Set()
+  // Each file Metro resolved, which alone may load: read off the main thread where the host can, while Babel
+  // transforms those before it. A read that failed is made again as it loads, failing as the host does.
+  let resolved = new Map()
+  let loaded = 0
   const file = (path) => {
-    state.resolved.add(path)
-    ahead.start(path)
+    if (!resolved.has(path)) resolved.set(path, host.readFileAsync?.(path).catch(() => null))
     return { path: esbuildPath(path) }
   }
-  const plugin = {
-    name: 'metro-graph',
-    setup(build) {
-      let reuse = reuseFirst
-      build.onStart(() => {
-        if (!reuse) fresh()
-        reuse = false
-        progress.loaded = 0
-      })
-      build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace, pluginData }) => {
-        const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
-        if (kind === 'entry-point') {
-          // Noted before it is found, so that a watcher sees a missing (deleted) entry made.
-          const path = resolve(projectRoot, specifier === MAIN ? entry : specifier)
-          state.read.add(path)
-          return specifier === MAIN ? named(projectRoot, host.realpath(path), MAIN) : file(host.realpath(path))
-        }
-        if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
-        if (namespace === MAIN && specifier === ENTRY) return file(importer)
-        const resolution = resolveImport(state, { importer, specifier, kind, aliases, platform, imports: pluginData?.imports, mapped: pluginData?.aliases })
-        // Left to esbuild, which can't resolve it either: an error, but in a try block, where it is
-        // an optional dependency, as Metro takes one, which fails at run time.
-        if (resolution === null) return undefined
-        if (resolution.type === 'empty') return { path: 'empty', namespace: 'metro-empty' }
-        // Metro builds an asset into the module of its lowest path.
-        if (resolution.type === 'assetFiles') return named(projectRoot, resolution.filePaths.toSorted()[0], 'metro-asset')
-        return file(resolution.filePath)
-      })
-      build.onLoad({ filter: ANY, namespace: 'file' }, ({ path }) => loadResolved({ state, projectRoot, load, progress }, realPath(path)))
-      build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
-        const asset = resolve(projectRoot, path)
-        return { contents: assetSource(state, asset, { urlPath: path, platform, host, assetRegistryPath }), loader: 'js', resolveDir: dirname(asset) }
-      })
-      build.onLoad({ filter: ANY, namespace: 'metro-empty' }, () => ({ contents: '', loader: 'js' }))
-      serializer(build, { polyfills, before, projectRoot, load })
-    },
+  const load = async (path) => {
+    const bytes = resolved.get(path)
+    if (bytes !== undefined) resolved.set(path, undefined)
+    read.add(path)
+    return loadCached(run, path, (await bytes) ?? host.readFile(path))
   }
-  const result = ({ outputFiles, warnings }) => ({ outputFiles: outputFiles.map(realSources), warnings, assets: assetsOf(state), graph: state.graph, files: [...state.read] })
-  return { plugin, result, before, files: () => [...(state?.read ?? [])], progress }
-}
-
-// Reads each file resolved off the main thread where the host can, while Babel transforms those before it.
-// A failed read is retried by loadCached(), failing as the host does.
-function readingAhead(host) {
-  const ahead = new Map()
-  return {
-    start(path) {
-      if (host.readFileAsync !== undefined && !ahead.has(path)) ahead.set(path, host.readFileAsync(path).catch(() => null))
-    },
-    // The host to load `path` by, noting what it reads in `read`.
-    hostOf(path, read) {
-      const bytes = ahead.get(path)
-      // Kept as a key, so that a path resolved again once loaded isn't read again.
-      ahead.set(path, undefined)
-      const readAhead = () => {
+  const setup = (build) => {
+    build.onStart(() => {
+      resolved = new Map()
+      loaded = 0
+      read = next?.read ?? new Set()
+      // Taken as soon as it is made: where finding react-native's modules then fails, the build goes on with it.
+      state = next ?? newState(run, read, (made) => (state = made))
+      next = null
+    })
+    build.onResolve({ filter: ANY }, ({ path: specifier, importer: from, kind, namespace, pluginData }) => {
+      if (kind === 'entry-point') {
+        // Noted before it is found, so that a watcher sees a missing (deleted) entry made.
+        const path = resolve(projectRoot, entry)
         read.add(path)
-        return bytes
+        return specifier === MAIN ? named(projectRoot, host.realpath(path), MAIN) : file(host.realpath(path))
       }
-      return { ...reading(host, read), ...(bytes !== undefined && { readAhead }) }
-    },
+      const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
+      if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
+      if (namespace === MAIN && specifier === ENTRY) return file(importer)
+      const found = state.resolveImport(importer, specifier, kind, pluginData)
+      // Left to esbuild, which can't resolve it either: an error, but in a try block, where it is
+      // an optional dependency, as Metro takes one, which fails at run time.
+      if (found === null) return undefined
+      if (found.kind === 'empty') return { path: 'empty', namespace: EMPTY }
+      return found.kind === 'asset' ? named(projectRoot, found.key, 'metro-asset') : file(found.key)
+    })
+    build.onLoad({ filter: ANY, namespace: 'file' }, async ({ path: esbuilt }) => {
+      const path = realPath(esbuilt)
+      if (!resolved.has(path)) return { errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }
+      try {
+        return await load(path)
+      } finally {
+        graph.onProgress?.(++loaded, resolved.size)
+      }
+    })
+    build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
+      const asset = resolve(projectRoot, path)
+      return { contents: state.assetSource(asset), loader: 'js', resolveDir: dirname(asset) }
+    })
+    build.onLoad({ filter: ANY, namespace: EMPTY }, () => ({ contents: '', loader: 'js' }))
+    // The main module, and each polyfill, loaded as any file and run as a script.
+    build.onLoad({ filter: ANY, namespace: MAIN }, () => {
+      const specifiers = [...polyfills.map((path) => POLYFILL + path), ...state.before, ENTRY]
+      return { contents: specifiers.map((specifier) => `import ${JSON.stringify(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
+    })
+    build.onLoad({ filter: ANY, namespace: 'metro-polyfill' }, async ({ path }) => {
+      const polyfill = resolve(projectRoot, path)
+      const source = await load(polyfill)
+      if (source.errors !== undefined) return source
+      // Opened on its first line, so that its lines stay where they are.
+      return { ...source, contents: `(function (global) {${source.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(polyfill) }
+    })
   }
-}
-
-// Loads a file Metro resolved, telling the progress of those loaded of those resolved.
-async function loadResolved({ state, projectRoot, load, progress }, path) {
-  if (!state.resolved.has(path)) return { errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }
-  try {
-    return await load(path)
-  } finally {
-    progress.on?.(++progress.loaded, state.resolved.size)
+  const graph = {
+    onProgress: null,
+    plugin: { name: 'metro-graph', setup },
+    result: ({ outputFiles, warnings }) => ({ outputFiles: outputFiles.map(realSources), warnings, assets: state.assets(), graph: state.graph, files: [...read] }),
+    files: () => [...read],
   }
-}
-
-// The main module, and each polyfill, loaded as any file and run as a script.
-function serializer(build, { polyfills, before, projectRoot, load }) {
-  build.onLoad({ filter: ANY, namespace: MAIN }, () => {
-    const specifiers = [...polyfills.map((path) => POLYFILL + path), ...before(), ENTRY]
-    return { contents: specifiers.map((specifier) => `import ${JSON.stringify(specifier)}\n`).join(''), loader: 'js', resolveDir: projectRoot }
-  })
-  build.onLoad({ filter: ANY, namespace: 'metro-polyfill' }, async ({ path }) => {
-    const file = resolve(projectRoot, path)
-    const loaded = await load(file)
-    if (loaded.errors !== undefined) return loaded
-    // Opened on its first line, so that its lines stay where they are.
-    return { ...loaded, contents: `(function (global) {${loaded.contents}\n})(${GLOBAL});\n`, resolveDir: dirname(file) }
-  })
-}
-
-// An asset's module, as Metro builds it. The files it reads are noted even if that fails (an empty image).
-export function assetSource(state, path, { urlPath, platform, host, assetRegistryPath }) {
-  const data = assetData(path, { urlPath, platform, host: reading(host, state.read) })
-  state.assets.set(path, data)
-  return assetModule(data, assetRegistryPath ?? state.reactNative.assetRegistryPath)
-}
-
-export const assetsOf = (state) => [...state.assets.keys()].toSorted().map((path) => state.assets.get(path))
-
-// Resolves an import of `importer`'s as Metro does, recording it in the state's graph; null where nothing.
-// `imports`: the specifiers of the file's ES imports, which a require call Babel made of one resolves as.
-// `mapped`: module-resolver's aliases Babel left (load.js), mapped as it maps them; else `aliases`.
-export function resolveImport(state, { importer, specifier, kind, aliases, platform, imports = [], mapped = null }) {
-  const isESMImport = kind === 'import-statement' || kind === 'dynamic-import' || (kind === 'require-call' && imports.includes(specifier))
-  const map = mapped === null ? aliases : aliasing(mapped)
-  const resolution = state.resolveModule(importer, map?.(importer, specifier) ?? specifier, { platform, isESMImport })
-  if (!state.graph.has(importer)) state.graph.set(importer, new Map())
-  state.graph.get(importer).set(specifier, resolution)
-  return resolution
-}
-
-// A build's state, with a resolver that reads each package.json anew and notes each file it reads.
-// Published before react-native's modules to run first are looked up, so the files read when that
-// fails (a manifest of no JSON) are among the build's.
-export function newState({ host, assetExts, resolver = {}, blockList = null, projectRoot, entry, platform }, publish) {
-  const read = new Set()
-  const resolveModule = metroResolverOf({ host: lookingOnce(reading(listing(host), read)), assetExts, resolver, blockList })
-  const made = { resolveModule, reactNative: { runBeforeMain: [] }, graph: new Map(), assets: new Map(), resolved: new Set(), read }
-  publish(made)
-  publish({ ...made, reactNative: reactNativeOf(resolveModule, host, resolve(projectRoot, entry), platform) })
-}
-
-// Metro's resolver over the host, seeing no file `blockList` matches, as Metro's file map has none.
-export function metroResolverOf({ host, assetExts, resolver = {}, blockList = null }) {
-  const seen = blockList === null ? host : { ...host, isFile: (path) => !blockList.some((pattern) => pattern.test(path)) && host.isFile(path) }
-  return createMetroResolver({ ...resolver, host: seen, assetExts })
+  return graph
 }
 
 // A path in one of this plugin's namespaces, which esbuild prints as is (in comments and module names):
 // relative to the project, as esbuild prints a file's, so the bundle doesn't depend on where it is.
 const named = (projectRoot, path, namespace) => ({ path: posixRelative(projectRoot, path), namespace })
 
-// Loads a file with loadFile(): from `cache` while its contents are the same, else from options.store
-// (load-cache.js's) by the options that shape it, kept there unless it failed or Babel said `uncacheable`.
-// Its bytes are host.readAhead()'s where it has one. A file that isn't UTF-8 fails to load.
-export async function loadCached(options, host, cache, path) {
-  const contents = utf8((await host.readAhead?.()) ?? host.readFile(path))
-  if (contents === null) return { errors: [{ text: 'Not UTF-8: the file has bytes UTF-8 has no character of', location: { file: posixRelative(options.projectRoot ?? process.cwd(), path) } }] }
-  const { store = null, esm = false } = options
+// Loads a file of these bytes with loadFile(): from options.cache while its contents are the same, else from
+// options.store (load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
+// `uncacheable`. A file that isn't UTF-8 fails to load.
+export async function loadCached(options, path, bytes) {
+  const contents = utf8(bytes)
+  if (contents === null) return { errors: [{ text: 'Not UTF-8: the file has bytes UTF-8 has no character of', location: { file: posixRelative(options.projectRoot, path) } }] }
+  const { cache = null, store = null, esm = false } = options
   const hit = cache?.get(path)
-  if (hit !== undefined && hit.contents === contents) {
+  if (hit?.contents === contents) {
     store?.note('memory')
     return hit.result
   }
@@ -368,6 +300,6 @@ export async function loadCached(options, host, cache, path) {
     if (unkept === null) store.set(key, result)
     else store.note('unkept', unkept)
   }
-  if (cache !== null && result.errors === undefined) cache.set(path, { contents, result })
+  if (result.errors === undefined) cache?.set(path, { contents, result })
   return result
 }

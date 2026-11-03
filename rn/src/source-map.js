@@ -12,13 +12,14 @@ const THIRD_PARTY = /(?:^|[/\\])node_modules[/\\]/u
 // other namespaced sources (the main module) are kept as they are.
 function remapped(text, { outDir, projectRoot, excludeSource = false }, sourceOf) {
   const map = JSON.parse(text)
-  const paths = map.sources.map((source) => {
+  const ignored = []
+  const sources = map.sources.map((source, i) => {
     const namespaced = NAMESPACED.exec(source)
-    if (namespaced === null) return resolve(outDir, source)
-    return namespaced[1] === 'polyfill' || namespaced[1] === 'asset' ? resolve(projectRoot, namespaced[2]) : null
+    if (namespaced !== null && namespaced[1] !== 'polyfill' && namespaced[1] !== 'asset') return source
+    const path = namespaced === null ? resolve(outDir, source) : resolve(projectRoot, namespaced[2])
+    if (THIRD_PARTY.test(path)) ignored.push(i)
+    return sourceOf(path)
   })
-  const sources = paths.map((path, i) => (path === null ? map.sources[i] : sourceOf(path)))
-  const ignored = paths.flatMap((path, i) => (path !== null && THIRD_PARTY.test(path) ? [i] : []))
   return JSON.stringify({ version: map.version, sources, ...(!excludeSource && { sourcesContent: map.sourcesContent }), names: map.names, mappings: map.mappings, ...(ignored.length > 0 && { x_google_ignoreList: ignored }) })
 }
 

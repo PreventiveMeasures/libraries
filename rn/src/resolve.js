@@ -101,8 +101,8 @@ function resolveRequest(context, specifier) {
   const name = parts.slice(0, bare.startsWith('@') && parts.length > 1 ? 2 : 1).join('/')
   const subpath = `.${bare.slice(name.length)}`
   // A package importing itself by name.
-  if (context.packageExports && own?.packageJson.exports != null && own.packageJson.name === name) {
-    const hit = packageTarget(context, own.rootPath, exportsTarget(own.packageJson.exports, subpath, context.conditions))
+  if (own?.packageJson.name === name) {
+    const hit = fromExports(context, own, subpath)
     if (hit !== null) return hit
   }
   for (const nodeModules of nodeModulesDirs(context)) {
@@ -133,12 +133,13 @@ function fromTargetPath(context, targetPath) {
   const candidate = redirect(context, targetPath)
   if (candidate === false) return EMPTY
   const pkg = packageOf(context, candidate)
-  if (context.packageExports && pkg?.packageJson.exports != null) {
-    const subpath = pkg.packageRelativePath === '' ? '.' : `./${pkg.packageRelativePath}`
-    const hit = packageTarget(context, pkg.rootPath, exportsTarget(pkg.packageJson.exports, subpath, context.conditions))
-    if (hit !== null) return hit
-  }
-  return resolveModulePath(context, candidate)
+  return fromExports(context, pkg, pkg?.packageRelativePath ? `./${pkg.packageRelativePath}` : '.') ?? resolveModulePath(context, candidate)
+}
+
+// The package's exports target of `subpath`, where exports are read, else null.
+function fromExports(context, pkg, subpath) {
+  if (!context.packageExports || pkg?.packageJson.exports == null) return null
+  return packageTarget(context, pkg.rootPath, exportsTarget(pkg.packageJson.exports, subpath, context.conditions))
 }
 
 // A package map's target is taken as is: no extension or index is probed.
@@ -230,11 +231,10 @@ function packageOf(context, path) {
 // false for an empty module, or null for none.
 function match({ mainFields, redirects }, subpaths, pkg) {
   const map = memo(redirects, pkg, () => {
-    let merged = null
+    const merged = new Map()
     for (const field of mainFields.toReversed()) {
       const value = pkg[field]
       if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
-      merged ??= new Map()
       for (const [key, to] of Object.entries(value)) {
         if (typeof to === 'string' || to === false) merged.set(key, to)
         else merged.delete(key)
@@ -242,29 +242,21 @@ function match({ mainFields, redirects }, subpaths, pkg) {
     }
     return merged
   })
-  const key = subpaths.find((subpath) => map?.has(subpath))
-  return key === undefined ? null : map.get(key)
-}
-
-// A string redirect is relative to the package root, even where it names another package.
-function redirectedTo(to, rootPath, path) {
-  if (typeof to !== 'string') return to ?? path
-  return isAbsolute(to) ? normalize(to) : join(rootPath, to)
+  return map.get(subpaths.find((subpath) => map.has(subpath))) ?? null
 }
 
 // metro-resolver's redirectModulePath: an absolute path by its package's map; a relative path or
-// a name by the origin package's.
-function redirectModulePath(context, modulePath) {
-  if (isAbsolute(modulePath)) return redirect(context, modulePath)
-  const own = packageOf(context, context.origin)
-  if (own === null) return modulePath
-  if (!modulePath.startsWith('.')) return match(context, variants(modulePath), own.packageJson) ?? modulePath
-  return redirectedTo(match(context, variants(`./${toPosix(join(dirname(own.packageRelativePath), modulePath))}`), own.packageJson), own.rootPath, modulePath)
-}
-
-function redirect(context, path) {
-  const pkg = packageOf(context, path)
-  return pkg === null ? path : redirectedTo(match(context, variants(`./${pkg.packageRelativePath}`), pkg.packageJson), pkg.rootPath, path)
+// a name by the origin package's. A string redirect of a path is relative to the package root,
+// even where it names another package.
+function redirect(context, modulePath) {
+  const absolute = isAbsolute(modulePath)
+  const pkg = packageOf(context, absolute ? modulePath : context.origin)
+  if (pkg === null) return modulePath
+  if (!absolute && !modulePath.startsWith('.')) return match(context, variants(modulePath), pkg.packageJson) ?? modulePath
+  const subpath = absolute ? pkg.packageRelativePath : toPosix(join(dirname(pkg.packageRelativePath), modulePath))
+  const to = match(context, variants(`./${subpath}`), pkg.packageJson)
+  if (typeof to !== 'string') return to ?? modulePath
+  return isAbsolute(to) ? normalize(to) : join(pkg.rootPath, to)
 }
 
 // getPackageEntryPoint: the first mainField naming one, else `index`, redirected by its first
@@ -280,7 +272,7 @@ function entryPoint(context, pkg) {
 const FAILURES = new Set(['FailedToResolveNameError', 'FailedToResolvePathError', 'FailedToResolveUnsupportedError', 'InvalidPackageError', 'InvalidPackageConfigurationError', 'PackageImportNotResolvedError', 'PackagePathNotExportedError'])
 
 // metro-resolver's resolve (0.81 to 0.87) with the context Metro's DependencyGraph builds. Its
-// failures are null (even 0.87's TypeError on a string `exports`); host and package.json errors
+// failures are null (even 0.87's TypeError on a number `exports`); host and package.json errors
 // throw, and so does any other error with a resolveRequest, as Metro's build fails with it.
 function viaMetroResolver(metroResolver, context, specifier) {
   const { host } = context
@@ -325,7 +317,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
     nodeModulesPaths: context.nodeModulesPaths,
     originModulePath: context.origin,
     preferNativePlatform: context.preferNativePlatform,
-    redirectModulePath: ours((modulePath) => redirectModulePath(context, modulePath)),
+    redirectModulePath: ours((modulePath) => redirect(context, modulePath)),
     resolveHasteModule: () => null,
     resolveHastePackage: () => null,
     ...(context.custom !== null && { resolveRequest: context.custom }),

@@ -898,7 +898,10 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devto
     '  const server = new EventEmitter()',
     '  server.handleUpgrade = (request, socket, head, done) => {',
     '    const ws = new EventEmitter()',
-    "    if (acceptWebSocket(request, socket, head, { onMessage: (text) => ws.emit('message', Buffer.from(text)), onClose: () => ws.emit('close') }) !== null) done(ws)",
+    '    acceptWebSocket(request, socket, head, () => {',
+    '      done(ws)',
+    "      return { onMessage: (text) => ws.emit('message', Buffer.from(text)), onClose: () => ws.emit('close') }",
+    '    })',
     '  }',
     '  return server',
     '}',
@@ -1295,7 +1298,8 @@ describe('rn-serve --host beyond loopback', () => {
     const server = await serve(root, ['--host=0.0.0.0'])
     try {
       const { port } = new URL(server.url)
-      assert.match(server.output(), /^rn-serve: on every network interface: anyone on the network can fetch the app and its source$/mu)
+      // Logged right after the URL, which serve() waits for: it may not be in yet.
+      await until(() => /^rn-serve: on every network interface: anyone on the network can fetch the app and its source$/mu.test(server.output()), 'the warning')
       const machine = hostname().toLowerCase()
       for (const name of [machine, `${machine.replace(/\.local$/u, '')}.local`]) assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `${name}:${port}` } })).status, 200, name)
       assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `attacker.example:${port}` } })).status, 403)

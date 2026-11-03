@@ -15,19 +15,25 @@ const BUDGET = 4 * 1024 ** 3
 // Entry directories of the layout before entries were grouped by the cache's salt.
 const LEGACY = /^[0-9a-f]{2}$/u
 
-const namesOf = (dir) => readdir(dir).catch(() => [])
-const statOf = (path) => stat(path).catch(() => null)
 const remove = (path) => rm(path, { recursive: true, force: true }).catch(() => {})
+
+// What is in `dir`, each { name, path, stats }; nothing if it isn't there.
+async function listed(dir) {
+  const found = []
+  for (const name of await readdir(dir).catch(() => [])) {
+    const path = join(dir, name)
+    const stats = await stat(path).catch(() => null)
+    if (stats !== null) found.push({ name, path, stats })
+  }
+  return found
+}
 
 // The bytes of a pack's segments. A segment left half-written (by a run that ended mid-write) is removed after GRACE.
 async function sizeOf(dir, now) {
   let size = 0
-  for (const name of await namesOf(dir)) {
-    const path = join(dir, name)
-    const found = await statOf(path)
-    if (found === null) continue
-    if (name.endsWith('.tmp') && now - found.mtimeMs > GRACE) await remove(path)
-    else size += found.size
+  for (const { name, path, stats } of await listed(dir)) {
+    if (name.endsWith('.tmp') && now - stats.mtimeMs > GRACE) await remove(path)
+    else size += stats.size
   }
   return size
 }
@@ -40,21 +46,17 @@ export async function prune(dir, { now = Date.now(), budget = BUDGET, before = [
     const found = await lstat(path).catch(() => null)
     if (found?.isDirectory() && found.uid === (process.getuid?.() ?? found.uid)) await remove(path)
   }
-  for (const name of await namesOf(dir)) if (LEGACY.test(name)) await remove(join(dir, name))
-  const packs = []
-  for (const kept of ['entries', 'builds', 'packs']) {
-    for (const name of await namesOf(join(dir, kept))) {
-      const path = join(dir, kept, name)
-      const found = await statOf(path)
-      if (found === null || (kept === 'packs' && !found.isDirectory())) continue
-      if (now - found.mtimeMs > STALE) await remove(path)
-      else if (kept === 'packs') packs.push({ path, used: found.mtimeMs, size: await sizeOf(path, now) })
-    }
+  for (const name of await readdir(dir).catch(() => [])) if (LEGACY.test(name)) await remove(join(dir, name))
+  for (const kind of ['entries', 'builds']) {
+    for (const { path, stats } of await listed(join(dir, kind))) if (now - stats.mtimeMs > STALE) await remove(path)
   }
-  // Keep the most recently used first, as many as the budget takes.
+  // Of the packs not STALE, the most recently used first, as many as the budget takes.
+  const packs = (await listed(join(dir, 'packs'))).filter(({ stats }) => stats.isDirectory()).toSorted((a, b) => b.stats.mtimeMs - a.stats.mtimeMs)
   let total = 0
-  for (const { path, used, size } of packs.toSorted((a, b) => b.used - a.used)) {
-    if (total + size > budget && now - used > GRACE) await remove(path)
+  for (const { path, stats } of packs) {
+    const unused = now - stats.mtimeMs
+    const size = unused > STALE ? 0 : await sizeOf(path, now)
+    if (unused > STALE || (total + size > budget && unused > GRACE)) await remove(path)
     else total += size
   }
 }

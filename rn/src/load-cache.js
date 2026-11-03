@@ -9,11 +9,8 @@ import { Module } from 'node:module'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createPack, readEntry, touch, writeEntry } from './load-pack.js'
-import { storeOf } from './load-store.js'
+import { createPack, pause, readEntry, touch, writeEntry } from './load-pack.js'
 
-// Bump to invalidate every entry.
-const CACHE_FORMAT = 5
 // rn's modules whose code shapes the cached output: loadFile(), Babel's worker, dev module builds, this file.
 const CHAIN = ['load.js', 'babel-worker.js', 'modules.js', 'load-cache.js']
 const RELATIVE = /^(?:import|export)\b[^'"]*['"](\.{1,2}\/[^'"]+)['"]/gmu
@@ -27,7 +24,27 @@ const memo = (map, key, make) => {
   if (!map.has(key)) map.set(key, make())
   return map.get(key)
 }
+const attempt = (run) => {
+  try {
+    return run()
+  } catch {
+    return null
+  }
+}
 const envOf = () => [process.env.NODE_ENV ?? null, process.env.BABEL_ENV ?? null]
+const fileDigest = (path) => attempt(() => digest(readFileSync(path)))
+// A JSON replacer that keeps functions and RegExps by their source.
+const shown = (_, value) => (typeof value === 'function' || value instanceof RegExp ? String(value) : value)
+// Runs `run` with each of `object`'s methods `names` as `wrap(original, name)` makes it, then puts them back.
+function patched(object, names, wrap, run) {
+  const originals = Object.fromEntries(names.map((name) => [name, object[name]]))
+  for (const name of names) object[name] = wrap(originals[name], name)
+  try {
+    return run()
+  } finally {
+    Object.assign(object, originals)
+  }
+}
 
 // The CHAIN modules and every rn module they import, transitively, as those shape the output too
 // (worklets.js's Reanimated gate shapes Babel's, for one).
@@ -36,28 +53,6 @@ export function ownModules() {
   for (const path of paths) for (const [, specifier] of readFileSync(path, 'utf8').matchAll(RELATIVE)) paths.add(join(dirname(path), specifier))
   return [...paths].toSorted()
 }
-const fileDigest = (path) => {
-  try {
-    return digest(readFileSync(path))
-  } catch {
-    return null
-  }
-}
-// A JSON replacer that keeps functions and RegExps by their source.
-const shown = (_, value) => (typeof value === 'function' || value instanceof RegExp ? String(value) : value)
-
-// A path's state: if `read`, a file's digest or a directory's entries; else just 'file' or 'directory'
-// (Babel and browserslist look for their configs up to the root). null if missing.
-const stateOf = (path, read) => {
-  try {
-    const stat = statSync(path, { throwIfNoEntry: false })
-    if (stat === undefined) return null
-    if (!read) return stat.isDirectory() ? 'directory' : 'file'
-    return stat.isDirectory() ? readdirSync(path).toSorted() : fileDigest(path)
-  } catch {
-    return null
-  }
-}
 
 // Runs `load` (Babel's first load of a config) and returns Map<path, whether read> of the paths it read
 // or only checked for through the node:fs object. A function a config keeps from it
@@ -65,46 +60,28 @@ const stateOf = (path, read) => {
 export function readsOf(load) {
   const reads = new Map()
   let reading = true
-  const pathOf = (path) => {
-    if (typeof path === 'string') return path
-    if (path instanceof URL && path.protocol === 'file:') return fileURLToPath(path)
-    return Buffer.isBuffer(path) ? path.toString() : null
+  const note = (given, read) => {
+    const path = given instanceof URL && given.protocol === 'file:' ? fileURLToPath(given) : given
+    // Not a file descriptor, nor a URL of another scheme.
+    if (typeof path !== 'string' && !Buffer.isBuffer(path)) return
+    const full = resolve(String(path))
+    reads.set(full, read || reads.get(full) === true)
   }
-  const wrap = (original, read) =>
-    function (...args) {
-      const at = reading ? pathOf(args[0]) : null
-      if (at !== null) {
-        const full = resolve(at)
-        reads.set(full, read || reads.get(full) === true)
-      }
-      return Reflect.apply(original, this, args)
-    }
-  const originals = [...READS, ...LOOKS].map((name) => [name, fs[name]])
-  for (const [name, original] of originals) fs[name] = wrap(original, READS.includes(name))
-  try {
-    load()
-  } finally {
-    reading = false
-    for (const [name, original] of originals) fs[name] = original
+  const wrap = (original, name) => (path, ...rest) => {
+    if (reading) note(path, READS.includes(name))
+    return original(path, ...rest)
   }
+  patched(fs, [...READS, ...LOOKS], wrap, load)
+  reading = false
   return reads
-}
-
-// The lockfiles of the first directory up from `dir` that has any.
-function lockfilesOf(dir) {
-  for (let at = dir; ; at = dirname(at)) {
-    const found = LOCKFILES.map((name) => join(at, name)).filter((path) => existsSync(path))
-    if (found.length > 0 || dirname(at) === at) return found
-  }
 }
 
 // The package.json of the node_modules package `path` is in; null for the project's own files.
 const manifestOf = (path) => {
-  const found = path.lastIndexOf(NODE_MODULES)
-  if (found === -1) return null
-  const at = found + NODE_MODULES.length
-  const [scope, name] = path.slice(at).split(sep)
-  return join(path.slice(0, at), scope.startsWith('@') ? join(scope, name ?? '') : scope, 'package.json')
+  const parts = path.split(sep)
+  const at = parts.lastIndexOf('node_modules')
+  if (at === -1) return null
+  return [...parts.slice(0, parts[at + 1]?.startsWith('@') ? at + 3 : at + 2), 'package.json'].join(sep)
 }
 // The package.json of package `name` as Node finds it from `dir`, or null.
 const dependencyOf = (dir, name) => {
@@ -120,232 +97,261 @@ const dependencyOf = (dir, name) => {
 // found and its real path (pnpm); with `from`, also where Node finds each module's package from there.
 export function withDependencies(modules, from = null) {
   const found = new Set()
-  const real = new Set()
-  const add = (path) => {
+  // Each manifest to read, by its real path: whether it is a module's own package's.
+  const manifests = new Map()
+  const add = (path, own = false) => {
     if (path === null || found.has(path)) return
     found.add(path)
-    try {
-      const resolved = realpathSync(path)
-      found.add(resolved)
-      real.add(resolved)
-    } catch {
-      // None there.
-    }
+    const real = attempt(() => realpathSync(path))
+    if (real === null || manifests.has(real)) return
+    found.add(real)
+    manifests.set(real, own)
   }
-  for (const path of modules) add(manifestOf(path))
-  const loaded = new Set(real)
-  for (const path of real) {
-    let manifest = null
-    try {
-      manifest = JSON.parse(readFileSync(path, 'utf8'))
-    } catch {
-      continue
-    }
-    if (from !== null && loaded.has(path) && typeof manifest?.name === 'string') add(dependencyOf(from, manifest.name))
+  for (const path of modules) add(manifestOf(path), true)
+  for (const [path, own] of manifests) {
+    const manifest = attempt(() => JSON.parse(readFileSync(path, 'utf8')))
+    if (own && from !== null && typeof manifest?.name === 'string') add(dependencyOf(from, manifest.name))
     for (const name of Object.keys({ ...manifest?.dependencies, ...manifest?.optionalDependencies, ...manifest?.peerDependencies })) add(dependencyOf(dirname(path), name))
   }
   return [...new Set([...modules, ...found])]
 }
 
-// The reads of paths other than `modules`, whose code is digested anyway.
-const othersOf = (reads, modules) => {
-  const loaded = new Set(modules)
-  return [...reads].filter(([path]) => !loaded.has(path))
-}
-
 // What a Babel worker's output depends on besides each file's own config and source: its options, the
 // code of `modules`, the state of each other path its config read or looked for (readsOf()), NODE_ENV
 // and BABEL_ENV, and, where a module can't be read (a Yarn Plug'n'Play zip's), the lockfiles.
-export function fingerprintOf(modules, options, reads = []) {
-  return digest(JSON.stringify([
-    options,
-    envOf(),
-    modules.toSorted().map((path) => [path, fileDigest(path)]),
-    othersOf(reads, modules).toSorted(([a], [b]) => (a < b ? -1 : 1)).map(([path, read]) => [path, stateOf(path, read)]),
-    fallbackOf(modules.map(statOf), options),
-  ]))
+export const fingerprintOf = (modules, options, reads = []) => digest(JSON.stringify(inputsOf(modules, options, reads, fileDigest)))
+
+// A module's inode, size, mtime and ctime: while all match, a kept fingerprint holds without reading the
+// code. Size and mtime alone aren't enough: package managers write the tarball's mtime (npm's is 1985),
+// but a rewritten file gets a new inode and ctime.
+const statOf = (path) =>
+  attempt(() => {
+    const { ino, size, mtimeMs, ctimeMs } = statSync(path)
+    return [ino, size, mtimeMs, ctimeMs]
+  })
+const signatureOf = ({ modules, options, reads }) => JSON.stringify(inputsOf(modules, options, reads, statOf))
+
+// A path's state: if `read`, a file's digest or a directory's entries; else just 'file' or 'directory'
+// (Babel and browserslist look for their configs up to the root). null if missing.
+const stateOf = (path, read) =>
+  attempt(() => {
+    const directory = statSync(path).isDirectory()
+    if (!read) return directory ? 'directory' : 'file'
+    return directory ? readdirSync(path).toSorted() : digest(readFileSync(path))
+  })
+
+// fingerprintOf()'s inputs, with each module as `look` has it: its digest, or its stats.
+function inputsOf(modules, options, reads, look) {
+  const own = new Set(modules)
+  const looked = [...own].toSorted().map((path) => [path, look(path)])
+  const others = [...reads].filter(([path]) => !own.has(path)).map(([path, read]) => [path, stateOf(path, read)])
+  const fallback = looked.some(([, value]) => value === null) ? lockfilesOf(options.cwd ?? process.cwd()) : null
+  return [options, envOf(), looked, others.toSorted(([a], [b]) => (a < b ? -1 : 1)), fallback]
 }
 
-// The lockfiles' digests (from options.cwd) if some module can't be stat'ed (a zip's); else null.
-const fallbackOf = (stats, options) => (stats.some((stat) => stat === null) ? lockfilesOf(options?.cwd ?? process.cwd()).map((path) => [path, fileDigest(path)]) : null)
-
-// A digest of the code of the module at `path` and of the project's own modules it requires,
-// transitively, per `modules` (require.cache): once a run, so later transforms' requires don't change it.
-function codeOf(modules) {
-  const known = new Map()
-  return (path) =>
-    memo(known, path, () => {
-      const reached = new Set([path])
-      for (const each of reached) if (!each.includes(NODE_MODULES)) for (const child of modules[each]?.children ?? []) reached.add(child.filename)
-      return digest(JSON.stringify([...reached].toSorted().map((each) => [each, fileDigest(each)])))
-    })
+// The digests of the lockfiles of the first directory up from `dir` that has any.
+function lockfilesOf(dir) {
+  for (let at = dir; ; at = dirname(at)) {
+    const found = LOCKFILES.map((name) => join(at, name)).filter((path) => existsSync(path))
+    if (found.length > 0 || dirname(at) === at) return found.map((path) => [path, fileDigest(path)])
+  }
 }
 
 // The absolute paths `run` requires through Module's require (as a plugin's factory does), loaded or not.
 function requiresOf(run) {
   const required = new Set()
-  const { require } = Module.prototype
-  Module.prototype.require = function (id) {
-    try {
-      const path = Module._resolveFilename(id, this)
-      if (isAbsolute(path)) required.add(path)
-    } catch {
-      // Not found: the require fails as it would.
+  const wrap = (require) =>
+    function (id) {
+      // Not found, the require fails as it would.
+      const path = attempt(() => Module._resolveFilename(id, this))
+      if (path !== null && isAbsolute(path)) required.add(path)
+      return require.call(this, id)
     }
-    return Reflect.apply(require, this, [id])
-  }
-  try {
-    run()
-  } finally {
-    Module.prototype.require = require
-  }
+  patched(Module.prototype, ['require'], wrap, run)
   return [...required].toSorted()
 }
 
 // Babel looks for each config file (and package.json) of each directory again for each file, by
-// existsSync then statSync: 60k syscalls for an app of 10k files. run() answers each once a build.
-function lookingOnce() {
-  const looked = new Map()
-  const once = (kind, path, look) => {
-    const { value, error } = memo(looked, `${kind}\0${path}`, () => {
-      try {
-        return { value: look() }
-      } catch (thrown) {
-        return { error: thrown }
-      }
-    })
-    if (error !== undefined) throw error
-    return value
-  }
-  const run = (load) => {
-    const { existsSync: exists, statSync: stat } = fs
-    fs.existsSync = (path) => once('exists', path, () => exists(path))
-    fs.statSync = (path, statOptions) => (statOptions === undefined ? once('stat', path, () => stat(path)) : stat(path, statOptions))
-    try {
-      return load()
-    } finally {
-      fs.existsSync = exists
-      fs.statSync = stat
-    }
-  }
-  return { run, clear: () => looked.clear() }
+// existsSync then statSync: 60k syscalls for an app of 10k files. Runs `load` with each answered once a
+// build, from `looked`; a stat that throws is asked again.
+function lookingOnce(looked, load) {
+  const wrap = (original, name) => (path, statOptions) => (statOptions === undefined ? memo(looked, `${name}\0${path}`, () => original(path)) : original(path, statOptions))
+  return patched(fs, ['existsSync', 'statSync'], wrap, load)
 }
 
 // Returns (filename, covered) => a key of the Babel config `core` loads for the file: its options, the
 // code of its config files and plugins (except `covered`), and what the factories of plugins the root
 // config lacks require. null if Babel ignores the file or fails. Call start() as each build starts.
 export function configKeyOf(core, options, modules) {
-  const code = codeOf(modules)
-  // Each options object is digested once a run, as Babel reuses it across files: a big alias map took 1 ms a key.
+  const { cwd = process.cwd(), root, caller, envName } = options
+  // A digest of the code of the module at `path` and of the project's own modules it requires,
+  // transitively, per `modules` (require.cache): once a run, so later transforms' requires don't change it.
+  const codes = new Map()
+  const code = (path) =>
+    memo(codes, path, () => {
+      const reached = new Set([path])
+      for (const each of reached) if (!each.includes(NODE_MODULES)) for (const child of modules[each]?.children ?? []) reached.add(child.filename)
+      return digest(JSON.stringify([...reached].toSorted().map((each) => [each, fileDigest(each)])))
+    })
+  // Each item of a config's, with its id: its type, name, file and options, digested once a run, as Babel
+  // reuses them across files: a big alias map took 1 ms a key.
   const digests = new WeakMap()
-  const optionsOf = (given) => (typeof given !== 'object' || given === null ? [given ?? null] : memo(digests, given, () => digest(JSON.stringify(given, shown))))
-  const itemOf = (item) => [item.name ?? null, item.file?.resolved ?? null, optionsOf(item.options)]
-  const instanceOf = (item) => JSON.stringify(itemOf(item))
-  const itemsOf = ({ plugins, presets }) => [...plugins.map((item) => [item, 'plugin']), ...presets.map((item) => [item, 'preset'])]
-  const createItem = core.createConfigItemSync ?? core.createConfigItem
+  const itemsOf = (config) =>
+    ['plugin', 'preset'].flatMap((type) =>
+      config[`${type}s`].map((item) => {
+        const given = typeof item.options === 'object' && item.options !== null ? memo(digests, item.options, () => digest(JSON.stringify(item.options, shown))) : item.options
+        return { item, type, id: JSON.stringify([type, item.name, item.file?.resolved, given]) }
+      }),
+    )
   // The root config's items: the workers' fingerprint covers what their factories require.
-  let rooted = null
-  const rootedOf = () => {
-    try {
-      rooted ??= new Set(itemsOf(core.loadPartialConfigSync({ ...options, filename: join(options.cwd ?? process.cwd(), 'index.js') }).options).map(([item]) => instanceOf(item)))
-    } catch {
-      rooted = new Set()
-    }
-    return rooted
-  }
+  const rooted = new Set(attempt(() => itemsOf(core.loadPartialConfigSync({ ...options, filename: join(cwd, 'index.js') }).options).map(({ id }) => id)))
   // loadPartialConfig() runs no factories, so each other item is built alone, once a run, to see what it requires.
-  const made = new Map()
-  const requiredOf = (item, type) =>
-    memo(made, instanceOf(item), () => {
+  const createItem = core.createConfigItemSync ?? core.createConfigItem
+  const required = new Map()
+  const requiredOf = ({ item, type, id }) =>
+    memo(required, id, () => {
       const own = createItem(item.options === undefined ? item.value : [item.value, item.options], { dirname: item.dirname, type })
-      const { cwd, root, caller, envName } = options
       return requiresOf(() => core.loadOptionsSync({ cwd, root, caller, envName, babelrc: false, configFile: false, [`${type}s`]: [own] })).map((path) => [path, code(path)])
     })
-  const looking = lookingOnce()
-  const keyOf = (filename, covered = new Set()) => {
-    try {
-      const partial = looking.run(() => core.loadPartialConfigSync({ ...options, filename }))
+  const looked = new Map()
+  const keyOf = (filename, covered = new Set()) =>
+    attempt(() => {
+      const partial = lookingOnce(looked, () => core.loadPartialConfigSync({ ...options, filename }))
       if (partial === null) return null
       const items = itemsOf(partial.options)
       // Digest the code before any factory runs here.
-      const named = items.map(([item]) => item.file?.resolved).filter((path) => path !== undefined)
-      const codes = [...partial.files, ...named].filter((path) => !covered.has(path)).map((path) => [path, code(path)])
-      const required = items.filter(([item]) => !rootedOf().has(instanceOf(item))).map(([item, type]) => requiredOf(item, type))
-      return digest(JSON.stringify([codes, required, { ...partial.options, plugins: partial.options.plugins.map(itemOf), presets: partial.options.presets.map(itemOf) }], shown))
-    } catch {
-      return null
-    }
-  }
-  return Object.assign(keyOf, { start: looking.clear })
+      const files = [...partial.files, ...items.map(({ item }) => item.file?.resolved)].filter((path) => path !== undefined && !covered.has(path)).map((path) => [path, code(path)])
+      const factories = items.filter(({ id }) => !rooted.has(id)).map(requiredOf)
+      return digest(JSON.stringify([files, factories, items.map(({ id }) => id), { ...partial.options, plugins: undefined, presets: undefined }], shown))
+    })
+  return Object.assign(keyOf, { start: () => looked.clear() })
 }
 
-// A module's inode, size, mtime and ctime: while all match, a kept fingerprint holds without reading the
-// code. Size and mtime alone aren't enough: package managers write the tarball's mtime (npm's is 1985),
-// but a rewritten file gets a new inode and ctime.
-const statOf = (path) => {
+// The cache in `dir`: (target) => its store, plus settled() for pending pack writes. Keys are salted
+// with rn's code, esbuild's version and flow-remove-types'; a target's fingerprint is kept with its
+// stats, so a later run reuses it without starting a worker for it.
+export function createLoadCache(dir, { esbuild, flow = null }) {
+  const salt = digest(JSON.stringify([ownModules().map(fileDigest), esbuild.version, flow === null ? null : withDependencies([flow]).map((path) => [path, fileDigest(path)])]))
+  // Other salts' entries are never read again: load-prune.js removes them once unused.
+  const entries = join(dir, 'entries', salt)
+  touch(entries)
+  // Per target, asked for at its first use: its key prefix and the modules its fingerprint covers
+  // (null without one), and its pack, named by the prefix, so a config change starts a new pack.
+  const targets = new Map()
+  const targetOf = (babel) =>
+    memo(targets, babel, () => {
+      const base = babel === null ? Promise.resolve({ prefix: salt, covered: null }) : fingerprintFor(babel, entries).then((made) => (made === null ? null : { prefix: `${salt}\0${made.fingerprint}`, covered: new Set(made.modules) }))
+      return { base, pack: base.then((made) => createPack(join(dir, 'packs', digest(made?.prefix ?? salt)))) }
+    })
+  // Pack writes in progress; a failed one only loses what it would have cached.
+  let writes = Promise.resolve()
+  const track = (pending) => {
+    const written = pending.catch(() => {})
+    writes = Promise.all([writes, written])
+    return written
+  }
+  const storeFor = (babel) => storeOf(babel, () => targetOf(babel), { salt, entries, track })
+  return Object.assign(storeFor, { settled: () => writes })
+}
+
+// The kept fingerprint if its stats or its digest still match, else a new one from the workers; null if none.
+async function fingerprintFor(babel, entries) {
+  const key = digest(JSON.stringify(['fingerprint', babel.workerOptions, envOf()]))
+  const kept = readEntry(entries, key)
+  const signed = (made) => {
+    writeEntry(entries, key, { ...made, signature: signatureOf(made) })
+    return made
+  }
+  if (kept !== null && kept.signature === signatureOf(kept)) return kept
+  if (kept !== null && fingerprintOf(kept.modules, kept.options, kept.reads) === kept.fingerprint) return signed(kept)
   try {
-    const { ino, size, mtimeMs, ctimeMs } = statSync(path)
-    return [ino, size, mtimeMs, ctimeMs]
+    return signed(await babel.fingerprint())
   } catch {
     return null
   }
 }
-const statesOf = ({ modules, reads, options }) => {
-  const stats = modules.map(statOf)
-  return JSON.stringify([stats, othersOf(reads, modules).map(([path, read]) => stateOf(path, read)), fallbackOf(stats, options)])
-}
-const signed = (made) => ({ ...made, signature: statesOf(made) })
-const unchanged = (kept) => typeof kept.signature === 'string' && statesOf(kept) === kept.signature
 
-// The cache in `dir`: (target) => its store (load-store.js), plus settled() for pending pack writes.
-// Keys are salted with the format, rn's code, esbuild's version and flow-remove-types'; a target's
-// fingerprint is kept with its stats, so a later run reuses it without starting a worker for it.
-export function createLoadCache(dir, { esbuild, flow = null }) {
-  const salt = digest(JSON.stringify([CACHE_FORMAT, ownModules().map(fileDigest), esbuild.version, flow === null ? null : withDependencies([flow]).map((path) => [path, fileDigest(path)])]))
-  // Other salts' entries are never read again: load-prune.js removes them once unused.
-  const entries = join(dir, 'entries', salt)
-  touch(entries)
-  const read = (key) => readEntry(entries, key)
-  const write = (key, value) => writeEntry(entries, key, value)
-  // The kept fingerprint if its stats or its digest still match, else a new one from the workers; null if none.
-  const fingerprintFor = async (babel) => {
-    const key = digest(JSON.stringify([salt, 'fingerprint', babel.workerOptions, ...envOf()]))
-    const kept = read(key)
+const hashOf = (head, parts, text) => createHash('sha256').update(`${head}\0${JSON.stringify(parts)}\0`).update(text).digest('hex')
+const newTally = () => ({ hits: 0, misses: 0, memory: 0, unkept: {}, ms: 0 })
+
+// A target's store: its keys, its pack, and a tally per build.
+function storeOf(babel, target, { salt, entries, track }) {
+  let tally = newTally()
+  // Counts the time run() takes as the cache's.
+  const timed = (run) => {
+    const start = performance.now()
     try {
-      if (kept !== null && unchanged(kept)) return kept
-      if (kept !== null && fingerprintOf(kept.modules, kept.options, kept.reads) === kept.fingerprint) {
-        write(key, signed(kept))
-        return kept
-      }
-    } catch {}
-    try {
-      const made = await babel.fingerprint()
-      write(key, signed(made))
-      return made
-    } catch {
-      return null
+      return run()
+    } finally {
+      tally.ms += performance.now() - start
     }
   }
-  // A target's key prefix (from its fingerprint) and the modules the fingerprint covers; null without one.
-  const bases = new WeakMap()
-  const baseOf = (babel) => {
-    if (babel === null) return Promise.resolve({ prefix: salt, covered: null })
-    return memo(bases, babel, () => fingerprintFor(babel).then((made) => (made === null ? null : { prefix: `${salt}\0${made.fingerprint}`, covered: new Set(made.modules) })))
+  // The pack, read once, at the first get() or build(), its time counted as the cache's.
+  let pack = null
+  let reading = null
+  const read = async () => {
+    const made = await target().pack
+    const start = performance.now()
+    await made.load()
+    tally.ms += performance.now() - start
+    pack = made
   }
-  // A pack per worker options and key prefix, so a config change starts a new pack.
-  const packs = new Map()
-  const packOf = async (babel) => {
-    const name = digest(JSON.stringify([salt, babel?.workerOptions ?? null, (await baseOf(babel))?.prefix ?? null]))
-    return memo(packs, name, () => createPack(join(dir, 'packs', name)))
+  // The value kept under `key`, or null; after a hit, the event loop gets its turn where due.
+  const take = async (key) => {
+    await (reading ??= read())
+    const kept = timed(() => pack.get(key))
+    if (kept !== null) await pause()
+    return kept
   }
-  // Pack writes in progress; a failed one only loses what it would have cached.
-  const writing = new Set()
-  const track = (pending) => {
-    const written = pending.catch(() => {})
-    writing.add(written)
-    void written.finally(() => writing.delete(written))
-    return written
+  const set = (key, value) => timed(() => pack.set(key, value))
+  const keyOf = async (path, contents, variant) => {
+    const base = await target().base
+    if (base === null) return { key: null, why: 'fingerprint' }
+    const config = babel === null ? '' : timed(() => babel.configKey(path, base.covered))
+    if (config === null) return { key: null, why: 'config' }
+    return { key: timed(() => hashOf(base.prefix, [path, variant, config], contents)) }
   }
-  const storeFor = (babel) => storeOf(babel, { salt, packed: () => packOf(babel), base: () => baseOf(babel), read, write, track })
-  return Object.assign(storeFor, { settled: () => Promise.all(writing) })
+  return {
+    keyOf,
+    get: async (key) => {
+      const result = await take(key)
+      if (result !== null) tally.hits++
+      return result
+    },
+    set,
+    // A dev module's build, by its parts and source alone: no Babel config is involved.
+    build: async (parts, text, compute) => {
+      const key = timed(() => hashOf(`${salt}\0module`, parts, text))
+      const kept = await take(key)
+      if (kept !== null) return kept
+      const value = await compute()
+      set(key, value)
+      return value
+    },
+    // A value compute() derives from the file's config, kept as a loose entry under `kind`.
+    keep: async (kind, path, compute) => {
+      const { key } = await keyOf(path, '', [kind])
+      const kept = key === null ? null : readEntry(entries, key)
+      if (kept !== null) return kept
+      const value = await compute()
+      if (key !== null) writeEntry(entries, key, value)
+      return value
+    },
+    // Counts a file as `memory`, `misses` or `unkept` (with `why`); get() counts `hits`.
+    note: (what, why = null) => {
+      if (what === 'unkept') tally.unkept[why] = (tally.unkept[why] ?? 0) + 1
+      else tally[what]++
+    },
+    start: () => {
+      tally = newTally()
+      babel?.configStart()
+      void target().pack.then((made) => made.start())
+    },
+    // The build's tally, and a promise of its pack written.
+    finish: () => {
+      const was = tally
+      tally = newTally()
+      return { tally: was, written: track(target().pack.then((made) => made.finish())) }
+    },
+  }
 }

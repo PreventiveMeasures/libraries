@@ -6,19 +6,17 @@ export const FAILED = Symbol('failed')
 const NO_MATCH = Symbol('no match')
 const REFUSED = Symbol('refused')
 
-// normalizeExportsField. A number or boolean fails, as Metro's WeakMap cache throws on it.
+// normalizeExportsField.
 function exportsMap(exportsField) {
-  if (typeof exportsField === 'string') return new Map([['.', exportsField]])
-  if (typeof exportsField !== 'object') return FAILED
   let root = exportsField
   if (Array.isArray(root)) root = root.every((value) => typeof value === 'string') ? root.find((value) => value.startsWith('./')) : root[0]
-  if (root == null || Array.isArray(root)) return null
   if (typeof root === 'string') return new Map([['.', root]])
-  const flat = new Map()
-  for (const [key, value] of Object.entries(root)) {
-    if (Array.isArray(value) && (value.length === 0 || Array.isArray(value[0]))) return null
-    flat.set(key, Array.isArray(value) ? value[0] : value)
-  }
+  // A number or boolean fails, as Metro's WeakMap cache throws on it.
+  if (typeof exportsField !== 'object') return FAILED
+  if (root == null || Array.isArray(root)) return null
+  const entries = Object.entries(root)
+  if (entries.some(([, value]) => Array.isArray(value) && (value.length === 0 || Array.isArray(value[0])))) return null
+  const flat = new Map(entries.map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]))
   const keys = [...flat.keys()]
   if (keys.every((key) => key.startsWith('.') || key.startsWith('#'))) return flat
   return keys.some((key) => key.startsWith('.')) ? null : new Map([['.', Object.fromEntries(flat)]])
@@ -45,8 +43,8 @@ function reduce(value, conditions) {
   return NO_MATCH
 }
 
-// The target of `subpath` and what its `*` stands for, or null. An exact key wins even when
-// null; else the pattern with the longest base, then the longest pattern.
+// The target of `subpath`, as spelled (`to`) and with its `*` replaced (`path`), or null. An
+// exact key wins even when null; else the pattern with the longest base, then the longest pattern.
 function target(map, subpath, conditions) {
   if (!map.has(subpath) && !map.keys().some((key) => key.split('*').length === 2 && patternMatch(key, subpath) !== null)) return null
   const reduced = new Map()
@@ -56,28 +54,23 @@ function target(map, subpath, conditions) {
     reduced.set(key, typeof to === 'string' ? to : null)
   }
   if (reduced.values().some((to) => to !== null && !to.startsWith('./'))) return null
-  const exact = reduced.get(subpath)
-  if (exact !== undefined) return exact === null ? null : { to: exact, star: null }
   const patterns = [...reduced.keys()].filter((key) => key.includes('*')).toSorted((a, b) => b.indexOf('*') - a.indexOf('*') || b.length - a.length)
-  for (const key of patterns) {
-    const star = patternMatch(key, subpath)
-    if (star !== null) return reduced.get(key) === null ? null : { to: reduced.get(key), star }
-  }
-  return null
+  const key = reduced.has(subpath) ? subpath : patterns.find((pattern) => patternMatch(pattern, subpath) !== null)
+  const to = reduced.get(key) ?? null
+  // As a replacement string, as Metro puts it in: a `$&` in the match is the `*`.
+  return to === null ? null : { to, path: key === subpath ? to : to.replaceAll('*', patternMatch(key, subpath)) }
 }
-
-const expand = (found) => (found === null ? null : found.star === null ? found.to : found.to.replaceAll('*', found.star))
 
 const INVALID_SEGMENTS = new Set(['', '.', '..', 'node_modules'])
 
 // The package-relative target of `subpath` (`.` or `./x`), null, or FAILED.
 export function exportsTarget(exportsField, subpath, conditions) {
   const map = exportsMap(exportsField)
-  if (map === FAILED) return FAILED
-  const found = map === null ? null : target(map, subpath, conditions)
+  if (map === null || map === FAILED) return map
+  const found = target(map, subpath, conditions)
   // Segments are checked as the target spells them, before `*` is replaced.
-  if (found?.to.slice(2).split(/[\\/]/u).some((segment) => INVALID_SEGMENTS.has(segment))) return null
-  return expand(found)
+  if (found === null || found.to.slice(2).split(/[\\/]/u).some((segment) => INVALID_SEGMENTS.has(segment))) return null
+  return found.path
 }
 
 // The package-relative target of a `#` specifier, or null.
@@ -85,5 +78,5 @@ export function importsTarget(importsField, specifier, conditions) {
   if (importsField === null || typeof importsField !== 'object' || Array.isArray(importsField)) return null
   const keys = Object.keys(importsField)
   if (keys.length === 0 || keys.some((key) => !key.startsWith('#'))) return null
-  return expand(target(new Map(Object.entries(importsField)), specifier, conditions))
+  return target(new Map(Object.entries(importsField)), specifier, conditions)?.path ?? null
 }

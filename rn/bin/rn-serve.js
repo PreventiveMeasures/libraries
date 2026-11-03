@@ -60,10 +60,11 @@ const log = (line) => process.stdout.write(`${line}\n`)
 if (values.port !== undefined && (!/^\d+$/u.test(values.port) || Number(values.port) > 65_535)) fail(`--port takes a port, not ${values.port}`)
 defines(true, values.define, fail)
 
+// The project: its rn.config.json, Metro config, peers, Babel config and cache.
 const projectRoot = realpathSync(process.cwd())
 const rnConfig = readRnConfig(projectRoot, fail)
-const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
-const devtools = flagOf(values.devtools, rnConfig, 'devtools', 'devtools').on
+const esm = flagOf(values.esm, rnConfig, 'esm')
+const devtools = flagOf(values.devtools, rnConfig, 'devtools').on
 const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
@@ -74,91 +75,50 @@ const port = values.port === undefined ? (rnConfig.port ?? metro.port ?? 8081) :
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const cacheDir = cacheDirOf(values['reset-cache'], log)
-const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch?.platform })
+const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch === null ? null : 'ios' })
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
 if (esm.on && babelFor === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
-let pruned = null
 const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types') })
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
 
-const { host } = values
-const wildcard = host === '0.0.0.0' || host === '::'
-const gate = createGate({ hostnames: hostnamesOf(host, hostname()) })
-
-let watcher = null
+// The dev bundler, its server, and the watch that rebuilds on a change.
+let pruned = null
 const devBundler = createDevBundler({
   projectRoot,
   esbuild,
   metro,
   runtime,
   injected: devMiddleware === null ? [] : [REPORTER],
-  targetOptions: ({ platform, dev, inlineRequires }) => {
-    const babel = babelFor?.({ platform, dev, inlineRequires }) ?? null
-    return { stripFlow, ...babel, aliases, esm: esm.on, define: defines(dev, values.define, fail), store: loadCache?.(babel) ?? null }
+  targetOptions: (target) => {
+    const babel = babelFor?.(target) ?? null
+    return { stripFlow, ...babel, aliases, esm: esm.on, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
   },
-  onBuild: ({ request, outcome, ms, cached }) => {
-    watcher?.update(devBundler.files())
-    // Prune once per run, after the first build has touched its packs; also drop the old Babel-only cache.
-    if (cacheDir !== null) pruned ??= prune(cacheDir, { before: [usersOwn('rn-serve-babel')] })
-    const what = `${bundleName(request)} ${status(ms, cached)}`
-    if (outcome.ok) return log(`rn-serve: built ${what}`)
-    return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
-  },
+  onBuild: built,
 })
 // Colors only where stdout supports them.
 const style = (format, text) => styleText(format, text, { stream: process.stdout })
+const { host } = values
+const gate = createGate({ hostnames: hostnamesOf(host, hostname()) })
 const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler: last?.served(devBundler) ?? devBundler, gate, log, clientLogs: values['client-logs'], style })
-
-// On a change, rebuilds every bundle. Apps get a hot update from their last good module-format build if its
-// scripts (polyfills) are unchanged, else reload if the bundle changed. Each error goes once to the apps it fails.
-const refreshOnce = async () => {
-  let reload = false
-  let updated = 0
-  const errors = new Map()
-  for (const { request, before, after, good } of await devBundler.refresh()) {
-    if (after.ok && after.modules !== undefined && good?.modules !== undefined && after.scripts === good.scripts) updated += devServer.hotUpdate(request, good, after, { recovered: !before.ok })
-    else if (after.ok && (!before.ok || before.js !== after.js)) reload = true
-    if (after.ok || before === after) continue
-    const error = await bundlingError(esbuild, after.errors, projectRoot)
-    if (!errors.has(error.message)) errors.set(error.message, { error, requests: [] })
-    errors.get(error.message).requests.push(request)
-  }
-  for (const { error, requests } of errors.values()) devServer.hotError(error, requests)
-  if (updated > 0) log(`rn-serve: updated ${updated} app(s)`)
-  if (reload) log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
-}
-let refreshing = Promise.resolve()
-const refresh = () => {
-  refreshing = refreshing.then(refreshOnce).catch((error) => log(`rn-serve: ${error?.stack ?? error}`))
-}
+const reloadApps = () => log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
+// A change rebuilds every bundle, 50 ms after the last one, a refresh at a time.
 let timer = null
-watcher = createWatcher(projectRoot, () => {
+let refreshing = Promise.resolve()
+const watcher = createWatcher(projectRoot, () => {
   devBundler.changed()
   clearTimeout(timer)
-  timer = setTimeout(refresh, 50)
+  timer = setTimeout(() => {
+    refreshing = refreshing.then(refresh).catch((error) => log(`rn-serve: ${error?.stack ?? error}`))
+  }, 50)
 }, { onError: (error) => log(`rn-serve: can't watch: ${error.message}`) })
 
+const wildcard = host === '0.0.0.0' || host === '::'
 const urlHost = wildcard ? '127.0.0.1' : isIP(host) === 6 ? `[${host}]` : host
 const { server } = devServer
-server.on('error', async (error) => {
-  if (error.code !== 'EADDRINUSE') fail(error.message)
-  let running = null
-  try {
-    const response = await fetch(`http://${urlHost}:${port}/status`)
-    running = { status: await response.text(), root: response.headers.get('x-react-native-project-root') }
-  } catch {
-    // No dev server.
-  }
-  if (running?.status !== 'packager-status:running') fail(`port ${port} is taken: pass another with --port`)
-  // The header has the root percent-encoded, as a file URL's path.
-  const root = running.root === null ? null : decodeURIComponent(running.root)
-  if (root !== projectRoot) fail(`a dev server for ${root} is running on port ${port}: pass another with --port`)
-  log(`rn-serve: a dev server for this project is running on port ${port} already`)
-  process.exit(0)
-})
+server.on('error', portTaken)
 server.listen(port, host, () => {
   const location = `${urlHost}:${server.address().port}`
   const serverUrl = `http://${location}`
@@ -171,7 +131,9 @@ server.listen(port, host, () => {
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
   if (values.warm) void last?.warm(devBundler, log)
-  if (launch !== null) void launchApp(location)
+  if (launch !== null) {
+    launchIos({ ...launch, location, log }).then(({ bundleId, simulator }) => log(`rn-serve: launched ${bundleId} on ${simulator.name}`), (error) => log(`rn-serve: can't launch the app: ${error.message}`))
+  }
 })
 
 // The app to launch (--launch, else rn.config.json's launch), or null. Without simctl,
@@ -180,8 +142,7 @@ function launchOf() {
   // parseArgs may give --no-launch as launch: false or as no-launch.
   const flag = values['no-launch'] || values.launch === false ? false : values.launch
   if (typeof flag === 'string' && flag !== 'ios') fail(`--launch takes ios, not ${flag}`)
-  const platform = flag ?? rnConfig.launch
-  if (!platform) {
+  if (!(flag ?? rnConfig.launch)) {
     if (values.simulator !== undefined || values['binary-path'] !== undefined) fail('--simulator and --binary-path are of --launch=ios')
     return null
   }
@@ -191,20 +152,11 @@ function launchOf() {
     return null
   }
   const given = values['binary-path'] ?? rnConfig.ios?.binaryPath
-  const by = values['binary-path'] === undefined ? "rn.config.json's ios.binaryPath" : '--binary-path'
   if (given === undefined) fail("--launch=ios installs the app of --binary-path, else of rn.config.json's ios.binaryPath: give one, a simulator's build of it (an .app)")
   const appPath = resolve(projectRoot, given)
+  const by = values['binary-path'] === undefined ? "rn.config.json's ios.binaryPath" : '--binary-path'
   if (!existsSync(join(appPath, 'Info.plist'))) fail(`${by}: no app at ${given}, an .app of its Info.plist`)
-  return { platform, appPath, simulator: values.simulator ?? rnConfig.ios?.simulator ?? null }
-}
-
-async function launchApp(location) {
-  try {
-    const { bundleId, simulator } = await launchIos({ appPath: launch.appPath, simulator: launch.simulator, location, log })
-    log(`rn-serve: launched ${bundleId} on ${simulator.name}`)
-  } catch (error) {
-    log(`rn-serve: can't launch the app: ${error.message}`)
-  }
+  return { appPath, simulator: values.simulator ?? rnConfig.ios?.simulator ?? null }
 }
 
 // Why a missed file wasn't cached, by load-cache.js's reason.
@@ -218,6 +170,45 @@ function status(ms, cached) {
   const { hits, misses, memory, unkept, ms: taken } = cached
   const why = Object.entries(unkept).map(([reason, count]) => `${count} ${UNKEPT[reason] ?? reason}`).join(', ')
   return `in ${seconds(ms)}, cache ${seconds(taken)}: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
+}
+
+// Logs each build, built or failed.
+function built({ request, outcome, ms, cached }) {
+  watcher.update(devBundler.files())
+  // Prune once per run, after the first build has touched its packs; also drop the old Babel-only cache.
+  if (cacheDir !== null) pruned ??= prune(cacheDir, { before: [usersOwn('rn-serve-babel')] })
+  const what = `${bundleName(request)} ${status(ms, cached)}`
+  if (outcome.ok) return log(`rn-serve: built ${what}`)
+  return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
+}
+
+// Rebuilds every bundle. Apps get a hot update from their last good module-format build if its scripts
+// (polyfills) are unchanged, else reload if the bundle changed. Each error goes once to the apps it fails.
+async function refresh() {
+  let reload = false
+  let updated = 0
+  const failed = []
+  for (const { request, before, after, good } of await devBundler.refresh()) {
+    if (after.ok && after.modules !== undefined && good?.modules !== undefined && after.scripts === good.scripts) updated += devServer.hotUpdate(request, good, after, { recovered: !before.ok })
+    else if (after.ok && (!before.ok || before.js !== after.js)) reload = true
+    else if (!after.ok && before !== after) failed.push({ request, error: await bundlingError(esbuild, after.errors, projectRoot) })
+  }
+  for (const each of Map.groupBy(failed, ({ error }) => error.message).values()) devServer.hotError(each[0].error, each.map(({ request }) => request))
+  if (updated > 0) log(`rn-serve: updated ${updated} app(s)`)
+  if (reload) reloadApps()
+}
+
+// The port is taken: by a dev server for this project, which is left to serve, as React Native does; else rn-serve fails.
+async function portTaken({ code, message }) {
+  if (code !== 'EADDRINUSE') fail(message)
+  const response = await fetch(`http://${urlHost}:${port}/status`).catch(() => null)
+  if ((await response?.text().catch(() => null)) !== 'packager-status:running') fail(`port ${port} is taken: pass another with --port`)
+  // The header has the root percent-encoded, as a file URL's path.
+  const header = response.headers.get('x-react-native-project-root')
+  const root = header === null ? null : decodeURIComponent(header)
+  if (root !== projectRoot) fail(`a dev server for ${root} is running on port ${port}: pass another with --port`)
+  log(`rn-serve: a dev server for this project is running on port ${port} already`)
+  process.exit(0)
 }
 
 // dev-middleware's debugger, with rn-serve's Network panel (src/network.js); with --devtools, DevTools open
@@ -256,21 +247,22 @@ function quit() {
 process.on('SIGINT', quit)
 process.on('SIGTERM', quit)
 
+// A terminal's keys, listed as rn-serve starts; ctrl-c and ctrl-d quit.
 function keys(serverUrl) {
-  const each = [['r', 'reload'], ['d', 'dev menu'], ...(devMiddleware === null ? [] : [['j', 'debugger']]), ['ctrl-c', 'quit']]
-  log(`rn-serve: ${each.map(([key, what]) => `${style(['bold', 'cyan'], key)} ${what}`).join(style('dim', ' \u00B7 '))}`)
+  const each = [
+    { key: 'r', what: 'reload', action: reloadApps },
+    { key: 'd', what: 'dev menu', action: () => log(`rn-serve: dev menu on ${devServer.broadcast('devMenu')} app(s)`) },
+    ...(devMiddleware === null ? [] : [{ key: 'j', what: 'debugger', action: () => void openDebugger(serverUrl) }]),
+  ]
+  log(`rn-serve: ${[...each, { key: 'ctrl-c', what: 'quit' }].map(({ key, what }) => `${style(['bold', 'cyan'], key)} ${what}`).join(style('dim', ' \u00B7 '))}`)
   emitKeypressEvents(process.stdin)
   process.stdin.setRawMode(true)
   process.stdin.on('keypress', (text, key) => {
     if (key?.ctrl && (key.name === 'c' || key.name === 'd')) {
       process.stdin.setRawMode(false)
       quit()
-    } else if (text === 'r') {
-      log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
-    } else if (text === 'd') {
-      log(`rn-serve: dev menu on ${devServer.broadcast('devMenu')} app(s)`)
-    } else if (text === 'j' && devMiddleware !== null) {
-      void openDebugger(serverUrl)
+    } else {
+      each.find((one) => one.key === text)?.action()
     }
   })
 }

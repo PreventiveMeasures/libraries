@@ -5,7 +5,8 @@
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { createBundler, metroResolverOf, utf8 } from './bundle.js'
+import { metroResolverOf } from './build-host.js'
+import { createBundler, utf8 } from './bundle.js'
 import { defaults, diskHost } from './defaults.js'
 import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
@@ -29,15 +30,14 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   const builds = new Map()
   let version = 0
 
-  // Rebuilds where a file changed since, one build of each bundle at a time.
+  // Its outcome of the files as they are: built anew where one changed since, after its builds before.
   const outcomeOf = (build) => {
-    if (build.last?.version === version) return build.last
-    if (build.pending?.version === version) return build.pending.promise
-    const at = version
-    const promise = build.chain.then(() => run(config, build, at))
-    build.chain = promise.catch(() => {})
-    build.pending = { version: at, promise }
-    return promise
+    if (build.version !== version) {
+      const at = version
+      build.version = at
+      build.outcome = build.outcome.catch(() => {}).then(() => run(config, build, at))
+    }
+    return build.outcome
   }
 
   // Evicts the least recently asked for at once, disposing of them after.
@@ -60,15 +60,16 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     const entryPath = entryOf(config, request)
     if (entryPath === null) return null
     // As Metro asks the config for each bundle.
-    const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal, metro.inlineRequires].map((ask) => ask(entryPath, { platform: request.platform, dev: request.dev })))
+    const target = { platform: request.platform, dev: request.dev }
+    const [transformRefusal, inlineRequires] = await Promise.all([metro.transformRefusal(entryPath, target), metro.inlineRequires(entryPath, target)])
     if (transformRefusal !== null) return refused(version, transformRefusal)
     const key = [entryPath, request.platform, request.dev, request.minify].join('\0')
-    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, pending: null, chain: Promise.resolve(), waiting: new Set() }
+    const build = builds.get(key) ?? { request, entryPath, ...open(config, request, entryPath, inlineRequires), last: null, good: null, version: null, outcome: Promise.resolve(), waiting: new Set() }
     builds.delete(key)
     builds.set(key, build)
     // Its build on its chain before another request may evict it.
     build.waiting.add(onProgress)
-    const outcome = Promise.resolve(outcomeOf(build)).finally(() => build.waiting.delete(onProgress))
+    const outcome = outcomeOf(build).finally(() => build.waiting.delete(onProgress))
     void evict(maxBuilds)
     return outcome
   }
@@ -102,13 +103,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     // The files each bundle's last build read.
     files,
     // The asset a bundle built at `/assets/...`, else null.
-    asset(httpServerLocation, name, type) {
-      for (const build of builds.values()) {
-        const found = build.last?.ok ? build.last.assets.find((data) => data.httpServerLocation === httpServerLocation && data.name === name && data.type === type) : undefined
-        if (found !== undefined) return found
-      }
-      return null
-    },
+    asset: (httpServerLocation, name, type) => [...builds.values()].flatMap(({ last }) => (last?.ok ? last.assets : [])).find((data) => data.httpServerLocation === httpServerLocation && data.name === name && data.type === type) ?? null,
     // A file a bundle was built from, its bytes, else null.
     sourceFile: (path) => (files().has(path) ? host.readFile(path) : null),
     // A source a bundle was built from, as text; else null, as where it isn't UTF-8.
@@ -119,7 +114,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
 // A build, disposed of once those asked for are done.
 async function drop(build) {
-  await build.chain
+  await build.outcome.catch(() => {})
   try {
     await (await build.bundler).dispose()
   } catch {
@@ -127,9 +122,12 @@ async function drop(build) {
   }
 }
 
+// Metro's resolver options, as the config has them for `dev`.
+const resolving = (metro, dev) => ({ assetExts: metro.assetExts, resolver: { ...metro.resolver, dev }, blockList: metro.blockList })
+
 // The entry a request names, as Metro resolves it from the project root, and only there.
 function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
-  const resolution = metroResolverOf({ host, assetExts: metro.assetExts, resolver: { ...metro.resolver, dev }, blockList: metro.blockList })(`${projectRoot}${sep}.`, entryFile, { platform })
+  const resolution = metroResolverOf({ host, ...resolving(metro, dev) })(`${projectRoot}${sep}.`, entryFile, { platform })
   return resolution?.type === 'sourceFile' && inside(projectRoot, resolution.filePath) ? resolution.filePath : null
 }
 
@@ -142,6 +140,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injec
   const options = targetOptions({ platform, dev, inlineRequires })
   const common = {
     ...options,
+    ...resolving(metro, dev),
     entry: entryPath,
     platform,
     esbuild,
@@ -150,16 +149,13 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injec
     minify,
     cache: cached.files,
     commonJs: cached.commonJs,
-    assetExts: metro.assetExts,
-    resolver: { ...metro.resolver, dev },
-    blockList: metro.blockList,
     polyfills: metro.polyfills(platform),
-    runBeforeMain: metro.runBeforeMain?.(entryPath) ?? null,
+    runBeforeMain: metro.runBeforeMain?.(entryPath),
     assetRegistryPath: metro.assetRegistryPath,
     prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
   }
   const bundler = dev && runtime !== null ? createModuleBundler({ ...common, runtime, injected, ids, builds: cached.modules }) : createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true })
-  return { bundler, store: options.store ?? null }
+  return { bundler, store: options.store }
 }
 
 async function run({ projectRoot, onBuild }, build, at) {
@@ -170,15 +166,15 @@ async function run({ projectRoot, onBuild }, build, at) {
     const result = await bundler.rebuild((done, total) => {
       for (const onProgress of build.waiting) onProgress?.(done, total)
     })
-    const { outputFiles, assets, files } = result
+    // Not js or map: a module bundler's are getters, each made when a client first asks for it.
+    const { outputFiles, modules, entryId, scripts, assets, files, bundled = null } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text
-    // A dev bundle's js and map as its bundler makes each when a client first asks for it (bundled).
-    const built = result.modules === undefined ? { js: text('.js'), map: text('.map') } : { modules: result.modules, entryId: result.entryId, scripts: result.scripts }
-    build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files) }, projectRoot, result.bundled ?? null)
+    const built = modules === undefined ? { js: text('.js'), map: text('.map') } : { modules, entryId, scripts }
+    build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files) }, projectRoot, bundled)
     build.good = build.last
   } catch (error) {
     if (!Array.isArray(error?.errors)) throw error
-    build.last = { ok: false, version: at, errors: error.errors, files: new Set(error.files ?? []) }
+    build.last = { ok: false, version: at, errors: error.errors, files: new Set(error.files) }
   }
   onBuild({ request: build.request, outcome: build.last, ms: Math.round(performance.now() - start), cached: build.store?.finish().tally ?? null })
   return build.last
@@ -200,16 +196,10 @@ function moduleOutcome(builds, { entryFile, platform, dev, minify }, projectRoot
 // map() }), its js and its map as it makes each, when first asked for.
 function withIndex(outcome, projectRoot, bundled = null) {
   let index = null
-  const made = {
-    ...outcome,
-    index() {
-      if (index !== null) return index
-      const map = JSON.parse(made.map)
-      const sources = map.sources.map((source) => (NAMESPACED.test(source) ? undefined : resolve(projectRoot, source)))
-      index = { ...indexMappings(map.mappings), sources }
-      return index
-    },
+  const indexOf = () => {
+    const map = JSON.parse(made.map)
+    return { ...indexMappings(map.mappings), sources: map.sources.map((source) => (NAMESPACED.test(source) ? undefined : resolve(projectRoot, source))) }
   }
-  if (bundled === null) return made
-  return Object.defineProperties(made, { js: { get: bundled.js, enumerable: true }, map: { get: bundled.map, enumerable: true } })
+  const made = { ...outcome, index: () => (index ??= indexOf()) }
+  return bundled === null ? made : Object.defineProperties(made, { js: { get: bundled.js, enumerable: true }, map: { get: bundled.map, enumerable: true } })
 }
