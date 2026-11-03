@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test'
 
 import { assetData, assetModule, assetRecord, isAssetFile } from '../metro-assets.js'
 import { parseAssetPath } from '../src/assets.js'
-import { imageDimensions, isAssetTypeAnImage } from '../src/image-size.js'
+import { imageSize } from '../src/image-size.js'
 import { png, vfsOf, writeTree } from './fixtures.js'
 
 describe('parseAssetPath', () => {
@@ -38,7 +38,7 @@ describe('isAssetFile', () => {
   })
 })
 
-describe('imageDimensions', () => {
+describe('imageSize', () => {
   const bytes = (hex, ...rest) => Buffer.concat([Buffer.from(hex, 'hex'), ...rest])
   // [type, bytes, width, height]
   const IMAGES = [
@@ -56,26 +56,26 @@ describe('imageDimensions', () => {
     ['svg', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" data-width="5" width="16px" height=\'32\'>')],
   ]
   for (const [type, content] of IMAGES) {
-    it(`reads a ${type}`, () => assert.deepEqual(imageDimensions(type, new Uint8Array(content), 'f'), { width: 16, height: 32 }))
+    it(`reads a ${type}`, () => assert.deepEqual(imageSize(type, new Uint8Array(content), 'f'), { width: 16, height: 32 }))
   }
 
   it('reads an svg in its units, and by its viewBox', () => {
-    assert.deepEqual(imageDimensions('svg', Buffer.from('<svg width="1in" viewBox="0 0 30 15">'), 'f'), { width: 96, height: 48 })
-    assert.deepEqual(imageDimensions('svg', Buffer.from('<svg viewBox="0,0,40.5,20">'), 'f'), { width: 40.5, height: 20 })
+    assert.deepEqual(imageSize('svg', Buffer.from('<svg width="1in" viewBox="0 0 30 15">'), 'f'), { width: 96, height: 48 })
+    assert.deepEqual(imageSize('svg', Buffer.from('<svg viewBox="0,0,40.5,20">'), 'f'), { width: 40.5, height: 20 })
   })
 
   it('reads an image by what it holds where its type says otherwise', () => {
-    assert.deepEqual(imageDimensions('jpg', png(3, 4), 'f'), { width: 3, height: 4 })
+    assert.deepEqual(imageSize('jpg', png(3, 4), 'f'), { width: 3, height: 4 })
   })
 
   it('throws for what no parser reads, or a size of nothing', () => {
-    assert.throws(() => imageDimensions('png', Buffer.from('not an image'), 'img/x.png'), { message: 'Invalid png image asset: img/x.png' })
-    assert.throws(() => imageDimensions('png', png(0, 4), 'f'), /Invalid png/u)
+    assert.throws(() => imageSize('png', Buffer.from('not an image'), 'img/x.png'), { message: 'Invalid png image asset: img/x.png' })
+    assert.throws(() => imageSize('png', png(0, 4), 'f'), /Invalid png/u)
   })
 
   it('knows Metro\'s image types', () => {
-    for (const type of ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'psd', 'svg', 'tiff', 'ktx']) assert.ok(isAssetTypeAnImage(type), type)
-    for (const type of ['xml', 'mp4', 'ttf', 'heic']) assert.ok(!isAssetTypeAnImage(type), type)
+    for (const type of ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'psd', 'svg', 'tiff', 'ktx']) assert.deepEqual(imageSize(type, png(1, 2), 'f'), { width: 1, height: 2 }, type)
+    for (const type of ['xml', 'mp4', 'ttf', 'heic']) assert.equal(imageSize(type, png(1, 2), 'f'), null, type)
   })
 })
 
