@@ -1,14 +1,12 @@
-// A package's "exports" and "imports" as metro-resolver 0.87.2 reads them
-// (PackageExportsResolve, PackageImportsResolve; MIT, Copyright (c) Meta
-// Platforms, Inc. and affiliates). Null is a miss, where Metro falls back to
-// resolving by files; FAILED fails the resolution.
+// A package's "exports" and "imports" as metro-resolver 0.87.2 reads them (PackageExportsResolve,
+// PackageImportsResolve; MIT, Copyright (c) Meta Platforms, Inc. and affiliates). Null is a miss,
+// where Metro falls back to resolving files; FAILED fails the resolution.
 
 export const FAILED = Symbol('failed')
 const NO_MATCH = Symbol('no match')
 const REFUSED = Symbol('refused')
 
-// normalizeExportsField. Metro caches it in a WeakMap, which throws on a
-// number or a boolean.
+// normalizeExportsField. A number or boolean fails, as Metro's WeakMap cache throws on it.
 function exportsMap(exportsField) {
   if (typeof exportsField === 'string') return new Map([['.', exportsField]])
   if (typeof exportsField !== 'object') return FAILED
@@ -34,6 +32,7 @@ function patternMatch(pattern, subpath) {
   return subpath.slice(base.length, subpath.length - trailer.length)
 }
 
+// A conditional target narrowed by `conditions`: a string, null, NO_MATCH, or REFUSED if invalid.
 function reduce(value, conditions) {
   if (value === null || typeof value === 'string') return value
   if (typeof value !== 'object') return REFUSED
@@ -46,18 +45,19 @@ function reduce(value, conditions) {
   return NO_MATCH
 }
 
-// -> { to, star } or null. An exact key wins even when null; else the
-// pattern with the longest base, then the longest.
+// The target of `subpath` and what its `*` stands for, or null. An exact key wins even when
+// null; else the pattern with the longest base, then the longest pattern.
 function target(map, subpath, conditions) {
-  if (!map.has(subpath) && ![...map.keys()].some((key) => key.split('*').length === 2 && patternMatch(key, subpath) !== null)) return null
+  if (!map.has(subpath) && !map.keys().some((key) => key.split('*').length === 2 && patternMatch(key, subpath) !== null)) return null
   const reduced = new Map()
   for (const [key, value] of map) {
     const to = reduce(value, conditions)
     if (to === REFUSED) return null
     reduced.set(key, typeof to === 'string' ? to : null)
   }
-  if ([...reduced.values()].some((to) => to !== null && !to.startsWith('./'))) return null
-  if (reduced.has(subpath)) return reduced.get(subpath) === null ? null : { to: reduced.get(subpath), star: null }
+  if (reduced.values().some((to) => to !== null && !to.startsWith('./'))) return null
+  const exact = reduced.get(subpath)
+  if (exact !== undefined) return exact === null ? null : { to: exact, star: null }
   const patterns = [...reduced.keys()].filter((key) => key.includes('*')).toSorted((a, b) => b.indexOf('*') - a.indexOf('*') || b.length - a.length)
   for (const key of patterns) {
     const star = patternMatch(key, subpath)

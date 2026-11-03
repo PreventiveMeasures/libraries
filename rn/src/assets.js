@@ -1,6 +1,5 @@
 // Assets as Metro 0.87 reads and builds them (node-haste AssetPaths, Assets,
-// generateAssetCodeFileAst; MIT, Copyright (c) Meta Platforms, Inc. and
-// affiliates).
+// generateAssetCodeFileAst; MIT, Copyright (c) Meta Platforms, Inc. and affiliates).
 
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
@@ -11,8 +10,7 @@ import { asBuffer, imageDimensions, isAssetTypeAnImage } from './image-size.js'
 
 const DEFAULT_ASSET_EXTS = new Set(defaults.assetExts)
 
-// Whether any dot-suffix of the name is an asset extension: `a.tar.gz` for
-// `gz` or `tar.gz`.
+// Whether any dot-suffix of the name is an asset extension: `a.tar.gz` for `gz` or `tar.gz`.
 export function isAssetFile(filePath, assetExts = DEFAULT_ASSET_EXTS) {
   const exts = assetExts instanceof Set ? assetExts : new Set(assetExts)
   const name = basename(filePath)
@@ -25,8 +23,8 @@ export function isAssetFile(filePath, assetExts = DEFAULT_ASSET_EXTS) {
 const PLATFORM_FILE = /^(.+?)(\.([^.]+))?\.([^.]+)$/u
 const SCALED = /^(.+?)(@([\d.]+)x)?$/u
 
-// AssetPaths.tryParse: `a@2x.ios.png` is the asset `a.png` at scale 2 for
-// ios; another platform's suffix is part of the name. Null without a type.
+// AssetPaths.tryParse: `a@2x.ios.png` is the asset `a.png` at scale 2 for ios; another
+// platform's suffix is part of the name. Null without an extension.
 export function parseAssetPath(filePath, platform = null) {
   const match = PLATFORM_FILE.exec(basename(filePath))
   if (match === null) return null
@@ -37,8 +35,8 @@ export function parseAssetPath(filePath, platform = null) {
   return { assetName: join(dirname(filePath), `${name}.${type}`), name, platform: own ? suffix : null, resolution: Number.isNaN(resolution) ? 1 : resolution, type }
 }
 
-// The files an import of an asset resolves to: it and its scale variants,
-// by real paths; null where none is a file, or where it names a variant.
+// The real paths an asset import resolves to, itself and its scale variants; null if none
+// exists or it names a variant.
 export function assetFiles(host, filePath, assetResolutions) {
   const ext = extname(filePath)
   const base = join(dirname(filePath), basename(filePath, ext))
@@ -47,8 +45,8 @@ export function assetFiles(host, filePath, assetResolutions) {
   return files.length > 0 ? files.map((file) => host.realpath(file)) : null
 }
 
-// getAbsoluteAssetRecord: the asset's files in its directory, the
-// platform's where it has any, by scale, ties in libuv's readdir order.
+// getAbsoluteAssetRecord: the asset's files in its directory (the platform's, if it has any) by
+// scale, ties in libuv's readdir order (bytewise).
 export function assetRecord(assetPath, { platform = null, host = diskHost } = {}) {
   const own = parseAssetPath(assetPath, platform)
   if (own === null) throw new Error(`invalid asset file path: ${assetPath}`)
@@ -57,8 +55,9 @@ export function assetRecord(assetPath, { platform = null, host = diskHost } = {}
     .filter((name) => name.startsWith(own.name))
     .toSorted((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
     .flatMap((name) => {
-      const asset = parseAssetPath(join(dir, name), platform)
-      return asset === null ? [] : [{ key: asset.platform === null ? asset.assetName : `${asset.assetName} : ${asset.platform}`, file: join(dir, name), scale: asset.resolution }]
+      const file = join(dir, name)
+      const asset = parseAssetPath(file, platform)
+      return asset === null ? [] : [{ key: asset.platform === null ? asset.assetName : `${asset.assetName} : ${asset.platform}`, file, scale: asset.resolution }]
     })
   const records = Map.groupBy(entries, ({ key }) => key)
   const record = (platform === null ? undefined : records.get(`${own.assetName} : ${platform}`)) ?? records.get(own.assetName)
@@ -67,8 +66,7 @@ export function assetRecord(assetPath, { platform = null, host = diskHost } = {}
   return { files: byScale.map(({ file }) => file), scales: byScale.map(({ scale }) => scale) }
 }
 
-// getAssetData, with no asset data plugins. `urlPath` is the asset's path
-// below `publicPath`, posix.
+// getAssetData, with no asset data plugins. `urlPath` is the asset's posix path below `publicPath`.
 export function assetData(assetPath, { urlPath, platform = null, publicPath = '/assets', host = diskHost } = {}) {
   if (typeof urlPath !== 'string') throw new TypeError('assetData: urlPath is required')
   const { files, scales } = assetRecord(assetPath, { platform, host })
@@ -81,7 +79,7 @@ export function assetData(assetPath, { urlPath, platform = null, publicPath = '/
     if (contents[0].length === 0) throw new Error(`Image asset \`${files[0]}\` cannot be an empty file.`)
     dimensions = imageDimensions(type, contents[0], files[0])
   }
-  // A `..` path is kept, which a join would fold.
+  // Metro keeps a leading `..`, which a join would fold.
   const dir = posix.dirname(urlPath)
   return {
     __packager_asset: true,
@@ -97,9 +95,8 @@ export function assetData(assetPath, { urlPath, platform = null, publicPath = '/
   }
 }
 
-// The module Metro builds of an asset. React Native's `assetRegistryPath` is
-// `react-native/Libraries/Image/AssetRegistry` up to 0.86,
-// `react-native/asset-registry` from 0.87.
+// The module Metro builds for an asset. React Native's `assetRegistryPath` is
+// `react-native/Libraries/Image/AssetRegistry` up to 0.86, `react-native/asset-registry` from 0.87.
 export function assetModule(data, assetRegistryPath) {
   if (typeof assetRegistryPath !== 'string' || assetRegistryPath === '') throw new TypeError('assetModule: assetRegistryPath is required')
   const { files: _files, fileSystemLocation: _location, path: _path, ...descriptor } = data
