@@ -1239,10 +1239,85 @@ describe('rn-serve --launch=ios, of rn.config.json\'s launch and ios', () => {
     assert.deepEqual(refused(['--launch=ios'], bare), [1, "rn-serve: --launch=ios needs Xcode's simctl (xcrun --find simctl)\n"])
   })
 
-  it('refuses a launch of another platform, of no app, and --simulator or --binary-path with none', () => {
-    assert.deepEqual(refused(['--launch=android']), [1, 'rn-serve: --launch takes ios, not android\n'])
+  it("refuses a launch of a platform it doesn't launch, of no app, Android's flags, and a launch's flags with none", () => {
+    assert.deepEqual(refused(['--launch=windows']), [1, 'rn-serve: --launch takes ios or android, not windows\n'])
     assert.deepEqual(refused(['--binary-path=build/None.app']), [1, 'rn-serve: --binary-path: no app at build/None.app, an .app of its Info.plist\n'])
-    assert.deepEqual(refused(['--no-launch', '--simulator=iPhone 17']), [1, 'rn-serve: --simulator and --binary-path are of --launch=ios\n'])
+    assert.deepEqual(refused(['--device=Pixel_8']), [1, 'rn-serve: --device is of --launch=android\n'])
+    assert.deepEqual(refused(['--no-launch', '--simulator=iPhone 17']), [1, 'rn-serve: --simulator, --device, --variant and --binary-path are of --launch\n'])
+  })
+})
+
+describe("rn-serve --launch=android, of rn.config.json's launch and android", () => {
+  // The SDK's adb and emulator, on PATH alone (no ANDROID_HOME): each logs its arguments, and answers as
+  // the SDK's would, of one emulator online.
+  const fake = (name, body = '') => `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.FAKE_LOG, JSON.stringify([${JSON.stringify(name)}, ...process.argv.slice(2)]) + '\\n')\nconst args = process.argv.slice(2)\nconst line = args.join(' ')\n${body}\n`
+  const ID = 'com.example.app.debug'
+  const ACTIVITY = `${ID}/com.example.app.MainActivity`
+  const APK = 'android/app/build/outputs/apk/debug'
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'sdk/adb': fake('adb', [
+      "if (line === 'devices') console.log('List of devices attached\\nemulator-5554\\tdevice\\n')",
+      "else if (line.endsWith('getprop sys.boot_completed')) console.log('1')",
+      `else if (line.includes('resolve-activity')) console.log('priority=0 preferredOrder=0 match=0x108000\\n${ACTIVITY}')`,
+      `else if (line.includes(' am start ')) console.log('Starting: Intent { cmp=${ACTIVITY} }')`,
+      "else if (line.includes(' install ')) console.log('Success')",
+    ].join('\n')),
+    'sdk/emulator': fake('emulator', "if (line === '-list-avds') console.log('Pixel_8')"),
+    'rn.config.json': { launch: 'android' },
+    'android/app/src/main/java/com/example/app/MainApplication.kt': 'class MainApplication {\n  override fun getJSMainModuleName(): String = "index"\n}\n',
+    [`${APK}/output-metadata.json`]: { version: 3, artifactType: { type: 'APK', kind: 'Directory' }, applicationId: ID, variantName: 'debug', elements: [{ type: 'SINGLE', filters: [], outputFile: 'app-debug.apk' }] },
+    [`${APK}/app-debug.apk`]: 'PK',
+  })
+  for (const name of ['adb', 'emulator']) chmodSync(join(root, 'sdk', name), 0o755)
+  const log = join(root, 'commands.log')
+  const env = { PATH: join(root, 'sdk'), FAKE_LOG: log, ANDROID_HOME: '', ANDROID_SDK_ROOT: '' }
+  const commands = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((each) => JSON.parse(each)) : [])
+  const refused = (args, given = env) => {
+    const r = spawnSync(process.execPath, [BIN, '--port=0', '--no-warm', ...args], { cwd: root, encoding: 'utf8', env: { ...envOf(TMP), ...given } })
+    return [r.status, r.stderr]
+  }
+  const MAIN = ['-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER']
+  after(cleanup)
+
+  it("launches the APK Gradle built of debug as it starts, on the device online, its port reversed, and builds Android's bundle ahead of it", async () => {
+    rmSync(log, { force: true })
+    const server = await serve(root, [], TMP, { warm: true, env })
+    try {
+      await until(() => server.output().includes(`rn-serve: launched ${ID} on emulator-5554`), 'the app launched')
+      const { port } = new URL(server.url)
+      assert.deepEqual(commands(), [
+        ['adb', 'version'],
+        ['adb', 'devices'],
+        ['adb', '-s', 'emulator-5554', 'shell', 'getprop', 'sys.boot_completed'],
+        ['adb', '-s', 'emulator-5554', 'install', '-r', '-d', join(root, APK, 'app-debug.apk')],
+        ['adb', '-s', 'emulator-5554', 'reverse', `tcp:${port}`, `tcp:${port}`],
+        ['adb', '-s', 'emulator-5554', 'shell', 'cmd', 'package', 'resolve-activity', '--brief', ...MAIN, ID],
+        ['adb', '-s', 'emulator-5554', 'shell', 'am', 'start', '-W', '-n', ACTIVITY, ...MAIN],
+      ])
+      assert.match(server.output(), /rn-serve: launching com\.example\.app\.debug \(app-debug\.apk\) on emulator-5554\n/u)
+      assert.match(server.output(), /rn-serve: building \.\/index for android\n/u)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it("leaves its launch, saying so, where adb isn't; refuses --launch=android there", async () => {
+    const bare = { ...env, PATH: join(root, 'android') }
+    const server = await serve(root, [], TMP, { env: bare })
+    try {
+      assert.match(server.output(), /rn-serve: no Android's adb \(the SDK's platform-tools, in ANDROID_HOME or on PATH\): rn\.config\.json's launch launches nothing here/u)
+    } finally {
+      await server.stop()
+    }
+    assert.deepEqual(refused(['--launch=android'], bare), [1, "rn-serve: --launch=android needs Android's adb (the SDK's platform-tools, in ANDROID_HOME or on PATH)\n"])
+  })
+
+  it('refuses a variant Gradle built none of, an APK not there, both --binary-path and --variant, and --simulator', () => {
+    assert.deepEqual(refused(['--variant=release']), [1, 'rn-serve: no APK of the variant release in android/app/build/outputs/apk: build one (cd android && ./gradlew assembleRelease), or give one by --binary-path\n'])
+    assert.deepEqual(refused(['--binary-path=build/none.apk']), [1, 'rn-serve: --binary-path: no APK at build/none.apk\n'])
+    assert.deepEqual(refused(['--binary-path=app.apk', '--variant=debug']), [1, 'rn-serve: --binary-path is the APK to install, --variant the one Gradle built of a variant: give one\n'])
+    assert.deepEqual(refused(['--simulator=iPhone 17']), [1, 'rn-serve: --simulator is of --launch=ios\n'])
   })
 })
 

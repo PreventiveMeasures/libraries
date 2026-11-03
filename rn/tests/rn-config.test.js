@@ -30,8 +30,9 @@ describe('readRnConfig', () => {
   })
 
   it('takes each of its options, as they are', () => {
-    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, port: 8082, launch: 'ios', ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' } }
+    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, port: 8082, launch: 'ios', ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' }, android: { device: 'Pixel_8', variant: 'freeDebug', binaryPath: 'app.apk' } }
     assert.deepEqual(read('{ "launch": false, "ios": {} }'), { launch: false, ios: {} })
+    assert.deepEqual(read('{ "launch": "android" }'), { launch: 'android' })
     assert.deepEqual(read(JSON.stringify(options)), options)
     assert.deepEqual(read('{ "metroConfig": "metro.rn.config.js" }'), { metroConfig: 'metro.rn.config.js' })
     assert.deepEqual(read('{}'), {})
@@ -39,11 +40,13 @@ describe('readRnConfig', () => {
 
   it('refuses an option it does not know, a value of another type, and a file not an object of JSON', () => {
     // devTools, its name before: none now.
-    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, development, production' })
+    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, android, development, production' })
     for (const port of [-1, 65_536, 80.5, '8082', null]) {
       assert.throws(() => read(JSON.stringify({ port })), { message: `rn.config.json: port is a port, 0 to 65535, not ${JSON.stringify(port)}` })
     }
-    assert.throws(() => read('{ "launch": "android" }'), { message: 'rn.config.json: launch is "ios", or false, not "android"' })
+    assert.throws(() => read('{ "launch": "windows" }'), { message: 'rn.config.json: launch is "ios", "android", or false, not "windows"' })
+    assert.throws(() => read('{ "android": { "mode": "debug" } }'), { message: 'rn.config.json: no such option android.mode: it has device, variant, binaryPath' })
+    assert.throws(() => read('{ "android": { "variant": "" } }'), { message: 'rn.config.json: android.variant is a build variant\'s name, as debuggableVariants has it ("debug", "freeDebug"), not ""' })
     assert.throws(() => read('{ "ios": [] }'), { message: 'rn.config.json: ios is an object of options (simulator, binaryPath), not []' })
     assert.throws(() => read('{ "ios": { "udid": "X" } }'), { message: 'rn.config.json: no such option ios.udid: it has simulator, binaryPath' })
     assert.throws(() => read('{ "ios": { "binaryPath": "" } }'), { message: 'rn.config.json: ios.binaryPath is the path of a simulator\'s build of the app, an .app, not ""' })
