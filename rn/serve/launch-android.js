@@ -136,8 +136,9 @@ export async function launchAndroid({ apkPath, applicationId = null, device = nu
     await run(adb, ['-s', serial, 'reverse', `tcp:${port}`, `tcp:${port}`])
     const resolved = (await run(adb, ['-s', serial, 'shell', 'cmd', 'package', 'resolve-activity', '--brief', ...MAIN, id])).trim().split('\n').at(-1).trim()
     if (!resolved.startsWith(`${id}/`)) throw new Error(`${id} has no launcher activity on ${serial}: ${resolved}`)
-    const started = await run(adb, ['-s', serial, 'shell', 'am', 'start', '-n', resolved, ...MAIN])
-    // am start says so of an error, but exits 0.
+    // -W: waits for the activity to start, and says of what fails on stdout (else stderr, which exec drops
+    // where the command exits 0, as am start does of an error).
+    const started = await run(adb, ['-s', serial, 'shell', 'am', 'start', '-W', '-n', resolved, ...MAIN])
     if (/^Error/mu.test(started)) throw new Error(`am start -n ${resolved} on ${serial}: ${started.trim()}`)
   }
   return { applicationId: id, devices }

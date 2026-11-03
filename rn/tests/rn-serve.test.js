@@ -1293,7 +1293,7 @@ describe("rn-serve --launch=android, of rn.config.json's launch and android", ()
         ['adb', '-s', 'emulator-5554', 'install', '-r', '-d', join(root, APK, 'app-debug.apk')],
         ['adb', '-s', 'emulator-5554', 'reverse', `tcp:${port}`, `tcp:${port}`],
         ['adb', '-s', 'emulator-5554', 'shell', 'cmd', 'package', 'resolve-activity', '--brief', ...MAIN, ID],
-        ['adb', '-s', 'emulator-5554', 'shell', 'am', 'start', '-n', ACTIVITY, ...MAIN],
+        ['adb', '-s', 'emulator-5554', 'shell', 'am', 'start', '-W', '-n', ACTIVITY, ...MAIN],
       ])
       assert.match(server.output(), /rn-serve: launching com\.example\.app\.debug \(app-debug\.apk\) on emulator-5554\n/u)
       assert.match(server.output(), /rn-serve: building \.\/index for android\n/u)

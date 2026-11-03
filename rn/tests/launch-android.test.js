@@ -59,7 +59,7 @@ describe('launchAndroid', () => {
   const ENV = { ANDROID_HOME: '' }
   // The commands it runs, each answered as the SDK's would. `online`, the serials `adb devices` lists,
   // each call the next of them (the last thereafter); `avds`, the emulator's AVDs and, by serial, those running.
-  const runner = ({ online = [['emulator-5554']], avds = { list: ['Pixel_8'], running: { 'emulator-5554': 'Pixel_8' } }, activity = 'com.example.app/.MainActivity', started = 'Starting: Intent { cmp=com.example.app/.MainActivity }', booted = ['1'], aapt2 = '' } = {}) => {
+  const runner = ({ online = [['emulator-5554']], avds = { list: ['Pixel_8'], running: { 'emulator-5554': 'Pixel_8' } }, activity = 'com.example.app/.MainActivity', started = 'Starting: Intent { cmp=com.example.app/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.example.app/.MainActivity\nTotalTime: 812\nWaitTime: 815\nComplete', booted = ['1'], aapt2 = '' } = {}) => {
     const calls = []
     let listed = 0
     let polled = 0
@@ -100,7 +100,7 @@ describe('launchAndroid', () => {
       ['adb', '-s', 'emulator-5554', 'install', '-r', '-d', '/app/app-debug.apk'],
       ['adb', '-s', 'emulator-5554', 'reverse', 'tcp:8082', 'tcp:8082'],
       ['adb', '-s', 'emulator-5554', 'shell', 'cmd', 'package', 'resolve-activity', '--brief', ...MAIN, 'com.example.app'],
-      ['adb', '-s', 'emulator-5554', 'shell', 'am', 'start', '-n', 'com.example.app/.MainActivity', ...MAIN],
+      ['adb', '-s', 'emulator-5554', 'shell', 'am', 'start', '-W', '-n', 'com.example.app/.MainActivity', ...MAIN],
     ])
     assert.deepEqual(logged, ['rn-serve: launching com.example.app (app-debug.apk) on emulator-5554'])
     assert.deepEqual(result, { applicationId: 'com.example.app', devices: ['emulator-5554'] })
@@ -140,6 +140,7 @@ describe('launchAndroid', () => {
     await assert.rejects(launched({ online: [[]] }, { timeouts: { online: 0, booted: 0 } }), { message: 'the emulator Pixel_8 to come online took longer than 0 s' })
   })
 
+  // With -W, am start says of an error on stdout, as of its start (ActivityManagerShellCommand's runStartActivity).
   it("refuses an app of no launcher activity, and what am start says it failed to start, though it exits 0", async () => {
     await assert.rejects(launched({ activity: 'No activity found' }), { message: 'com.example.app has no launcher activity on emulator-5554: No activity found' })
     await assert.rejects(launched({ started: 'Error: Activity class {com.example.app/.MainActivity} does not exist.' }), { message: 'am start -n com.example.app/.MainActivity on emulator-5554: Error: Activity class {com.example.app/.MainActivity} does not exist.' })
