@@ -1,5 +1,5 @@
-// React Native's Metro config defaults (metro-config 0.87 under
-// @react-native/metro-config 0.88), and the disk as the default host.
+// React Native's Metro config defaults (metro-config 0.87 under @react-native/metro-config 0.88),
+// and the disk as the default host.
 
 import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -30,10 +30,8 @@ const stat = (path) => {
   }
 }
 
-// `readFileAsync`, a file read off the main thread, as a build reads ahead
-// each file it resolves (bundle.js's metroGraph()); `dirents`, a
-// directory's entries of their types (fs.Dirent), as listing() takes them,
-// which throws where none is; realpath the system's, of one call.
+// readFileAsync reads off the main thread, for a build's read-ahead (bundle.js); dirents lists a
+// directory with types for build-host.js's listing(), throwing if there is none.
 export const diskHost = freeze({
   isFile: (path) => stat(path)?.isFile() ?? false,
   isDirectory: (path) => stat(path)?.isDirectory() ?? false,

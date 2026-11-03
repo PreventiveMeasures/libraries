@@ -1,20 +1,15 @@
-// Babel's .babelrc lookup, of a build: what it would find of each file,
-// each directory read once.
+// Babel's .babelrc lookup for one build, reading each directory once.
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-// (filename) => whether Babel's .babelrc lookup (babelrc: true, Metro's
-// enableBabelRCLookup) finds anything of the file: of the directories from
-// the file's up to its package's (the first with a package.json, short of a
-// node_modules), a .babelrc (by any extension) or .babelignore in one, or a
-// package.json with a `babel` key, or one Babel fails on. Babel looks for
-// each anew for each file, and its mtime; here each directory is read once,
-// as of a build whose files don't change as it runs. Where it finds none,
-// Babel, told babelrc: false, loads the same options.
+// (filename) => whether Babel's .babelrc lookup (Metro's enableBabelRCLookup) finds a config for the file:
+// a .babelrc*, a .babelignore or a package.json Babel takes, from its directory up to its package's root.
+// Where it finds none, Babel loads the same options with babelrc: false.
 export function babelrcFinder() {
   const known = new Map()
   const finds = (directory) => {
+    // Babel stops short of node_modules.
     if (basename(directory) === 'node_modules') return false
     if (known.has(directory)) return known.get(directory)
     let names = []
@@ -29,8 +24,7 @@ export function babelrcFinder() {
   return (filename) => finds(dirname(filename))
 }
 
-// Whether Babel takes a package.json for a config: its `babel` key, or none
-// it can read, which it fails on.
+// Whether Babel takes a package.json as a config: it has a `babel` key, or is invalid (Babel throws on it).
 function babelOf(path) {
   try {
     const manifest = JSON.parse(readFileSync(path, 'utf8'))

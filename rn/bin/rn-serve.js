@@ -1,79 +1,10 @@
 #!/usr/bin/env node
-// rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE]
-//   [--max-workers=N] [--define=K=V ...] [--babel-aliases=FILE]
-//   [--esm | --no-esm] [--devtools | --no-devtools] [--reset-cache]
-//   [--no-warm] [--no-client-logs]
-//   [--launch=ios [--simulator=NAME] [--binary-path=APP] | --no-launch]
-// A dev server for a React Native app, where Metro's would be: each bundle
-// the app asks for built as rn-bundle builds it (for the platform, dev and
-// minify of its URL), with Metro's prelude, polyfills and setup-env first,
-// and a source map; its assets; LogBox's symbolication; each app's console,
-// as Metro's terminal prints it, each line labelled ` LOG `, ` WARN `, ...
-// (but --no-client-logs); reload and the dev
-// menu (r, d), and with @react-native/dev-middleware installed, the debugger
-// (j; with --devtools, opened for each app as it connects, unless DevTools
-// are connected to its device already: src/devtools.js), its Network panel
-// on: where the app's runtime reports no requests
-// (React Native before 0.83), each dev bundle in Metro's module format has
-// a reporter of rn's, which tells rn-serve of each request an XMLHttpRequest
-// makes (fetch's too), which rn-serve shows the panel (src/network.js). A
-// file a bundle was built from changed, each bundle is built anew, each
-// file's transform kept in memory while its source is the same. Each
-// file as it loads (its Flow stripped, lowered by esbuild, and the project's
-// Babel config's output) is kept on disk too, across runs, in the OS's
-// temporary directory, as Metro keeps its cache (rn-serve-cache-UID, the
-// user's alone; rn-bundle keeps none): while the file, rn, esbuild,
-// flow-remove-types and its dependencies, the Babel config the file has (the
-// plugins left out of it, as --esm leaves one, among it), the code of
-// @babel/core and of what the config loads or reads, the versions of the
-// packages they depend on (not the lockfile: a package the app adds is of
-// none of it), NODE_ENV and BABEL_ENV
-// are the same; each build logs, on its line, its time, and of the files it
-// loaded, those the cache had (hits), those loaded anew (misses), those as
-// they were in memory, and why one was kept none of. --reset-cache empties
-// it first, as Metro's does its own. As it starts, it builds, ahead of the
-// app, the bundles an app asked for of its last run; of none, the project's
-// one bundle (the one its native project names, else its index), for iOS
-// on a Mac, else for Android; --no-warm builds none. A dev
-// bundle is in Metro's module format, with metro-runtime's require (that
-// react-native has): each app of one gets what changed, as Metro's Fast
-// Refresh sends it, where the project's Babel config runs each component of
-// the project's built with react-refresh's Babel plugin (react-native's) for
-// it to refresh; an app of another bundle reloads. Without Babel, a
-// metro-runtime before 0.83.3 (react-native before 0.81) reloads the app on
-// an edit of an ES module: esbuild makes its exports getters, which that
-// runtime takes for no refresh boundary. A build error is shown in the app.
-// --esm, as rn-bundle's: Babel leaves import and export to esbuild, which
-// links the modules of a bundle it builds whole (minified, or of no dev), and
-// makes each of a dev bundle CommonJS itself, its exports getters: so that
-// runtime reloads the app on an edit of one too.
-// The project's Metro config is loaded as rn-bundle loads it, its server's
-// port the default of --port (rn.config.json's port over it), its
-// maxWorkers of --max-workers (how many
-// workers each bundle's Babel runs in at most, as rn-bundle's), and an
-// option of its server or symbolicator not as Metro's default an error too.
-// It answers the app and its tools, never another webpage (src/gate.js), on
-// 127.0.0.1 unless --host: --host=0.0.0.0 for a device on Wi-Fi, which names
-// it by the machine's own name too (a Host it takes on no loopback --host).
-// On any but loopback, anyone on the network can fetch the app and its
-// source, and with dev-middleware, debug the app: it warns of that.
-// The project's rn.config.json (src/rn-config.js) has the defaults of
-// --esm (its esm), --devtools (its devtools), --port and --max-workers
-// (its port and maxWorkers, over the Metro config's) and of the Metro
-// config (its metroConfig: false, none, nor metro-config loaded: React
-// Native's defaults, as rn has them; a path, that file), the flags over it;
-// and what it adds to Metro's defaults of assetExts, sourceExts and
-// assetResolutions (a Metro config that sets one of them otherwise, an error).
-// --launch=ios launches the app on an iOS simulator as rn-serve starts, as
-// `react-native run-ios --no-packager --simulator NAME --binary-path APP`
-// does, but of no Xcode project (src/launch-ios.js): APP, a simulator's
-// build of it (--binary-path, else rn.config.json's ios.binaryPath),
-// installed on the simulator NAME (--simulator, else its ios.simulator: a
-// name, "iPhone 17 (26.0)", or a UDID; of none, the one booted), told
-// where rn-serve is, its window Simulator.app, else Xcode 27's DeviceHub,
-// whichever Xcode has; and the bundle built ahead of the app is iOS's. It
-// needs Xcode's simctl: rn.config.json's launch, where there's none, is
-// warned of and left.
+// rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE] [--max-workers=N] [--define=K=V ...]
+//   [--babel-aliases=FILE] [--esm | --no-esm] [--devtools | --no-devtools] [--reset-cache] [--no-warm]
+//   [--no-client-logs] [--launch=ios [--simulator=NAME] [--binary-path=APP] | --no-launch]
+// A Metro-compatible dev server: bundles built as rn-bundle builds them, assets, symbolication, client
+// logs, Fast Refresh and, with @react-native/dev-middleware, the debugger. Loaded files are cached on disk
+// across runs; rn.config.json gives the flags' defaults; --launch=ios starts the app on a simulator.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
@@ -99,9 +30,7 @@ import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache
 import { printable } from '../src/terminal.js'
 import { createWatcher } from '../src/watch.js'
 
-// Node's cache of the code it compiles, on disk, as tsc has it: the
-// project's @babel/core, esbuild's API and Metro's config, loaded below,
-// compiled once of each version (NODE_DISABLE_COMPILE_CACHE=1 leaves it off).
+// Caches compiled code (@babel/core, esbuild, the Metro config) on disk; NODE_DISABLE_COMPILE_CACHE=1 opts out.
 enableCompileCache()
 
 const { values } = parseArgs({
@@ -118,7 +47,7 @@ const { values } = parseArgs({
     warm: { type: 'boolean', default: true },
     'client-logs': { type: 'boolean', default: true },
     launch: { type: 'string' },
-    // --no-launch, as parseArgs takes it of a string option.
+    // Declared so that strict parseArgs accepts --no-launch on the string option.
     'no-launch': { type: 'boolean' },
     simulator: { type: 'string' },
     'binary-path': { type: 'string' },
@@ -140,12 +69,12 @@ const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
 const metro = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
 const port = values.port === undefined ? (rnConfig.port ?? metro.port ?? 8081) : Number(values.port)
-// For Fast Refresh: the module system dev bundles are written for, and the
-// plugin that has Babel register each component.
+// For Fast Refresh: the module system of dev bundles, and the Babel plugin that registers components.
+// Without Babel, metro-runtime < 0.83.3 reloads on an ES module edit: esbuild's export getters aren't a boundary to it.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const cacheDir = cacheDirOf(values['reset-cache'], log)
-const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch?.platform ?? null })
+const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch?.platform })
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
 if (esm.on && babelFor === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
@@ -172,24 +101,19 @@ const devBundler = createDevBundler({
   },
   onBuild: ({ request, outcome, ms, cached }) => {
     watcher?.update(devBundler.files())
-    // Once a run, its first build's packs read: of what no run uses, and
-    // the cache of Babel's output alone, of before.
+    // Prune once per run, after the first build has touched its packs; also drop the old Babel-only cache.
     if (cacheDir !== null) pruned ??= prune(cacheDir, { before: [usersOwn('rn-serve-babel')] })
     const what = `${bundleName(request)} ${status(ms, cached)}`
     if (outcome.ok) return log(`rn-serve: built ${what}`)
     return bundlingError(esbuild, outcome.errors, projectRoot).then(({ message }) => log(`rn-serve: failed to build ${what}:\n${message}`), (error) => log(`rn-serve: failed to build ${what}: ${error.message}`))
   },
 })
-// Each app's console, as Metro's terminal prints it, its labels colored
-// where stdout is a terminal that takes them: but --no-client-logs.
+// Colors only where stdout supports them.
 const style = (format, text) => styleText(format, text, { stream: process.stdout })
 const devServer = createDevServer({ projectRoot, watchFolders: metro.watchFolders ?? [projectRoot], esbuild, devBundler: last?.served(devBundler) ?? devBundler, gate, log, clientLogs: values['client-logs'], style })
 
-// A change: each bundle built anew; the apps of one in the module format get
-// what changed from the build they have (once a build no longer fails, though
-// nothing did), those of another, or of one whose scripts changed (a
-// polyfill), which no update defines anew, reload where it is new; and each
-// sees the error where one fails.
+// On a change, rebuilds every bundle. Apps get a hot update from their last good module-format build if its
+// scripts (polyfills) are unchanged, else reload if the bundle changed. Each error goes once to the apps it fails.
 const refreshOnce = async () => {
   let reload = false
   let updated = 0
@@ -202,7 +126,6 @@ const refreshOnce = async () => {
     if (!errors.has(error.message)) errors.set(error.message, { error, requests: [] })
     errors.get(error.message).requests.push(request)
   }
-  // Each error once, however many bundles it fails, to the apps of those.
   for (const { error, requests } of errors.values()) devServer.hotError(error, requests)
   if (updated > 0) log(`rn-serve: updated ${updated} app(s)`)
   if (reload) log(`rn-serve: reloading ${devServer.broadcast('reload')} app(s)`)
@@ -225,19 +148,20 @@ server.on('error', async (error) => {
   let running = null
   try {
     const response = await fetch(`http://${urlHost}:${port}/status`)
-    running = [await response.text(), response.headers.get('x-react-native-project-root')]
+    running = { status: await response.text(), root: response.headers.get('x-react-native-project-root') }
   } catch {
     // No dev server.
   }
-  if (running?.[0] !== 'packager-status:running') fail(`port ${port} is taken: pass another with --port`)
-  // The header has the root as a file URL's path has it.
-  const root = running[1] === null ? null : decodeURIComponent(running[1])
+  if (running?.status !== 'packager-status:running') fail(`port ${port} is taken: pass another with --port`)
+  // The header has the root percent-encoded, as a file URL's path.
+  const root = running.root === null ? null : decodeURIComponent(running.root)
   if (root !== projectRoot) fail(`a dev server for ${root} is running on port ${port}: pass another with --port`)
   log(`rn-serve: a dev server for this project is running on port ${port} already`)
   process.exit(0)
 })
 server.listen(port, host, () => {
-  const serverUrl = `http://${urlHost}:${server.address().port}`
+  const location = `${urlHost}:${server.address().port}`
+  const serverUrl = `http://${location}`
   log(`rn-serve: ${serverUrl} for ${projectRoot} (esbuild ${esbuild.version})`)
   if (!isLoopback(host)) log(`rn-serve: ${wildcard ? 'on every network interface' : `on ${host}`}: anyone on the network can fetch the app and its source${devMiddleware === null ? '' : ', and debug the app: run code in it, and have the server fetch a URL'}`)
   if (metro.file === null && metro.polyfills(null).length === 0) log('rn-serve: no @react-native/js-polyfills: bundles have no polyfills')
@@ -247,17 +171,17 @@ server.listen(port, host, () => {
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
   if (values.warm) void last?.warm(devBundler, log)
-  if (launch !== null) void launchApp(`${urlHost}:${server.address().port}`)
+  if (launch !== null) void launchApp(location)
 })
 
-// The app rn-serve launches (--launch, rn.config.json's launch): null, or {
-// platform, appPath, simulator }; failing of what it can't launch, but of
-// rn.config.json's launch where there's no Xcode's simctl, which is warned of.
+// The app to launch (--launch, else rn.config.json's launch), or null. Without simctl,
+// rn.config.json's launch is only warned of; --launch fails.
 function launchOf() {
-  const flag = values['no-launch'] === true || values.launch === false ? false : values.launch
+  // parseArgs may give --no-launch as launch: false or as no-launch.
+  const flag = values['no-launch'] || values.launch === false ? false : values.launch
   if (typeof flag === 'string' && flag !== 'ios') fail(`--launch takes ios, not ${flag}`)
-  const platform = (flag ?? rnConfig.launch ?? false) || null
-  if (platform === null) {
+  const platform = flag ?? rnConfig.launch
+  if (!platform) {
     if (values.simulator !== undefined || values['binary-path'] !== undefined) fail('--simulator and --binary-path are of --launch=ios')
     return null
   }
@@ -283,27 +207,21 @@ async function launchApp(location) {
   }
 }
 
-// Why a file loaded anew was kept none of (loadCached()'s).
+// Why a missed file wasn't cached, by load-cache.js's reason.
 const UNKEPT = { fingerprint: "without a fingerprint of Babel's config", config: 'of a Babel config with no key', external: "of a plugin's files of its own", failed: 'failed' }
 const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`
+const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`
 
-// A build's status, on its line: its time, the time of it the cache took,
-// and of the files it loaded, those the cache had, those loaded anew, those
-// as they were in memory, and why one loaded anew was kept none of;
-// `cached`, the store's tally, null where there is none.
+// A build's log suffix: its time and the cache's tally (`cached`, null when there's no cache).
 function status(ms, cached) {
-  const seconds = (each) => `${(each / 1000).toFixed(1)} s`
   if (cached === null) return `in ${seconds(ms)}, cache: off`
   const { hits, misses, memory, unkept, ms: taken } = cached
   const why = Object.entries(unkept).map(([reason, count]) => `${count} ${UNKEPT[reason] ?? reason}`).join(', ')
   return `in ${seconds(ms)}, cache ${seconds(taken)}: ${counted(hits, 'hit', 'hits')}, ${counted(misses, 'miss', 'misses')}${memory === 0 ? '' : `, ${memory} unchanged in memory`}${why === '' ? '' : ` (not cached: ${why})`}`
 }
 
-// With its Network panel, which rn-serve has show the app's requests where
-// its runtime reports none (src/network.js): of each DevTools as it
-// connects; with --devtools, DevTools opened for each app as it connects.
-// Its logger, called as console is: a format string and its arguments, of
-// what a device names itself too, its control characters shown escaped.
+// dev-middleware's debugger, with rn-serve's Network panel (src/network.js); with --devtools, DevTools open
+// for each app as it connects. Its logger is called like console; control characters a device sends are escaped.
 function mountDebugger(serverUrl) {
   const { network } = devServer
   const logged = (...args) => log(printable(printf(...args)))
@@ -314,11 +232,12 @@ function mountDebugger(serverUrl) {
       unstable_experiments: { enableNetworkInspector: true },
       unstable_customInspectorMessageHandler: network.handler,
     })
-    mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', network.debuggerConnected)
+    const listen = (path, listener) => mounted.websocketEndpoints?.[path]?.prependListener?.('connection', listener)
+    listen('/inspector/debug', network.debuggerConnected)
     if (devtools) {
       const opener = createDevToolsOpener((device) => void openDebugger(serverUrl, device))
-      mounted.websocketEndpoints?.['/inspector/debug']?.prependListener?.('connection', opener.debuggerConnected)
-      mounted.websocketEndpoints?.['/inspector/device']?.prependListener?.('connection', opener.deviceConnected)
+      listen('/inspector/debug', opener.debuggerConnected)
+      listen('/inspector/device', opener.deviceConnected)
     }
     devServer.mount(mounted)
   } catch (error) {
@@ -326,11 +245,8 @@ function mountDebugger(serverUrl) {
   }
 }
 
-// At once, a build in progress though: what it would make is kept in
-// memory alone, and esbuild and Babel's workers end with the process; but
-// a pack of the cache being written (load-cache.js's), written first, of
-// which a run after would have none else, and the cache pruned. Asked
-// again, at once.
+// Quits without waiting for builds (their output lives in memory only), but lets the cache finish
+// the pack it's writing, which the next run needs, and the prune. A second signal quits at once.
 let quitting = false
 function quit() {
   if (quitting) process.exit(0)
@@ -340,8 +256,6 @@ function quit() {
 process.on('SIGINT', quit)
 process.on('SIGTERM', quit)
 
-// The keys, on one line: each bold and cyan where stdout takes colors, a
-// dim dot between.
 function keys(serverUrl) {
   const each = [['r', 'reload'], ['d', 'dev menu'], ...(devMiddleware === null ? [] : [['j', 'debugger']]), ['ctrl-c', 'quit']]
   log(`rn-serve: ${each.map(([key, what]) => `${style(['bold', 'cyan'], key)} ${what}`).join(style('dim', ' \u00B7 '))}`)
@@ -361,8 +275,7 @@ function keys(serverUrl) {
   })
 }
 
-// As React Native's `j`: the debugger of the app last connected; of
-// `device`'s, where given.
+// As React Native's `j`: opens the debugger of the last connected app, or of `device`.
 async function openDebugger(serverUrl, device = null) {
   try {
     const response = await fetch(`${serverUrl}/open-debugger${device === null ? '' : `?device=${encodeURIComponent(device)}`}`, { method: 'POST' })

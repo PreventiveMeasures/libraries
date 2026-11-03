@@ -1,6 +1,5 @@
-// Image sizes as Metro 0.87's lib/imageSize.js reads them (MIT, Copyright (c)
-// Meta Platforms, Inc. and affiliates), its parsers derived from image-size's
-// (notice at the end).
+// Image sizes as Metro 0.87's lib/imageSize.js reads them (MIT, Copyright (c) Meta Platforms,
+// Inc. and affiliates), its parsers derived from image-size's (MIT, notice at the end).
 
 import { Buffer } from 'node:buffer'
 

@@ -1,7 +1,5 @@
-// What rn-bundle and rn-serve share: their peers, as the project installs
-// them, else as installed beside rn/; Flow stripping; the project's Babel
-// config, in worker threads; @react-native/js-polyfills's polyfills;
-// --babel-aliases; --define. Its Metro config: metro-options.js.
+// What rn-bundle and rn-serve share: peer lookup (the project's, else rn/'s), Flow stripping,
+// the project's Babel config in worker threads, --babel-aliases and --define.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -12,9 +10,6 @@ import { babelWorkers, newProfile } from './babel-worker.js'
 import { configKeyOf } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 
-const BABEL_CONFIGS = ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json']
-
-// -> (message) => never: the message, as `name: message`, and exit 1.
 export const failer = (name) => (message) => {
   process.stderr.write(`${name}: ${message}\n`)
   process.exit(1)
@@ -28,8 +23,6 @@ export const tryResolve = (from, name) => {
   }
 }
 
-// -> { fromProject, locate(name), load(path), peer(name, why) }: a peer is
-// the project's, else the one beside rn/.
 export function peers(cwd, fail) {
   const fromProject = createRequire(resolve(cwd, 'package.json'))
   const fromHere = createRequire(import.meta.url)
@@ -38,11 +31,10 @@ export function peers(cwd, fail) {
     const path = locate(name)
     return path === null ? fail(`${why} needs ${name}: npm i -D ${name}`) : fromHere(path)
   }
-  return { fromProject, locate, load: (path) => fromHere(path), peer }
+  return { fromProject, locate, load: fromHere, peer }
 }
 
-// __DEV__ and process.env.NODE_ENV as Metro's prelude sets them for a dev
-// build or not, unless a K=V pair sets them.
+// __DEV__ and process.env.NODE_ENV as Metro's prelude sets them, unless a K=V pair overrides them.
 export function defines(dev, pairs, fail) {
   const define = { __DEV__: String(dev), 'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production') }
   for (const pair of pairs) {
@@ -53,8 +45,7 @@ export function defines(dev, pairs, fail) {
   return define
 }
 
-// Flow types stripped by flow-remove-types; where Babel runs and it isn't
-// installed, left to Babel's config, as Metro leaves them.
+// Without flow-remove-types, Babel's config strips Flow where Babel runs, as with Metro.
 export function flowStripper({ locate, load }, babel) {
   const flowRemoveTypes = locate('flow-remove-types')
   if (flowRemoveTypes !== null) return (source) => load(flowRemoveTypes)(source, { all: true, removeEmptyImports: true }).toString()
@@ -78,107 +69,72 @@ export function babelAliases(cwd, file, fail) {
   }
 }
 
-// A dependency of Metro's transformer (@react-native/metro-babel-transformer,
-// the project's or its @react-native/metro-config's) as it requires it: the
-// one it finds, else the project's.
+// A package as @react-native/metro-babel-transformer (the project's or its
+// @react-native/metro-config's) requires it, else the project's.
 function ofTransformer(project, name) {
   const transformer = locateThrough(project, '@react-native/metro-babel-transformer', ['@react-native/metro-config'])
   return (transformer === null ? null : tryResolve(createRequire(transformer), name)) ?? tryResolve(project.fromProject, name)
 }
 
-// The project's Babel config, as Metro's transformer takes it
-// (@react-native/metro-babel-transformer's getBabelRC): a babel.config.*,
-// which Babel finds itself; else the .babelrc or .babelrc.js it extends;
-// else its @react-native/babel-preset. -> Babel's options of it, and what it
-// is; null where the project has none of them.
-export function babelConfigOf(cwd, project) {
-  const configFile = BABEL_CONFIGS.map((name) => resolve(cwd, name)).find((file) => existsSync(file))
+const firstIn = (cwd, names) => names.map((name) => resolve(cwd, name)).find((file) => existsSync(file))
+
+// The project's Babel config as @react-native/metro-babel-transformer's getBabelRC finds it:
+// a babel.config.*, else a .babelrc(.js), else @react-native/babel-preset; null if none.
+function babelConfigOf(cwd, project) {
+  const configFile = firstIn(cwd, ['babel.config.js', 'babel.config.cjs', 'babel.config.mjs', 'babel.config.json'])
   if (configFile !== undefined) return { options: { configFile }, what: configFile }
-  const babelrc = ['.babelrc', '.babelrc.js'].map((name) => resolve(cwd, name)).find((file) => existsSync(file))
+  const babelrc = firstIn(cwd, ['.babelrc', '.babelrc.js'])
   if (babelrc !== undefined) return { options: { configFile: false, extends: babelrc }, what: babelrc }
   const preset = ofTransformer(project, '@react-native/babel-preset')
   return preset === null ? null : { options: { configFile: false }, what: '@react-native/babel-preset', preset }
 }
 
-// Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
-export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
-
-// The project's Babel config (babelConfigOf()), by the @babel/core Metro's
-// transformer runs, else the project's: null where the project has none, or
-// only the preset with no @babel/core. -> a function of { platform, dev } to the options bundle()
-// takes of Babel, with Metro's caller and Babel env, each target's workers
-// its own. `sourceMaps` makes each file's output carry its map, inline;
-// without it, Babel reads no file's own map (by its sourceMappingURL), of no
-// use then, nor looks through its comments for one;
-// `profile`, each target's workers time the config's plugins, as its
-// `profile`; `refresh`, react-refresh's Babel plugin, a dev target's workers
-// run it over each file outside node_modules, for Fast Refresh;
-// `transformProfile`, one of TRANSFORM_PROFILES, the caller's, for the
-// config's plugins; `babelRCLookup`, Metro's transformer.enableBabelRCLookup;
-// `babelRuntime`, its enableBabelRuntime, for the preset where the project
-// has no config; `keepPlugins`, each target's workers leave module-resolver
-// as it is (load.js); `maxWorkers`, how many workers each target's Babel
-// runs in at most, rn's default (defaultWorkers()) where null. A
-// target's `inlineRequires`, metroOptions()'s of its bundle, Metro's inline
-// requires, its workers inline after Babel: a target of each, as Metro
-// caches a file's transform of its transform options. With `fingerprint`,
-// for a cache of each file as it loads (load-cache.js), each target has
-// fingerprint(), its workers' (babelWorkers()), of `workerOptions`, the
-// options they have, and configKey(filename, covered), a key of the config
-// Babel loads for the file (configKeyOf()), and configStart(), as a build
-// starts. `oneBuild`, each target of one
-// build, whose files don't change as it runs: Babel's .babelrc lookup of
-// each file left out where it would find none. `warm`, each target's
-// workers made as it is (babelWorkers()), of a build of many files.
+// The project's Babel config, run by the @babel/core Metro's transformer uses, as a function of
+// { platform, dev, inlineRequires } to bundle()'s Babel options, one set of workers per target.
+// Null without a config, or with only the preset and no @babel/core.
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false, warm = false } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
   if (corePath === null) return config.preset ? null : fail(`${config.what} needs @babel/core installed in the project`)
-  // Loaded as the first file's plugins are asked, once a target's workers
-  // load their own: not before them.
+  // Loaded here only when first needed, after the workers load their own.
   let core = null
+  const loadCore = () => (core ??= project.load(corePath))
   const targets = new Map()
+  // In one build files don't change, so .babelrc lookups that find nothing can be skipped.
   const finds = oneBuild && babelRCLookup ? babelrcFinder() : null
+  // A target per inlineRequires too, as Metro caches a file's transform per transform options.
   return ({ platform, dev, inlineRequires = null }) => {
     const key = `${platform}\0${dev}\0${JSON.stringify(inlineRequires)}`
     if (targets.has(key)) return targets.get(key)
-    // As Metro's transformer names it: Platform inlined, as Metro's bundles
-    // have it, for the transform profile, `react-native bundle`'s default
-    // where not given (@react-native/babel-preset 0.87 on takes none for
-    // Hermes V1's, which leaves classes).
+    // Metro's caller. The profile is always named: @react-native/babel-preset 0.87+ takes none
+    // as Hermes V1's, which leaves classes.
     const caller = { name: 'metro', bundler: 'metro', platform, inlinePlatform: true, unstable_transformProfile: transformProfile }
-    // The env Metro's transformer names, which plugins read for a release
-    // build: react-native-worklets omits each worklet's location and source map.
+    // Plugins read it for release builds: react-native-worklets omits worklets' locations and maps.
     const envName = dev ? 'development' : process.env.BABEL_ENV || 'production'
-    // A file with no import or export a script, as Metro's transformer has
-    // it, which Babel takes for an ES module else: parsed as strict, its
-    // helpers imported, then made CommonJS.
-    // The preset, where the project has no config, given what of the bundle
-    // Metro's transformer gives it: 0.78's reads the transform profile of
-    // these alone, not of Babel's caller.
-    const preset = config.preset === undefined ? null : { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
-    const options = { cwd, root: cwd, ...config.options, ...(preset !== null && { presets: [[config.preset, preset]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
+    // What Metro's transformer gives the preset: 0.78's reads the profile from these, not the caller.
+    const presetOptions = { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
+    // sourceType unambiguous: a file without import or export is a script, as in Metro's transformer.
+    const options = { cwd, root: cwd, ...config.options, ...(config.preset !== undefined && { presets: [[config.preset, presetOptions]] }), babelrc: babelRCLookup, caller, envName, sourceType: 'unambiguous' }
     const timed = profile ? newProfile() : null
-    // Of each file's map, inline, which esbuild reads: no sourceRoot, which
-    // the config may have (or moduleRoot), as Metro takes none of it, its
-    // maps of each file's own path: esbuild would put it before each source,
-    // of its absolute path, of no more use than a file's of its own.
+    // Inline maps for esbuild, with no sourceRoot, which Metro ignores and esbuild would prefix
+    // to every source. Without maps, Babel needn't read input maps.
     const workerOptions = { ...options, compact: false, ...(sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }), ...(dev && refresh !== null && { refresh }), ...(keepPlugins && { keepPlugins }), ...(inlineRequires !== null && { inlineRequires }) }
     const babel = babelWorkers(corePath, { ...workerOptions, ...(fingerprint && { fingerprint }), ...(oneBuild && { oneBuild }) }, timed, maxWorkers, { warm })
     let configKey = null
     const target = {
       profile: timed,
       babel,
-      // The config's, and Metro's inlining, which the workers add after them.
+      // The config's plugins, then Metro's inline-requires, which the workers run after them.
       babelPlugins: async (filename) => {
-        const plugins = pluginsByKey((await (core ??= project.load(corePath)).loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
+        const plugins = pluginsByKey((await loadCore().loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
         return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
       },
+      // For load-cache.js's cache of each file.
       ...(fingerprint && {
         workerOptions,
         fingerprint: babel.fingerprint,
-        configKey: (filename, covered) => (configKey ??= configKeyOf((core ??= project.load(corePath)), options, createRequire(corePath).cache))(filename, covered),
+        configKey: (filename, covered) => (configKey ??= configKeyOf(loadCore(), options, createRequire(corePath).cache))(filename, covered),
         configStart: () => configKey?.start(),
       }),
     }
@@ -187,9 +143,8 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   }
 }
 
-// Whether the project's build is of many files, which its Babel workers
-// make up for: of React Native itself, its Libraries of dozens of
-// directories, as a test's fixture's are not (a stub of one or two).
+// Whether to warm Babel's workers up front: react-native's Libraries has dozens of
+// directories, a test fixture's stub one or two.
 export function bigBuild({ locate }) {
   const manifest = locate('react-native/package.json')
   if (manifest === null) return false
@@ -200,37 +155,21 @@ export function bigBuild({ locate }) {
   }
 }
 
-// Each plugin's options by its key; a key of more than one plugin (instances
-// of one, each named) has { instances }: theirs, in order.
+// Each plugin's options by key; a key shared by several named instances maps to { instances }.
 function pluginsByKey(plugins) {
-  const byKey = Map.groupBy(plugins, (plugin) => plugin.key)
-  return new Map([...byKey].map(([key, [plugin, ...more]]) => [key, more.length === 0 ? plugin.options : { instances: [plugin, ...more].map((each) => each.options) }]))
+  return new Map([...Map.groupBy(plugins, (plugin) => plugin.key)].map(([key, group]) => [key, group.length === 1 ? group[0].options : { instances: group.map((each) => each.options) }]))
 }
 
-// A package of the project's, else of a dependency's: `through` names the
-// packages to look in after, each a dependency of the one before. -> its
-// path, or null.
+// A package's path from the project, else from each of `through` in turn, each a
+// dependency of the one before; null if none has it.
 export function locateThrough({ fromProject }, name, through = []) {
   let from = fromProject
-  for (const step of [null, ...through]) {
-    if (step !== null) {
-      const path = tryResolve(from, step)
-      if (path === null) return null
-      from = createRequire(path)
-    }
+  for (const step of through) {
     const found = tryResolve(from, name)
     if (found !== null) return found
+    const path = tryResolve(from, step)
+    if (path === null) return null
+    from = createRequire(path)
   }
-  return null
-}
-
-// @react-native/metro-config's serializer.getPolyfills: the list
-// @react-native/js-polyfills gives, of the project's copy, which its
-// @react-native/metro-config depends on; none where it has none.
-export function polyfills(project, fail) {
-  const list = locateThrough(project, '@react-native/js-polyfills', ['@react-native/metro-config'])
-  if (list === null) return []
-  const getPolyfills = project.load(list)
-  const paths = typeof getPolyfills === 'function' ? getPolyfills() : null
-  return Array.isArray(paths) && paths.every((path) => typeof path === 'string') ? paths : fail(`${list} lists no polyfills`)
+  return tryResolve(from, name)
 }

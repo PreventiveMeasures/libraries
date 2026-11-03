@@ -1,9 +1,5 @@
-// rn-bundle's work, as bin/rn-bundle.js runs it (its usage there): of
-// `argv`, its arguments, in `cwd`, what it says written to `stderr`. ->
-// (a promise of) its exit code: 1 of a usage error or a failed build, as
-// `rn-bundle: <why>`, or of --self-test's differences, else 0. Babel's
-// workers it made are stopped as it ends: a process that goes on (a
-// test's) keeps none. It sets NODE_ENV, as `react-native bundle` does.
+// rn-bundle (usage in bin/rn-bundle.js): resolves to its exit code, 1 for a usage error, a failed
+// build or --self-test differences. It stops the Babel workers it made, and sets NODE_ENV.
 
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
@@ -12,7 +8,7 @@ import { parseArgs } from 'node:util'
 import { assetCatalogFiles, assetsDestFiles } from './assets-dest.js'
 import { profileReport, timedBefore } from './babel-worker.js'
 import { bundle } from './bundle.js'
-import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
+import { babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
 import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
@@ -20,7 +16,10 @@ import { prelude } from './serializer.js'
 import { differences } from './self-test.js'
 import { metroSourceMap } from './source-map.js'
 
-// A usage error, or a build failed: said as `rn-bundle: <message>`.
+// Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
+const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
+
+// A usage error or failed build, reported as `rn-bundle: <message>`.
 class Failed extends Error {}
 
 const fail = (message) => {
@@ -32,29 +31,33 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
   try {
     const { values, entry, selfTest, transformProfile, sourcemap } = argsOf(argv)
     const define = defines(values.dev, values.define, fail)
-    // As `react-native bundle` sets it, before Metro's workers start, for Babel's
-    // plugins to read: Reanimated's (3), for production, leaves out each
-    // worklet's location and source map.
-    process.env.NODE_ENV = values.dev ? 'development' : 'production'
+    const env = values.dev ? 'development' : 'production'
+    // Set before Babel's workers start, as `react-native bundle` does: Reanimated 3's plugin
+    // reads it, omitting worklets' locations and maps in production.
+    process.env.NODE_ENV = env
     const rnConfig = readRnConfig(cwd, fail)
     const esm = flagOf(values.esm, rnConfig, 'esm', 'esm')
     const project = peers(cwd, fail)
     const esbuild = project.peer('esbuild', 'bundling')
     const metro = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-bundle', minify: values.minify }), rnConfig, fail)
-    const transformRefusal = await metro.transformRefusal(resolve(cwd, entry), { platform: values.platform, dev: values.dev })
+    const entryPath = resolve(cwd, entry)
+    const target = { platform: values.platform, dev: values.dev }
+    const transformRefusal = await metro.transformRefusal(entryPath, target)
     if (transformRefusal !== null) fail(transformRefusal)
-    const inlineRequires = await metro.inlineRequires(resolve(cwd, entry), { platform: values.platform, dev: values.dev })
+    const inlineRequires = await metro.inlineRequires(entryPath, target)
     const maxWorkers = maxWorkersOf(values['max-workers'], metro, fail)
-    const babelOf = (options) => projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers, oneBuild: true, ...options })?.({ platform: values.platform, dev: values.dev, inlineRequires }) ?? null
+    const babelOf = (options) => projectBabel(cwd, project, fail, { sourceMaps: sourcemap !== undefined, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers, oneBuild: true, ...options })?.({ ...target, inlineRequires }) ?? null
     const babel = babelOf({ profile: values.profile, warm: bigBuild(project) })
-    if (babel !== null) closing.push(babel.babel.close)
-    if (values.profile && babel === null) fail("--profile times the plugins of the project's Babel config, and it has none")
-    if (selfTest && babel === null) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
-    if (esm.on && babel === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
-    // The default, of no bearing on what is built, as Metro takes it.
-    if (transformProfile !== 'default' && babel === null) fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
-    if (babel !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
-    // Builds, failing as esbuild does.
+    if (babel === null) {
+      if (values.profile) fail("--profile times the plugins of the project's Babel config, and it has none")
+      if (selfTest) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
+      if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
+      if (transformProfile !== 'default') fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
+    } else {
+      closing.push(babel.babel.close)
+      if (values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
+    }
+    // Reports esbuild's errors as esbuild formats them.
     const build = async (options) => {
       try {
         return await bundle(options)
@@ -67,7 +70,7 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
     const options = {
       entry,
       platform: values.platform,
-      // Without --output (--self-test), a bundle not written.
+      // Only --self-test may omit --output, and then writes no bundle.
       outfile: values.output ?? 'rn-bundle.js',
       esbuild,
       projectRoot: cwd,
@@ -78,16 +81,16 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
       assetExts: metro.assetExts,
       resolver: { ...metro.resolver, dev: values.dev },
       blockList: metro.blockList,
-      runBeforeMain: metro.runBeforeMain?.(resolve(cwd, entry)) ?? null,
+      runBeforeMain: metro.runBeforeMain?.(entryPath) ?? null,
       assetRegistryPath: metro.assetRegistryPath,
       define,
       minify: values.minify,
       sourcemap: sourcemap !== undefined,
-      prelude: prelude(define.__DEV__, values.dev ? 'development' : 'production'),
+      prelude: prelude(define.__DEV__, env),
       polyfills: metro.polyfills(values.platform),
       aliases: values['babel-aliases'] === undefined ? null : babelAliases(cwd, values['babel-aliases'], fail),
     }
-    // Each module as this build loaded it, for --self-test.
+    // Each module as this build loaded it, for --self-test to compare.
     const ours = selfTest ? new Map() : null
     const result = await build({ ...options, cache: ours })
     for (const line of await esbuild.formatMessages(result.warnings, { kind: 'warning' })) stderr.write(line)
@@ -109,8 +112,6 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
   }
 }
 
-// The arguments, as the usage has them: { values, entry, selfTest,
-// transformProfile, sourcemap }; of a usage error, Failed.
 function argsOf(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -149,7 +150,6 @@ function argsOf(argv) {
   return { values, entry: positionals[0], selfTest, transformProfile, sourcemap }
 }
 
-// The bundle, its source map and its assets, written where the arguments say.
 function writeOutputs(cwd, values, result) {
   const write = (path, contents) => {
     mkdirSync(dirname(path), { recursive: true })
@@ -167,7 +167,7 @@ function writeOutputs(cwd, values, result) {
   let { assets } = result
   if (values['asset-catalog-dest'] !== undefined) {
     const catalog = resolve(cwd, values['asset-catalog-dest'], 'RNAssets.xcassets')
-    // As `react-native bundle` does, the image sets of a build before removed.
+    // Clears previous builds' image sets, as `react-native bundle` does.
     mkdirSync(catalog, { recursive: true })
     for (const name of readdirSync(catalog)) {
       if (name.endsWith('.imageset')) rmSync(join(catalog, name), { recursive: true, force: true })
@@ -181,7 +181,7 @@ function writeOutputs(cwd, values, result) {
   }
 }
 
-// --self-test's differences, of `size` modules, told: -> its exit code, 1 of any.
+// Reports --self-test's differences among `size` modules; 1 if any.
 function reported(found, size, cwd, stderr) {
   if (found.length === 0) {
     stderr.write(`rn-bundle: --self-test: each of ${size} modules is as Babel makes it with each of the config's plugins\n`)
@@ -189,9 +189,9 @@ function reported(found, size, cwd, stderr) {
   }
   const cut = (line) => (line.length > 160 ? `${line.slice(0, 160)}...` : line)
   stderr.write(`rn-bundle: --self-test: ${found.length} of ${size} modules differ from Babel's output with each of the config's plugins:\n`)
-  for (const { path, line, ours: mine, kept: other } of found) {
+  for (const { path, line, ours, kept } of found) {
     const name = relative(cwd, path).replaceAll('\\', '/')
-    stderr.write(line === null ? `  ${name}: in ${mine === null ? 'that' : 'this'} build alone\n` : `  ${name}:${line}\n    - ${cut(mine)}\n    + ${cut(other)}\n`)
+    stderr.write(line === null ? `  ${name}: in ${ours === null ? 'that' : 'this'} build alone\n` : `  ${name}:${line}\n    - ${cut(ours)}\n    + ${cut(kept)}\n`)
   }
   return 1
 }

@@ -1,16 +1,6 @@
-// A target's pack: what its builds keep on disk (each file as it loads,
-// each dev module's build: load-cache.js), in segments, each a file of
-// records, read whole at once as a run's first build of the target asks
-// for one, not a file of each entry: on a system each file's opening costs
-// at (macOS), the run's 27k reads of an app of 13.8k files, one each, cost
-// it 25 s. A segment: frames, each its length and its records' (4 bytes
-// each, LE), then its records, zstd's (level 3, of a checksum: of one
-// corrupt, none read), of CHUNK or so each, unpacked each of its own, at
-// once, off the main thread: of an app's records, a fifth of their size,
-// as fast to read and unpack as to read them unpacked, and of zlib's,
-// zstd's are the smaller of the faster to write, of gzip's and brotli's.
-// A record: its key (64 hex digits), its length (4 bytes, LE), its JSON,
-// parsed as it is asked for.
+// A target's pack: its cached loads and module builds (load-cache.js) in a few segment files read
+// whole, since a file per entry cost 25 s on macOS for an app's 27k reads. A segment is zstd frames,
+// each headed by its packed and unpacked u32 LE lengths, of records: 64-hex key, u32 LE length, JSON.
 
 import { Buffer } from 'node:buffer'
 import { mkdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
@@ -21,20 +11,20 @@ import { constants, zstdCompress, zstdDecompress } from 'node:zlib'
 
 const KEY = 64
 const SEGMENT = '.pack'
-// Segments read, of which a build's end writes them all as one.
+// Once a run has read this many segments, its last build rewrites them as one.
 const SEGMENTS = 8
+// About this many bytes of records per frame; frames unpack in parallel, off the main thread.
 const CHUNK = 8 * 1024 * 1024
-// A frame's head: its length, and its records'.
 const HEAD = 8
+// zstd level 3: a fifth of the records' size, as fast to read as raw, and smaller than gzip or
+// brotli at a fast write. The checksum drops a corrupt frame whole.
 const PACKING = { chunkSize: 1024 * 1024, params: { [constants.ZSTD_c_compressionLevel]: 3, [constants.ZSTD_c_checksumFlag]: 1 } }
 const pack = promisify(zstdCompress)
 const unpack = promisify(zstdDecompress)
 let segments = 0
 
-// Of work that runs on, at most so long before the event loop has its
-// turn: a build's progress, which a client is told of as it goes, and its
-// sockets', wait for it; a file the cache has, which takes no I/O but
-// reading, never gives it one.
+// Yield to the event loop after this many ms of work, so build progress and sockets get a turn:
+// reading cached files does no I/O that would yield on its own.
 const TURN = 20
 let turned = performance.now()
 export const pause = () => {
@@ -47,19 +37,17 @@ export const pause = () => {
   })
 }
 
-// A pack's directory, or a run's entries', stamped as a run uses it (its
-// mtime now), as load-prune.js has it: what no run uses, a run after removes.
+// Stamps a pack's or entries' directory as used now: load-prune.js removes what no run uses.
 export function touch(dir) {
   try {
     const now = new Date()
     utimesSync(dir, now, now)
   } catch {
-    // None there yet: what is written makes it, of its mtime then.
+    // Not there yet: the first write creates it.
   }
 }
 
-// Each record of `records` (a frame's, unpacked) in `index`, by its key.
-function indexed(index, records) {
+function indexRecords(index, records) {
   for (let at = 0; at + KEY + 4 <= records.length; ) {
     const start = at + KEY + 4
     const end = start + records.readUInt32LE(at + KEY)
@@ -69,10 +57,8 @@ function indexed(index, records) {
   }
 }
 
-// -> { index: Map<key, its value's JSON>, read: the segments' names, bytes,
-// unpacked }: the segments of `dir`, each read whole, its frames unpacked
-// each of its own, at once; of one cut short, the frames whole; of one
-// that fails to unpack (corrupt), none.
+// Reads every segment in `dir` whole, unpacking its frames in parallel. A truncated segment keeps
+// its whole frames; a frame that fails to unpack (corrupt) is skipped.
 async function segmentsOf(dir) {
   const index = new Map()
   const read = []
@@ -88,27 +74,24 @@ async function segmentsOf(dir) {
     for (let at = 0; at + HEAD <= buffer.length; ) {
       const end = at + HEAD + buffer.readUInt32LE(at)
       if (end > buffer.length) break
-      // Unpacked in one chunk of its size, which zlib's 16 KB would take a round of the thread pool each.
+      // Unpacked into one chunk of its size: zlib's default 16 KB chunks each cost a thread-pool round trip.
       frames.push(unpack(buffer.subarray(at + HEAD, end), { chunkSize: Math.min(Math.max(buffer.readUInt32LE(at + 4), 64), 8 * CHUNK) }).catch(() => null))
       at = end
     }
     for (const records of await Promise.all(frames)) {
       if (records === null) continue
       unpacked += records.length
-      indexed(index, records)
+      indexRecords(index, records)
     }
   }
   await Promise.all(names.map(each))
   return { index, read, bytes, unpacked }
 }
 
-// A segment of `records` ([key, JSON]) written in `dir`, its frames packed
-// off the main thread, whole, then moved in place; those of `gone` then
-// removed.
+// Writes `records` ([key, JSON buffer]) as a new segment in `dir`, then removes the segments `gone`.
 async function writeSegment(dir, records, gone) {
   const name = `${Date.now().toString(36)}-${process.pid}-${segments++}${SEGMENT}`
-  // Written in chunks of CHUNK bytes or so, not a write of each record's
-  // key and value, each a syscall.
+  const temporary = join(dir, `${name}.tmp`)
   const chunks = []
   let parts = []
   let size = 0
@@ -135,26 +118,17 @@ async function writeSegment(dir, records, gone) {
   try {
     const frames = await Promise.all(chunks.map(framed))
     await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, `${name}.tmp`), frames.flat())
-    await rename(join(dir, `${name}.tmp`), join(dir, name))
+    await writeFile(temporary, frames.flat())
+    await rename(temporary, join(dir, name))
     await Promise.all(gone.map((each) => rm(join(dir, each), { force: true })))
   } catch {
-    await rm(join(dir, `${name}.tmp`), { force: true }).catch(() => {})
+    await rm(temporary, { force: true }).catch(() => {})
   }
 }
 
-// -> { load(), get(key) (its value, or null), set(key, value), start(), finish() }:
-// the pack in `dir`. A run reads it at its first load() (a promise of {
-// bytes, unpacked, segments } of what it read; else of null), which its
-// get() waits for (of none read, null), and keeps what it
-// read while a build that started before is under way: at the end of the
-// last (finish()), the entries set since are written, a segment of their
-// own, then; with as many segments read as SEGMENTS, all of those the
-// builds asked for with them, as one, the segments read gone (and with
-// them, those asked for none: of a file's source before it was edited, or
-// of another bundle's). What it read
-// is then let go, as each file is in memory: of a build after, get() has
-// none. A cache, at best: what fails to read or write is loaded anew.
+// The pack in `dir`. load() reads it whole once; the last build's finish() writes the records set
+// since as a new segment, compacting the records builds asked for into it once SEGMENTS were read,
+// then lets go of what it read, since each file is in memory by then. Failures only cost cache hits.
 export function createPack(dir) {
   let index = null
   let read = []
@@ -166,11 +140,11 @@ export function createPack(dir) {
   const load = async () => {
     if (done) return null
     touch(dir)
-    const made = await segmentsOf(dir)
-    // Its builds done as it read: none kept.
+    const { bytes, unpacked, ...found } = await segmentsOf(dir)
+    // Its builds finished while reading.
     if (done) return null
-    ;({ index, read } = made)
-    return { bytes: made.bytes, unpacked: made.unpacked, segments: read.length }
+    ;({ index, read } = found)
+    return { bytes, unpacked, segments: read.length }
   }
   return {
     load: () => (loading ??= load()),
@@ -196,11 +170,10 @@ export function createPack(dir) {
       let records = fresh.splice(0)
       let gone = []
       if (index !== null && read.length >= SEGMENTS) {
-        // Concatenated, not spread: of an app's records, more than a call takes.
-        records = [...asked].filter((key) => index.has(key)).map((key) => [key, index.get(key)]).concat(records)
+        // concat(), not push(...): an app's records exceed the arguments a call takes.
+        records = [...asked].map((key) => [key, index.get(key)]).concat(records)
         gone = read
       }
-      // Let go: each file is in memory now.
       index = null
       read = []
       done = true
@@ -210,7 +183,7 @@ export function createPack(dir) {
   }
 }
 
-// What is kept in `dir` by a key: JSON, or null where none.
+// Loose entries: one JSON file per key.
 const entryPath = (dir, key) => join(dir, key.slice(0, 2), key.slice(2))
 export function readEntry(dir, key) {
   try {
@@ -220,7 +193,7 @@ export function readEntry(dir, key) {
   }
 }
 
-// Written whole, then moved in place: another rn-serve may read it.
+// Written aside and renamed into place, since another rn-serve may be reading it.
 export function writeEntry(dir, key, value) {
   const path = entryPath(dir, key)
   const written = `${path}.${process.pid}`
@@ -229,7 +202,6 @@ export function writeEntry(dir, key, value) {
     writeFileSync(written, JSON.stringify(value))
     renameSync(written, path)
   } catch {
-    // Nor what is left of it, where it can't be: the file is loaded still.
     try {
       rmSync(written, { force: true })
     } catch {}

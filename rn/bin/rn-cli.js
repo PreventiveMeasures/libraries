@@ -1,27 +1,8 @@
 #!/usr/bin/env node
 // rn-cli bundle [the options of `react-native bundle`]
-// `react-native bundle` by rn-bundle, for what calls it with Metro's options:
-// Xcode's "Bundle React Native code and images" phase (react-native-xcode.sh),
-// with `export CLI_PATH=` this file in ios/.xcode.env, and the React Native
-// Gradle plugin, with `cliFile = file(` this file `)` in the `react {}` block
-// of android/app/build.gradle. Each option as @react-native/community-cli-plugin
-// takes it (0.78 to 0.88), as rn-bundle's: --entry-file, --platform (ios),
-// --dev [boolean] (true), --minify [boolean] (as not --dev), --bundle-output,
-// --assets-dest, --asset-catalog-dest (iOS, with --assets-dest),
-// --sourcemap-output, --sourcemap-sources-root and
-// --sourcemap-use-absolute-path (with --sourcemap-output), --config (the
-// Metro config, which rn-bundle loads as Metro does), --max-workers (how
-// many workers Babel runs in). Taken, of no use to rn-bundle, which keeps no
-// cache and runs no command: --reset-cache, --read-global-cache, --verbose,
-// and react-native's
-// scripts/bundle.js's --config-cmd and --load-config; --bundle-encoding,
-// utf8 alone; --unstable-transform-profile default. Another profile, as
-// rn-bundle takes it, for the project's Babel config. Refused, as rn-bundle can't do as Metro would:
-// --transformer, --resolver-option. rn-bundle runs the project's Babel
-// config as Metro's transformer does. Xcode and Gradle run it in the
-// project's root, so rn-bundle takes its rn.config.json (src/rn-config.js),
-// --config and --max-workers over it: its esm too, which
-// `react-native bundle` has no option of.
+// `react-native bundle` by rn-bundle, for Xcode (CLI_PATH in ios/.xcode.env) and the React Native Gradle plugin
+// (cliFile in android/app/build.gradle): takes @react-native/community-cli-plugin's options (0.78 to 0.88) and runs
+// rn-bundle with them. Cache, logging and config-command options are accepted and ignored; a few are refused.
 
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
@@ -32,8 +13,8 @@ import { failer } from '../src/cli.js'
 const RN_BUNDLE = fileURLToPath(new URL('rn-bundle.js', import.meta.url))
 const USAGE = 'usage: rn-cli bundle --entry-file FILE --bundle-output FILE [--platform ios] [--dev BOOL] [--minify BOOL] [--assets-dest DIR] [--asset-catalog-dest DIR] [--sourcemap-output FILE] [--sourcemap-sources-root DIR] [--sourcemap-use-absolute-path] [--config FILE] [--max-workers N]\n'
 
-// How each option takes its value: `value`, the next argument where not
-// `=`; `optional`, the next where it is no option; `flag`, none.
+// How each option takes a value: `value`, after `=` or as the next argument; `optional`, the
+// next argument unless it is an option; `flag`, none.
 const OPTIONS = new Map(Object.entries({
   'entry-file': 'value',
   platform: 'value',
@@ -60,7 +41,7 @@ const OPTIONS = new Map(Object.entries({
 
 const fail = failer('rn-cli')
 
-// -> Map<name, string | true>, as commander takes them.
+// Parses as commander does, into a Map of each name to its value or true.
 function parse(argv) {
   const values = new Map()
   let at = 0
@@ -80,7 +61,7 @@ function parse(argv) {
   return values
 }
 
-// As Metro's [boolean] options read one.
+// As Metro's [boolean] options read a value.
 const bool = (value) => value !== 'false'
 
 // rn-bundle's arguments for Metro's options.
@@ -100,7 +81,7 @@ function translate(values, cwd) {
   if (dev) args.push('--dev')
   if (has('minify') ? bool(get('minify')) : !dev) args.push('--minify')
   if (has('assets-dest')) args.push(`--assets-dest=${get('assets-dest')}`)
-  // As Metro, which puts assets in the catalog for iOS alone, as it saves them to --assets-dest.
+  // Metro fills the catalog only for iOS and only while saving to --assets-dest.
   if (has('asset-catalog-dest') && has('assets-dest') && platform === 'ios') args.push(`--asset-catalog-dest=${get('asset-catalog-dest')}`)
   if (has('sourcemap-output')) {
     args.push(`--sourcemap-output=${get('sourcemap-output')}`)
@@ -109,7 +90,7 @@ function translate(values, cwd) {
   }
   if (has('config')) args.push(`--metro-config=${resolve(cwd, get('config'))}`)
   if (has('max-workers')) args.push(`--max-workers=${get('max-workers')}`)
-  // Its default, Metro's, of no use to rn-bundle.
+  // 'default' is rn-bundle's default too, so it isn't passed.
   if (has('unstable-transform-profile') && get('unstable-transform-profile') !== 'default') args.push(`--unstable-transform-profile=${get('unstable-transform-profile')}`)
   return [...args, '--', get('entry-file')]
 }

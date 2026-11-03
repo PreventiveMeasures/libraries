@@ -1,11 +1,6 @@
-// Metro's module resolution: metro-resolver 0.87.2's resolve.js with the
-// context Metro 0.87's DependencyGraph gives it (MIT, Copyright (c) Meta
-// Platforms, Inc. and affiliates), over a host. No Haste, resolveRequest or
-// scheme resolvers. Null where Metro throws; a package.json that is no JSON
-// object throws, as in Metro. Inside, null is a miss to fall back from and
-// FAILED fails the resolution. With `metroResolver` (0.81 on; the project's
-// own, for its Metro's exact rules), that module resolves instead, given the
-// same context over the host.
+// metro-resolver 0.87.2's resolve with the context Metro 0.87's DependencyGraph gives it, over a
+// host (MIT, Copyright (c) Meta Platforms, Inc. and affiliates); no Haste or scheme resolvers.
+// Internally, null is a miss to fall back from and FAILED fails the resolution.
 
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve as resolvePath, sep, win32 } from 'node:path'
 
@@ -39,7 +34,7 @@ export function createMetroResolver({
   resolveRequest: custom = null,
   dev = false,
 } = {}) {
-  // Read by name at each lookup, as Metro reads it: a Proxy's names too.
+  // Read by name at each lookup, as Metro does, so a Proxy works too.
   const extra = extraNodeModules ?? {}
   if (![...nodeModulesPaths, ...Object.values(extra)].every((path) => typeof path === 'string' && isAbsolute(path))) throw new TypeError('createMetroResolver: nodeModulesPaths and extraNodeModules take absolute paths')
   if (metroResolver !== null && typeof metroResolver.resolve !== 'function') throw new TypeError('createMetroResolver: metroResolver is a metro-resolver module, with its resolve')
@@ -59,37 +54,31 @@ export function createMetroResolver({
     custom,
     dev,
     extra,
-    // Each package.json, package root and redirect map, read once; and each
-    // path's package, found once.
+    // Caches: each package.json, real package root and redirect map, and each path's package.
     manifests: new Map(),
     packages: new Map(),
     roots: new Map(),
     redirects: new WeakMap(),
   }
-  // Each resolution of an import, of its file's directory, as Metro's
-  // DependencyGraph caches it (its _resolutionCache, of the origin's
-  // directory, the specifier, ESM or not, and the platform), a config's
-  // resolveRequest's too: asked once of each.
+  // Keyed like Metro's DependencyGraph _resolutionCache, so a config's resolveRequest also runs
+  // once per key.
   const resolved = new Map()
   return (originModulePath, specifier, { platform = null, isESMImport = false } = {}) => {
     if (!isAbsolute(originModulePath)) throw new TypeError(`resolve: the origin must be an absolute path, not ${JSON.stringify(originModulePath)}`)
-    const key = `${dirname(originModulePath)}\0${specifier}\0${isESMImport === true ? 'esm' : 'cjs'}\0${platform}`
-    if (!resolved.has(key)) resolved.set(key, resolveOf(originModulePath, specifier, platform, isESMImport))
-    return resolved.get(key)
-  }
-
-  function resolveOf(originModulePath, specifier, platform, isESMImport) {
-    const context = {
-      ...config,
-      origin: originModulePath,
-      platform,
-      isESMImport: isESMImport === true,
-      conditions: new Set(['default', isESMImport === true ? 'import' : 'require', ...config.conditionNames, ...(config.byPlatform.get(platform) ?? [])]),
-      suffixes: [...(platform === null ? [] : [`.${platform}`]), ...(preferNativePlatform ? ['.native'] : []), ''],
-    }
-    if (metroResolver !== null) return viaMetroResolver(metroResolver, context, specifier)
-    const resolution = resolveRequest(context, specifier)
-    return resolution === FAILED ? null : resolution
+    const esm = isESMImport === true
+    return memo(resolved, `${dirname(originModulePath)}\0${specifier}\0${esm ? 'esm' : 'cjs'}\0${platform}`, () => {
+      const context = {
+        ...config,
+        origin: originModulePath,
+        platform,
+        isESMImport: esm,
+        conditions: new Set(['default', esm ? 'import' : 'require', ...config.conditionNames, ...(config.byPlatform.get(platform) ?? [])]),
+        suffixes: [...(platform === null ? [] : [`.${platform}`]), ...(preferNativePlatform ? ['.native'] : []), ''],
+      }
+      if (metroResolver !== null) return viaMetroResolver(metroResolver, context, specifier)
+      const resolution = resolveRequest(context, specifier)
+      return resolution === FAILED ? null : resolution
+    })
   }
 }
 
@@ -101,10 +90,12 @@ function resolveRequest(context, specifier) {
     const hit = packageTarget(context, own.rootPath, importsTarget(own.packageJson.imports, specifier, context.conditions))
     if (hit !== null) return hit
   }
-  const redirected = own === null ? null : match(context, variants(specifier), own.packageJson)
+  const redirected = own && match(context, variants(specifier), own.packageJson)
   if (redirected === false) return EMPTY
-  if (redirected !== null && RELATIVE.test(redirected)) return resolveModulePath(context, resolvePath(own.rootPath, redirected)) ?? FAILED
-  if (redirected !== null && (posix.isAbsolute(redirected) || win32.isAbsolute(redirected))) return FAILED
+  if (typeof redirected === 'string') {
+    if (RELATIVE.test(redirected)) return resolveModulePath(context, resolvePath(own.rootPath, redirected)) ?? FAILED
+    if (posix.isAbsolute(redirected) || win32.isAbsolute(redirected)) return FAILED
+  }
   const bare = toPosix(redirected ?? specifier)
   const parts = bare.split('/')
   const name = parts.slice(0, bare.startsWith('@') && parts.length > 1 ? 2 : 1).join('/')
@@ -115,8 +106,8 @@ function resolveRequest(context, specifier) {
     if (hit !== null) return hit
   }
   for (const nodeModules of nodeModulesDirs(context)) {
-    // The shallowest directory that could hold it must be one.
-    if (!context.host.isDirectory(bare.includes('/') ? `${nodeModules}${sep}${parts[0]}` : nodeModules)) continue
+    // The shallowest directory that could hold it must exist.
+    if (!context.host.isDirectory(parts.length > 1 ? `${nodeModules}${sep}${parts[0]}` : nodeModules)) continue
     const hit = fromTargetPath(context, `${nodeModules}${sep}${bare.replaceAll('/', sep)}`)
     if (hit !== null) return hit
   }
@@ -126,8 +117,8 @@ function resolveRequest(context, specifier) {
   return fromTargetPath(context, join(extra, subpath)) ?? FAILED
 }
 
-// Each node_modules from the origin up, then `nodeModulesPaths` not among
-// them; those alone without hierarchical lookup.
+// Each node_modules from the origin up, then the nodeModulesPaths not among them; only the
+// latter without hierarchical lookup.
 function nodeModulesDirs({ origin, nodeModulesPaths, disableHierarchicalLookup }) {
   if (disableHierarchicalLookup) return nodeModulesPaths
   const above = []
@@ -150,11 +141,12 @@ function fromTargetPath(context, targetPath) {
   return resolveModulePath(context, candidate)
 }
 
-// A package map's target, taken as it is: no extension or index probed.
+// A package map's target is taken as is: no extension or index is probed.
 function packageTarget(context, rootPath, target) {
   if (target === null || target === FAILED) return target
   const filePath = join(rootPath, target)
-  return (isAssetFile(filePath, context.assetExts) ? assetResolution(context, filePath) : null) ?? (context.host.isFile(filePath) ? sourceFile(context, filePath) : null)
+  const asset = isAssetFile(filePath, context.assetExts) ? assetResolution(context, filePath) : null
+  return asset ?? (context.host.isFile(filePath) ? sourceFile(context, filePath) : null)
 }
 
 // As a file, then as a directory; a trailing slash asks for the directory.
@@ -164,8 +156,8 @@ function resolveModulePath(context, toModuleName) {
   return (redirected.endsWith(sep) ? null : resolveFile(context, dirname(redirected), basename(redirected))) ?? resolvePackageEntryPoint(context, redirected)
 }
 
-// Its main module, else that as a directory's index; a package.json naming
-// neither fails.
+// With a package.json, its main module as a file or a directory's index, failing if neither
+// exists; without one, the directory's index.
 function resolvePackageEntryPoint(context, packagePath) {
   if (!context.host.isDirectory(packagePath)) return null
   const manifest = join(packagePath, 'package.json')
@@ -174,8 +166,8 @@ function resolvePackageEntryPoint(context, packagePath) {
   return resolveFile(context, dirname(main), basename(main)) ?? resolveFile(context, main, 'index') ?? FAILED
 }
 
-// The name itself, then for each source extension the platform's file, the
-// native one and the plain one, each through its package's redirects.
+// The name itself, then for each source extension the platform, native and plain files, each
+// through its package's redirects.
 function resolveFile(context, dirPath, fileName) {
   if (isAssetFile(fileName, context.assetExts)) return assetResolution(context, join(dirPath, fileName))
   const prefix = join(dirPath, fileName)
@@ -212,34 +204,30 @@ function read({ host, manifests }, file) {
   })
 }
 
-// The closest package.json, as Metro's file map's hierarchicalLookup finds
-// it: a directory's own, else the directories above as `path` spells them,
-// none past a node_modules, from the deepest one there (a missing
-// node_modules on the way finds none). The root by its real path, the
-// package-relative path posix.
+// The closest package.json as Metro's hierarchicalLookup finds it: a directory's own, else the
+// nearest above `path` as spelled, stopping at node_modules. A missing path searches from its
+// deepest existing ancestor, finding none if the first missing directory is a node_modules.
 function packageOf(context, path) {
-  return memo(context.packages, path, () => closestPackage(context, path))
+  return memo(context.packages, path, () => {
+    const { host } = context
+    const found = (dir) => ({ rootPath: memo(context.roots, dir, () => host.realpath(dir)), packageJson: read(context, join(dir, 'package.json')), packageRelativePath: toPosix(relative(dir, path)) })
+    const isDirectory = host.isDirectory(path)
+    if (isDirectory && host.isFile(join(path, 'package.json'))) return found(path)
+    let below = path
+    if (!isDirectory && !host.isFile(path)) {
+      while (dirname(below) !== below && !host.isDirectory(dirname(below))) below = dirname(below)
+      if (basename(below) === 'node_modules') return null
+    }
+    for (let dir = dirname(below); basename(dir) !== 'node_modules'; dir = dirname(dir)) {
+      if (host.isFile(join(dir, 'package.json'))) return found(dir)
+      if (dirname(dir) === dir) return null
+    }
+    return null
+  })
 }
 
-function closestPackage(context, path) {
-  const { host } = context
-  const found = (dir) => ({ rootPath: memo(context.roots, dir, () => host.realpath(dir)), packageJson: read(context, join(dir, 'package.json')), packageRelativePath: toPosix(relative(dir, path)) })
-  const isDirectory = host.isDirectory(path)
-  if (isDirectory && host.isFile(join(path, 'package.json'))) return found(path)
-  let below = path
-  if (!isDirectory && !host.isFile(path)) {
-    while (dirname(below) !== below && !host.isDirectory(dirname(below))) below = dirname(below)
-    if (basename(below) === 'node_modules') return null
-  }
-  for (let dir = dirname(below); basename(dir) !== 'node_modules'; dir = dirname(dir)) {
-    if (host.isFile(join(dir, 'package.json'))) return found(dir)
-    if (dirname(dir) === dir) return null
-  }
-  return null
-}
-
-// The "browser"-spec redirects of the object-valued mainFields, earlier
-// fields winning: a string, false (an empty module), or null for none.
+// The browser-spec redirects of the object-valued mainFields, earlier fields winning: a string,
+// false for an empty module, or null for none.
 function match({ mainFields, redirects }, subpaths, pkg) {
   const map = memo(redirects, pkg, () => {
     let merged = null
@@ -254,35 +242,33 @@ function match({ mainFields, redirects }, subpaths, pkg) {
     }
     return merged
   })
-  const key = map === null ? undefined : subpaths.find((subpath) => map.has(subpath))
+  const key = subpaths.find((subpath) => map?.has(subpath))
   return key === undefined ? null : map.get(key)
 }
 
-// metro-resolver's redirectModulePath, of Metro's context: an absolute path
-// by its package's map (redirect()); a relative one by the origin's, of its
-// directory; a name by the origin's, as its map has it.
+// A string redirect is relative to the package root, even where it names another package.
+function redirectedTo(to, rootPath, path) {
+  if (typeof to !== 'string') return to ?? path
+  return isAbsolute(to) ? normalize(to) : join(rootPath, to)
+}
+
+// metro-resolver's redirectModulePath: an absolute path by its package's map; a relative path or
+// a name by the origin package's.
 function redirectModulePath(context, modulePath) {
   if (isAbsolute(modulePath)) return redirect(context, modulePath)
   const own = packageOf(context, context.origin)
   if (own === null) return modulePath
   if (!modulePath.startsWith('.')) return match(context, variants(modulePath), own.packageJson) ?? modulePath
-  const to = match(context, variants(`./${toPosix(join(dirname(own.packageRelativePath), modulePath))}`), own.packageJson)
-  if (typeof to !== 'string') return to ?? modulePath
-  return isAbsolute(to) ? normalize(to) : join(own.rootPath, to)
+  return redirectedTo(match(context, variants(`./${toPosix(join(dirname(own.packageRelativePath), modulePath))}`), own.packageJson), own.rootPath, modulePath)
 }
 
-// redirectModulePath of a path: a string target is relative to the package,
-// even where it names another.
 function redirect(context, path) {
   const pkg = packageOf(context, path)
-  if (pkg === null) return path
-  const to = match(context, variants(`./${pkg.packageRelativePath}`), pkg.packageJson)
-  if (typeof to !== 'string') return to ?? path
-  return isAbsolute(to) ? normalize(to) : join(pkg.rootPath, to)
+  return pkg === null ? path : redirectedTo(match(context, variants(`./${pkg.packageRelativePath}`), pkg.packageJson), pkg.rootPath, path)
 }
 
-// getPackageEntryPoint: the first mainField naming one, else `index`, through
-// the redirects of its first spelling that has one; a false one keeps it.
+// getPackageEntryPoint: the first mainField naming one, else `index`, redirected by its first
+// spelling that has a redirect; a false redirect keeps it.
 function entryPoint(context, pkg) {
   const main = context.mainFields.map((field) => pkg[field]).find((value) => typeof value === 'string' && value.length > 0) ?? 'index'
   const spellings = [main, main.startsWith('./') ? main.slice(2) : `./${main}`].flatMap((spelling) => [...variants(spelling), spelling.replace(/\.js$|\.json$/u, '')])
@@ -290,17 +276,15 @@ function entryPoint(context, pkg) {
   return typeof to === 'string' ? to : main
 }
 
-// metro-resolver's own failures to resolve, by name, of whichever copy.
+// metro-resolver's resolution errors, by name, so any copy of it is recognized.
 const FAILURES = new Set(['FailedToResolveNameError', 'FailedToResolvePathError', 'FailedToResolveUnsupportedError', 'InvalidPackageError', 'InvalidPackageConfigurationError', 'PackageImportNotResolvedError', 'PackagePathNotExportedError'])
 
-// metro-resolver's resolve, given Metro's context, 0.81's to 0.87's, as its
-// DependencyGraph makes it: with the config's resolveRequest, which resolve
-// calls in its place, given its own as the context's. Its failures are null
-// (of a bug of its own too: a string `exports` throws a TypeError from 0.87),
-// the host's errors and a bad package.json's throw; with a resolveRequest,
-// any other error, as Metro's build fails with it.
+// metro-resolver's resolve (0.81 to 0.87) with the context Metro's DependencyGraph builds. Its
+// failures are null (even 0.87's TypeError on a string `exports`); host and package.json errors
+// throw, and so does any other error with a resolveRequest, as Metro's build fails with it.
 function viaMetroResolver(metroResolver, context, specifier) {
   const { host } = context
+  // Errors thrown by our own callbacks are rethrown, not taken for failures to resolve.
   let thrown
   const ours = (callback) => (...args) => {
     try {
@@ -314,7 +298,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
     allowHaste: false,
     assetExts: context.assetExts,
     customResolverOptions: {},
-    // As Metro has an import, of what of it the resolver reads.
+    // Just what the resolver reads of Metro's dependency.
     dependency: { name: specifier, data: { key: specifier, asyncType: null, isESMImport: context.isESMImport, locs: [] } },
     dev: context.dev,
     disableHierarchicalLookup: context.disableHierarchicalLookup,
@@ -324,7 +308,7 @@ function viaMetroResolver(metroResolver, context, specifier) {
       const type = host.isFile(path) ? 'f' : host.isDirectory(path) ? 'd' : null
       return type === null ? { exists: false } : { exists: true, type, realPath: host.realpath(path) }
     }),
-    // Metro reads a bad package.json as none here.
+    // Metro takes an invalid package.json for none here.
     getPackage: (path) => {
       try {
         return read(context, path)

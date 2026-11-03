@@ -1,14 +1,6 @@
-// Watching what the bundles were built from: the directory of each file a
-// build read, and each directory above it up to the project root, so that a
-// file added beside one (a `.ios.js`), a package.json and a package installed
-// are seen too. With inotify (Linux), a watch of each of those directories,
-// not of the whole tree: node_modules has more directories than inotify
-// watches. With FSEvents and ReadDirectoryChangesW (macOS, Windows), which
-// watch a tree as cheaply as a directory, one recursive watch of the project
-// root, its changes taken in those directories alone; and a watch of each
-// directory outside it. A file's contents changing counts where a build read
-// it, as a log written beside the files must not rebuild them; a file added,
-// removed or renamed counts wherever, as it may change what resolves.
+// Watches the directories of the files a build read and those above them up to the project root, so added files,
+// package.json edits and installs are seen. inotify (Linux) gets a watch per directory, as node_modules would exhaust
+// it; FSEvents and ReadDirectoryChangesW get one recursive watch of the root, plus one per directory outside it.
 
 import { watch as fsWatch } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -17,7 +9,7 @@ import { inside } from './dev-bundler.js'
 
 const RECURSIVE = process.platform === 'darwin' || process.platform === 'win32'
 
-// -> { update(files), close() }. `onChange(path)` on each change seen.
+// Calls `onChange(path)` on each relevant change; update(files) sets the files builds read.
 export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursive = RECURSIVE, onError = () => {} } = {}) {
   const watchers = new Map()
   let dirs = new Set()
@@ -34,6 +26,8 @@ export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursiv
   }
   const add = (dir) => {
     const deep = recursive && dir === projectRoot
+    // The recursive watch counts only the build's directories. There, edits count only to files a build read
+    // (a log written beside them mustn't rebuild); adds, removes and renames count for any, as they may change resolution.
     const seen = (event, path) => {
       if (deep && !dirs.has(dirname(path)) && !dirs.has(path)) return
       if (event === 'change' && !read.has(path)) return
@@ -41,6 +35,7 @@ export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursiv
     }
     try {
       const watcher = watch(dir, { persistent: false, recursive: deep }, (event, name) => seen(event, name === null ? dir : join(dir, String(name))))
+      // A watch that fails (its directory removed, say) counts as a change.
       watcher.on('error', () => {
         watcher.close()
         watchers.delete(dir)
@@ -61,9 +56,7 @@ export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursiv
         watcher.close()
         watchers.delete(dir)
       }
-      for (const dir of wanted) {
-        if (!watchers.has(dir)) add(dir)
-      }
+      for (const dir of wanted) if (!watchers.has(dir)) add(dir)
     },
     close() {
       for (const watcher of watchers.values()) watcher.close()

@@ -1,24 +1,24 @@
-// babel-plugin-module-resolver 5's `alias` option, mapped as the plugin maps
-// it, so a bundler can take a project's aliases without running Babel.
+// babel-plugin-module-resolver 5's `alias` option, mapped as the plugin maps it,
+// so a bundler can apply a project's aliases without running Babel.
 
 import { dirname, relative, resolve } from 'node:path'
 
 const isRelativePath = (path) => /^\.?\.\//u.test(path)
 
-// Unflagged, as the plugin builds them: `u` would refuse some patterns it
-// takes. A key of no pattern matched as its `^key(/.*|)$` matches, by its
-// string: `.` of no line terminator.
+// A key that is no pattern matches as the plugin's `^key(/.*|)$` would.
 function matcher(key, value) {
   if (!key.startsWith('^') && !key.endsWith('$')) {
     const exec = (specifier) => {
       if (!specifier.startsWith(key)) return null
       const rest = specifier.slice(key.length)
+      // `.` matches no line terminator.
       return rest === '' || (rest.startsWith('/') && !/[\n\r\u2028\u2029]/u.test(rest)) ? [specifier, rest] : null
     }
     return [{ exec }, ([, rest]) => `${value}${rest}`]
   }
   let regExp
   try {
+    // No `u`, as the plugin builds it: `u` would reject some patterns it accepts.
     // eslint-disable-next-line require-unicode-regexp
     regExp = new RegExp(key)
   } catch (cause) {
@@ -48,9 +48,8 @@ export function createAliases(alias, cwd) {
   }
 }
 
-// ({ alias, cwd }) -> createAliases()'s mapping of them, made once of each,
-// as a file's load has them (load.js's module-resolver's, JSON, which a
-// cache keeps): null where it takes them not.
+// createAliases() of a file's { alias, cwd } (load.js), made once per object and per value,
+// since a load cache restores equal copies; null where createAliases() throws.
 export function aliasing(of) {
   if (!OF.has(of)) {
     const key = JSON.stringify([of.alias, of.cwd])

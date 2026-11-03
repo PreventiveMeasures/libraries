@@ -1,20 +1,20 @@
-// A target's store (load-cache.js's createLoadCache()): its keys, of its
-// pack, and what a build takes of it, counted.
+// A target's store (load-cache.js's createLoadCache()): its keys, its pack, and a tally per build.
 
 import { createHash } from 'node:crypto'
 
 import { pause } from './load-pack.js'
 
-// The store of a target (createLoadCache()'s), its pack and its keys' base.
-export function storeOf(babel, { salt, packed, base: baseOf, read, write, track }) {
-  // Its pack, once its keys' prefix is known, as each key is of it: asked
-  // for as its first build starts.
+const hashOf = (head, parts, text) => createHash('sha256').update(head).update('\0').update(JSON.stringify(parts)).update('\0').update(text).digest('hex')
+
+// packed() and base() give the target's pack and its keys' { prefix, covered } (null without a
+// fingerprint), asked for lazily; read() and write() are loose entries; track() follows a pack's write.
+export function storeOf(babel, { salt, packed, base, read, write, track }) {
   let pack = null
   let packing = null
   const settled = () => (packing ??= packed().then((made) => (pack = made)))
   const fresh = () => ({ hits: 0, misses: 0, memory: 0, unkept: {}, ms: 0 })
   let tally = fresh()
-  // What run() gives, the time it takes the cache's, as the build's.
+  // Counts the time run() takes as the cache's.
   const timed = (run) => {
     const start = performance.now()
     try {
@@ -23,28 +23,26 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
       tally.ms += performance.now() - start
     }
   }
-  // The pack read, at its first build's first ask, which each of its asks
-  // waits for: the time it took, as the build's.
+  // The pack is read once, at the first get() or build(), its time counted as the cache's.
   let reading = null
-  const loaded = () =>
+  const ready = () =>
     (reading ??= (async () => {
+      await settled()
       const start = performance.now()
       await pack.load()
       tally.ms += performance.now() - start
     })())
   const keyOf = async (path, contents, variant) => {
-    const base = await baseOf()
-    if (base === null) return { key: null, why: 'fingerprint' }
-    const { prefix, covered } = base
-    const config = babel === null ? '' : timed(() => babel.configKey(path, covered))
+    const made = await base()
+    if (made === null) return { key: null, why: 'fingerprint' }
+    const config = babel === null ? '' : timed(() => babel.configKey(path, made.covered))
     if (config === null) return { key: null, why: 'config' }
-    return { key: timed(() => createHash('sha256').update(prefix).update('\0').update(JSON.stringify([path, variant, config])).update('\0').update(contents).digest('hex')) }
+    return { key: timed(() => hashOf(made.prefix, [path, variant, config], contents)) }
   }
   return {
     keyOf,
     get: async (key) => {
-      await settled()
-      await loaded()
+      await ready()
       const result = timed(() => pack.get(key))
       if (typeof result?.contents !== 'string' || typeof result.loader !== 'string') return null
       tally.hits++
@@ -52,10 +50,10 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
       return result
     },
     set: (key, result) => timed(() => pack?.set(key, result)),
+    // A dev module's build, by its parts and source alone: no Babel config is involved.
     build: async (parts, text, compute) => {
-      await settled()
-      await loaded()
-      const key = timed(() => createHash('sha256').update(salt).update('\0module\0').update(JSON.stringify(parts)).update('\0').update(text).digest('hex'))
+      await ready()
+      const key = timed(() => hashOf(`${salt}\0module`, parts, text))
       const kept = timed(() => pack.get(key))
       if (kept !== null) {
         await pause()
@@ -65,6 +63,7 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
       timed(() => pack.set(key, value))
       return value
     },
+    // A value compute() derives from the file's config, kept as a loose entry under `kind`.
     keep: async (kind, path, compute) => {
       const { key } = await keyOf(path, '', [kind])
       const kept = key === null ? null : read(key)
@@ -73,6 +72,7 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
       if (key !== null) write(key, { value })
       return value
     },
+    // Counts a file as `memory`, `misses` or `unkept` (with `why`); get() counts `hits`.
     note: (what, why = null) => {
       if (what === 'unkept') tally.unkept[why] = (tally.unkept[why] ?? 0) + 1
       else tally[what]++
@@ -82,6 +82,7 @@ export function storeOf(babel, { salt, packed, base: baseOf, read, write, track 
       babel?.configStart?.()
       void settled().then(() => pack.start())
     },
+    // The build's tally, and a promise of its pack written.
     finish: () => {
       const was = tally
       tally = fresh()
