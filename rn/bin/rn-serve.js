@@ -96,7 +96,7 @@ const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { laun
 const ownPlugins = (dev) => (dev && runtime !== null && refreshPlugin !== null ? [[refreshPlugin, { skipEnvCheck: true }]] : [])
 // The cache's fingerprint of Babel's workers, which they make with this module.
 const fingerprinter = cacheDir === null ? null : fileURLToPath(new URL('../serve/fingerprint.js', import.meta.url))
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, ownPlugins, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprinter, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, ownPlugins, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprinter, eager: true, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
 for (const dev of babelFor === null ? [true, false] : []) {
   const esm = esmOf(dev)
   if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)

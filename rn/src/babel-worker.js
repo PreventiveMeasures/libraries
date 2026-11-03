@@ -26,8 +26,10 @@ const READY = 'ready'
 
 // -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
 // corePath, less the config's plugins keyed in `without` (options: transformerOf()). Runs up to `max`
-// workers (defaultWorkers() if null), all started now if `warm`; has close(), and fingerprint() with a fingerprinter.
-export function babelWorkers(corePath, options, profile = null, max = null, { warm = false } = {}) {
+// workers (defaultWorkers() if null), all started now if `warm`; with `eager`, all as a build is past
+// IN_BAND files, not one more as each has a BACKLOG: a build that misses a cache gets them all at once,
+// one that hits it none. Has close(), and fingerprint() with a fingerprinter.
+export function babelWorkers(corePath, options, profile = null, max = null, { warm = false, eager = false } = {}) {
   const most = max ?? defaultWorkers()
   const workers = []
   const made = () => {
@@ -69,8 +71,8 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
   let handled = 0
   const ask = async (message) => {
     if (options.keepPlugins || (handled >= IN_BAND && workers.some(({ ready }) => ready))) return inWorker(message)
-    // Past IN_BAND, start a worker if there is none (or it died).
-    if (++handled >= IN_BAND && workers.length === 0) made()
+    // Past IN_BAND, start a worker if there is none (or it died); `eager`, each.
+    if (++handled >= IN_BAND) while (workers.length < (eager ? most : 1)) made()
     // No fingerprint: the main thread has loaded more than Babel. A failure to load is each file's.
     inBand ??= Promise.try(() => transformerOf({ corePath, options, profile: profile !== null }))
     return (await inBand).transform(message)

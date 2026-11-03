@@ -90,6 +90,24 @@ describe('babelWorkers', () => {
     assert.deepEqual([await threads(true), await threads(false)], [2, 1])
   })
 
+  it('makes each of its workers at once, eager, as a build is past its files in band, but none of a few files', async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }
+    const threads = async (eager) => {
+      const threadOf = threader(babelWorkers(CORE, options, null, 2, { eager }))
+      // Past the 16 in band, sent at once, none of which a worker is ready for.
+      assert.deepEqual(new Set(await Promise.all(Array.from({ length: 24 }, () => threadOf()))), new Set([0]))
+      await readied(threadOf)
+      return new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size
+    }
+    // Lazily, one more only as each has a backlog: 4 files, all the first's.
+    assert.deepEqual([await threads(true), await threads(false)], [2, 1])
+    // Of a few files, as a build that the cache has but for them: each in band, and no worker.
+    const threadOf = threader(babelWorkers(CORE, options, null, 2, { eager: true }))
+    for (let i = 0; i < 8; i++) assert.equal(await threadOf(), 0)
+    await delay(400)
+    assert.deepEqual(new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))), new Set([0]))
+  })
+
   it("leaves out the config's plugins of the keys it is given", async () => {
     const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs')] })
     assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
