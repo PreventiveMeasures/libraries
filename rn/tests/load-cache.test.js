@@ -459,6 +459,6 @@ describe('configKeyOf', () => {
 describe('ownModules', () => {
   it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
     const src = fileURLToPath(new URL('../src/', import.meta.url))
-    assert.deepEqual(ownModules(), ['assets.js', 'babel-aliases.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load-pack.js', 'load-store.js', 'load.js', 'mappings.js', 'module-resolver.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
+    assert.deepEqual(ownModules(), ['assets.js', 'babel-aliases.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'exports.js', 'image-size.js', 'load-cache.js', 'load-pack.js', 'load.js', 'mappings.js', 'module-resolver.js', 'modules.js', 'resolve.js', 'serializer.js', 'worklets.js'].map((name) => join(src, name)))
   })
 })

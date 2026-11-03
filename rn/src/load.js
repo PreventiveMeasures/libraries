@@ -7,8 +7,8 @@ import { extname, relative } from 'node:path'
 
 import { RESOLVER, resolverOf } from './module-resolver.js'
 
-// JS is read as JSX, as @react-native/babel-preset does: react-native's own .js files contain JSX.
-const LOADERS = new Map([['.js', 'jsx'], ['.cjs', 'jsx'], ['.mjs', 'jsx'], ['.jsx', 'jsx'], ['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
+// Any other file is read as JSX, as @react-native/babel-preset reads JS: react-native's own .js files contain JSX.
+const LOADERS = new Map([['.ts', 'ts'], ['.cts', 'ts'], ['.mts', 'ts'], ['.tsx', 'tsx'], ['.json', 'json']])
 // Lowered by esbuild before Babel, as @react-native/babel-preset throws on static blocks, `using` and
 // auto-accessors (lowered with decorators). Decorators are lowered only to detect them, since esbuild
 // drops a field's decorators when it lowers the field.
@@ -61,16 +61,17 @@ const USE_REACT = 'typeof React;\n'
 export async function loadFile(options, path, contents) {
   const loader = LOADERS.get(extname(path)) ?? 'jsx'
   if (options.babel !== null && loader !== 'json') return await throughBabel(options, path, contents, loader)
-  const { esbuild, projectRoot, stripFlow } = options
-  if (stripFlow === null || loader !== 'jsx' || !(await hasFlow(esbuild, contents))) return { contents, loader }
+  if (loader !== 'jsx') return { contents, loader }
+  const { esbuild, projectRoot } = options
   let stripped
   try {
-    stripped = stripFlow(contents, path)
+    stripped = await withoutFlow(options, contents, path)
   } catch (error) {
     // flow-parser's errors have a location for esbuild to show.
     const location = error?.loc === undefined ? null : { file: relative(projectRoot, path), ...lineOf(error, contents) }
     return { errors: [{ text: `Can't strip Flow types from ${relative(projectRoot, path)}: ${error.message}`, location }] }
   }
+  if (stripped === null) return { contents, loader }
   // Flow that is code (`enum`, `component`) isn't stripped.
   const left = await parseErrors(esbuild, stripped, loader, path)
   if (left !== null) return { errors: left.map((error) => ({ ...error, text: `Flow syntax flow-remove-types doesn't strip: ${error.text}` })) }
@@ -79,36 +80,36 @@ export async function loadFile(options, path, contents) {
 
 const lineOf = (error, contents) => ({ line: error.loc.line, column: error.loc.column, lineText: contents.split('\n')[error.loc.line - 1] })
 
+// The source for Babel, the plugins it can skip, and module-resolver's aliases where the bundle maps
+// them itself (resolverOf()).
+async function forBabel(options, path, contents, loader) {
+  // @react-native/babel-preset's codegen reads a native component's props from its types.
+  if (contents.includes('codegenNativeComponent')) return { code: contents, without: [], aliases: null }
+  const plugins = (await options.babelPlugins?.(path)) ?? new Map()
+  const { code, without } = (loader === 'jsx' ? await javascript(options, plugins, contents, path) : await typescript(options, plugins, contents, loader, path)) ?? { code: contents, without: [] }
+  const resolver = options.keepPlugins ? 'babel' : resolverOf(plugins.get(RESOLVER), contents, plugins, path, options.projectRoot, code)
+  return resolver === 'babel' ? { code, without, aliases: null } : { code, without: [...without, RESOLVER], aliases: resolver }
+}
+
 async function throughBabel(options, path, contents, loader) {
-  const { projectRoot, babel, babelPlugins, esm = false, keepPlugins } = options
-  let source = { code: contents, without: [] }
-  // module-resolver's aliases, when the bundle maps them itself (resolverOf()).
-  let aliases = null
+  const { projectRoot, babel, esm = false, keepPlugins } = options
+  let source
   try {
-    // @react-native/babel-preset's codegen reads a native component's props from its types.
-    if (!contents.includes('codegenNativeComponent')) {
-      const plugins = (await babelPlugins?.(path)) ?? new Map()
-      source = (loader === 'ts' || loader === 'tsx' ? await typescript(options, plugins, contents, loader, path) : await javascript(options, plugins, contents, path)) ?? source
-      const resolver = keepPlugins ? 'babel' : resolverOf(plugins.get(RESOLVER), contents, plugins, path, projectRoot, source.code)
-      if (resolver !== 'babel') {
-        source = { ...source, without: [...source.without, RESOLVER] }
-        aliases = resolver
-      }
-    }
+    source = await forBabel(options, path, contents, loader)
   } catch (error) {
     if (!Array.isArray(error?.errors)) throw error
     return { errors: error.errors }
   }
   try {
     const commonJs = esm !== false && !esm.has(path) ? [COMMONJS] : []
-    const without = keepPlugins ? [...source.without.filter((key) => !INERT.includes(key) && !INERT_TS.includes(key)), ...commonJs] : [...source.without, ...commonJs, ...idle(source.code)]
+    const without = keepPlugins ? [...source.without.filter((key) => LOWERS.has(key)), ...commonJs] : [...source.without, ...commonJs, ...idle(source.code)]
     const transformed = await babel(source.code, path, without)
     const { code, imports = [], uncacheable = false } = typeof transformed === 'string' ? { code: transformed } : transformed
     // Babel's output for TS still loads as TS, so esbuild treats exports of missing names as types.
     // pluginData passes the imports' specifiers and module-resolver's aliases on for the bundle to map
     // its requires by; `uncacheable` is for loadCached().
-    const pluginData = { ...(imports.length > 0 && { imports }), ...(aliases !== null && { aliases }) }
-    return { contents: code, loader: loader === 'ts' || loader === 'tsx' ? 'ts' : 'js', ...(Object.keys(pluginData).length > 0 && { pluginData }), ...(uncacheable && { uncacheable }) }
+    const pluginData = { ...(imports.length > 0 && { imports }), ...(source.aliases !== null && { aliases: source.aliases }) }
+    return { contents: code, loader: loader === 'jsx' ? 'js' : 'ts', ...(Object.keys(pluginData).length > 0 && { pluginData }), ...(uncacheable && { uncacheable }) }
   } catch (error) {
     // Reported in the file itself, not at the import; with a line only if Babel saw the original source.
     const at = error.loc !== undefined && source.code === contents ? lineOf(error, contents) : {}
@@ -132,42 +133,40 @@ const LEADING_COMMENTS = /^(?:#![^\n]*)?(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/u
 // @react-native/babel-preset.
 const isFlow = (code) => /@flow\b/u.test(LEADING_COMMENTS.exec(code)[0])
 
-const hasFlow = async (esbuild, code) => isFlow(code) || (await parseErrors(esbuild, code, 'jsx')) !== null
+// `contents` with its Flow types stripped, or null where it has none; throws flow-remove-types' errors.
+async function withoutFlow({ esbuild, stripFlow }, contents, path) {
+  if (stripFlow === null || !(isFlow(contents) || (await parseErrors(esbuild, contents, 'jsx')) !== null)) return null
+  return stripFlow(contents, path)
+}
 
-// The JS source for Babel, and the plugins Babel can skip.
+// The JS source for Babel, and the plugins Babel can skip; null leaves the file to Babel as is.
 async function javascript(options, plugins, contents, path) {
-  const { esbuild, stripFlow } = options
   let code = contents
-  if (stripFlow !== null && (await hasFlow(esbuild, contents))) {
-    try {
-      code = stripFlow(contents, path)
-    } catch (error) {
-      // Left for Babel to report.
-      if (!(error instanceof SyntaxError)) throw error
-    }
+  try {
+    code = (await withoutFlow(options, contents, path)) ?? contents
+  } catch (error) {
+    // Left for Babel to report.
+    if (!(error instanceof SyntaxError)) throw error
   }
   // flow-remove-types leaves Flow that is code (`component`, `hook`, `enum`) but drops the @flow pragma
   // that the config's Flow parser (@react-native/babel-preset's) needs: leave such a file to Babel as is,
   // as Metro does.
-  if (code !== contents && (await parseErrors(esbuild, code, 'jsx', path)) !== null) return { code: contents, without: [] }
-  return (await downgrade(options, plugins, code, path)) ?? { code, without: [] }
-}
-
-// null leaves the file to Babel as is: when esbuild can't parse it, would misread a Flow call with type
-// arguments, would drop JSX pragma comments Babel reads, or would lower decorators, whose semantics
-// (legacy or not) the Babel config picks.
-async function downgrade(options, plugins, contents, path) {
-  if ((isFlow(contents) && MAYBE_TYPE_ARGUMENTS.test(contents)) || contents.includes('@jsx')) return null
+  if (code !== contents && (await parseErrors(options.esbuild, code, 'jsx', path)) !== null) return null
+  // Not lowered where esbuild can't parse it, would misread a Flow call with type arguments, would drop
+  // JSX pragma comments Babel reads, or would lower decorators, whose semantics (legacy or not) the
+  // Babel config picks.
+  const unlowered = { code, without: [] }
+  if ((isFlow(code) && MAYBE_TYPE_ARGUMENTS.test(code)) || code.includes('@jsx')) return unlowered
   const { supported, without } = lowering(plugins, INERT)
-  let code
+  let lowered
   try {
-    code = await lower(options, contents, 'jsx', path, { supported })
+    lowered = await lower(options, code, 'jsx', path, { supported })
   } catch (error) {
     // Parse errors have a location; errors in options don't.
     if (!Array.isArray(error?.errors) || !error.errors.every(({ location }) => location)) throw error
-    return null
+    return unlowered
   }
-  return decorated(code) ? null : { code, without }
+  return decorated(lowered) ? unlowered : { code: lowered, without }
 }
 
 // Strips TS as @react-native/babel-preset's TS plugin does: drops fields without a value and unused
