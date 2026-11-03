@@ -63,18 +63,18 @@ export async function loadFile(options, path, contents) {
   const loader = LOADERS.get(extname(path)) ?? 'jsx'
   if (options.babel !== null && loader !== 'json') return await throughBabel(options, path, contents, loader)
   if (loader !== 'jsx') return { contents, loader }
-  const { esbuild, projectRoot } = options
   let stripped
   try {
     stripped = await withoutFlow(options, contents, path)
   } catch (error) {
     // flow-parser's errors have a location for esbuild to show.
-    const location = error?.loc === undefined ? null : { file: relative(projectRoot, path), ...lineOf(error, contents) }
-    return { errors: [{ text: `Can't strip Flow types from ${relative(projectRoot, path)}: ${error.message}`, location }] }
+    const file = relative(options.projectRoot, path)
+    const location = error?.loc === undefined ? null : { file, ...lineOf(error, contents) }
+    return { errors: [{ text: `Can't strip Flow types from ${file}: ${error.message}`, location }] }
   }
   if (stripped === null) return { contents, loader }
   // Flow that is code (`enum`, `component`) isn't stripped.
-  const left = await parseErrors(esbuild, stripped, loader, path)
+  const left = await parseErrors(options.esbuild, stripped, loader, path)
   if (left !== null) return { errors: left.map((error) => ({ ...error, text: `Flow syntax flow-remove-types doesn't strip: ${error.text}` })) }
   return { contents: stripped, loader }
 }
@@ -107,13 +107,11 @@ async function throughBabel(options, path, contents, loader) {
     const without = keepPlugins ? [...source.without.filter((key) => LOWERS.has(key)), ...commonJs] : [...source.without, ...commonJs, ...idle(source.code)]
     const transformed = await babel(source.code, path, without)
     const { code, imports = [], module = null, uncacheable = false } = typeof transformed === 'string' ? { code: transformed } : transformed
-    // Babel's output for TS still loads as TS, so esbuild treats exports of missing names as types;
-    // with the source's loader, as syntax a plugin switched off in rn.config.json leaves (JSX) is left
-    // to esbuild.
-    // pluginData passes the imports' specifiers and module-resolver's aliases on for the bundle to map
-    // its requires by, and an ES module's imports and exports for esm-imports.js to check; `uncacheable`
-    // is for loadCached().
+    // pluginData: the import specifiers and module-resolver's aliases, for the bundle to map requires by,
+    // and an ES module's imports and exports, for esm-imports.js to check.
     const pluginData = { ...(imports.length > 0 && { imports }), ...(source.aliases !== null && { aliases: source.aliases }), ...(module !== null && { module }) }
+    // The source's loader: Babel's output for TS still loads as TS, so esbuild takes exports of missing
+    // names as types, and syntax a plugin switched off in rn.config.json leaves (JSX) is left to esbuild.
     return { contents: code, loader, ...(Object.keys(pluginData).length > 0 && { pluginData }), ...(uncacheable && { uncacheable }) }
   } catch (error) {
     // Reported in the file itself, not at the import; with a line only if Babel saw the original source.
@@ -133,9 +131,7 @@ async function parseErrors(esbuild, code, loader, path) {
 
 // The comments a file opens with (before any code, so before any string).
 const LEADING_COMMENTS = /^(?:#![^\n]*)?(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/u
-
-// With @flow in its leading comments, `f<T>(x)` is a call, not `(f < T) > x`, as in
-// @react-native/babel-preset.
+// With @flow in its leading comments, `f<T>(x)` is a call, not `(f < T) > x`, as in @react-native/babel-preset.
 const isFlow = (code) => /@flow\b/u.test(LEADING_COMMENTS.exec(code)[0])
 
 // `contents` with its Flow types stripped, or null where it has none; throws flow-remove-types' errors.
@@ -153,13 +149,11 @@ async function javascript(options, plugins, contents, path) {
     // Left for Babel to report.
     if (!(error instanceof SyntaxError)) throw error
   }
-  // flow-remove-types leaves Flow that is code (`component`, `hook`, `enum`) but drops the @flow pragma
-  // that the config's Flow parser (@react-native/babel-preset's) needs: leave such a file to Babel as is,
-  // as Metro does.
+  // flow-remove-types leaves Flow that is code (`component`, `hook`, `enum`) but drops the @flow pragma the
+  // config's Flow parser needs: leave such a file to Babel as is, as Metro does.
   if (code !== contents && (await parseErrors(options.esbuild, code, 'jsx', path)) !== null) return null
-  // Not lowered where esbuild can't parse it, would misread a Flow call with type arguments, would drop
-  // JSX pragma comments Babel reads, or would lower decorators, whose semantics (legacy or not) the
-  // Babel config picks.
+  // Not lowered where esbuild can't parse it, would misread a Flow call with type arguments, would drop JSX
+  // pragma comments Babel reads, or would lower decorators, whose semantics the Babel config picks.
   const unlowered = { code, without: [] }
   if ((isFlow(code) && MAYBE_TYPE_ARGUMENTS.test(code)) || code.includes('@jsx')) return unlowered
   const { supported, without } = lowering(plugins, INERT)
@@ -219,9 +213,10 @@ const decorated = (code) => code.includes('__decoratorStart(')
 async function lower({ esbuild, sourcemap }, contents, loader, path, options) {
   const transform = (source) => esbuild.transform(source, { loader, jsx: 'preserve', sourcefile: path, logLevel: 'silent', ...options, ...(sourcemap && { sourcemap: 'external' }) })
   const mapped = ({ code, map }) => (sourcemap ? `${code}//# sourceMappingURL=data:application/json;charset=utf-8;base64,${Buffer.from(map).toString('base64')}\n` : code)
-  if (loader !== 'tsx') return mapped(await transform(contents))
-  const lowered = await transform(`${contents}\n;${USE_REACT}`)
-  // No JSX (it parses as plain JS): drop React's import, as Babel's TS plugin does.
-  if ((await parseErrors(esbuild, lowered.code, 'js', path)) === null) return mapped(await transform(contents))
-  return mapped({ ...lowered, code: lowered.code.endsWith(USE_REACT) ? lowered.code.slice(0, -USE_REACT.length) : lowered.code })
+  if (loader === 'tsx') {
+    const lowered = await transform(`${contents}\n;${USE_REACT}`)
+    // With JSX (it doesn't parse as plain JS), keep React's import; else drop it, as Babel's TS plugin does.
+    if ((await parseErrors(esbuild, lowered.code, 'js', path)) !== null) return mapped({ ...lowered, code: lowered.code.endsWith(USE_REACT) ? lowered.code.slice(0, -USE_REACT.length) : lowered.code })
+  }
+  return mapped(await transform(contents))
 }

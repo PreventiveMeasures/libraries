@@ -73,11 +73,11 @@ function parsePsd(content) {
   return { width: content.readUInt32BE(18), height: content.readUInt32BE(14) }
 }
 
-const SVG_UNITS = { in: 96, cm: 96 / 2.54, em: 16, ex: 8, mm: 96 / 2.54 / 10, pc: (96 / 72) * 12, pt: 96 / 72, px: 1 }
+const SVG_UNITS = { '': 1, in: 96, cm: 96 / 2.54, em: 16, ex: 8, mm: 96 / 2.54 / 10, pc: (96 / 72) * 12, pt: 96 / 72, px: 1 }
 
 function svgLength(value = '') {
   const match = /^([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)([a-z]*)$/iu.exec(value.trim())
-  const factor = match === null ? undefined : match[2] === '' ? 1 : SVG_UNITS[match[2].toLowerCase()]
+  const factor = match === null ? undefined : SVG_UNITS[match[2].toLowerCase()]
   return factor === undefined ? null : Math.round(Number(match[1]) * factor)
 }
 
