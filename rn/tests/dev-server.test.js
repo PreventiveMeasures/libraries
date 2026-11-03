@@ -8,7 +8,7 @@ import esbuild from 'esbuild'
 
 import { bundleRequest, toJscSafeUrl, toNormalUrl } from '../src/bundle-url.js'
 import { createClientLog } from '../src/client-log.js'
-import { createGate } from '../src/gate.js'
+import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
 import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
 import { createDevBundler } from '../src/dev-bundler.js'
@@ -36,6 +36,26 @@ describe('the gate', () => {
 
   it('takes a Host only as a host and a port', () => {
     for (const host of [undefined, '', 'evil.example@127.0.0.1', '127.0.0.1@evil.example', '127.0.0.1/x', '127.0.0.1 evil', '127.0.0.1#x', '127.0.0.1?x']) assert.notEqual(asks({ host }), null, String(host))
+  })
+
+  it("refuses an IP address as Origin but the server's own (webpack-dev-server's CVE-2025-30360), and a page reaching it at 0.0.0.0", () => {
+    for (const origin of ['http://192.168.1.5', 'http://192.168.1.5:8081', 'http://10.0.2.2:8081', 'http://[::1]:8081', 'http://0.0.0.0:8081', 'http://127.0.0.1']) assert.match(asks({ host: '127.0.0.1:8081', origin }), /request from/u, origin)
+    assert.match(asks({ host: '0.0.0.0:8081', origin: 'https://evil.example' }), /request from/u)
+    assert.match(asks({ host: '0.0.0.0:8081', 'sec-fetch-site': 'cross-site' }), /cross-site request/u)
+  })
+
+  it("takes the machine's own names as a Host only of a server listening beyond loopback: a name the network answers for could be rebound", () => {
+    for (const host of ['127.0.0.1', '127.1.2.3', '::1', '[::1]', '::ffff:127.0.0.1', 'localhost', 'LocalHost']) {
+      assert.equal(isLoopback(host), true, host)
+      assert.deepEqual(hostnamesOf(host, 'My-Mac.local'), [], host)
+    }
+    for (const host of ['0.0.0.0', '::', '192.168.1.5', 'fe80::1', '::ffff:192.168.1.5', 'my-mac.local', 'localhost.evil.example']) assert.equal(isLoopback(host), false, host)
+    assert.deepEqual(hostnamesOf('0.0.0.0', 'My-Mac.local'), ['my-mac.local'])
+    assert.deepEqual(hostnamesOf('::', 'my-mac'), ['my-mac', 'my-mac.local'])
+    assert.deepEqual(hostnamesOf('Dev.example', 'my-mac'), ['my-mac', 'my-mac.local', 'dev.example'])
+    const loopback = createGate({ hostnames: hostnamesOf('127.0.0.1', 'my-mac') })
+    for (const host of ['my-mac:8081', 'my-mac.local:8081']) assert.match(loopback({ headers: { host } }), /isn't this server's/u, host)
+    for (const host of ['localhost:8081', '127.0.0.1:8081', '[::1]:8081']) assert.equal(loopback({ headers: { host } }), null, host)
   })
 })
 

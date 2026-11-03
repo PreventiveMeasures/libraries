@@ -3,7 +3,8 @@ import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { request } from 'node:http'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { connect as connectTcp } from 'node:net'
+import { hostname, networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -77,6 +78,16 @@ const upgradeStatus = (url, headers = {}) => new Promise((done) => {
   req.on('response', (res) => done(res.statusCode))
   req.on('error', (error) => done(error.code))
   req.end()
+})
+
+// Whether a TCP connection to `address`:`port` is refused.
+const refusedAt = (address, port) => new Promise((done) => {
+  const sock = connectTcp({ host: address, port })
+  sock.on('connect', () => {
+    sock.destroy()
+    done(false)
+  })
+  sock.on('error', (error) => done(error.code === 'ECONNREFUSED'))
 })
 
 const socket = async (url) => {
@@ -255,14 +266,81 @@ describe('rn-serve', () => {
 
   it('refuses webpages: another site, another origin, a rebound name, over HTTP and WebSocket', async () => {
     const port = new URL(server.url).port
-    for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }, { Origin: 'https://evil.example' }, { Origin: `http://localhost:${Number(port) + 1}` }, { Host: `attacker.example:${port}` }]) {
+    // Of IP addresses too (webpack-dev-server's CVE-2025-30360), and a page
+    // reaching it at 0.0.0.0, as browsers once let one.
+    for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }, { Origin: 'https://evil.example' }, { Origin: `http://localhost:${Number(port) + 1}` }, { Origin: 'http://192.168.1.5' }, { Origin: `http://10.0.2.2:${port}` }, { Origin: 'null' }, { Host: `attacker.example:${port}` }, { Host: `0.0.0.0:${port}`, Origin: 'https://evil.example' }]) {
       const r = await fetchRaw(bundleUrl(), { headers })
       assert.deepEqual([r.status, r.headers['content-type']], [403, 'text/plain; charset=UTF-8'], JSON.stringify(headers))
       assert.equal((await fetchRaw(`${server.url}/reload`, { method: 'POST', headers })).status, 403)
-      for (const path of ['/message', '/hot']) assert.equal(await upgradeStatus(`${server.url}${path}`, headers), 403, `${path} ${JSON.stringify(headers)}`)
+      for (const path of ['/message', '/hot', '/network']) assert.equal(await upgradeStatus(`${server.url}${path}`, headers), 403, `${path} ${JSON.stringify(headers)}`)
     }
     assert.equal((await fetchRaw(bundleUrl(), { headers: { Origin: server.url, 'Sec-Fetch-Site': 'same-origin' } })).status, 200)
     assert.equal(await upgradeStatus(`${server.url}/message`, { Origin: server.url }), 101)
+  })
+
+  // The Metro of @react-native-community/cli before 20.0.0 listened on every
+  // interface, its /open-url running a command a request named (CVE-2025-11953).
+  it("listens on loopback alone, of no name of the machine's as a Host there, and runs no command a request names", async () => {
+    const { hostname: address, port } = new URL(server.url)
+    assert.equal(address, '127.0.0.1')
+    const outside = Object.values(networkInterfaces()).flat().filter((nic) => nic !== undefined && !nic.internal && nic.family === 'IPv4')
+    for (const { address: at } of outside) assert.equal(await refusedAt(at, Number(port)), true, at)
+    assert.doesNotMatch(server.output(), /anyone on the network/u)
+    const machine = hostname().toLowerCase()
+    for (const name of [machine, `${machine.replace(/\.local$/u, '')}.local`]) assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `${name}:${port}` } })).status, 403, name)
+    for (const path of ['/open-url', '/open-stack-frame', '/open-debugger']) {
+      const r = await fetchRaw(`${server.url}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'file:///etc/hostname', file: '/etc/hostname', lineNumber: 1 }) })
+      assert.equal(r.status, 404, path)
+    }
+  })
+
+  // As esbuild's serve before 0.25 (GHSA-67mh-4wv8-2f99) and Vite's before
+  // 6.0.9 (CVE-2025-24010) answered: Access-Control-Allow-Origin: *. As a
+  // page's <script> of a bundle reads it (webpack-dev-server's
+  // CVE-2025-30359), with no Sec-Fetch-Site or Origin where the browser
+  // sends none, to a LAN address (its CVE-2026-6402): the browser keeps it
+  // from the page by Cross-Origin-Resource-Policy.
+  it('lets no other origin read, load or frame what it serves: no CORS of one, no preflight; each response of CORP same-origin, nosniff, frames of its own', async () => {
+    const preflight = await fetchRaw(bundleUrl(), { method: 'OPTIONS', headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Private-Network': 'true' } })
+    assert.equal(preflight.status, 403)
+    assert.deepEqual([preflight.headers['access-control-allow-origin'], preflight.headers['access-control-allow-private-network']], [undefined, undefined])
+    await fetchRaw(bundleUrl('platform=ios&sourcePaths=url-server'))
+    const asked = [
+      [bundleUrl(), {}],
+      [bundleUrl(), { Accept: 'multipart/mixed' }],
+      [`${server.url}/index.map?platform=ios`, {}],
+      [`${server.url}/[metro-project]/index.js`, {}],
+      [`${server.url}/assets/img/logo.png?platform=ios`, {}],
+      [`${server.url}/missing.bundle?platform=ios`, {}],
+      [`${server.url}/status`, {}],
+      [`${server.url}/nowhere`, {}],
+      [`${server.url}/reload`, {}],
+      [bundleUrl(), { Origin: 'https://evil.example' }],
+    ]
+    for (const [url, headers] of asked) {
+      const r = await fetchRaw(url, { headers: { 'Sec-Fetch-Dest': 'script', ...headers } })
+      const what = `${url} ${JSON.stringify(headers)}`
+      assert.deepEqual([r.headers['cross-origin-resource-policy'], r.headers['x-content-type-options'], r.headers['x-frame-options']], ['same-origin', 'nosniff', 'SAMEORIGIN'], what)
+      assert.ok([undefined, 'devtools://devtools'].includes(r.headers['access-control-allow-origin']), what)
+    }
+    const symbolicated = await fetchRaw(`${server.url}/symbolicate`, { method: 'POST', body: '{"stack":[]}' })
+    assert.deepEqual([symbolicated.status, symbolicated.headers['cross-origin-resource-policy'], symbolicated.headers['access-control-allow-origin']], [200, 'same-origin', undefined])
+  })
+
+  // As Vite's server.fs.deny was got past: by a query (CVE-2025-30208,
+  // CVE-2025-31125), a # in the path (CVE-2025-32395), /. (CVE-2025-46565),
+  // // (CVE-2023-34092), another case (CVE-2024-23331); and as Metro once drew
+  // a code frame of any file a frame named.
+  it('serves no file of no bundle by a path that got past another server, nor a code frame of one', async () => {
+    await fetchRaw(bundleUrl())
+    for (const path of ['/[metro-project]/secret.yml?raw??', '/[metro-project]/secret.yml?import&raw??', '/[metro-project]/secret.yml?inline&import', '/[metro-project]/./secret.yml', '/[metro-project]//secret.yml', '/[metro-project]/SECRET.YML', '/[metro-project]/index.js/../secret.yml', '/[metro-project]/index.js%00/../secret.yml', '/[metro-project]/..%5Coutside.js', '/[metro-project]/secret.yml#/index.js', '/[metro-project]/img/logo.png/..%2F..%2Fsecret.yml', '/assets/secret.yml#/img/logo.png', '/assets/img/..%2F..%2Foutside.js']) {
+      const r = await fetchRaw(server.url, { path })
+      assert.ok([400, 404].includes(r.status), `${path}: ${r.status}`)
+      assert.ok(!String(r.body).includes('token: 1') && !String(r.body).includes("'outside'"), path)
+    }
+    const frames = ['/etc/hostname', join(app, 'secret.yml'), 'secret.yml', join(root, 'outside.js'), join(app, 'linked.js'), `${app}/../outside.js`].map((file) => ({ file, lineNumber: 1, column: 0 }))
+    const r = await fetchRaw(`${server.url}/symbolicate`, { method: 'POST', body: JSON.stringify({ stack: frames }) })
+    assert.deepEqual([r.status, JSON.parse(String(r.body)).codeFrame], [200, null])
   })
 
   it('reloads the apps on a change, and shows them a build error', async () => {
@@ -1168,6 +1246,25 @@ describe('rn-serve, with a Metro config of a minifier and transform options of i
       const android = await fetchRaw(`${server.url}/index.bundle?platform=android`)
       assert.equal(android.status, 500)
       assert.match(JSON.parse(String(android.body)).message, /transformer\.getTransformOptions gives experimentalImportSupport true, Metro's own transform of import and export: rn-serve does it as Metro's default alone/u)
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
+describe('rn-serve --host beyond loopback', () => {
+  const { root, cleanup } = writeTree(APP)
+  after(cleanup)
+
+  it("warns that anyone on the network can fetch the app, and takes the machine's own names as a Host", async () => {
+    const server = await serve(root, ['--host=0.0.0.0'])
+    try {
+      const { port } = new URL(server.url)
+      assert.match(server.output(), /^rn-serve: on every network interface: anyone on the network can fetch the app and its source$/mu)
+      const machine = hostname().toLowerCase()
+      for (const name of [machine, `${machine.replace(/\.local$/u, '')}.local`]) assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `${name}:${port}` } })).status, 200, name)
+      assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `attacker.example:${port}` } })).status, 403)
+      assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Origin: 'http://192.168.1.5' } })).status, 403)
     } finally {
       await server.stop()
     }
