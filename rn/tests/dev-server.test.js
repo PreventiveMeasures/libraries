@@ -11,6 +11,7 @@ import { createClientLog } from '../src/client-log.js'
 import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
 import { indexMappings } from '../src/mappings.js'
 import { drawCodeFrame, stackOf, symbolicate } from '../src/symbolicate.js'
+import { printable } from '../src/terminal.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { moduleUrls } from '../src/hot.js'
 import { servedSourceMap, sourceOfRequest, sourceRoutes } from '../src/source-map.js'
@@ -126,6 +127,19 @@ describe("an app's console, as Metro's terminal prints it", () => {
     ])
   })
 
+  it('shows each control character of its data and mode escaped but its colors, which it resets', () => {
+    const lines = []
+    const log = createClientLog((line) => lines.push(line), (format, text) => `<${format.join(',')}>${text}</>`)
+    log('log', 'BRIDGE', ['\u001B]52;c;ZWNobw==\u0007', '\u001B[32mok'])
+    log('warn', 'NO\u001B[2JBRIDGE', ['%s', 'x\ry'])
+    log('log', 'BRIDGE', [{ text: '\u001B[2J' }])
+    assert.deepEqual(lines, [
+      '<inverse,white,bold> LOG </> \\x1B]52;c;ZWNobw==\\x07 \u001B[32mok\u001B[0m',
+      '<inverse,yellow,bold> (NO\\x1B[2JBRIDGE) WARN </> x\\x0Dy',
+      "<inverse,white,bold> LOG </> { text: '\\x1B[2J' }",
+    ])
+  })
+
   it("indents a group's lines, its own too, and prints none of a collapsed one's", () => {
     const lines = []
     const log = createClientLog((line) => lines.push(line))
@@ -137,6 +151,33 @@ describe("an app's console, as Metro's terminal prints it", () => {
     log('groupEnd', 'BRIDGE', [])
     log('log', 'BRIDGE', ['out'])
     assert.deepEqual(lines, [' GROUP    outer', ' LOG    in', ' LOG  out'])
+  })
+})
+
+describe('text a client gave, as the terminal shows it', () => {
+  const ESC = '\u001B'
+  it('keeps its text, lines and tabs, a CRLF a line end; its colors, reset at its end where one is on', () => {
+    assert.equal(printable('plain\ttext\nnext\r\nlast'), 'plain\ttext\nnext\nlast')
+    assert.equal(printable(`${ESC}[31mred${ESC}[0m, ${ESC}[1;4mbold`), `${ESC}[31mred${ESC}[0m, ${ESC}[1;4mbold${ESC}[0m`)
+    for (const reset of [`${ESC}[0m`, `${ESC}[m`, `${ESC}[00m`]) assert.equal(printable(`${ESC}[32mok${reset}`), `${ESC}[32mok${reset}`)
+  })
+
+  it('shows each other control character escaped: what would move the cursor, clear the screen, retitle, write the clipboard, link, ask a report', () => {
+    for (const [text, shown] of [
+      [`a${ESC}[2Jb`, 'a\\x1B[2Jb'],
+      [`${ESC}[1A${ESC}[2Kover`, '\\x1B[1A\\x1B[2Kover'],
+      ['before\rafter', 'before\\x0Dafter'],
+      [`${ESC}]0;title\u0007`, '\\x1B]0;title\\x07'],
+      [`${ESC}]52;c;ZWNobw==\u0007`, '\\x1B]52;c;ZWNobw==\\x07'],
+      [`${ESC}]8;;https://evil.example${ESC}\\here${ESC}]8;;${ESC}\\`, '\\x1B]8;;https://evil.example\\x1B\\here\\x1B]8;;\\x1B\\'],
+      [`${ESC}[21t${ESC}P$q m${ESC}\\`, '\\x1B[21t\\x1BP$q m\\x1B\\'],
+      ['\u009B2J \u009D0;title\u009C', '\\x9B2J \\x9D0;title\\x9C'],
+      ['\u0000\u0007[1m\b\u007F', '\\x00\\x07[1m\\x08\\x7F'],
+    ]) assert.equal(printable(text), shown, JSON.stringify(text))
+  })
+
+  it('of no colors, shows those escaped too', () => {
+    assert.equal(printable(`${ESC}[31mred`, { colors: false }), '\\x1B[31mred')
   })
 })
 

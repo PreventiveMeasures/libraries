@@ -95,6 +95,7 @@
     "src/serve.js",
     "src/source-map.js",
     "src/symbolicate.js",
+    "src/terminal.js",
     "src/watch.js",
     "src/websocket.js",
     "src/worklets.js"

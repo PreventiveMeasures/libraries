@@ -390,9 +390,13 @@ describe('rn-serve', () => {
       const send = (level, mode, ...data) => hot.ws.send(JSON.stringify({ type: 'log', level, mode, data }))
       send('warn', 'BRIDGE', 'careful', '1')
       send('log', 'NOBRIDGE', 'hello  ')
+      // Of what would write the clipboard, retitle the window, clear the screen: none.
+      send('log', 'BRIDGE', '\u001B]52;c;ZWNobw==\u0007\u001B]0;owned\u0007\u001B[2Jdone')
       const printed = () => stripVTControlCharacters(server.output())
-      await until(() => /^ \(NOBRIDGE\) LOG {2}hello$/mu.test(printed()), "the app's console")
+      await until(() => /^ \(NOBRIDGE\) LOG {2}hello$/mu.test(printed()) && printed().includes('done'), "the app's console")
       assert.match(printed(), /^ WARN {2}careful 1$/mu)
+      assert.ok(server.output().includes(' LOG  \\x1B]52;c;ZWNobw==\\x07\\x1B]0;owned\\x07\\x1B[2Jdone\n'), server.output())
+      assert.ok(!server.output().includes('\u001B]') && !server.output().includes('\u001B[2J'))
     } finally {
       hot.ws.close()
     }
@@ -988,7 +992,7 @@ describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
   const { root, cleanup } = writeTree({
     ...APP,
     'node_modules/@react-native/dev-middleware/package.json': { name: '@react-native/dev-middleware', main: 'index.js' },
-    'node_modules/@react-native/dev-middleware/index.js': "exports.createDevMiddleware = (options) => {\n  options.logger.warn('a %s b %s', 'x', 'y')\n  return { middleware: (request, response, next) => next(), websocketEndpoints: {} }\n}\n",
+    'node_modules/@react-native/dev-middleware/index.js': "exports.createDevMiddleware = (options) => {\n  options.logger.warn('a %s b %s', 'x', 'y')\n  options.logger.info(\"Connection from DevTools failed for origin '%s'\", '\\u001B]0;owned\\u0007')\n  return { middleware: (request, response, next) => next(), websocketEndpoints: {} }\n}\n",
   })
   after(cleanup)
 
@@ -998,6 +1002,8 @@ describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
       // Logged after the debugger's mounted, as rn-serve starts.
       await until(() => server.output().includes('no metro-runtime'), 'rn-serve to start')
       assert.match(server.output(), /^a x b y$/mu)
+      // What a device or a client names, its control characters shown escaped.
+      assert.ok(server.output().includes("Connection from DevTools failed for origin '\\x1B]0;owned\\x07'\n") && !server.output().includes('\u001B]'), server.output())
     } finally {
       await server.stop()
     }

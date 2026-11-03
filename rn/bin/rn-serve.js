@@ -95,6 +95,7 @@ import { REPORTER } from '../src/network.js'
 import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
+import { printable } from '../src/terminal.js'
 import { createWatcher } from '../src/watch.js'
 
 // Node's cache of the code it compiles, on disk, as tsc has it: the
@@ -300,10 +301,11 @@ function status(ms, cached) {
 // With its Network panel, which rn-serve has show the app's requests where
 // its runtime reports none (src/network.js): of each DevTools as it
 // connects; with --devtools, DevTools opened for each app as it connects.
-// Its logger, called as console is: a format string and its arguments.
+// Its logger, called as console is: a format string and its arguments, of
+// what a device names itself too, its control characters shown escaped.
 function mountDebugger(serverUrl) {
   const { network } = devServer
-  const logged = (...args) => log(printf(...args))
+  const logged = (...args) => log(printable(printf(...args)))
   try {
     const mounted = project.load(devMiddleware).createDevMiddleware({
       serverBaseUrl: serverUrl,
