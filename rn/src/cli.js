@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 
 import { createAliases } from './babel-aliases.js'
+import { FORCED, switchesOf } from './babel-switches.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
 import { configKeyOf } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
@@ -92,7 +93,7 @@ function babelConfigOf(cwd, project) {
 // The project's Babel config, run by the @babel/core Metro's transformer uses, as a function of
 // { platform, dev, inlineRequires } to bundle()'s Babel options, one set of workers per target.
 // Null without a config, or with only the preset and no @babel/core.
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false, warm = false } = {}) {
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false, warm = false, switches = () => [] } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -116,15 +117,26 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     // Inline maps for esbuild, with no sourceRoot, which Metro ignores and esbuild would prefix
     // to every source. Without maps, Babel needn't read input maps.
     const maps = sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }
-    const workerOptions = { ...options, compact: false, ...maps, refresh: dev ? refresh : null, keepPlugins, inlineRequires }
+    // rn.config.json's Babel plugins switched on and off for the build (babel-switches.js).
+    const switched = switches(dev)
+    const workerOptions = { ...options, compact: false, ...maps, refresh: dev ? refresh : null, keepPlugins, inlineRequires, switches: switched }
     const babel = babelWorkers(corePath, { ...workerOptions, fingerprint, oneBuild }, timed, maxWorkers, { warm })
     let configKey = null
+    let switchedKeys = null
     return {
       profile: timed,
       babel,
-      // The config's plugins, then Metro's inline-requires, which the workers run after them.
+      // The config's plugins, but those switched off, and those switched on, FORCED; then Metro's
+      // inline-requires, which the workers run after them.
       babelPlugins: async (filename) => {
         const plugins = pluginsByKey((await loadCore().loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
+        if (switched.length > 0) {
+          switchedKeys ??= switchesOf(loadCore(), switched, { cwd, root: cwd, caller, envName }, { ...options, filename: join(cwd, 'index.js') })
+          for (const key of switchedKeys.off) plugins.delete(key)
+          for (const { key, plugin } of switchedKeys.added) {
+            if (plugins.has(key) || plugin !== null) plugins.set(key, { ...(plugins.get(key) ?? plugin.options), [FORCED]: true })
+          }
+        }
         return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
       },
       // For load-cache.js's cache of each file.

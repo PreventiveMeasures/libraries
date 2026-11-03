@@ -24,7 +24,7 @@ import { createLoadCache } from '../src/load-cache.js'
 import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
 import { REPORTER } from '../src/network.js'
-import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
+import { babelSwitchesOf, extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
 import { printable } from '../src/terminal.js'
@@ -67,7 +67,8 @@ defines(true, values.define, fail)
 // The project: its rn.config.json, Metro config, peers, Babel config and cache.
 const projectRoot = realpathSync(process.cwd())
 const rnConfig = readRnConfig(projectRoot, fail)
-const esm = flagOf(values.esm, rnConfig, 'esm')
+// --esm, else rn.config.json's, of a dev bundle's or a release bundle's section where set there.
+const esmOf = (dev) => flagOf(values.esm, rnConfig, 'esm', dev)
 const devtools = flagOf(values.devtools, rnConfig, 'devtools').on
 const launch = launchOf()
 const project = peers(projectRoot, fail)
@@ -80,8 +81,12 @@ const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js',
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const cacheDir = cacheDirOf(values['reset-cache'], log)
 const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch === null ? null : 'ios' })
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null })
-if (esm.on && babelFor === null) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, refresh: runtime === null ? null : refreshPlugin, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprint: cacheDir !== null, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
+for (const dev of babelFor === null ? [true, false] : []) {
+  const esm = esmOf(dev)
+  if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
+  if (babelSwitchesOf(rnConfig, dev).length > 0) fail("rn.config.json's babel switches the plugins of the project's Babel config, and it has none")
+}
 if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
 const stripFlow = flowStripper(project, babelFor !== null)
 const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types') })
@@ -98,7 +103,7 @@ const devBundler = createDevBundler({
   injected: devMiddleware === null ? [] : [REPORTER],
   targetOptions: (target) => {
     const babel = babelFor?.(target) ?? null
-    return { stripFlow, ...babel, aliases, esm: esm.on, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
+    return { stripFlow, ...babel, aliases, esm: esmOf(target.dev).on, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
   },
   onBuild: built,
 })

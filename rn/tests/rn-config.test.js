@@ -5,7 +5,7 @@ import { after, describe, it } from 'node:test'
 
 import { defaults } from '../src/defaults.js'
 import { maxWorkersOf } from '../src/metro-options.js'
-import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from '../src/rn-config.js'
+import { babelSwitchesOf, extendedMetro, flagOf, inMode, metroConfigOf, readRnConfig } from '../src/rn-config.js'
 import { writeTree } from './fixtures.js'
 
 const fail = (message) => {
@@ -39,7 +39,7 @@ describe('readRnConfig', () => {
 
   it('refuses an option it does not know, a value of another type, and a file not an object of JSON', () => {
     // devTools, its name before: none now.
-    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devtools, port, launch, ios' })
+    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, babel, devtools, port, launch, ios, development, production' })
     for (const port of [-1, 65_536, 80.5, '8082', null]) {
       assert.throws(() => read(JSON.stringify({ port })), { message: `rn.config.json: port is a port, 0 to 65535, not ${JSON.stringify(port)}` })
     }
@@ -141,5 +141,49 @@ describe('flagOf', () => {
     assert.deepEqual(flagOf(undefined, { esm: true }, 'esm'), { on: true, by: "rn.config.json's esm" })
     assert.deepEqual(flagOf(false, { esm: true }, 'esm'), { on: false, by: '--esm' })
     assert.deepEqual(flagOf(true, {}, 'devtools'), { on: true, by: '--devtools' })
+  })
+
+  it("is a dev build's or a release build's section's, given which, where set there", () => {
+    const config = { production: { esm: true } }
+    assert.deepEqual(flagOf(undefined, config, 'esm', false), { on: true, by: "rn.config.json's production.esm" })
+    assert.deepEqual(flagOf(undefined, config, 'esm', true), { on: false, by: "rn.config.json's esm" })
+    assert.deepEqual(flagOf(false, config, 'esm', false), { on: false, by: '--esm' })
+    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm', true), { on: true, by: "rn.config.json's esm" })
+  })
+})
+
+describe('babel, development and production', () => {
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' } })
+  after(cleanup)
+  const read = (config) => {
+    writeFileSync(join(root, 'rn.config.json'), JSON.stringify(config))
+    return readRnConfig(root, fail)
+  }
+
+  it('takes Babel plugins by name, each on or off, in order', () => {
+    const config = read({ babel: { 'transform-classes': false, './plugins/mark.js': true, '@babel/plugin-transform-react-jsx': false } })
+    for (const dev of [true, false]) assert.deepEqual(babelSwitchesOf(config, dev), [['transform-classes', false], ['./plugins/mark.js', true], ['@babel/plugin-transform-react-jsx', false]])
+    assert.deepEqual(babelSwitchesOf({}, true), [])
+  })
+
+  it("has a dev build's and a release build's options of their sections, each its own", () => {
+    const config = read({ maxWorkers: 2, development: { babel: { a: true } }, production: { babel: { b: false }, esm: true } })
+    assert.deepEqual([babelSwitchesOf(config, true), babelSwitchesOf(config, false)], [[['a', true]], [['b', false]]])
+    assert.deepEqual([inMode(config, true), inMode(config, false)], [{ maxWorkers: 2, babel: { a: true } }, { maxWorkers: 2, babel: { b: false }, esm: true }])
+    // One section alone: the other build has none.
+    assert.deepEqual(babelSwitchesOf(read({ production: { babel: { b: false } } }), true), [])
+  })
+
+  it('refuses a plugin not on or off, a section of other options, and an option set at the top level and in a section', () => {
+    for (const babel of [{ a: 'yes' }, { a: null }, { '': true }, ['a'], 'a']) {
+      assert.throws(() => read({ babel }), { message: `rn.config.json: babel is an object of Babel plugins, each true (run it on every file) or false (never), not ${JSON.stringify(babel)}` })
+    }
+    for (const option of ['metroConfig', 'assetExts', 'sourceExts', 'assetResolutions', 'port', 'devtools', 'launch', 'maxWorkers']) {
+      assert.throws(() => read({ development: { [option]: true } }), { message: `rn.config.json: no such option development.${option}: it has babel, esm` })
+    }
+    assert.throws(() => read({ production: { babel: { a: 1 } } }), { message: /^rn\.config\.json: production\.babel is an object of Babel plugins/u })
+    assert.throws(() => read({ production: [] }), { message: 'rn.config.json: production is an object of options (babel, esm), not []' })
+    assert.throws(() => read({ babel: { a: true }, development: { babel: { b: true } } }), { message: 'rn.config.json: babel is set at the top level and in development: set it at the top level, for both, or in development and production' })
+    assert.throws(() => read({ esm: false, development: { esm: true }, production: { esm: true } }), { message: 'rn.config.json: esm is set at the top level and in development and production: set it at the top level, for both, or in development and production' })
   })
 })

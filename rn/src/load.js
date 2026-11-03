@@ -5,6 +5,7 @@
 import { Buffer } from 'node:buffer'
 import { extname, relative } from 'node:path'
 
+import { FORCED } from './babel-switches.js'
 import { RESOLVER, resolverOf } from './module-resolver.js'
 
 // Any other file is read as JSX, as @react-native/babel-preset reads JS: react-native's own .js files contain JSX.
@@ -87,7 +88,8 @@ async function forBabel(options, path, contents, loader) {
   if (contents.includes('codegenNativeComponent')) return { code: contents, without: [], aliases: null }
   const plugins = (await options.babelPlugins?.(path)) ?? new Map()
   const { code, without } = (loader === 'jsx' ? await javascript(options, plugins, contents, path) : await typescript(options, plugins, contents, loader, path)) ?? { code: contents, without: [] }
-  const resolver = options.keepPlugins ? 'babel' : resolverOf(plugins.get(RESOLVER), contents, plugins, path, options.projectRoot, code)
+  // Switched on in rn.config.json, module-resolver maps them itself.
+  const resolver = options.keepPlugins || plugins.get(RESOLVER)?.[FORCED] ? 'babel' : resolverOf(plugins.get(RESOLVER), contents, plugins, path, options.projectRoot, code)
   return resolver === 'babel' ? { code, without, aliases: null } : { code, without: [...without, RESOLVER], aliases: resolver }
 }
 
@@ -105,11 +107,13 @@ async function throughBabel(options, path, contents, loader) {
     const without = keepPlugins ? [...source.without.filter((key) => LOWERS.has(key)), ...commonJs] : [...source.without, ...commonJs, ...idle(source.code)]
     const transformed = await babel(source.code, path, without)
     const { code, imports = [], uncacheable = false } = typeof transformed === 'string' ? { code: transformed } : transformed
-    // Babel's output for TS still loads as TS, so esbuild treats exports of missing names as types.
+    // Babel's output for TS still loads as TS, so esbuild treats exports of missing names as types;
+    // with the source's loader, as syntax a plugin switched off in rn.config.json leaves (JSX) is left
+    // to esbuild.
     // pluginData passes the imports' specifiers and module-resolver's aliases on for the bundle to map
     // its requires by; `uncacheable` is for loadCached().
     const pluginData = { ...(imports.length > 0 && { imports }), ...(source.aliases !== null && { aliases: source.aliases }) }
-    return { contents: code, loader: loader === 'jsx' ? 'js' : 'ts', ...(Object.keys(pluginData).length > 0 && { pluginData }), ...(uncacheable && { uncacheable }) }
+    return { contents: code, loader, ...(Object.keys(pluginData).length > 0 && { pluginData }), ...(uncacheable && { uncacheable }) }
   } catch (error) {
     // Reported in the file itself, not at the import; with a line only if Babel saw the original source.
     const at = error.loc !== undefined && source.code === contents ? lineOf(error, contents) : {}
@@ -183,13 +187,14 @@ async function typescript(options, plugins, contents, loader, path) {
   return { code: await lower(options, contents, loader, path, { tsconfigRaw: tsconfigRaw(true) }), without: [] }
 }
 
-// What esbuild lowers before Babel given the config's plugins, and which of them Babel can then skip.
+// What esbuild lowers before Babel given the config's plugins, and which of them Babel can then skip:
+// none switched on in rn.config.json, which Babel runs on the syntax as it is.
 function lowering(plugins, inert) {
   const supported = { ...BEFORE_BABEL }
-  const without = inert.filter((key) => plugins.has(key))
+  const without = inert.filter((key) => plugins.has(key) && !plugins.get(key)[FORCED])
   for (const [key, features] of LOWERS) {
     const options = plugins.get(key)
-    if (options === undefined || Object.keys(options).length > 0) continue
+    if (options === undefined || options[FORCED] || Object.keys(options).length > 0) continue
     Object.assign(supported, features)
     without.push(key)
   }

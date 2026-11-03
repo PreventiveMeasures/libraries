@@ -719,6 +719,42 @@ describe("rn-serve, of rn.config.json's assetExts and sourceExts", () => {
   })
 })
 
+describe("rn-serve, of rn.config.json's development and production", () => {
+  // A plugin that adds `name` to the string 'MARKS', on the program's exit.
+  const marking = (name) => `module.exports = () => ({ name: ${JSON.stringify(name)}, visitor: { Program: { exit(path) { path.traverse({ StringLiteral(literal) { if (literal.node.value === 'MARKS') literal.node.value += ${JSON.stringify(name)} } }) } } } })\n`
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'node_modules/metro-runtime': linked('metro-runtime'),
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
+    'rn.config.json': { development: { babel: { './mark-a.js': true } }, production: { babel: { './mark-b.js': true }, esm: true } },
+    'mark-a.js': marking('a'),
+    'mark-b.js': marking('b'),
+    'modes.js': "import { used } from './lib/named'\nglobalThis.result = { marks: 'MARKS', used }\n",
+    'lib/named.js': "export const used = 'used'\nexport const unused = 'UNUSED-EXPORT'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
+  })
+  let server
+  before(async () => {
+    server = await serve(root)
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+
+  it("builds a dev bundle of development's options, a release bundle of production's", async () => {
+    const dev = String((await fetchRaw(`${server.url}/modes.bundle?platform=ios`)).body)
+    assert.deepEqual(JSON.parse(JSON.stringify(runApp(dev).context.result)), { marks: 'MARKSa', used: 'used' })
+    // Not of --esm: Babel's CommonJS, of each export.
+    assert.ok(dev.includes('UNUSED-EXPORT'))
+    const release = String((await fetchRaw(`${server.url}/modes.bundle?platform=ios&dev=false`)).body)
+    assert.deepEqual(run(release).result, { marks: 'MARKSb', used: 'used' })
+    // Of production's esm: esbuild links the modules, dropping what is unused.
+    assert.ok(!release.includes('UNUSED-EXPORT'))
+  })
+})
+
 describe('rn-serve --esm', () => {
   const { root, cleanup } = writeTree({
     ...APP,

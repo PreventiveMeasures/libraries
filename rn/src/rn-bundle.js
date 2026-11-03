@@ -11,7 +11,7 @@ import { bundle } from './bundle.js'
 import { babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
-import { extendedMetro, flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
+import { babelSwitchesOf, extendedMetro, flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
 import { prelude } from './serializer.js'
 import { differences } from './self-test.js'
 import { metroSourceMap } from './source-map.js'
@@ -83,7 +83,7 @@ async function run(args, { cwd, stderr, closing }) {
   // reads it, omitting worklets' locations and maps in production.
   process.env.NODE_ENV = env
   const rnConfig = readRnConfig(cwd, fail)
-  const esm = flagOf(args.esm, rnConfig, 'esm')
+  const esm = flagOf(args.esm, rnConfig, 'esm', dev)
   const project = peers(cwd, fail)
   const esbuild = project.peer('esbuild', 'bundling')
   const metro = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(args['metro-config'], rnConfig), name: 'rn-bundle', minify: args.minify }), rnConfig, fail)
@@ -95,7 +95,7 @@ async function run(args, { cwd, stderr, closing }) {
   const transformProfile = args['unstable-transform-profile']
   const maxWorkers = maxWorkersOf(args['max-workers'], metro, fail)
   const babelOf = (options) => {
-    const babel = projectBabel(cwd, project, fail, { sourceMaps: sourcemap, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers, oneBuild: true, ...options })?.({ ...target, inlineRequires }) ?? null
+    const babel = projectBabel(cwd, project, fail, { sourceMaps: sourcemap, transformProfile, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers, oneBuild: true, switches: (forDev) => babelSwitchesOf(rnConfig, forDev), ...options })?.({ ...target, inlineRequires }) ?? null
     if (babel !== null) closing.push(babel.babel.close)
     return babel
   }
@@ -104,6 +104,7 @@ async function run(args, { cwd, stderr, closing }) {
     if (args.profile) fail("--profile times the plugins of the project's Babel config, and it has none")
     if (args['self-test']) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
     if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
+    if (babelSwitchesOf(rnConfig, dev).length > 0) fail("rn.config.json's babel switches the plugins of the project's Babel config, and it has none")
     if (transformProfile !== 'default') fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
   } else if (args['babel-aliases'] !== undefined) {
     fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
