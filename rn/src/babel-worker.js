@@ -4,6 +4,7 @@
 import { enableCompileCache } from 'node:module'
 import { availableParallelism } from 'node:os'
 import { isAbsolute, relative } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Worker, parentPort, workerData } from 'node:worker_threads'
 
 import { transformerOf } from './babel-transformer.js'
@@ -26,7 +27,7 @@ const READY = 'ready'
 // -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
 // corePath, leaving out the config's plugins keyed in `without` (options: transformerOf()). Runs up to
 // `max` workers (defaultWorkers() if null), `warm` starting them all now; has close(), and fingerprint()
-// with options.fingerprint.
+// with options.fingerprinter.
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false } = {}) {
   const most = max ?? defaultWorkers()
   const workers = []
@@ -73,7 +74,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     if (++handled >= IN_BAND && workers.length === 0) made()
     // A fingerprint is only ever a worker's: the main thread has loaded more than Babel. A failure
     // to load is each file's.
-    inBand ??= Promise.try(() => transformerOf({ corePath, options: { ...options, fingerprint: false }, profile: profile !== null }))
+    inBand ??= Promise.try(() => transformerOf({ corePath, options, profile: profile !== null }))
     return (await inBand).transform(message)
   }
   const transform = async (source, filename, without = []) => {
@@ -82,7 +83,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     if (spent !== undefined) addSpent(profile, spent)
     return result
   }
-  if (options.fingerprint) {
+  if (options.fingerprinter != null) {
     let fingerprint = null
     transform.fingerprint = () => (fingerprint ??= inWorker({ fingerprint: true }))
   }
@@ -152,7 +153,11 @@ export function profileReport({ files, ms, plugins, own, before = new Map() }, r
 if (workerData?.babel !== undefined) {
   // As the bin does: @babel/core and the config's plugins compiled once.
   enableCompileCache()
-  const { transform, fingerprint } = transformerOf(workerData.babel)
+  // options.fingerprinter: the path of a module whose workerFingerprint() makes the worker's fingerprint
+  // (rn-serve's, serve/fingerprint.js), as the worker loads its config.
+  const { fingerprinter = null } = workerData.babel.options
+  const fingerprintOf = fingerprinter === null ? null : (await import(pathToFileURL(fingerprinter).href)).workerFingerprint
+  const { transform, fingerprint } = transformerOf({ ...workerData.babel, fingerprintOf })
   // eslint-disable-next-line unicorn/require-post-message-target-origin -- a worker's port, of no origin
   const post = (message) => parentPort.postMessage(message)
   parentPort.on('message', (message) => post(message.fingerprint ? fingerprint : transform(message)))

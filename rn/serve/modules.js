@@ -4,10 +4,12 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, trustedOf, withDefaults } from './bundle.js'
-import { EMPTY, newState, posixRelative, resolutionOf } from './build-host.js'
+import { EMPTY, newState, posixRelative } from '../src/build-host.js'
+import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, withDefaults } from '../src/bundle.js'
+import { GLOBAL } from '../src/serializer.js'
+import { keptOf } from './bundler.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
-import { GLOBAL } from './serializer.js'
+import { resolutionOf } from './resolution.js'
 
 const FACTORY = 'function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, exports, _dependencyMap)'
 const OUTFILE = 'rn-serve.module.js'
@@ -29,7 +31,7 @@ export function createModuleBundler(options) {
   }
   // With `esm`, Babel leaves import and export to esbuild, which makes each module CommonJS, but `commonJs`'s.
   const run = { ...withDefaults(options), injected, builds, idOf }
-  // Its resolver, kept in memory across its watcher-caused builds (build-host.js's resolutionOf()).
+  // Its resolver, kept in memory across its watcher-caused builds (resolution.js's resolutionOf()).
   run.resolution = resolutionOf(run)
   const supported = lowersLetOf(run).catch(() => false).then((lowersLet) => ({ ...supportedOf(run.babel, lowersLet), 'dynamic-import': false }))
   return {
@@ -99,7 +101,9 @@ async function graphOf(run, state, scripts) {
 // A file loaded as bundle() loads it, with its map; throws its errors.
 async function loaded(run, state, path) {
   state.read.add(path)
-  const source = trustedOf(run, path) ?? (await loadCached({ ...run, sourcemap: true }, path, run.host.readFile(path)))
+  const kept = keptOf(run, path)
+  if (kept !== undefined) run.store?.note('memory')
+  const source = kept ?? (await loadCached({ ...run, sourcemap: true }, path, run.host.readFile(path)))
   if (source.errors !== undefined) throw Object.assign(new Error('load'), { errors: source.errors })
   if (source.pluginData?.module !== undefined) state.esModules?.set(path, source.pluginData.module)
   return source

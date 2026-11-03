@@ -4,7 +4,7 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { EMPTY, newState, posixRelative, resolutionOf } from './build-host.js'
+import { EMPTY, newState, posixRelative } from './build-host.js'
 import { defaults, diskHost } from './defaults.js'
 import { unmatchedImports } from './esm-imports.js'
 import { loadFile } from './load.js'
@@ -50,7 +50,7 @@ export function utf8(bytes) {
 // esbuild's `supported`: where Babel lowers let and const (lowersLetOf()), esbuild must add none.
 export const supportedOf = (babel, lowersLet) => (babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) })
 
-// The options of bundle(), createBundler() and createModuleBundler(), with their defaults. `esm` is false, or
+// The options of bundle() and serve/'s bundlers (bundler.js, modules.js), with their defaults. `esm` is false, or
 // the Set of files left CommonJS (`commonJs`, kept across builds); the rest are ES modules esbuild links.
 // `checkImports` checks the imports of ES modules where esbuild doesn't link them (esm-imports.js).
 export function withDefaults(options) {
@@ -79,13 +79,13 @@ export function withDefaults(options) {
     minify: false,
     sourcemap: false,
     prelude: null,
-    // Map<path, { contents, result, at }>: each file as last loaded (of the build at `at`, a dev bundler's
-    // version), reused while its contents are the same; and load-cache.js's store of loaded files, on disk
-    // across runs. changedAt(path): a dev bundler's version of the last change its watcher saw of the file,
-    // or of a directory it is in.
+    // Map<path, { contents, result, at }>: each file as last loaded (of the build at `at`), reused while its
+    // contents are the same; a store of loaded files (serve/load-cache.js's, on disk across runs); and
+    // kept(path), a file to take as loaded, unread, else undefined (serve/bundler.js's, of a build its
+    // watcher caused).
     cache: null,
     store: null,
-    changedAt: null,
+    kept: null,
     checkImports: false,
     ...given,
     esm: given.esm === true ? (given.commonJs ?? new Set()) : false,
@@ -107,37 +107,10 @@ export async function bundle(options) {
   })
 }
 
-// bundle() on one esbuild context: each full rebuild resolves and reads every file anew, but `cache`'s; a
-// watcher-caused one keeps the resolutions its changes leave (build-host.js's resolutionOf()), and takes
-// each file `cache` has from it (trustedOf()).
-export async function createBundler(options) {
-  const run = withDefaults(options)
-  run.resolution = resolutionOf(run)
-  const graph = metroGraph(run)
-  const lowersLet = await lowersLetOf(run).catch(() => false)
-  // Always through the main module, as what runs before the entry may change.
-  const context = await run.esbuild.context(buildOptions(run, graph.plugin, true, lowersLet))
-  return {
-    // Throws as esbuild does, with the error's `files` those the build read or looked for. `changes`, a
-    // watcher's since the build before ({ path, event }); null, a full build. `at`, a dev bundler's version
-    // of the build, its files read after each change of an earlier one.
-    rebuild: (onProgress = null, changes = null, at = null) => {
-      graph.onProgress = onProgress
-      run.changes = changes
-      run.trusted = changes !== null
-      run.at = at
-      return linking(run, async () => graph.result(await context.rebuild())).catch((error) => {
-        throw Object.assign(error, { files: graph.files() })
-      })
-    },
-    dispose: () => context.dispose(),
-  }
-}
-
 // Builds until esbuild links. With `esm`, a file it finds no matching export in is left CommonJS
 // (the import undefined, as in Metro), with a warning, and the build is made again.
 const FILE = new Set(['', 'file'])
-async function linking({ esm, cache, projectRoot }, build) {
+export async function linking({ esm, cache, projectRoot }, build) {
   const warnings = []
   for (;;) {
     try {
@@ -184,7 +157,7 @@ export async function lowersLetOf({ babel, babelPlugins, host = diskHost, projec
 
 // keepNames: with `esm`, esbuild joins the ES modules in one scope, renaming clashes (`Text3`) and so
 // their functions' `name`, which React shows; Babel's CommonJS keeps it. Not when minifying, as in Metro.
-function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prelude, sourcemap, esm }, plugin, main, lowersLet) {
+export function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prelude, sourcemap, esm }, plugin, main, lowersLet) {
   return {
     entryPoints: [main ? MAIN : entry],
     absWorkingDir: projectRoot,
@@ -207,7 +180,7 @@ function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prel
 
 // The plugin resolving each import as Metro does, loading only the files Metro resolves. Each build makes
 // its state as it starts, but the first where it is given; graph.onProgress(loaded, resolved) follows it.
-function metroGraph(run, first = null) {
+export function metroGraph(run, first = null) {
   const { host, projectRoot, entry, polyfills } = run
   let next = first
   let state = null
@@ -219,14 +192,16 @@ function metroGraph(run, first = null) {
   // Each ES module loaded, its imports and exports, for checkImports.
   let esModules = new Map()
   const file = (path) => {
-    if (!resolved.has(path)) resolved.set(path, run.trusted && run.cache?.has(path) ? null : host.readFileAsync?.(path).catch(() => null))
+    if (!resolved.has(path)) resolved.set(path, run.kept?.(path) === undefined ? host.readFileAsync?.(path).catch(() => null) : null)
     return { path: esbuildPath(path) }
   }
   const load = async (path) => {
     const bytes = resolved.get(path)
     if (bytes !== undefined) resolved.set(path, undefined)
     read.add(path)
-    const source = await (trustedOf(run, path) ?? loadCached(run, path, (await bytes) ?? host.readFile(path)))
+    const kept = run.kept?.(path)
+    if (kept !== undefined) run.store?.note('memory')
+    const source = await (kept ?? loadCached(run, path, (await bytes) ?? host.readFile(path)))
     if (source.pluginData?.module !== undefined) esModules.set(path, source.pluginData.module)
     return source
   }
@@ -311,20 +286,8 @@ export function importWarnings({ checkImports, projectRoot, host }, modules, gra
 // relative to the project, as esbuild prints a file's, so the bundle doesn't depend on where it is.
 const named = (projectRoot, path, namespace) => ({ path: posixRelative(projectRoot, path), namespace })
 
-// Of a watcher-caused build (options.trusted), a file as options.cache has it, unread: a change the watcher
-// sees lets the file go from the cache (dev-bundler.js's changed()). Not one a build read before a change
-// of it the watcher saw (options.changedAt()): a load under way as it changes keeps what it read before.
-// Else undefined, the file read.
-export function trustedOf(options, path) {
-  const hit = options.trusted ? options.cache?.get(path) : undefined
-  const since = options.changedAt?.(path) ?? null
-  if (hit === undefined || (since !== null && !(hit.at >= since))) return undefined
-  options.store?.note('memory')
-  return hit.result
-}
-
 // Loads a file of these bytes with loadFile(): from options.cache while its contents are the same, else from
-// options.store (load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
+// options.store (serve/load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
 // `uncacheable`. A file that isn't UTF-8 fails to load.
 export async function loadCached(options, path, bytes) {
   const contents = utf8(bytes)

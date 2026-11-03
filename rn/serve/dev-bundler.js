@@ -5,13 +5,14 @@
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { metroResolverOf } from './build-host.js'
-import { createBundler, utf8 } from './bundle.js'
-import { defaults, diskHost } from './defaults.js'
+import { metroResolverOf } from '../src/build-host.js'
+import { utf8 } from '../src/bundle.js'
+import { defaults, diskHost } from '../src/defaults.js'
+import { prelude } from '../src/serializer.js'
+import { createBundler } from './bundler.js'
 import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall, wrapped } from './modules.js'
-import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
 const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null), inlining: () => Promise.resolve(null), ownTransformOptions: false })
 // A build refused, for what of the Metro config it doesn't do.
@@ -87,7 +88,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     get,
     // A file changed, as a watcher saw it (`path`, its `event`, fs.watch()'s): each build is stale, and the
     // next builds again what the change may make another: the file, and each under it (a directory), let go
-    // from the files kept in memory, and its resolutions (build-host.js's resolutionOf()) of the change. Of
+    // from the files kept in memory, and its resolutions (resolution.js's resolutionOf()) of the change. Of
     // no path (a reload `r` asks for), each builds all anew, resolving and reading each file again.
     changed(path = null, event = null) {
       version++
@@ -130,7 +131,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 }
 
 // The files kept in memory that no build read (`watched`, the dev bundler's files()) let go: the watcher sees
-// no change of them, which a watcher-caused build would take unread (bundle.js's trustedOf()).
+// no change of them, which a watcher-caused build would take unread (bundler.js's keptOf()).
 function unwatched(caches, watched) {
   for (const { files: kept } of caches.values()) for (const path of kept.keys()) if (!watched.has(path)) kept.delete(path)
 }

@@ -4,10 +4,10 @@ import { describe, it } from 'node:test'
 import { setImmediate as tick } from 'node:timers/promises'
 import { runInNewContext } from 'node:vm'
 
-// app/network.js, run as a dev bundle runs it, of an app's globals as React
+// serve/app/network.js, run as a dev bundle runs it, of an app's globals as React
 // Native's: an XMLHttpRequest of its events (readystatechange, then abort,
 // error, timeout or load, then loadend), a WebSocket, a FileReader.
-const SOURCE = readFileSync(new URL('../app/network.js', import.meta.url), 'utf8')
+const SOURCE = readFileSync(new URL('../serve/app/network.js', import.meta.url), 'utf8')
 const BUNDLE = 'http://localhost:8081/index.bundle//&platform=ios&dev=true'
 const FRAMES = [{ methodName: 'send', file: BUNDLE, lineNumber: 90, column: 2 }, { methodName: 'loadUser', file: BUNDLE, lineNumber: 12, column: 4 }]
 

@@ -8,7 +8,6 @@ import { dirname, join, resolve } from 'node:path'
 import { createAliases } from './babel-aliases.js'
 import { FORCED, switchesOf } from './babel-switches.js'
 import { babelWorkers, newProfile } from './babel-worker.js'
-import { configKeyOf } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 
 export const failer = (name) => (message) => {
@@ -92,8 +91,10 @@ function babelConfigOf(cwd, project) {
 
 // The project's Babel config, run by the @babel/core Metro's transformer uses, as a function of
 // { platform, dev, inlineRequires } to bundle()'s Babel options, one set of workers per target.
-// Null without a config, or with only the preset and no @babel/core.
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, refresh = null, transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprint = false, oneBuild = false, warm = false, switches = () => [] } = {}) {
+// Null without a config, or with only the preset and no @babel/core. ownPlugins(dev): plugins run on
+// the project's own files, after the config's ([path, options]; rn-serve's Fast Refresh); `fingerprinter`,
+// the module the workers make their fingerprint with (babel-worker.js), for a cache of their output.
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, switches = () => [] } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -119,9 +120,8 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const maps = sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }
     // rn.config.json's Babel plugins switched on and off for the build (babel-switches.js).
     const switched = switches(dev)
-    const workerOptions = { ...options, compact: false, ...maps, refresh: dev ? refresh : null, keepPlugins, inlineRequires, switches: switched }
-    const babel = babelWorkers(corePath, { ...workerOptions, fingerprint, oneBuild }, timed, maxWorkers, { warm })
-    let configKey = null
+    const workerOptions = { ...options, compact: false, ...maps, ownPlugins: ownPlugins(dev), keepPlugins, inlineRequires, switches: switched }
+    const babel = babelWorkers(corePath, { ...workerOptions, fingerprinter, oneBuild }, timed, maxWorkers, { warm })
     let switchedKeys = null
     return {
       profile: timed,
@@ -139,13 +139,9 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
         }
         return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
       },
-      // For load-cache.js's cache of each file.
-      ...(fingerprint && {
-        workerOptions,
-        fingerprint: babel.fingerprint,
-        configKey: (filename, covered) => (configKey ??= configKeyOf(loadCore(), options, createRequire(corePath).cache))(filename, covered),
-        configStart: () => configKey?.start(),
-      }),
+      // For a cache of the workers' output (serve/load-cache.js): their options and fingerprint, and the
+      // config's core and options, of which it keys each file.
+      ...(fingerprinter !== null && { workerOptions, fingerprint: babel.fingerprint, core: loadCore, configOptions: options }),
     }
   }
   // A target per inlineRequires too, as Metro caches a file's transform per transform options.

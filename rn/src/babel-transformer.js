@@ -6,7 +6,6 @@ import { join } from 'node:path'
 
 import { switchesOf } from './babel-switches.js'
 import { esModuleOf } from './es-module.js'
-import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
 
@@ -15,10 +14,11 @@ const BLOCK_SCOPING = 'transform-block-scoping'
 const LET = /\b(?:let|const)\b/u
 
 // -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, module?, uncacheable?,
-// spent? } or { error, loc? }; fingerprint is null but with options.fingerprint. The options are Babel's, plus
-// refresh, keepPlugins, inlineRequires, fingerprint and oneBuild (cli.js's projectBabel()).
-export function transformerOf({ corePath, options, profile }) {
-  const { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, switches = [], ...given } = options
+// spent? } or { error, loc? }; fingerprint is null but with `fingerprintOf` (babel-worker.js's fingerprinter's).
+// The options are Babel's, plus ownPlugins, keepPlugins, inlineRequires, fingerprinter, oneBuild and switches
+// (cli.js's projectBabel()).
+export function transformerOf({ corePath, options, profile, fingerprintOf = null }) {
+  const { ownPlugins = [], keepPlugins = false, inlineRequires = null, fingerprinter: _fingerprinter = null, oneBuild = false, switches = [], ...given } = options
   const core = createRequire(corePath)(corePath)
   memoizeHelpers(core)
   const cwd = given.cwd ?? process.cwd()
@@ -35,8 +35,8 @@ export function transformerOf({ corePath, options, profile }) {
   const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
   const configOf = (filename) => {
     const plugins = [...(given.plugins ?? []), IMPORTS]
-    // As Metro's transformer has it, no Fast Refresh in node_modules.
-    if (refresh !== null && !filename.includes('node_modules')) plugins.push([refresh, { skipEnvCheck: true }])
+    // The project's own files' alone, as Metro's transformer has Fast Refresh's: none in node_modules.
+    if (!filename.includes('node_modules')) plugins.push(...ownPlugins)
     return core.loadOptionsSync({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins })
   }
   const profiler = profile ? profilerOf(corePath) : null
@@ -95,15 +95,11 @@ export function transformerOf({ corePath, options, profile }) {
       configOf(join(cwd, 'index.js'))
     } catch {}
   }
-  if (!fingerprinted) {
+  if (fingerprintOf === null) {
     loadConfig()
     return { transform, fingerprint: null }
   }
-  // Of the modules loaded and the files read with the config, before any file; given back with
-  // its inputs, which a later run checks to reuse it (load-cache.js).
-  const reads = [...readsOf(loadConfig)]
-  const modules = withDependencies(Object.keys(createRequire(corePath).cache), cwd)
-  return { transform, fingerprint: { fingerprint: fingerprintOf(modules, options, reads), options, modules, reads } }
+  return { transform, fingerprint: fingerprintOf({ load: loadConfig, corePath, cwd, options }) }
 }
 
 // Memoizes File#availableHelper(name, versionRange), which transform-runtime calls for each helper a

@@ -1,4 +1,4 @@
-// rn-serve's network reporter (src/network.js), in each dev bundle rn-serve
+// rn-serve's network reporter (serve/network.js), in each dev bundle rn-serve
 // serves where React Native DevTools are: run after InitializeCore, before
 // the entry, its imports react-native's, resolved as the entry's are. It
 // names itself to rn-serve by an id it keeps on the global object, which
@@ -44,7 +44,7 @@ const MAX_FRAMES = 50
 const RETRY = 2000
 const MAX_RETRY = 60_000
 const FAILED = ['abort', 'error', 'timeout']
-// Where it keeps its id on the global object (src/network.js's).
+// Where it keeps its id on the global object (serve/network.js's).
 const REPORTER_GLOBAL = '__rnServeReporter'
 // A blob of these types read as text, any other as base64.
 const TEXT = /^text\/|json|xml|javascript|x-www-form-urlencoded/u

@@ -993,7 +993,7 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devto
   // and of each /open-debugger asked (GET /test/opened).
   const DEV_MIDDLEWARE = [
     "const { EventEmitter } = require('node:events')",
-    `const { acceptWebSocket } = require(${JSON.stringify(fileURLToPath(new URL('../src/websocket.js', import.meta.url)))})`,
+    `const { acceptWebSocket } = require(${JSON.stringify(fileURLToPath(new URL('../serve/websocket.js', import.meta.url)))})`,
     'const endpoint = () => {',
     '  const server = new EventEmitter()',
     '  server.handleUpgrade = (request, socket, head, done) => {',

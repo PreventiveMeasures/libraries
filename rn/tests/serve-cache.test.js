@@ -3,7 +3,7 @@ import { readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { bundleName, lastBuilds } from '../src/serve-cache.js'
+import { bundleName, lastBuilds } from '../serve/serve-cache.js'
 import { writeTree } from './fixtures.js'
 
 const request = (entryFile, platform, more = {}) => ({ kind: 'bundle', entryFile, platform, dev: true, minify: false, shallow: false, sourceUrl: 'http://localhost:8081/index.bundle', ...more })

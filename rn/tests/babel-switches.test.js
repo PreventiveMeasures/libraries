@@ -5,6 +5,7 @@ import { after, describe, it } from 'node:test'
 
 import { switchesOf } from '../src/babel-switches.js'
 import { transformerOf } from '../src/babel-transformer.js'
+import { workerFingerprint } from '../serve/fingerprint.js'
 import { linked } from './rn-bundle-app.js'
 import { writeTree } from './fixtures.js'
 
@@ -56,7 +57,7 @@ describe("Babel's workers, of plugins switched on", () => {
   after(cleanup)
 
   it("have the fingerprint of the files a plugin added reads as Babel loads it, as of the config's", () => {
-    const { fingerprint } = transformerOf({ corePath: createRequire(import.meta.url).resolve('@babel/core'), options: { cwd: root, root, babelrc: false, configFile: false, fingerprint: true, switches: [['./plugins/reads.js', true]] }, profile: false })
+    const { fingerprint } = transformerOf({ corePath: createRequire(import.meta.url).resolve('@babel/core'), options: { cwd: root, root, babelrc: false, configFile: false, switches: [['./plugins/reads.js', true]] }, profile: false, fingerprintOf: workerFingerprint })
     assert.ok(fingerprint.reads.some(([path]) => path === join(root, 'data.txt')), JSON.stringify(fingerprint.reads))
   })
 })

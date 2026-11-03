@@ -12,6 +12,7 @@ import { bigBuild, peers } from '../src/cli.js'
 import { writeTree } from './fixtures.js'
 
 const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
+const FINGERPRINTER = fileURLToPath(new URL('../serve/fingerprint.js', import.meta.url))
 const core = createRequire(import.meta.url)('@babel/core')
 const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))
 
@@ -230,17 +231,17 @@ describe('babelWorkers, asked for a fingerprint', () => {
   const options = { babelrc: false, configFile: false, cwd: root, compact: false, plugins: [join(root, 'mark.cjs')] }
 
   it('gives one of what it loaded with the config, and its options, with the option alone', async () => {
-    const { fingerprint, modules, reads, options: given } = await babelWorkers(CORE, { ...options, fingerprint: true }, null, 1).fingerprint()
+    const { fingerprint, modules, reads, options: given } = await babelWorkers(CORE, { ...options, fingerprinter: FINGERPRINTER }, null, 1).fingerprint()
     assert.match(fingerprint, /^[\da-f]{64}$/u)
     assert.ok(modules.includes(CORE) && modules.includes(join(root, 'mark.cjs')))
     assert.ok(Array.isArray(reads))
-    assert.deepEqual(given, { ...options, fingerprint: true })
+    assert.deepEqual(given, { ...options, fingerprinter: FINGERPRINTER })
     assert.equal(babelWorkers(CORE, options, null, 1).fingerprint, undefined)
   })
 
   it("transforms in band still, but gives a worker's: of what Babel loaded, not of what the main thread has", async () => {
     const { threadOf, fingerprintOf } = (() => {
-      const transform = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprint: true }, null, 1)
+      const transform = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprinter: FINGERPRINTER }, null, 1)
       return { threadOf: threader(transform), fingerprintOf: () => transform.fingerprint() }
     })()
     // esbuild's, CommonJS, which the main thread has loaded, Babel not.
@@ -250,7 +251,7 @@ describe('babelWorkers, asked for a fingerprint', () => {
     assert.deepEqual(await Promise.all([threadOf(), threadOf()]), [0, 0])
     const { fingerprint, modules } = await fingerprintOf()
     assert.ok(modules.includes(join(root, 'thread.cjs')) && !modules.includes(esbuild), String(modules))
-    const fresh = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprint: true }, null, 1)
+    const fresh = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprinter: FINGERPRINTER }, null, 1)
     assert.equal((await fresh.fingerprint()).fingerprint, fingerprint)
   })
 

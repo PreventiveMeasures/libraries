@@ -6,7 +6,8 @@ import { after, describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
 import { buildHost, newState } from '../src/build-host.js'
-import { bundle, createBundler } from '../src/bundle.js'
+import { bundle } from '../src/bundle.js'
+import { createBundler } from '../serve/bundler.js'
 import { diskHost } from '../src/defaults.js'
 import { png, vfsOf, writeTree } from './fixtures.js'
 
