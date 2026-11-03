@@ -5,7 +5,8 @@
 //     default), the one Metro finds; false, none, nor metro-config itself
 //     (nor @react-native/metro-config): React Native's defaults, as rn has
 //     them (Metro 0.87's under @react-native/metro-config 0.88's), its
-//     requires inlined (by Metro's plugin, of the project's Metro), a
+//     requires inlined (by metro-transform-plugins' plugin, an optional
+//     peer: the project's, else rn's, else its Metro's), a
 //     package's exports read (unstable_enablePackageExports), whatever
 //     Metro's default (on from 0.82); a path, from the root, that file.
 //     --metro-config over it.

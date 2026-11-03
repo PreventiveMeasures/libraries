@@ -140,12 +140,14 @@
     "metro-resolver": "0.87.2",
     "metro-runtime": "0.87.2",
     "metro-runtime-0.81": "npm:metro-runtime@0.81.5",
+    "metro-transform-plugins": "0.87.2",
     "oxc-parser": "^0.152.0",
     "react-refresh": "0.14.2"
   },
   "peerDependencies": {
     "esbuild": ">=0.25.0",
     "flow-remove-types": ">=2.300.0",
+    "metro-transform-plugins": ">=0.81.0",
     "oxc-parser": ">=0.152.0"
   },
   "peerDependenciesMeta": {
@@ -153,6 +155,9 @@
       "optional": true
     },
     "flow-remove-types": {
+      "optional": true
+    },
+    "metro-transform-plugins": {
       "optional": true
     },
     "oxc-parser": {
