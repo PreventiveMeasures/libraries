@@ -5,7 +5,7 @@ import { after, describe, it } from 'node:test'
 
 import { defaults } from '../src/defaults.js'
 import { maxWorkersOf } from '../src/metro-options.js'
-import { babelSwitchesOf, extendedMetro, flagOf, inMode, metroConfigOf, readRnConfig } from '../src/rn-config.js'
+import { babelSwitchesOf, extendedMetro, flagOf, inMode, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from '../src/rn-config.js'
 import { writeTree } from './fixtures.js'
 
 const fail = (message) => {
@@ -39,7 +39,7 @@ describe('readRnConfig', () => {
 
   it('refuses an option it does not know, a value of another type, and a file not an object of JSON', () => {
     // devTools, its name before: none now.
-    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, babel, devtools, port, launch, ios, development, production' })
+    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, development, production' })
     for (const port of [-1, 65_536, 80.5, '8082', null]) {
       assert.throws(() => read(JSON.stringify({ port })), { message: `rn.config.json: port is a port, 0 to 65535, not ${JSON.stringify(port)}` })
     }
@@ -137,18 +137,75 @@ describe('extendedMetro', () => {
 
 describe('flagOf', () => {
   it("is the flag's, else the config's, else off, of what set it", () => {
-    assert.deepEqual(flagOf(undefined, {}, 'esm'), { on: false, by: "rn.config.json's esm" })
-    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm'), { on: true, by: "rn.config.json's esm" })
-    assert.deepEqual(flagOf(false, { esm: true }, 'esm'), { on: false, by: '--esm' })
-    assert.deepEqual(flagOf(true, {}, 'devtools'), { on: true, by: '--devtools' })
+    assert.deepEqual(flagOf(undefined, {}, 'esm'), { on: false, by: "rn.config.json's esm", flag: false })
+    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm'), { on: true, by: "rn.config.json's esm", flag: false })
+    assert.deepEqual(flagOf(false, { esm: true }, 'esm'), { on: false, by: '--no-esm', flag: true })
+    assert.deepEqual(flagOf(true, {}, 'devtools'), { on: true, by: '--devtools', flag: true })
   })
 
   it("is a dev build's or a release build's section's, given which, where set there", () => {
     const config = { production: { esm: true } }
-    assert.deepEqual(flagOf(undefined, config, 'esm', false), { on: true, by: "rn.config.json's production.esm" })
-    assert.deepEqual(flagOf(undefined, config, 'esm', true), { on: false, by: "rn.config.json's esm" })
-    assert.deepEqual(flagOf(false, config, 'esm', false), { on: false, by: '--esm' })
-    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm', true), { on: true, by: "rn.config.json's esm" })
+    assert.deepEqual(flagOf(undefined, config, 'esm', false), { on: true, by: "rn.config.json's production.esm", flag: false })
+    assert.deepEqual(flagOf(undefined, config, 'esm', true), { on: false, by: "rn.config.json's esm", flag: false })
+    assert.deepEqual(flagOf(false, config, 'esm', false), { on: false, by: '--no-esm', flag: true })
+    assert.deepEqual(flagOf(undefined, { esm: true }, 'esm', true), { on: true, by: "rn.config.json's esm", flag: false })
+  })
+})
+
+describe('inlineRequires', () => {
+  const inlining = { plugin: 'metro-transform-plugins', options: {}, blockList: [] }
+  // A Metro config that inlines them, as Metro's defaults set them.
+  const metro = { file: 'metro.config.js', inlining: () => Promise.resolve(inlining), ownTransformOptions: false, transformRefusal: () => Promise.resolve(null), inlineRequires: () => Promise.resolve(inlining) }
+  const none = { ...metro, inlineRequires: () => Promise.resolve(null) }
+  const target = { platform: 'ios', dev: true }
+  const of = (given, flag, config) => withInlineRequires(given, (dev) => inlineRequiresOf(flag, config, dev))
+  const inlined = (given, flag, config, forTarget = target) => of(given, flag, config).inlineRequires('index.js', forTarget)
+  const refusal = (given, flag, config, forTarget = target) => of(given, flag, config).transformRefusal('index.js', forTarget)
+
+  it("is the flag's, else rn.config.json's (its section's where set there), else unset", () => {
+    assert.deepEqual(inlineRequiresOf(undefined, {}, true), { on: null, by: "rn.config.json's inlineRequires", flag: false })
+    assert.deepEqual(inlineRequiresOf(undefined, { production: { inlineRequires: false } }, false), { on: false, by: "rn.config.json's production.inlineRequires", flag: false })
+    assert.deepEqual(inlineRequiresOf(true, { inlineRequires: false }, true), { on: true, by: '--inline-requires', flag: true })
+    assert.deepEqual(inlineRequiresOf(false, {}, true), { on: false, by: '--no-inline-requires', flag: true })
+  })
+
+  it("leaves the Metro config's where unset, and turns them on or off where set", async () => {
+    assert.equal(await inlined(metro, undefined, {}), inlining)
+    assert.equal(await inlined(none, undefined, {}), null)
+    assert.equal(await inlined(metro, undefined, { inlineRequires: false }), null)
+    assert.equal(await inlined(none, undefined, { inlineRequires: true }), inlining)
+    assert.equal(await inlined(none, true, {}), inlining)
+    assert.equal(await inlined(metro, undefined, { production: { inlineRequires: false } }), inlining)
+    // Turned on as the Metro config's other options set them, where it inlines none.
+    const own = { ...inlining, options: { ignoredRequires: ['./kept'] } }
+    assert.equal(await inlined({ ...none, inlining: () => Promise.resolve(own) }, undefined, { inlineRequires: true }), own)
+    for (const config of [{}, { inlineRequires: true }, { inlineRequires: false }]) assert.equal(await refusal(metro, undefined, config), null)
+  })
+
+  it('refuses a bundle a Metro config of its own getTransformOptions inlines otherwise, but where the flag sets them', async () => {
+    const own = { ...metro, ownTransformOptions: true }
+    assert.equal(await refusal(own, undefined, { inlineRequires: false }), "rn.config.json's inlineRequires is false, and metro.config.js's transformer.getTransformOptions gives inlineRequires true: set it in one of them, or alike in both")
+    assert.equal(await refusal({ ...own, inlineRequires: () => Promise.resolve(null) }, undefined, { production: { inlineRequires: true } }, { ...target, dev: false }), "rn.config.json's production.inlineRequires is true, and metro.config.js's transformer.getTransformOptions gives inlineRequires false: set it in one of them, or alike in both")
+    assert.equal(await refusal(own, undefined, { inlineRequires: true }), null)
+    assert.equal(await refusal(own, false, { inlineRequires: true }), null)
+    // The Metro config's own refusal first.
+    assert.equal(await refusal({ ...own, transformRefusal: () => Promise.resolve('refused') }, undefined, { inlineRequires: false }), 'refused')
+  })
+
+  it('refuses a bundle of esm where they are on, naming what sets them; not where they are off', async () => {
+    const linking = (config, flag) => (dev) => flagOf(flag, config, 'esm', dev)
+    const refusalOf = (given, config, esmFlag, forTarget = target) => withInlineRequires(given, (dev) => inlineRequiresOf(undefined, config, dev), linking(config, esmFlag)).transformRefusal('index.js', forTarget)
+    const turnOff = ": turn them off for it (--no-inline-requires, or rn.config.json's inlineRequires false), or leave esm off, the imports checked all the same"
+    assert.equal(await refusalOf(metro, { esm: true }), `rn.config.json's esm links ES modules, each run as it is imported, and metro.config.js's transformer.getTransformOptions inlines requires, each module run where first used${turnOff}`)
+    assert.equal(await refusalOf({ ...metro, file: null }, {}, true), `--esm links ES modules, each run as it is imported, and React Native's defaults inlines requires, each module run where first used${turnOff}`)
+    assert.equal(await refusalOf(none, { inlineRequires: true, esm: true }), `rn.config.json's esm links ES modules, each run as it is imported, and rn.config.json's inlineRequires inlines requires, each module run where first used${turnOff}`)
+    for (const [given, config] of [[none, { esm: true }], [metro, { esm: true, inlineRequires: false }], [metro, {}], [metro, { production: { esm: true } }]]) assert.equal(await refusalOf(given, config), null, JSON.stringify(config))
+  })
+
+  it('refuses a bundle it inlines the requires of without metro-transform-plugins', async () => {
+    const lacking = { ...none, inlining: () => Promise.resolve(null) }
+    assert.equal(await refusal(lacking, undefined, { inlineRequires: true }), "rn.config.json's inlineRequires inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins")
+    assert.equal(await refusal(lacking, undefined, { inlineRequires: false }), null)
   })
 })
 
@@ -179,10 +236,12 @@ describe('babel, development and production', () => {
       assert.throws(() => read({ babel }), { message: `rn.config.json: babel is an object of Babel plugins, each true (run it on every file) or false (never), not ${JSON.stringify(babel)}` })
     }
     for (const option of ['metroConfig', 'assetExts', 'sourceExts', 'assetResolutions', 'port', 'devtools', 'launch', 'maxWorkers']) {
-      assert.throws(() => read({ development: { [option]: true } }), { message: `rn.config.json: no such option development.${option}: it has babel, esm` })
+      assert.throws(() => read({ development: { [option]: true } }), { message: `rn.config.json: no such option development.${option}: it has babel, esm, inlineRequires` })
     }
     assert.throws(() => read({ production: { babel: { a: 1 } } }), { message: /^rn\.config\.json: production\.babel is an object of Babel plugins/u })
-    assert.throws(() => read({ production: [] }), { message: 'rn.config.json: production is an object of options (babel, esm), not []' })
+    assert.throws(() => read({ production: [] }), { message: 'rn.config.json: production is an object of options (babel, esm, inlineRequires), not []' })
+    assert.throws(() => read({ inlineRequires: true, production: { inlineRequires: false } }), { message: 'rn.config.json: inlineRequires is set at the top level and in production: set it at the top level, for both, or in development and production' })
+    assert.deepEqual(read({ development: { inlineRequires: false }, production: { inlineRequires: true } }), { development: { inlineRequires: false }, production: { inlineRequires: true } })
     assert.throws(() => read({ babel: { a: true }, development: { babel: { b: true } } }), { message: 'rn.config.json: babel is set at the top level and in development: set it at the top level, for both, or in development and production' })
     assert.throws(() => read({ esm: false, development: { esm: true }, production: { esm: true } }), { message: 'rn.config.json: esm is set at the top level and in development and production: set it at the top level, for both, or in development and production' })
   })

@@ -13,7 +13,7 @@ import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall, wrapped } from './modules.js'
 import { prelude } from './serializer.js'
 const NAMESPACED = /^metro-[a-z]+:/u
-const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null) })
+const NO_METRO = Object.freeze({ assetExts: defaults.assetExts, resolver: {}, blockList: null, polyfills: () => [], runBeforeMain: null, assetRegistryPath: null, minifyRefusal: null, transformRefusal: () => null, inlineRequires: () => Promise.resolve(null), inlining: () => Promise.resolve(null), ownTransformOptions: false })
 // A build refused, for what of the Metro config it doesn't do.
 const refused = (version, text) => ({ ok: false, version, errors: [{ text, location: null }], files: new Set() })
 
@@ -55,7 +55,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     return Promise.all(dropped)
   }
 
-  // An outcome: { ok: true, js, map, assets, files, index() }, with `modules` and `entryId` in the module
+  // An outcome: { ok: true, js, map, assets, files, warnings, index() }, with `modules` and `entryId` in the module
   // format, or { ok: false, errors, files }; null where the request names no entry here. A `shallow`
   // request is a module's, from the last build.
   const get = async (request, { onProgress = null } = {}) => {
@@ -216,10 +216,10 @@ async function run({ projectRoot, onBuild }, build, at) {
       at,
     )
     // Not js or map: a module bundler's are getters, each made when a client first asks for it.
-    const { outputFiles, modules, entryId, scripts, assets, files, bundled = null } = result
+    const { outputFiles, modules, entryId, scripts, assets, files, warnings = [], bundled = null } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text
     const built = modules === undefined ? { js: text('.js'), map: text('.map') } : { modules, entryId, scripts }
-    build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files) }, projectRoot, bundled)
+    build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files), warnings }, projectRoot, bundled)
     build.good = build.last
   } catch (error) {
     if (!Array.isArray(error?.errors)) throw error

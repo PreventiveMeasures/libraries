@@ -11,7 +11,7 @@ import { bundle } from './bundle.js'
 import { babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
-import { babelSwitchesOf, extendedMetro, flagOf, metroConfigOf, readRnConfig } from './rn-config.js'
+import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from './rn-config.js'
 import { prelude } from './serializer.js'
 import { differences } from './self-test.js'
 import { metroSourceMap } from './source-map.js'
@@ -28,6 +28,7 @@ const OPTIONS = {
   'sourcemap-use-absolute-path': { type: 'boolean', default: false },
   'metro-config': { type: 'string' },
   esm: { type: 'boolean' },
+  'inline-requires': { type: 'boolean' },
   profile: { type: 'boolean', default: false },
   'self-test': { type: 'boolean', default: false },
   'unstable-transform-profile': { type: 'string', default: 'default' },
@@ -86,7 +87,8 @@ async function run(args, { cwd, stderr, closing }) {
   const esm = flagOf(args.esm, rnConfig, 'esm', dev)
   const project = peers(cwd, fail)
   const esbuild = project.peer('esbuild', 'bundling')
-  const metro = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(args['metro-config'], rnConfig), name: 'rn-bundle', minify: args.minify }), rnConfig, fail)
+  const metroConfig = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(args['metro-config'], rnConfig), name: 'rn-bundle', minify: args.minify }), rnConfig, fail)
+  const metro = withInlineRequires(metroConfig, (forDev) => inlineRequiresOf(args['inline-requires'], rnConfig, forDev), (forDev) => flagOf(args.esm, rnConfig, 'esm', forDev))
   const entryPath = resolve(cwd, entry)
   const target = { platform, dev }
   const transformRefusal = await metro.transformRefusal(entryPath, target)
@@ -104,6 +106,8 @@ async function run(args, { cwd, stderr, closing }) {
     if (args.profile) fail("--profile times the plugins of the project's Babel config, and it has none")
     if (args['self-test']) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
     if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
+    const inlining = inlineRequiresOf(args['inline-requires'], rnConfig, dev)
+    if (inlining.on) fail(`${inlining.by} inlines requires through the project's Babel config, and it has none`)
     if (babelSwitchesOf(rnConfig, dev).length > 0) fail("rn.config.json's babel switches the plugins of the project's Babel config, and it has none")
     if (transformProfile !== 'default') fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
   } else if (args['babel-aliases'] !== undefined) {
@@ -129,7 +133,9 @@ async function run(args, { cwd, stderr, closing }) {
     stripFlow: timedBefore(babel?.profile ?? null, 'flow-remove-types', flowStripper(project, babel !== null)),
     // Its babel and babelPlugins, if the project has a Babel config.
     ...babel,
+    // Its imports checked with inline requires (esm off: transformRefusal), and with esm.
     esm: esm.on,
+    checkImports: esm.on || inlineRequires !== null,
     assetExts: metro.assetExts,
     resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,

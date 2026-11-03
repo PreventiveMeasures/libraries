@@ -4,7 +4,7 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { ANY, loadCached, lowersLetOf, supportedOf, trustedOf, withDefaults } from './bundle.js'
+import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, trustedOf, withDefaults } from './bundle.js'
 import { EMPTY, newState, posixRelative, resolutionOf } from './build-host.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
 import { GLOBAL } from './serializer.js'
@@ -16,7 +16,7 @@ const nameOf = (projectRoot, key) => (key === EMPTY ? EMPTY : posixRelative(proj
 // A wrapped script's or module's map pieces: its code between the wrapper's first and last lines.
 export const wrapped = ({ lines, piece }) => [{ lines: 1, piece: null }, { lines, piece }, { lines: 1, piece: null }]
 
-// rebuild() returns { js, map, modules, entryId, scripts, assets, files, bundled } or throws as
+// rebuild() returns { js, map, modules, entryId, scripts, assets, files, warnings, bundled } or throws as
 // createBundler()'s: `js` and `map` the bundle and its map, as bundled.js() and bundled.map() make each
 // when first asked for, not as each build is done (an edit's, which an update has the modules of alone).
 // `ids` (key => id) persist across builds, `builds` holds each module's build, `runtime` is metro-runtime's
@@ -62,6 +62,8 @@ async function graphOf(run, state, scripts) {
   const pending = new Map()
   const errors = []
   let done = 0
+  // Each ES module loaded, its imports and exports, for checkImports.
+  state.esModules = new Map()
   // Located in the module where they have no location.
   const fail = (key) => (error) => {
     errors.push(...errorsOf(error, key === EMPTY ? null : { file: nameOf(projectRoot, key), line: 1, column: 0, lineText: '' }))
@@ -89,7 +91,8 @@ async function graphOf(run, state, scripts) {
   const runs = [...before.map(({ key }) => key), entryKey].map(idOf)
   const bundled = serialize(run.prelude, built, modules, runs)
   // `scripts`, which no update can define anew, as they are; js and map made as a client first asks for each.
-  const result = { modules, entryId: idOf(entryKey), scripts: built.map(({ text }) => text).join(''), assets: state.assets(), files: [...state.read], bundled }
+  const warnings = importWarnings(run, state.esModules, state.graph, false)
+  const result = { modules, entryId: idOf(entryKey), scripts: built.map(({ text }) => text).join(''), assets: state.assets(), files: [...state.read], warnings, bundled }
   return Object.defineProperties(result, { js: { get: bundled.js, enumerable: true }, map: { get: bundled.map, enumerable: true } })
 }
 
@@ -98,6 +101,7 @@ async function loaded(run, state, path) {
   state.read.add(path)
   const source = trustedOf(run, path) ?? (await loadCached({ ...run, sourcemap: true }, path, run.host.readFile(path)))
   if (source.errors !== undefined) throw Object.assign(new Error('load'), { errors: source.errors })
+  if (source.pluginData?.module !== undefined) state.esModules?.set(path, source.pluginData.module)
   return source
 }
 

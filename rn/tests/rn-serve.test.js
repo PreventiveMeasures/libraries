@@ -799,6 +799,57 @@ describe('rn-serve --esm', () => {
   })
 })
 
+describe("rn-serve, with rn.config.json's inlineRequires", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'node_modules/metro-runtime': linked('metro-runtime'),
+    'babel.config.js': "module.exports = { plugins: ['@babel/plugin-transform-modules-commonjs'] }\n",
+    'rn.config.json': { inlineRequires: true },
+    // An import of what lib/b.js doesn't export.
+    'lazy.js': "import { run } from './lib/a'\nimport { nope } from './lib/b'\nconst log = (globalThis.log ??= [])\nlog.push('index')\nrun(nope)\nglobalThis.result = log\n",
+    'lib/a.js': "import { b } from './b'\n;(globalThis.log ??= []).push('a')\nexport const run = (x) => globalThis.log.push(b + ' ' + x)\n",
+    'lib/b.js': "(globalThis.log ??= []).push('b')\nexport const b = 'b'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-modules-commonjs': linked('@babel/plugin-transform-modules-commonjs'),
+  })
+  let server
+  before(async () => {
+    server = await serve(root)
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+
+  it('builds a dev bundle as a release bundle: each module run where first used, an import of what its ES module lacks warned of once', async () => {
+    const OUT = ['index', 'a', 'b', 'b undefined']
+    const dev = String((await fetchRaw(`${server.url}/lazy.bundle?platform=ios`)).body)
+    assert.deepEqual(JSON.parse(JSON.stringify(runApp(dev).context.result)), OUT)
+    const release = String((await fetchRaw(`${server.url}/lazy.bundle?platform=ios&dev=false`)).body)
+    assert.deepEqual(run(release).result, OUT)
+    const warned = () => stripVTControlCharacters(server.output()).match(/No matching export in "lib\/b\.js" for import "nope": the import is undefined, as in Metro/gu)?.length ?? 0
+    await until(() => (warned() === 2 ? true : null), "each bundle's warning")
+    assert.match(stripVTControlCharacters(server.output()), /lazy\.js:2:21:/u)
+    // Not again of the bundles built again of an edit.
+    const builds = () => server.output().match(/rn-serve: built \.\/lazy/gu).length
+    const built = builds()
+    writeFileSync(join(root, 'lib/a.js'), `${readFileSync(join(root, 'lib/a.js'), 'utf8')}// edited\n`)
+    await until(() => (builds() >= built + 2 ? true : null), 'the bundles built again')
+    assert.equal(warned(), 2)
+  })
+
+  it('refuses each bundle of --esm, which esbuild links each ES module of as it is imported', async () => {
+    const linking = await serve(root, ['--esm'])
+    try {
+      const { status, body } = await fetchRaw(`${linking.url}/lazy.bundle?platform=ios`)
+      assert.equal(status, 500)
+      assert.match(String(body), /--esm links ES modules, each run as it is imported, and rn\.config\.json's inlineRequires inlines requires/u)
+    } finally {
+      await linking.stop()
+    }
+  })
+})
+
 describe('rn-serve, its cache of each file as it loads', () => {
   const config = (comment) => [
     `// ${comment}`,

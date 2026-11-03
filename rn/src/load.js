@@ -106,13 +106,14 @@ async function throughBabel(options, path, contents, loader) {
     const commonJs = esm !== false && !esm.has(path) ? [COMMONJS] : []
     const without = keepPlugins ? [...source.without.filter((key) => LOWERS.has(key)), ...commonJs] : [...source.without, ...commonJs, ...idle(source.code)]
     const transformed = await babel(source.code, path, without)
-    const { code, imports = [], uncacheable = false } = typeof transformed === 'string' ? { code: transformed } : transformed
+    const { code, imports = [], module = null, uncacheable = false } = typeof transformed === 'string' ? { code: transformed } : transformed
     // Babel's output for TS still loads as TS, so esbuild treats exports of missing names as types;
     // with the source's loader, as syntax a plugin switched off in rn.config.json leaves (JSX) is left
     // to esbuild.
     // pluginData passes the imports' specifiers and module-resolver's aliases on for the bundle to map
-    // its requires by; `uncacheable` is for loadCached().
-    const pluginData = { ...(imports.length > 0 && { imports }), ...(source.aliases !== null && { aliases: source.aliases }) }
+    // its requires by, and an ES module's imports and exports for esm-imports.js to check; `uncacheable`
+    // is for loadCached().
+    const pluginData = { ...(imports.length > 0 && { imports }), ...(source.aliases !== null && { aliases: source.aliases }), ...(module !== null && { module }) }
     return { contents: code, loader, ...(Object.keys(pluginData).length > 0 && { pluginData }), ...(uncacheable && { uncacheable }) }
   } catch (error) {
     // Reported in the file itself, not at the import; with a line only if Babel saw the original source.
