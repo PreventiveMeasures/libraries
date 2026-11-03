@@ -60,6 +60,7 @@
     "serve/fingerprint.js",
     "serve/gate.js",
     "serve/hot.js",
+    "serve/launch-android.js",
     "serve/launch-ios.js",
     "serve/load-cache.js",
     "serve/load-pack.js",

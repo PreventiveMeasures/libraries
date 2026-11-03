@@ -2,10 +2,13 @@
 // rn-serve [--port=8081] [--host=127.0.0.1] [--metro-config=FILE] [--max-workers=N] [--define=K=V ...]
 //   [--babel-aliases=FILE] [--esm | --no-esm] [--inline-requires | --no-inline-requires] [--devtools | --no-devtools]
 //   [--reset-cache] [--no-warm]
-//   [--no-client-logs] [--launch=ios [--simulator=NAME] [--binary-path=APP] | --no-launch]
+//   [--no-client-logs] [--launch=ios [--simulator=NAME] [--binary-path=APP]
+//   | --launch=android [--device=SERIAL|AVD] [--variant=debug | --binary-path=APK] | --no-launch]
 // A Metro-compatible dev server: bundles built as rn-bundle builds them, assets, symbolication, client
 // logs, Fast Refresh and, with @react-native/dev-middleware, the debugger. Loaded files are cached on disk
-// across runs; rn.config.json gives the flags' defaults; --launch=ios starts the app on a simulator.
+// across runs; rn.config.json gives the flags' defaults; --launch=ios starts the app on a simulator,
+// --launch=android on each Android device online, else an emulator: the APK of --binary-path, else the
+// one Gradle built of --variant (android/app/build/outputs/apk), built for the port served on.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
@@ -21,6 +24,7 @@ import { babelAliases, defines, failer, flowStripper, locateThrough, peers, proj
 import { createDevBundler } from '../serve/dev-bundler.js'
 import { createDevToolsOpener } from '../serve/devtools.js'
 import { createGate, hostnamesOf, isLoopback } from '../serve/gate.js'
+import { applicationIdOf, launchAndroid, sdkTool, variantApk } from '../serve/launch-android.js'
 import { launchIos } from '../serve/launch-ios.js'
 import { createLoadCache } from '../serve/load-cache.js'
 import { prune } from '../serve/load-prune.js'
@@ -53,6 +57,8 @@ const { values } = parseArgs({
     // Declared so that strict parseArgs accepts --no-launch on the string option.
     'no-launch': { type: 'boolean' },
     simulator: { type: 'string' },
+    device: { type: 'string' },
+    variant: { type: 'string' },
     'binary-path': { type: 'string' },
   },
   allowNegative: true,
@@ -84,7 +90,7 @@ const port = values.port === undefined ? (rnConfig.port ?? metro.port ?? 8081) :
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
 const refreshPlugin = locateThrough(project, 'react-refresh/babel', ['react-native'])
 const cacheDir = cacheDirOf(values['reset-cache'], log)
-const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch === null ? null : 'ios' })
+const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { launched: launch?.platform ?? null })
 // Of a dev bundle in Metro's module format, each of the project's own files has react-refresh's plugin,
 // as Metro's transformer has it.
 const ownPlugins = (dev) => (dev && runtime !== null && refreshPlugin !== null ? [[refreshPlugin, { skipEnvCheck: true }]] : [])
@@ -153,21 +159,29 @@ server.listen(port, host, () => {
   else if (babelFor !== null && refreshPlugin === null) log("rn-serve: no react-refresh: Fast Refresh keeps no component's state")
   if (process.stdin.isTTY) keys(serverUrl)
   if (values.warm) void last?.warm(devBundler, log)
-  if (launch !== null) {
-    launchIos({ ...launch, location, log }).then(({ bundleId, simulator }) => log(`rn-serve: launched ${bundleId} on ${simulator.name}`), (error) => log(`rn-serve: can't launch the app: ${error.message}`))
-  }
+  const unlaunched = (error) => log(`rn-serve: can't launch the app: ${error.message}`)
+  if (launch?.platform === 'ios') launchIos({ ...launch, location, log }).then(({ bundleId, simulator }) => log(`rn-serve: launched ${bundleId} on ${simulator.name}`), unlaunched)
+  if (launch?.platform === 'android') launchAndroid({ ...launch, port: server.address().port, log }).then(({ applicationId, devices }) => log(`rn-serve: launched ${applicationId} on ${devices.join(', ')}`), unlaunched)
 })
 
-// The app to launch (--launch, else rn.config.json's launch), or null. Without simctl,
-// rn.config.json's launch is only warned of; --launch fails.
+// The app to launch (--launch, else rn.config.json's launch): { platform, ... }, or null. Without the
+// platform's tools (simctl, adb), rn.config.json's launch is only warned of; --launch fails.
 function launchOf() {
   // parseArgs may give --no-launch as launch: false or as no-launch.
   const flag = values['no-launch'] || values.launch === false ? false : values.launch
-  if (typeof flag === 'string' && flag !== 'ios') fail(`--launch takes ios, not ${flag}`)
-  if (!(flag ?? rnConfig.launch)) {
-    if (values.simulator !== undefined || values['binary-path'] !== undefined) fail('--simulator and --binary-path are of --launch=ios')
+  if (typeof flag === 'string' && flag !== 'ios' && flag !== 'android') fail(`--launch takes ios or android, not ${flag}`)
+  const platform = (flag ?? rnConfig.launch) || null
+  const given = (names) => names.filter((name) => values[name] !== undefined).map((name) => `--${name}`)
+  if (platform === null) {
+    if (given(['simulator', 'device', 'variant', 'binary-path']).length > 0) fail('--simulator, --device, --variant and --binary-path are of --launch')
     return null
   }
+  const others = given(platform === 'ios' ? ['device', 'variant'] : ['simulator'])
+  if (others.length > 0) fail(`${others[0]} is of --launch=${platform === 'ios' ? 'android' : 'ios'}`)
+  return platform === 'ios' ? iosLaunchOf(flag) : androidLaunchOf(flag)
+}
+
+function iosLaunchOf(flag) {
   if (spawnSync('xcrun', ['--find', 'simctl'], { stdio: 'ignore' }).status !== 0) {
     if (flag !== undefined) fail("--launch=ios needs Xcode's simctl (xcrun --find simctl)")
     log("rn-serve: no Xcode's simctl (xcrun --find simctl): rn.config.json's launch launches nothing here")
@@ -178,7 +192,31 @@ function launchOf() {
   const appPath = resolve(projectRoot, given)
   const by = values['binary-path'] === undefined ? "rn.config.json's ios.binaryPath" : '--binary-path'
   if (!existsSync(join(appPath, 'Info.plist'))) fail(`${by}: no app at ${given}, an .app of its Info.plist`)
-  return { appPath, simulator: values.simulator ?? rnConfig.ios?.simulator ?? null }
+  return { platform: 'ios', appPath, simulator: values.simulator ?? rnConfig.ios?.simulator ?? null }
+}
+
+// The APK of --binary-path, else of --variant, else of rn.config.json's android.binaryPath, else of its
+// android.variant, else of debug; its application ID, where Gradle's output-metadata.json gives it.
+function androidLaunchOf(flag) {
+  if (spawnSync(sdkTool('platform-tools/adb'), ['version'], { stdio: 'ignore' }).status !== 0) {
+    if (flag !== undefined) fail("--launch=android needs Android's adb (the SDK's platform-tools, in ANDROID_HOME or on PATH)")
+    log("rn-serve: no Android's adb (the SDK's platform-tools, in ANDROID_HOME or on PATH): rn.config.json's launch launches nothing here")
+    return null
+  }
+  if (values['binary-path'] !== undefined && values.variant !== undefined) fail('--binary-path is the APK to install, --variant the one Gradle built of a variant: give one')
+  const device = values.device ?? rnConfig.android?.device ?? null
+  const given = values['binary-path'] ?? (values.variant === undefined ? rnConfig.android?.binaryPath : undefined)
+  if (given === undefined) {
+    try {
+      return { platform: 'android', device, ...variantApk(projectRoot, values.variant ?? rnConfig.android?.variant ?? 'debug') }
+    } catch (error) {
+      return fail(error.message)
+    }
+  }
+  const apkPath = resolve(projectRoot, given)
+  const by = values['binary-path'] === undefined ? "rn.config.json's android.binaryPath" : '--binary-path'
+  if (!existsSync(apkPath)) fail(`${by}: no APK at ${given}`)
+  return { platform: 'android', device, apkPath, applicationId: applicationIdOf(apkPath) }
 }
 
 // Why a missed file wasn't cached, by load-cache.js's reason.

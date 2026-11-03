@@ -42,10 +42,15 @@ const OPTIONS = {
   babel: switches,
   devtools: boolean,
   port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
-  launch: [(value) => value === false || value === 'ios', '"ios", or false'],
+  launch: [(value) => value === false || value === 'ios' || value === 'android', '"ios", "android", or false'],
   ios: {
     simulator: nonEmpty("a simulator's name, or its UDID"),
     binaryPath: nonEmpty("the path of a simulator's build of the app, an .app"),
+  },
+  android: {
+    device: nonEmpty("a device's serial (adb devices), or an emulator's AVD name"),
+    variant: nonEmpty('a build variant\'s name, as debuggableVariants has it ("debug", "freeDebug")'),
+    binaryPath: nonEmpty('the path of a build of the app, an .apk'),
   },
   development: MODE,
   production: MODE,
