@@ -1,5 +1,5 @@
-// A metro.config.js's assetExts, read off it: running it needs Metro. Pure,
-// of no file: what reads them off a project's files is asset-exts.js.
+// Reads a metro.config.js's assetExts from its source, without running it (which needs Metro).
+// Pure: asset-exts.js reads the files.
 
 const LIST_METHODS = new Set(['concat', 'filter', 'slice'])
 
@@ -18,7 +18,7 @@ const string = (node) => (node.type === 'Literal' && typeof node.value === 'stri
 const method = (node) => (node.type === 'CallExpression' && node.callee.type === 'MemberExpression' && !node.callee.computed ? node.callee.property.name : undefined)
 const named = (node) => (node.type === 'Identifier' ? node.name : node.type === 'MemberExpression' && !node.computed ? node.property.name : undefined)
 
-// Strings only: what it spreads in is Metro's defaults.
+// The extensions a config's AST adds to assetExts; what it spreads in is taken as Metro's defaults.
 export function metroAssetExts(program) {
   const declarators = []
   walk(program, (node) => {
@@ -27,7 +27,7 @@ export function metroAssetExts(program) {
   const inits = Map.groupBy(declarators, ({ id }) => id.name)
   const exts = new Set()
   const seen = new Set()
-  // `list`: whether `node` is a list of extensions or one of them.
+  // `list`: whether `node` is a list of extensions rather than one.
   const read = (node, list) => {
     if (!node || seen.has(node)) return
     seen.add(node)
@@ -65,13 +65,13 @@ export function metroAssetExts(program) {
 
 const SPREAD_AND_STRINGS = /assetExts\s*:\s*\[\s*\.\.\.[\w$.?]+\.assetExts((?:\s*,\s*(?:'[\w.-]+'|"[\w.-]+"))*)\s*,?\s*\]/gu
 
-// A mention possibly in a string, a comment or a template, which only a
-// parser can tell.
+// Whether a match may sit in a string, comment or template, which only a parser can tell.
 const unclear = (before) => /['"`/]/u.test(before.slice(before.lastIndexOf('\n') + 1))
   || before.lastIndexOf('/*') > before.lastIndexOf('*/')
   || before.split('`').length % 2 === 0
 
-// Any other mention of assetExts could change the list in ways only a parser sees.
+// The regex fallback: reads only `assetExts: [...x.assetExts, 'ext', ...]`, and gives null if
+// assetExts is mentioned anywhere else, as that could change the list in ways only a parser sees.
 export function scanMetroAssetExts(source) {
   const exts = []
   const rest = source.replaceAll(SPREAD_AND_STRINGS, (match, strings, index) => {
