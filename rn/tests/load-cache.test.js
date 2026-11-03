@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url'
 
 import { loadCached, lowersLetOf } from '../src/bundle.js'
 import { peers, projectBabel } from '../src/cli.js'
-import { diskHost } from '../src/defaults.js'
 import { configKeyOf, createLoadCache, fingerprintOf, ownModules, withDependencies } from '../src/load-cache.js'
 import { packedRecords, writeTree } from './fixtures.js'
 
@@ -40,7 +39,7 @@ function projectOf(tree) {
       if (!started) store.start()
       started = true
       writeFileSync(join(root, name), contents)
-      return loadCached({ esbuild, projectRoot: root, stripFlow: null, babel: target?.babel ?? null, babelPlugins: target?.babelPlugins ?? null, store, ...options }, diskHost, null, join(root, name))
+      return loadCached({ esbuild, projectRoot: root, stripFlow: null, babel: target?.babel ?? null, babelPlugins: target?.babelPlugins ?? null, store, ...options }, join(root, name), readFileSync(join(root, name)))
     }
     const end = async () => {
       const { tally, written } = store.finish()
@@ -92,9 +91,9 @@ describe('loadCached, with a store of load-cache.js', () => {
     assert.deepEqual(await second.load('a.js', "import a from 'a'\na()"), loaded)
     // As in memory, of the build.
     const memory = new Map()
-    const options = { esbuild, projectRoot: root, stripFlow: null, babel: second.target.babel, babelPlugins: second.target.babelPlugins, store: second.store }
-    await loadCached(options, diskHost, memory, join(root, 'a.js'))
-    await loadCached(options, diskHost, memory, join(root, 'a.js'))
+    const options = { esbuild, projectRoot: root, stripFlow: null, babel: second.target.babel, babelPlugins: second.target.babelPlugins, store: second.store, cache: memory }
+    await loadCached(options, join(root, 'a.js'), readFileSync(join(root, 'a.js')))
+    await loadCached(options, join(root, 'a.js'), readFileSync(join(root, 'a.js')))
     assert.deepEqual(await second.end(), { hits: 2, misses: 0, memory: 1, unkept: {} })
     assert.notEqual(await contents('a.js', 'a()'), loaded.contents)
     writeFileSync(join(root, 'other.js'), "import a from 'a'\na()")

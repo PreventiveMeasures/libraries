@@ -7,7 +7,8 @@ for (let i = 0; i < BASE64.length; i++) DIGITS[BASE64.codePointAt(i)] = i
 const COMMA = 44
 const SEMICOLON = 59
 
-// Reads the segment at `from` into `fields`, its number of fields as fields.count; returns the offset after it.
+// Reads the segment at `from` into `fields`, their number as fields.count (0 at a separator); returns the
+// offset of the separator after it, or the end.
 function readSegment(mappings, from, fields) {
   let at = from
   let count = 0
@@ -31,46 +32,61 @@ function readSegment(mappings, from, fields) {
   return at
 }
 
+// Moves a state's source, line and column by a segment's, where it has them.
+const advance = (state, fields) => {
+  if (fields.count < 4) return
+  for (let i = 0; i < 3; i++) state[i] += fields[i + 1]
+}
+
+// One pass over `mappings`: where each line starts and the source, line and column it starts from; the
+// state where it ends, its name too; and its first segment with a source, and its first with a name.
+function scan(mappings) {
+  const fields = [0, 0, 0, 0, 0]
+  const end = [0, 0, 0, 0]
+  const starts = [0]
+  const states = [0, 0, 0]
+  let first = null
+  let named = null
+  let at = 0
+  while (at < mappings.length) {
+    const start = at
+    at = readSegment(mappings, at, fields)
+    advance(end, fields)
+    if (fields.count >= 4) first ??= { start, end: at, fields: fields.slice(0, fields.count) }
+    if (fields.count >= 5) {
+      end[3] += fields[4]
+      named ??= { start, end: at, fields: fields.slice(0, 5) }
+    }
+    if (mappings.codePointAt(at) === SEMICOLON) {
+      starts.push(at + 1)
+      states.push(end[0], end[1], end[2])
+    }
+    at++
+  }
+  return { starts, states, end, first, named }
+}
+
 // originalPositionFor(line1, column0) gives the source index, 1-based line and 0-based column that the
 // segment at or before the position on its line maps to, or null.
 export function indexMappings(mappings) {
-  const starts = [0]
-  // The source, line and column each line's first segment is relative to.
-  const states = [0, 0, 0]
+  const { starts, states } = scan(mappings)
   const fields = [0, 0, 0, 0, 0]
-  let [source, line, column] = [0, 0, 0]
-  let at = 0
-  while (at < mappings.length) {
-    const code = mappings.codePointAt(at)
-    if (code === SEMICOLON) {
-      at++
-      starts.push(at)
-      states.push(source, line, column)
-    } else if (code === COMMA) {
-      at++
-    } else {
-      at = readSegment(mappings, at, fields)
-      if (fields.count >= 4) [source, line, column] = [source + fields[1], line + fields[2], column + fields[3]]
-    }
-  }
   return {
     originalPositionFor(line1, column0) {
       const index = line1 - 1
       if (!Number.isInteger(index) || index < 0 || index >= starts.length) return null
       const end = index + 1 < starts.length ? starts[index + 1] - 1 : mappings.length
-      let [s, l, c] = states.slice(index * 3, index * 3 + 3)
+      const position = states.slice(index * 3, index * 3 + 3)
       let generated = 0
       let found = null
-      for (let pos = starts[index]; pos < end;) {
-        if (mappings.codePointAt(pos) === COMMA) {
-          pos++
-          continue
-        }
-        pos = readSegment(mappings, pos, fields)
+      let at = starts[index]
+      while (at < end) {
+        at = readSegment(mappings, at, fields) + 1
+        if (fields.count === 0) continue
         generated += fields[0]
-        if (fields.count >= 4) [s, l, c] = [s + fields[1], l + fields[2], c + fields[3]]
+        advance(position, fields)
         if (generated > column0) break
-        found = fields.count >= 4 ? { source: s, line1: l + 1, column0: c } : null
+        found = fields.count >= 4 ? { source: position[0], line1: position[1] + 1, column0: position[2] } : null
       }
       return found
     },
@@ -90,30 +106,9 @@ const vlq = (value) => {
 
 // A map made ready to follow others: where its first segment with a source and its first with a name are,
 // whose fields concatMaps() rewrites relative to the map before, and the state where it ends.
-export function pieceOf(map) {
-  const { mappings } = map
-  const fields = [0, 0, 0, 0, 0]
-  const state = [0, 0, 0, 0]
-  let first = null
-  let named = null
-  let at = 0
-  while (at < mappings.length) {
-    const code = mappings.codePointAt(at)
-    if (code === COMMA || code === SEMICOLON) {
-      at++
-      continue
-    }
-    const start = at
-    at = readSegment(mappings, at, fields)
-    if (fields.count < 4) continue
-    for (let i = 0; i < 3; i++) state[i] += fields[i + 1]
-    if (first === null) first = { start, end: at, fields: fields.slice(0, fields.count) }
-    if (fields.count >= 5) {
-      state[3] += fields[4]
-      if (named === null) named = { start, end: at, fields: fields.slice(0, 5) }
-    }
-  }
-  return { sources: map.sources, sourcesContent: map.sourcesContent ?? map.sources.map(() => null), names: map.names ?? [], mappings, first, named, end: first === null ? null : state, lines: mappings.split(';').length }
+export function pieceOf({ sources, sourcesContent, names, mappings }) {
+  const { starts, end, first, named } = scan(mappings)
+  return { sources, sourcesContent: sourcesContent ?? sources.map(() => null), names: names ?? [], mappings, first, named, end: first === null ? null : end, lines: starts.length }
 }
 
 // A piece's segment, its fields from where the map before left them.
@@ -134,20 +129,22 @@ function mappingsOf(pieces, each) {
   let [source, line, column, name] = [0, 0, 0, 0]
   let [sourceAt, nameAt] = [0, 0]
   for (const { lines, piece } of pieces) {
+    if (lines === 0) continue
     if (piece === null || piece.first === null) {
       out.push(';'.repeat(lines - 1))
       continue
     }
     each(piece)
     // Its first segment with a source, and its first with a name (that one or a later one), rebased.
+    const { mappings, first, named } = piece
     const from = { sourceAt, nameAt, source, line, column, name }
-    let text = piece.mappings.slice(0, piece.first.start) + rebased(piece, piece.first, from)
-    if (piece.named === null || piece.named.start === piece.first.start) text += piece.mappings.slice(piece.first.end)
-    else text += piece.mappings.slice(piece.first.end, piece.named.start) + rebased(piece, piece.named, from) + piece.mappings.slice(piece.named.end)
+    let text = mappings.slice(0, first.start) + rebased(piece, first, from)
+    if (named === null || named.start === first.start) text += mappings.slice(first.end)
+    else text += mappings.slice(first.end, named.start) + rebased(piece, named, from) + mappings.slice(named.end)
     // Exactly its lines: those it maps, and the rest.
     out.push(piece.lines >= lines ? text.split(';').slice(0, lines).join(';') : text + ';'.repeat(lines - piece.lines))
     ;[source, line, column] = [sourceAt + piece.end[0], piece.end[1], piece.end[2]]
-    if (piece.named !== null) name = nameAt + piece.end[3]
+    if (named !== null) name = nameAt + piece.end[3]
     sourceAt += piece.sources.length
     nameAt += piece.names.length
   }

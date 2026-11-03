@@ -5,6 +5,8 @@
 // Newest first: react-native 0.87's, then those of before.
 const SETUP = ['react-native/setup-env', 'react-native/Libraries/Core/InitializeCore']
 const ASSET_REGISTRY = ['react-native/asset-registry', 'react-native/Libraries/Image/AssetRegistry']
+// The global object, as Metro passes it to a polyfill.
+export const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this"
 
 // Metro's getPreludeCode, with only the globals metro-runtime's require reads. `dev` is __DEV__'s value.
 export const prelude = (dev, nodeEnv) => `var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=${dev},process=globalThis.process||{},__METRO_GLOBAL_PREFIX__='';process.env=process.env||{};process.env.NODE_ENV=process.env.NODE_ENV||${JSON.stringify(nodeEnv)};`
