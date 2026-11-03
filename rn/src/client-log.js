@@ -3,9 +3,12 @@
 // and affiliates): each line labelled by its level (` LOG `, ` WARN `, ...),
 // inverse, an error's red, a warning's yellow, the rest's white; of its
 // mode where not the bridge's (`(NOBRIDGE) `); indented by the groups it is
-// in, none of a collapsed one's printed; its data as console.log formats it.
+// in, none of a collapsed one's printed; its data as console.log formats it,
+// each control character in it but its colors' shown escaped (terminal.js).
 
 import { format } from 'node:util'
+
+import { printable } from './terminal.js'
 
 // A collapsed group not ended this long after, it is taken for ended, warned of.
 const COLLAPSED_GUARD = 3000
@@ -37,8 +40,8 @@ export function createClientLog(write, style = (_, text) => text) {
     // As Metro has it, of a level its own console has, but trace's.
     const named = Object.hasOwn(console, level) && typeof console[level] === 'function' && level !== 'trace' ? level : 'log'
     const color = level === 'error' ? 'red' : level === 'warn' ? 'yellow' : 'white'
-    const tag = typeof mode !== 'string' || mode === '' || mode === 'BRIDGE' ? '' : `(${mode.toUpperCase()}) `
+    const tag = typeof mode !== 'string' || mode === '' || mode === 'BRIDGE' ? '' : `(${printable(mode.toUpperCase(), { colors: false })}) `
     const items = data.map((item, i) => (i === data.length - 1 && typeof item === 'string' ? item.trimEnd() : item))
-    write(`${style(['inverse', color, 'bold'], ` ${tag}${named.toUpperCase()} `)}${' '.repeat(groups.length * 2)} ${format(...items)}`)
+    write(`${style(['inverse', color, 'bold'], ` ${tag}${named.toUpperCase()} `)}${' '.repeat(groups.length * 2)} ${printable(format(...items))}`)
   }
 }

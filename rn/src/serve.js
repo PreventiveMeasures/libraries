@@ -39,6 +39,7 @@ import { createNetworkInspector } from './network.js'
 import { assetResponse } from './serve-assets.js'
 import { servedSourceMap, sourceOfRequest, sourceRoutes } from './source-map.js'
 import { bundleUrls, stackOf, symbolicate } from './symbolicate.js'
+import { printable } from './terminal.js'
 import { acceptWebSocket } from './websocket.js'
 
 const MAX_BODY = 1024 * 1024
@@ -174,7 +175,7 @@ export function createDevServer({ projectRoot, watchFolders = [projectRoot], esb
 
   const server = createServer((request, response) => {
     Promise.resolve().then(() => handle(request, response)).catch((error) => {
-      log(`rn-serve: ${request.method} ${request.url}: ${error?.stack ?? error}`)
+      log(printable(`rn-serve: ${request.method} ${request.url}: ${error?.stack ?? error}`, { colors: false }))
       if (response.headersSent) response.destroy()
       else reply(request, response, 500, 'rn-serve: internal error\n')
     })
