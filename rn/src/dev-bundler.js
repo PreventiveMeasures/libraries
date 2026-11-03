@@ -172,8 +172,9 @@ async function run({ projectRoot, onBuild }, build, at) {
     })
     const { outputFiles, assets, files } = result
     const text = (ext) => outputFiles.find(({ path }) => path.endsWith(ext)).text
-    const built = result.modules === undefined ? { js: text('.js'), map: text('.map') } : { js: result.js, map: result.map, modules: result.modules, entryId: result.entryId, scripts: result.scripts }
-    build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files) }, projectRoot)
+    // A dev bundle's js and map as its bundler makes each when a client first asks for it (bundled).
+    const built = result.modules === undefined ? { js: text('.js'), map: text('.map') } : { modules: result.modules, entryId: result.entryId, scripts: result.scripts }
+    build.last = withIndex({ ok: true, version: at, ...built, assets, files: new Set(files) }, projectRoot, result.bundled ?? null)
     build.good = build.last
   } catch (error) {
     if (!Array.isArray(error?.errors)) throw error
@@ -195,17 +196,20 @@ function moduleOutcome(builds, { entryFile, platform, dev, minify }, projectRoot
   return null
 }
 
-// The outcome, its source map indexed when first asked for.
-function withIndex(outcome, projectRoot) {
+// The outcome, its source map indexed when first asked for; of `bundled` (a module bundler's, { js(),
+// map() }), its js and its map as it makes each, when first asked for.
+function withIndex(outcome, projectRoot, bundled = null) {
   let index = null
-  return {
+  const made = {
     ...outcome,
     index() {
       if (index !== null) return index
-      const map = JSON.parse(outcome.map)
+      const map = JSON.parse(made.map)
       const sources = map.sources.map((source) => (NAMESPACED.test(source) ? undefined : resolve(projectRoot, source)))
       index = { ...indexMappings(map.mappings), sources }
       return index
     },
   }
+  if (bundled === null) return made
+  return Object.defineProperties(made, { js: { get: bundled.js, enumerable: true }, map: { get: bundled.map, enumerable: true } })
 }
