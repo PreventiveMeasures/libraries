@@ -1298,7 +1298,8 @@ describe('rn-serve --host beyond loopback', () => {
     const server = await serve(root, ['--host=0.0.0.0'])
     try {
       const { port } = new URL(server.url)
-      assert.match(server.output(), /^rn-serve: on every network interface: anyone on the network can fetch the app and its source$/mu)
+      // Logged right after the URL, which serve() waits for: it may not be in yet.
+      await until(() => /^rn-serve: on every network interface: anyone on the network can fetch the app and its source$/mu.test(server.output()), 'the warning')
       const machine = hostname().toLowerCase()
       for (const name of [machine, `${machine.replace(/\.local$/u, '')}.local`]) assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `${name}:${port}` } })).status, 200, name)
       assert.equal((await fetchRaw(`${server.url}/status`, { headers: { Host: `attacker.example:${port}` } })).status, 403)
