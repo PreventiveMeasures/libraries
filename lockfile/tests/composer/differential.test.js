@@ -57,6 +57,13 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
   const generator = random(S.seed)
   const versions = Array.from({ length: 3000 }, () => flaw(generator.next() < 0.5 ? one(generator) : `${generator.pick(NUMBERS)}${generator.pick(SUFFIX)}`, generator, PIECES))
   const constraints = Array.from({ length: 3000 }, () => constraintText(generator))
+  // composer/semver before 3.5 (Composer before 2.11) puts `-dev` on
+  // `<1.0-RC1` and `>=1.0-RC1`, though not on `<1.0-beta1`; the port follows
+  // 3.5 and later. A constraint with an `rc` in it is compared only where
+  // Composer reads `<1-RC1` as 3.5 does, as asked of Composer itself,
+  // whatever version it says it is.
+  const before35 = composer([['constraints', '<1-RC1']])[0].value !== constraintString(parseConstraints('<1-RC1'))
+  const rc = (text) => /rc/iu.test(text)
 
   it('versions: normalized, their stability, branches and alias prefixes alike', () => {
     const kinds = ['normalize', 'stability', 'branch', 'prefix']
@@ -78,6 +85,7 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
       if (parsed !== undefined) read++
       const expected = valueOf(results[index])
       if (parsed === undefined && expected !== undefined && PAST_INT.test(text)) continue
+      if (before35 && rc(text)) continue
       assert.equal(parsed === undefined ? undefined : constraintString(parsed), expected, JSON.stringify(text))
     }
     assert.ok(read > 500, `only ${read} read`)
@@ -89,8 +97,14 @@ describe('against Composer', { skip: !hasComposer() && 'no php, or no Composer p
     const pairs = Array.from({ length: 4000 }, () => [generator.pick(valid), generator.pick(valid)])
     const allowed = Array.from({ length: 4000 }, () => [generator.pick(valid), generator.pick(normals)])
     const results = composer([...pairs.map(([a, b]) => ['matches', a, b]), ...allowed.map(([a, version]) => ['allows', a, version])])
-    for (const [index, [a, b]] of pairs.entries()) assert.equal(matches(parseConstraints(a), parseConstraints(b)), results[index].value, JSON.stringify([a, b]))
-    for (const [index, [a, version]] of allowed.entries()) assert.equal(allows(parseConstraints(a), version), results[pairs.length + index].value, JSON.stringify([a, version]))
+    for (const [index, [a, b]] of pairs.entries()) {
+      if (before35 && [a, b].some(rc)) continue
+      assert.equal(matches(parseConstraints(a), parseConstraints(b)), results[index].value, JSON.stringify([a, b]))
+    }
+    for (const [index, [a, version]] of allowed.entries()) {
+      if (before35 && rc(a)) continue
+      assert.equal(allows(parseConstraints(a), version), results[pairs.length + index].value, JSON.stringify([a, version]))
+    }
   })
 
   // PHP before 8.4 keeps a separator at the end of a version as an empty
