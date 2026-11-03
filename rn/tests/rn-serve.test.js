@@ -402,6 +402,19 @@ describe('rn-serve', () => {
     }
   })
 
+  it('stops at once as it quits: each app told the server is going away, nothing more printed', async () => {
+    const alone = await serve(app)
+    const hot = await socket(`${alone.url}/hot?bundleEntry=index.bundle&platform=ios`)
+    const message = await socket(`${alone.url}/message`)
+    const closed = Promise.all([once(hot.ws, 'close'), once(message.ws, 'close')])
+    hot.ws.send(JSON.stringify({ type: 'log', level: 'log', mode: 'BRIDGE', data: ['before'] }))
+    await until(() => alone.output().includes(' before\n'), "the app's console")
+    await alone.stop()
+    // A close frame of the server's, not a connection that just died with it (1006).
+    assert.deepEqual((await closed).map(([event]) => event.code), [1001, 1001])
+    assert.ok(alone.output().endsWith(' before\n'), alone.output())
+  })
+
   it('leaves a port another dev server has, as RN does', () => {
     const port = new URL(server.url).port
     const same = spawnSync(process.execPath, [BIN, `--port=${port}`], { cwd: app, encoding: 'utf8' })

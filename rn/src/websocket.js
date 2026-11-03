@@ -22,7 +22,8 @@ const frameOf = (opcode, payload) => {
 }
 
 // Completes the handshake of an upgrade request, else answers 400. `connect(client)`, the client being
-// { request, send(text) }, returns its { onMessage(text), onClose() }; it's called before any frame is read.
+// { request, send(text), close(code) }, returns its { onMessage(text), onClose() }; it's called before any
+// frame is read.
 export function acceptWebSocket(request, socket, head, connect) {
   const key = request.headers['sec-websocket-key']
   if (request.method !== 'GET' || request.headers.upgrade?.toLowerCase() !== 'websocket' || request.headers['sec-websocket-version'] !== '13' || typeof key !== 'string' || Buffer.from(key, 'base64').length !== 16) {
@@ -36,7 +37,7 @@ export function acceptWebSocket(request, socket, head, connect) {
   const write = (opcode, payload) => {
     if (!closed && socket.writable) socket.write(frameOf(opcode, payload))
   }
-  const { onMessage, onClose } = connect({ request, send: (text) => write(TEXT, Buffer.from(text)) })
+  const { onMessage, onClose } = connect({ request, send: (text) => write(TEXT, Buffer.from(text)), close: (code) => close(code) })
   // Once, as the connection closes from either side.
   const ended = () => {
     if (closed) return
@@ -104,4 +105,37 @@ export function acceptWebSocket(request, socket, head, connect) {
   socket.on('error', ended)
   socket.on('close', ended)
   if (head.length > 0) read(head)
+}
+
+// An HTTP server's connections, to end as it quits: accepting(connect), acceptWebSocket()'s `connect`, its
+// clients kept while open; adopt(socket) -> the socket, one another library's server (dev-middleware's)
+// takes. close() stops the server taking requests, ends each, and tells each WebSocket client of ours the
+// server is going away (1001).
+export function serverConnections(server) {
+  const clients = new Set()
+  const adopted = new Set()
+  return {
+    accepting: (connect) => (client) => {
+      clients.add(client)
+      const { onMessage, onClose } = connect(client)
+      return {
+        onMessage,
+        onClose: () => {
+          clients.delete(client)
+          onClose()
+        },
+      }
+    },
+    adopt: (socket) => {
+      adopted.add(socket)
+      socket.once('close', () => adopted.delete(socket))
+      return socket
+    },
+    close: () => {
+      server.close()
+      server.closeAllConnections()
+      for (const client of clients) client.close(1001)
+      for (const socket of adopted) socket.destroy()
+    },
+  }
 }

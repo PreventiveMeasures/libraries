@@ -56,7 +56,11 @@ const { values } = parseArgs({
 })
 
 const fail = failer('rn-serve')
-const log = (line) => process.stdout.write(`${line}\n`)
+// Silent once quitting (quit()).
+let quiet = false
+const log = (line) => {
+  if (!quiet) process.stdout.write(`${line}\n`)
+}
 if (values.port !== undefined && (!/^\d+$/u.test(values.port) || Number(values.port) > 65_535)) fail(`--port takes a port, not ${values.port}`)
 defines(true, values.define, fail)
 
@@ -236,12 +240,18 @@ function mountDebugger(serverUrl) {
   }
 }
 
-// Quits without waiting for builds (their output lives in memory only), but lets the cache finish
-// the pack it's writing, which the next run needs, and the prune. A second signal quits at once.
+// Stops at once: says nothing more, watches no more, takes no more requests, and tells each app the
+// server is going away. Quits without waiting for builds (their output lives in memory only), but lets
+// the cache finish the pack it's writing, which the next run needs, and the prune. A second signal
+// quits at once.
 let quitting = false
 function quit() {
   if (quitting) process.exit(0)
   quitting = true
+  quiet = true
+  clearTimeout(timer)
+  watcher?.close()
+  devServer.close()
   void Promise.all([loadCache?.settled(), pruned]).finally(() => process.exit(0))
 }
 process.on('SIGINT', quit)
