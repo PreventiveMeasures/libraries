@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { rmSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, describe, it } from 'node:test'
 
@@ -172,24 +173,52 @@ describe('metroOptions, of a Metro before 0.84', () => {
   })
 })
 
+// The project's Metro, metro-config's (rn's own), and its plugins.
+const fromHere = createRequire(import.meta.url)
+const METRO = fromHere.resolve('metro', { paths: [dirname(fromHere.resolve('metro-config'))] })
+const METRO_PLUGINS = createRequire(METRO).resolve('metro-transform-plugins')
+// Metro's default blockList, as metro-config has it.
+const metroBlockList = async (root) => (await fromHere('metro-config').getDefaultConfig(root)).resolver.blockList
+const NOT_INLINED = ['React', 'react', 'react/jsx-dev-runtime', 'react/jsx-runtime', 'react-compiler-runtime', 'react-native']
+
 describe('metroOptions, of none loaded (rn.config.json\'s metroConfig false)', () => {
-  // Of a Metro whose default reads no package's exports.
-  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...METRO_0_81, 'metro.config.js': "module.exports = { resolver: { unstable_enablePackageExports: false, resolveRequest: () => { throw new Error('never run') } } }\n" })
+  // Each of Metro's config packages, and the project's config, never loaded.
+  const never = "throw new Error('never loaded')\n"
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    'metro.config.js': never,
+    'node_modules/metro-config/package.json': { name: 'metro-config', version: '0.81.5', main: 'index.js' },
+    'node_modules/metro-config/index.js': never,
+    'node_modules/@react-native/metro-config/package.json': { name: '@react-native/metro-config', main: 'index.js' },
+    'node_modules/@react-native/metro-config/index.js': never,
+    'node_modules/metro': { link: dirname(dirname(METRO)) },
+  })
   const bare = writeTree({ 'package.json': { name: 'bare' } })
   after(() => {
     cleanup()
     bare.cleanup()
   })
+  const optionsOf = (dir) => metroOptions(dir, peers(dir, assert.fail), assert.fail, { file: false, name: 'rn-bundle' })
 
-  it("reads a package's exports, whatever Metro's default, of no config run", async () => {
-    const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { file: false, name: 'rn-bundle' })
+  it("loads neither metro-config nor @react-native/metro-config: React Native's defaults, its requires inlined by its Metro's plugin, a package's exports read, Metro's blockList", async () => {
+    const options = await optionsOf(root)
     assert.deepEqual([options.file, options.resolver.packageExports], [null, true])
-    // Without metro-config too.
-    assert.equal((await metroOptions(bare.root, peers(bare.root, assert.fail), assert.fail, { file: false, name: 'rn-bundle' })).resolver.packageExports, true)
+    assert.deepEqual(options.blockList.map(({ source }) => source), [(await metroBlockList(root)).source])
+    assert.deepEqual(await options.inlineRequires(join(root, 'index.js'), { platform: 'ios', dev: true }), { plugin: METRO_PLUGINS, options: { ignoredRequires: NOT_INLINED, memoizeCalls: false, nonMemoizedModules: [] }, blockList: [] })
+    assert.equal(await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true }), null)
   })
 
-  it("is Metro's default where the project has no config: of 0.81, none", async () => {
-    rmSync(join(root, 'metro.config.js'))
+  it('inlines none where the project has no Metro, its exports read still', async () => {
+    const options = await optionsOf(bare.root)
+    assert.deepEqual([options.resolver.packageExports, await options.inlineRequires(join(bare.root, 'index.js'), { platform: 'ios', dev: true })], [true, null])
+  })
+})
+
+describe('metroOptions, of a Metro before 0.82, of no config', () => {
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...METRO_0_81 })
+  after(cleanup)
+
+  it("reads no package's exports, as its default has it", async () => {
     assert.equal((await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })).resolver.packageExports, false)
   })
 })
@@ -200,7 +229,8 @@ describe('metroOptions, of a project with no config', () => {
 
   it("is Metro's defaults as @react-native/metro-config has them, its registry and what runs before the entry react-native's", async () => {
     const options = await metroOptions(root, peers(root, assert.fail), assert.fail, { name: 'rn-bundle' })
-    assert.deepEqual([options.file, options.runBeforeMain, options.assetRegistryPath, options.blockList, options.polyfills('ios')], [null, null, null, null, []])
+    assert.deepEqual([options.file, options.runBeforeMain, options.assetRegistryPath, options.polyfills('ios')], [null, null, null, []])
+    assert.deepEqual(options.blockList.map(({ source }) => source), [(await metroBlockList(root)).source])
     // Metro's own default, of its version: 0.87's.
     assert.equal(options.resolver.packageExports, true)
     // Metro's own inline none.

@@ -2,11 +2,13 @@
 // and rn-cli, as Xcode and Gradle run it): the defaults of their flags, each
 // flag over it. Its options:
 //   metroConfig: whether the project's Metro config is loaded: true (the
-//     default), the one Metro finds; false, none, as of a project with no
-//     metro.config.js (Metro's defaults as @react-native/metro-config has
-//     them), but a package's exports read (unstable_enablePackageExports),
-//     whatever Metro's default (on from 0.82); a path, from the root, that
-//     file. --metro-config over it.
+//     default), the one Metro finds; false, none, nor metro-config itself
+//     (nor @react-native/metro-config): React Native's defaults, as rn has
+//     them (Metro 0.87's under @react-native/metro-config 0.88's), its
+//     requires inlined (by Metro's plugin, of the project's Metro), a
+//     package's exports read (unstable_enablePackageExports), whatever
+//     Metro's default (on from 0.82); a path, from the root, that file.
+//     --metro-config over it.
 //   assetExts, sourceExts, assetResolutions: what it adds to Metro's
 //     defaults of the resolver's lists, after them: the extensions of assets
 //     (["riv"]) and of code (["mjs"]), and the scales an asset's files are
@@ -24,6 +26,8 @@
 //   devtools: rn-serve's --devtools' default (false): React Native DevTools
 //     opened for each app as it connects (devtools.js); --devtools and
 //     --no-devtools over it. rn-bundle leaves it.
+//   port: rn-serve's --port' default, over the Metro config's server.port
+//     (else 8081). rn-bundle leaves it.
 //   launch: rn-serve's --launch' default: "ios", the app launched on a
 //     simulator as rn-serve starts (launch-ios.js), and its bundle the one
 //     built ahead of it; false (the default), none. --launch and
@@ -57,6 +61,7 @@ const OPTIONS = {
   maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
   devtools: boolean,
+  port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
   launch: [(value) => value === false || value === 'ios', '"ios", or false'],
 }
 const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]

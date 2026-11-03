@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { SourceMap } from 'node:module'
-import { join, sep } from 'node:path'
+import { SourceMap, createRequire } from 'node:module'
+import { dirname, join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { METRO_0_81, METRO_CONFIG, memoized, pkg, png, printed, writeTree } from './fixtures.js'
@@ -382,6 +382,15 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     assert.match((await bundleWith({ metroConfig: 'none.config.js' })).stderr, /^rn-bundle: no such Metro config: none\.config\.js\n$/u)
   })
 
+  it("hides what is in a __tests__ directory, as Metro's default blockList does, of metroConfig false", async () => {
+    writeFileSync(join(root, 'tested.js'), "console.log(require('./__tests__/fixture'))\n")
+    mkdirSync(join(root, '__tests__'), { recursive: true })
+    writeFileSync(join(root, '__tests__/fixture.js'), "module.exports = 'fixture'\n")
+    const r = await bundleWith({ metroConfig: false }, [], 'tested.js')
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /esbuild resolved __tests__\/fixture\.js where Metro resolves nothing/u)
+  })
+
   it('takes esm where Babel runs, as --esm, --no-esm over it', async () => {
     const r = await bundleWith({ metroConfig: false, esm: true })
     assert.deepEqual([r.status, r.stderr], [1, "rn-bundle: rn.config.json's esm keeps ES modules through the project's Babel config, and it has none\n"])
@@ -431,7 +440,7 @@ describe("rn-bundle, of a project's rn.config.json", () => {
 
   it('refuses an option it does not know, and takes devtools, which is of rn-serve', async () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devtools, launch, ios\n'])
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, devtools, port, launch, ios\n'])
     assert.equal((await bundleWith({ metroConfig: false, devtools: true })).status, 0)
   })
 })
@@ -517,8 +526,21 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
   const inlining = writeTree({ ...APP_FILES, ...METRO_CONFIG, 'metro.config.js': "const { getDefaultConfig } = require('@react-native/metro-config')\nmodule.exports = getDefaultConfig(__dirname)\n" })
   // Metro's defaults alone: none inlined.
   const eager = writeTree({ ...APP_FILES, 'node_modules/metro-config': METRO_CONFIG['node_modules/metro-config'] })
+  // rn.config.json's metroConfig false: none of Metro's config packages
+  // loaded (each throws), the project's Metro's plugin inlining them.
+  const never = "throw new Error('never loaded')\n"
+  const fromHere = createRequire(import.meta.url)
+  const metro = dirname(dirname(fromHere.resolve('metro', { paths: [dirname(fromHere.resolve('metro-config'))] })))
+  const unloaded = writeTree({
+    ...APP_FILES,
+    'rn.config.json': { metroConfig: false },
+    'metro.config.js': never,
+    'node_modules/metro-config/package.json': { name: 'metro-config', main: 'index.js' },
+    'node_modules/metro-config/index.js': never,
+    'node_modules/metro': { link: metro },
+  })
   after(() => {
-    for (const tree of [inlining, eager]) tree.cleanup()
+    for (const tree of [inlining, eager, unloaded]) tree.cleanup()
   })
   const run = async (root, args = []) => {
     const r = await runBundle(['--platform=ios', ...args, '--output=out.js', 'index.js'], { cwd: root })
@@ -533,6 +555,10 @@ describe("rn-bundle, with Metro's inline requires, as @react-native/metro-config
 
   it("runs each module as it is imported, where Metro's config inlines none", async () => {
     assert.deepEqual(await run(eager.root), ['b', 'c', 'a', 'react', 'index', 'b 19'])
+  })
+
+  it("inlines them as React Native's defaults have it, of rn.config.json's metroConfig false, loading none of Metro's config", async () => {
+    assert.deepEqual(await run(unloaded.root), ['react', 'index', 'a', 'b', 'b 19'])
   })
 })
 

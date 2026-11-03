@@ -48,7 +48,8 @@
 // makes each of a dev bundle CommonJS itself, its exports getters: so that
 // runtime reloads the app on an edit of one too.
 // The project's Metro config is loaded as rn-bundle loads it, its server's
-// port the default of --port, its maxWorkers of --max-workers (how many
+// port the default of --port (rn.config.json's port over it), its
+// maxWorkers of --max-workers (how many
 // workers each bundle's Babel runs in at most, as rn-bundle's), and an
 // option of its server or symbolicator not as Metro's default an error too.
 // It answers the app and its tools, never another webpage (src/gate.js), on
@@ -57,11 +58,11 @@
 // On any but loopback, anyone on the network can fetch the app and its
 // source, and with dev-middleware, debug the app: it warns of that.
 // The project's rn.config.json (src/rn-config.js) has the defaults of
-// --esm (its esm), --devtools (its devtools), --max-workers (its
-// maxWorkers, over the Metro config's) and of the Metro config (its
-// metroConfig: false, none, as of a project with none, but a package's
-// exports read of any Metro; a path, that file), the flags over it; and
-// what it adds to Metro's defaults of assetExts, sourceExts and
+// --esm (its esm), --devtools (its devtools), --port and --max-workers
+// (its port and maxWorkers, over the Metro config's) and of the Metro
+// config (its metroConfig: false, none, nor metro-config loaded: React
+// Native's defaults, as rn has them; a path, that file), the flags over it;
+// and what it adds to Metro's defaults of assetExts, sourceExts and
 // assetResolutions (a Metro config that sets one of them otherwise, an error).
 // --launch=ios launches the app on an iOS simulator as rn-serve starts, as
 // `react-native run-ios --no-packager --simulator NAME --binary-path APP`
@@ -138,7 +139,7 @@ const launch = launchOf()
 const project = peers(projectRoot, fail)
 const esbuild = project.peer('esbuild', 'bundling')
 const metro = extendedMetro(await metroOptions(projectRoot, project, fail, { file: metroConfigOf(values['metro-config'], rnConfig), name: 'rn-serve', serving: true }), rnConfig, fail)
-const port = values.port === undefined ? (metro.port ?? 8081) : Number(values.port)
+const port = values.port === undefined ? (rnConfig.port ?? metro.port ?? 8081) : Number(values.port)
 // For Fast Refresh: the module system dev bundles are written for, and the
 // plugin that has Babel register each component.
 const runtime = locateThrough(project, 'metro-runtime/src/polyfills/require.js', ['react-native'])
