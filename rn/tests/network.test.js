@@ -233,4 +233,13 @@ describe('network: React Native DevTools\' Network panel', () => {
     assert.deepEqual(devtools.toDebugger.map(({ method }) => method), ['Network.requestWillBeSent', 'Network.loadingFailed'])
     assert.deepEqual(devtools.toDebugger[1].params, { requestId: '1.1', timestamp: 2, type: 'XHR', errorText: 'The app went away', canceled: false })
   })
+
+  it("takes no type of a request's events the object's prototype has", async () => {
+    const network = inspector()
+    const devtools = served(network)
+    const { say } = report(network)
+    await sleep(0)
+    for (const type of ['toString', 'constructor', 'hasOwnProperty', 'valueOf', '__proto__']) say({ type, id: 1, time: 1 })
+    assert.deepEqual(devtools.toDebugger, [])
+  })
 })
