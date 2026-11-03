@@ -1,6 +1,9 @@
 // A project's rn.config.json, in the root where rn-bundle, rn-serve and rn-cli run: defaults for
 // their flags, which override it. Its lists add to Metro's defaults; a Metro config that sets one
 // differently is an error, so asset-exts.js can skip reading it. Unknown or mistyped options are errors.
+// `babel` switches Babel plugins on and off (babel-switches.js). `development` and `production` set
+// the options of dev builds and release builds (babel, esm): an option is set either at the top level,
+// for both, or in either or both of them, never in both places.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -17,6 +20,11 @@ const extensions = [listOf((value) => typeof value === 'string' && /^[^./\\][^/\
 // A scale as Metro's assetResolutions has it (the 0.75 of `@0.75x`), as a string or a number.
 const isScale = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0) || (typeof value === 'string' && /^\d+(?:\.\d+)?$/u.test(value) && Number(value) > 0)
 const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+// Babel plugins by name, each true or false, in order.
+const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
+// The options a dev build's and a release build's own section may set.
+const MODE = { babel: switches, esm: boolean }
 // Each option's [validator, description]; a section is an object of its own options.
 const OPTIONS = {
   metroConfig: [(value) => typeof value === 'boolean' || (typeof value === 'string' && value !== ''), 'true, false or the path of a Metro config'],
@@ -25,6 +33,7 @@ const OPTIONS = {
   assetResolutions: [listOf(isScale), 'a list of scales ("0.75", or 0.75)'],
   maxWorkers: [(value) => Number.isSafeInteger(value) && value > 0, 'a number of workers, 1 or more'],
   esm: boolean,
+  babel: switches,
   devtools: boolean,
   port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
   launch: [(value) => value === false || value === 'ios', '"ios", or false'],
@@ -32,9 +41,10 @@ const OPTIONS = {
     simulator: nonEmpty("a simulator's name, or its UDID"),
     binaryPath: nonEmpty("the path of a simulator's build of the app, an .app"),
   },
+  development: MODE,
+  production: MODE,
 }
-
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+const MODES = ['development', 'production']
 
 // The first error of the options in `values`, of those in `options`, each named after `prefix`; or null.
 const errorIn = (options, values, prefix) => Object.entries(values).map(([key, value]) => errorOf(options, key, value, `${prefix}${key}`)).find((error) => error !== null) ?? null
@@ -59,8 +69,25 @@ export function readRnConfig(projectRoot, fail) {
   }
   if (!isObject(config)) return fail(`${RN_CONFIG}: not an object of options`)
   const error = errorIn(OPTIONS, config, '')
-  return error === null ? config : fail(`${RN_CONFIG}: ${error}`)
+  if (error !== null) return fail(`${RN_CONFIG}: ${error}`)
+  for (const key of Object.keys(MODE)) {
+    const modes = MODES.filter((mode) => config[mode]?.[key] !== undefined)
+    if (config[key] !== undefined && modes.length > 0) return fail(`${RN_CONFIG}: ${key} is set at the top level and in ${modes.join(' and ')}: set it at the top level, for both, or in development and production`)
+  }
+  return config
 }
+
+// The section of the options of a dev build, or a release build.
+const modeOf = (dev) => (dev ? 'development' : 'production')
+
+// The config as a dev build (or a release build) has it: its section's options, else the top level's.
+export function inMode(config, dev) {
+  const { development, production, ...rest } = config
+  return { ...rest, ...(dev ? development : production) }
+}
+
+// The Babel plugins a dev build (or a release build) switches, as [[name, on]] in order.
+export const babelSwitchesOf = (config, dev) => Object.entries(inMode(config, dev).babel ?? {})
 
 // metroOptions()'s `file`: --metro-config, else metroConfig (true is null: the one Metro finds).
 export const metroConfigOf = (flag, { metroConfig = true }) => flag ?? (metroConfig === true ? null : metroConfig)
@@ -105,8 +132,11 @@ export function extendedMetro(metro, config, fail) {
   return { ...metro, assetExts, resolver: { ...metro.resolver, sourceExts, assetResolutions }, maxWorkers: config.maxWorkers ?? metro.maxWorkers }
 }
 
-// A boolean flag: --name if given, else the config's `name`, else false; `by` names its source for errors.
-export function flagOf(flag, config, name) {
+// A boolean flag: --name if given, else the config's `name` (of a dev build's or a release build's
+// section, given `dev`, where it is set there), else false; `by` names its source for errors.
+export function flagOf(flag, config, name, dev) {
   if (flag !== undefined) return { on: flag, by: `--${name}` }
+  const mode = dev === undefined ? null : modeOf(dev)
+  if (mode !== null && config[mode]?.[name] !== undefined) return { on: config[mode][name], by: `${RN_CONFIG}'s ${mode}.${name}` }
   return { on: config[name] ?? false, by: `${RN_CONFIG}'s ${name}` }
 }

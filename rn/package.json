@@ -57,6 +57,7 @@
     "src/assets-dest.js",
     "src/assets.js",
     "src/babel-aliases.js",
+    "src/babel-switches.js",
     "src/babel-transformer.js",
     "src/babel-worker.js",
     "src/babelrc.js",

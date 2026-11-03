@@ -4,6 +4,7 @@
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
+import { switchesOf } from './babel-switches.js'
 import { fingerprintOf, readsOf, withDependencies } from './load-cache.js'
 import { babelrcFinder } from './babelrc.js'
 import { workletsGate } from './worklets.js'
@@ -15,12 +16,17 @@ const LET = /\b(?:let|const)\b/u
 // spent? } or { error, loc? }; fingerprint is null but with options.fingerprint. The options are Babel's, plus
 // refresh, keepPlugins, inlineRequires, fingerprint and oneBuild (cli.js's projectBabel()).
 export function transformerOf({ corePath, options, profile }) {
-  const { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, ...given } = options
+  const { refresh = null, keepPlugins = false, inlineRequires = null, fingerprint: fingerprinted = false, oneBuild = false, switches = [], ...given } = options
   const core = createRequire(corePath)(corePath)
   memoizeHelpers(core)
   const cwd = given.cwd ?? process.cwd()
   // Metro's inline-requires, run after all of the config's plugins, its presets' included.
   const inlining = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
+  // rn.config.json's plugins switched on and off (babel-switches.js), loaded as the config's are.
+  const switched = switchesOf(core, switches, { cwd: given.cwd, root: given.root, caller: given.caller, envName: given.envName })
+  // A plugin switched off as the syntax it has Babel parse alone (its manipulateOptions, as of the
+  // syntax plugin it inherits): none of its transform, nor its parser's or generator's override.
+  const syntaxOf = memoized((plugin) => (plugin.manipulateOptions === undefined ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [() => ({ name: `${plugin.key}:syntax`, manipulateOptions: plugin.manipulateOptions })] }).plugins[0]))
   // Within one build, Babel's .babelrc lookup is skipped where it would find nothing.
   const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
   const configOf = (filename) => {
@@ -34,12 +40,22 @@ export function transformerOf({ corePath, options, profile }) {
   const gate = keepPlugins ? () => {} : resolverGate(core, cwd, () => profiler?.skip())
   const quiet = keepPlugins ? () => false : workletsGate({ cwd, envName: given.envName })
   const listOf = lister()
-  // With the config's plugins, but those keyed in `without` and Reanimated's where quiet.
+  // With the config's plugins, but those switched off, and those keyed in `without` and Reanimated's
+  // where quiet, unless switched on; then those switched on that the config lacks, in order.
   const run = (source, filename, without) => {
     const start = performance.now()
     const config = configOf(filename)
     profiler?.time('config', start)
-    const plugins = config.plugins.filter((plugin) => !without.includes(plugin.key) && !quiet(plugin, source))
+    const plugins = config.plugins.flatMap((plugin) => {
+      if (switched.off.has(plugin.key)) return syntaxOf(plugin) ?? []
+      return switched.on.has(plugin.key) || (!without.includes(plugin.key) && !quiet(plugin, source)) ? [plugin] : []
+    })
+    const own = new Set(config.plugins.map(({ key }) => key))
+    for (const { key, name, plugin } of switched.added) {
+      if (own.has(key)) continue
+      if (plugin === null) throw new Error(`rn.config.json's babel switches on ${name}: the Babel config has no plugin of that key for this file, and Babel finds no plugin of that name`)
+      plugins.push(plugin)
+    }
     if (inlining !== null && !inlineRequires.blockList.includes(filename)) plugins.push(inlining)
     plugins.forEach(gate)
     // The AST kept for lowered().
@@ -49,7 +65,7 @@ export function transformerOf({ corePath, options, profile }) {
     const { imports, namesCommonJs } = result.metadata.rnBundle ?? { imports: [], namesCommonJs: false }
     // An ES module built without CommonJS (load.js, for --esm) that uses `module` or `exports`
     // unbound is built again with it, which binds them.
-    if (namesCommonJs && without.includes(COMMONJS)) return run(source, filename, without.filter((key) => key !== COMMONJS))
+    if (namesCommonJs && without.includes(COMMONJS) && !switched.on.has(COMMONJS)) return run(source, filename, without.filter((key) => key !== COMMONJS))
     return { code: lowered(core, config, result, given.sourceMaps), imports: [...imports], ...(result.externalDependencies?.size > 0 && { uncacheable: true }) }
   }
   const transform = ({ source, filename, without }) => {
@@ -315,4 +331,13 @@ function declaresLet(keys, node) {
   if (node == null) return false
   if (node.type === 'VariableDeclaration' && (node.kind === 'let' || node.kind === 'const')) return true
   return (keys[node.type] ?? []).some((key) => declaresLet(keys, node[key]))
+}
+
+// `make` of each object once.
+function memoized(make) {
+  const made = new WeakMap()
+  return (object) => {
+    if (!made.has(object)) made.set(object, make(object))
+    return made.get(object)
+  }
 }
