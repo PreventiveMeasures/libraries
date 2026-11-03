@@ -24,18 +24,17 @@ const NAMES = [
 const NAMED = /(["'])((?:use|with|run|schedule|execute|create)[A-Z][A-Za-z]*)\1/gu
 // The plugin's isRelease(), which decides whether it warns of `.value` read in an inline style:
 // Reanimated 3 reads BABEL_ENV or NODE_ENV, 4 Babel's envName first.
-const RELEASE = /(prod|release|stag[ei])/iu
+const RELEASE = /prod|release|stag[ei]/iu
 const VALUE = /\bvalue\b/u
 
-// ({ cwd, envName }) -> (plugin, source) => whether the plugin is Reanimated's and leaves the source as is,
-// though it would still visit every call, function, class and JSX attribute: the source has no
-// `worklet`, none of the names above, and (outside a release) no `value`, however `.value` is spaced.
+// ({ cwd, envName }) -> (plugin, source) => whether the plugin is Reanimated's and leaves the source as is
+// (though it would visit every call, function, class and JSX attribute): the source has no `worklet`,
+// none of the names above, and (outside a release) no `value`, however `.value` is spaced.
 export function workletsGate({ cwd, envName = '' }) {
   const byEnv = RELEASE.test(process.env.BABEL_ENV ?? '') || RELEASE.test(process.env.NODE_ENV ?? '')
   const release = byEnv && (RELEASE.test(envName) || !/dev/iu.test(envName))
-  // What the plugin acts on, by its code: the files of it Babel loaded, from wherever (a preset's own
-  // node_modules), else its module as the project resolves it. Null where none can be read, which
-  // keeps the plugin.
+  // What the plugin acts on, read from its files Babel loaded (from wherever, e.g. a preset's own
+  // node_modules), else as the project resolves it; null if unreadable, which keeps the plugin.
   const wordsOf = (name) => {
     const file = new RegExp(String.raw`[\\/]${name}[\\/]plugin(?:\.js$|[\\/].*\.c?js$)`, 'u')
     const loaded = Object.keys(LOADED).filter((path) => file.test(path))

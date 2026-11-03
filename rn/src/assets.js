@@ -14,11 +14,8 @@ const DEFAULT_ASSET_EXTS = new Set(defaults.assetExts)
 // Whether any dot-suffix of the name is an asset extension: `a.tar.gz` for `gz` or `tar.gz`.
 export function isAssetFile(filePath, assetExts = DEFAULT_ASSET_EXTS) {
   const exts = assetExts instanceof Set ? assetExts : new Set(assetExts)
-  const name = basename(filePath)
-  for (let i = name.length - 1; i >= 0; i--) {
-    if (name[i] === '.' && exts.has(name.slice(i + 1))) return true
-  }
-  return false
+  const parts = basename(filePath).split('.')
+  return parts.some((_, i) => i > 0 && exts.has(parts.slice(i).join('.')))
 }
 
 const PLATFORM_FILE = /^(.+?)(?:\.([^.]+))?\.([^.]+)$/u
@@ -58,12 +55,11 @@ export function assetRecord(assetPath, { platform = null, host = diskHost } = {}
     .flatMap((name) => {
       const file = join(dir, name)
       const asset = parseAssetPath(file, platform)
-      return asset === null ? [] : [{ key: asset.platform === null ? asset.assetName : `${asset.assetName} : ${asset.platform}`, file, scale: asset.resolution }]
+      return asset?.assetName === own.assetName ? [{ file, scale: asset.resolution, ofPlatform: asset.platform !== null }] : []
     })
-  const records = Map.groupBy(entries, ({ key }) => key)
-  const record = (platform === null ? undefined : records.get(`${own.assetName} : ${platform}`)) ?? records.get(own.assetName)
-  if (record === undefined) throw new Error(`Asset not found: ${assetPath} for platform: ${platform ?? '(unspecified)'}`)
-  const byScale = record.toSorted((a, b) => a.scale - b.scale)
+  const ofPlatform = entries.filter((entry) => entry.ofPlatform)
+  const byScale = (ofPlatform.length > 0 ? ofPlatform : entries).toSorted((a, b) => a.scale - b.scale)
+  if (byScale.length === 0) throw new Error(`Asset not found: ${assetPath} for platform: ${platform ?? '(unspecified)'}`)
   return { files: byScale.map(({ file }) => file), scales: byScale.map(({ scale }) => scale) }
 }
 

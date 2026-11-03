@@ -1,5 +1,5 @@
-// A project's asset extensions, read from its files without running its Metro config, for tools
-// that must not run it (stasis). rn-bundle and rn-serve load the config instead (metro-options.js).
+// A project's asset extensions, read without running its Metro config, for tools that must not run
+// it (stasis). rn-bundle and rn-serve load the config instead (metro-options.js).
 
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -9,7 +9,7 @@ import { defaults } from './defaults.js'
 import { metroAssetExts, scanMetroAssetExts } from './metro-config.js'
 import { added, metroConfigOf, readRnConfig } from './rn-config.js'
 
-// oxc-parser, the project's, else the one beside rn/; null if neither.
+// The project's oxc-parser, else the one beside rn/; null if neither.
 function locateOxc(projectRoot) {
   const fromHere = createRequire(import.meta.url)
   let path
@@ -21,9 +21,8 @@ function locateOxc(projectRoot) {
   return fromHere(path)
 }
 
-// Metro's asset extensions plus those the Metro config adds (`file`, else rn.config.json's
-// metroConfig), parsed with `oxc` (oxc-parser's module, found if not given; null for none) or a
-// regex, then rn.config.json's assetExts; if it has those, no Metro config is read.
+// Metro's asset extensions plus rn.config.json's assetExts if set, else those the Metro config
+// (`file`, else rn.config.json's metroConfig) adds, parsed by `oxc` (located if not given) or a regex.
 export function readMetroAssetExts(projectRoot, { file = null, oxc } = {}) {
   const rnConfig = readRnConfig(projectRoot, (message) => {
     throw new Error(message)

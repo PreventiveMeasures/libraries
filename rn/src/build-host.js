@@ -13,10 +13,9 @@ export const EMPTY = 'metro-empty'
 
 export const posixRelative = (from, to) => relative(from, to).replaceAll('\\', '/')
 
-// A build's state, with a resolver that reads each package.json anew through buildHost(), noting in `read`
-// each file it reads; run.resolution's (serve/resolution.js's), as run.changes (a watcher's, or null) leave it.
-// made(state) has it before what runs before the entry and the asset registry are found, which may fail (a
-// manifest of no JSON): a build goes on with it, as with no react-native.
+// A build's state, resolving through buildHost() (each package.json read anew, each file read noted in
+// `read`) or run.resolution (serve/resolution.js). made(state) gets it before react-native's modules are
+// found, which may fail (a package.json of no JSON): the build goes on with it, as with no react-native.
 export function newState(run, read = new Set(), made = () => {}) {
   const { projectRoot, entry, platform, aliases } = run
   const host = buildHost(run.host, read)
@@ -43,7 +42,7 @@ export function newState(run, read = new Set(), made = () => {}) {
       if (resolution.type === 'assetFiles') return { kind: 'asset', key: resolution.filePaths.toSorted()[0] }
       return { kind: 'file', key: resolution.filePath }
     },
-    // An asset's module, as Metro builds it. The files it reads are noted even if that fails (an empty image).
+    // The files it reads are noted even if that fails (an empty image).
     assetSource(path) {
       const data = assetData(path, { urlPath: posixRelative(projectRoot, path), platform, host })
       assets.set(path, data)
@@ -64,9 +63,8 @@ export function metroResolverOf({ host, assetExts, resolver = {}, blockList = nu
   return createMetroResolver({ ...resolver, host: seen, assetExts })
 }
 
-// The host a build looks up and reads files through, noting in `read` each it reads or looks for: one not
-// there yet (an import written before its module) is a file a watcher sees made. As Metro's file map does, it
-// looks up each path once, a build's files not changing during it, and lists each directory once.
+// The host a build uses, noting in `read` each path it reads or looks for, so a watcher sees one made later
+// (an import written before its module). As Metro's file map, it looks up each path and lists each dir once.
 export function buildHost(host, read) {
   return lookups(host, read).host
 }
@@ -93,14 +91,17 @@ export function lookups(host, read) {
       return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? new Map() : null
     }
   })
+  const entry = (path) => {
+    const entries = dirname(path) === path ? null : listing(dirname(path))
+    return entries === null ? undefined : (entries.get(basename(path)) ?? null)
+  }
   // A path's type as its directory lists it; as the host has it for a link or an entry of no type.
   const typed = (name) => (path) => {
     read.add(path)
-    const entries = dirname(path) === path ? null : listing(dirname(path))
-    const entry = entries?.get(basename(path))
-    if (entries !== null && entry === undefined) return false
-    if (entries === null || entry.isSymbolicLink() || !(entry.isFile() || entry.isDirectory())) return host[name](path)
-    return name === 'isFile' ? entry.isFile() : entry.isDirectory()
+    const listed = entry(path)
+    if (listed === null) return false
+    if (listed === undefined || listed.isSymbolicLink() || !(listed.isFile() || listed.isDirectory())) return host[name](path)
+    return listed[name]()
   }
   const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath: once((path) => host.realpath(path)) }
   return {
@@ -113,10 +114,7 @@ export function lookups(host, read) {
       },
     },
     known: (name, path) => looked[name].known.get(path),
-    entry: (path) => {
-      const entries = dirname(path) === path ? null : listing(dirname(path))
-      return entries === null ? undefined : (entries.get(basename(path)) ?? null)
-    },
+    entry,
     forget: (dir) => listing.known.delete(dir),
   }
 }

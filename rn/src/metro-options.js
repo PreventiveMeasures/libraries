@@ -1,6 +1,6 @@
 // Loads a project's Metro config as Metro does (its metro-config's loadConfig) into rn-bundle's and
 // rn-serve's options. An option they can't honor is an error unless it is a default (Metro's or
-// @react-native/metro-config's) or doesn't affect the build. asset-exts.js reads assetExts without running it.
+// @react-native/metro-config's) or doesn't affect the build.
 
 import { existsSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -22,8 +22,8 @@ const ACCEPTED = new Set([
   ...under('resolver', ['platforms', 'useWatchman', 'requireCycleIgnorePatterns', 'unstable_incrementalResolution']),
   ...under('transformer', ['optimizationSizeLimit', 'unstable_workerThreads', 'unstable_compactOutput', 'hermesParser']),
 ])
-// Also never refused: the watcher's options, and the dev server's where only bundling, or where
-// serving those of its port (taken), client logs and hotkeys.
+// Also never refused: the watcher's options; the dev server's when only bundling; when serving,
+// its port (taken), client logs and hotkeys.
 const SERVED = new Set(['server.port', 'server.forwardClientLogs', 'server.useGlobalHotkey'])
 const accepted = (path, serving) => ACCEPTED.has(path) || path.startsWith('watcher.') || (serving ? SERVED.has(path) : path.startsWith('server.') || path.startsWith('symbolicator.'))
 // Refused only of a minified bundle.
@@ -51,32 +51,29 @@ async function transformOf(getTransformOptions, entryPath, { platform, dev }, ho
 }
 
 // Inline requires as metro-transform-plugins (`plugin`) applies them after Babel, as getTransformOptions'
-// `transform` sets them (inlineRequires aside): { plugin, options, blockList }; null without the plugin.
-const inliningOf = (plugin, transform = {}) =>
-  plugin === null
-    ? null
-    : {
-        plugin,
-        options: { ignoredRequires: transform.nonInlinedRequires || NOT_INLINED, memoizeCalls: transform.unstable_memoizeInlineRequires || false, nonMemoizedModules: transform.unstable_nonMemoizedInlineRequires || [] },
-        blockList: typeof transform.inlineRequires === 'object' ? Object.keys(transform.inlineRequires.blockList ?? {}) : [],
-      }
+// `transform` sets them (inlineRequires aside).
+const inliningOf = (plugin, transform = {}) => ({
+  plugin,
+  options: { ignoredRequires: transform.nonInlinedRequires || NOT_INLINED, memoizeCalls: transform.unstable_memoizeInlineRequires || false, nonMemoizedModules: transform.unstable_nonMemoizedInlineRequires || [] },
+  blockList: Object.keys(transform.inlineRequires?.blockList ?? {}),
+})
 
-// Metro's inline requires for a bundle: async (entryPath, { platform, dev }) => inliningOf()'s, or null.
-function inlineRequiresOf(getTransformOptions, plugin, hot) {
-  if (typeof getTransformOptions !== 'function' || plugin === null) return () => Promise.resolve(null)
-  return async (entryPath, target) => {
-    const { transform } = await transformOf(getTransformOptions, entryPath, target, hot)
-    return transform.inlineRequires ? inliningOf(plugin, transform) : null
+const NONE = () => Promise.resolve(null)
+
+// A bundle's inline requires, each async (entryPath, { platform, dev }) => inliningOf()'s or null:
+// `inlineRequires` as getTransformOptions gives them; `inlining` turned on whatever it gives of
+// inlineRequires, for rn.config.json's inlineRequires (rn-config.js). Null without the plugin.
+function inliningsOf(getTransformOptions, plugin, hot) {
+  if (plugin === null) return { inlineRequires: NONE, inlining: NONE }
+  if (typeof getTransformOptions !== 'function') return { inlineRequires: NONE, inlining: () => Promise.resolve(inliningOf(plugin)) }
+  const transform = async (entryPath, target) => (await transformOf(getTransformOptions, entryPath, target, hot)).transform
+  return {
+    inlineRequires: async (entryPath, target) => {
+      const given = await transform(entryPath, target)
+      return given.inlineRequires ? inliningOf(plugin, given) : null
+    },
+    inlining: async (entryPath, target) => inliningOf(plugin, await transform(entryPath, target)),
   }
-}
-
-// Inline requires turned on for a bundle, whatever getTransformOptions gives of inlineRequires, as the rest
-// of what it gives (nonInlinedRequires) sets them, for rn.config.json's inlineRequires (rn-config.js):
-// async (entryPath, { platform, dev }) => inliningOf()'s, null without the plugin.
-function forcedInliningOf(getTransformOptions, plugin, hot) {
-  if (plugin === null) return () => Promise.resolve(null)
-  if (typeof getTransformOptions !== 'function') return () => Promise.resolve(inliningOf(plugin))
-  return async (entryPath, target) => inliningOf(plugin, (await transformOf(getTransformOptions, entryPath, target, hot)).transform)
 }
 
 // A package as the Metro at `metro` (a path, or null) requires it.
@@ -150,8 +147,8 @@ function reactNativePolyfills(project, fail) {
 }
 
 // Without a config: Metro's defaults as @react-native/metro-config sets them, with react-native's
-// own modules before the entry and asset registry; `inlining`, forcedInliningOf()'s.
-function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.resolve(null), inlining = forcedInliningOf(null, project.locate?.('metro-transform-plugins') ?? null, false)) {
+// own modules before the entry and asset registry; `inlinings`, inliningsOf()'s.
+function fallback(project, fail, resolver = {}, inlinings = inliningsOf(null, project.locate?.('metro-transform-plugins') ?? null, false)) {
   let polyfills = null
   return {
     file: null,
@@ -163,8 +160,7 @@ function fallback(project, fail, resolver = {}, inlineRequires = () => Promise.r
     assetRegistryPath: null,
     babelRCLookup: true,
     babelRuntime: true,
-    inlineRequires,
-    inlining,
+    ...inlinings,
     ownTransformOptions: false,
     port: null,
     watchFolders: null,
@@ -201,7 +197,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   // metro-transform-plugins: the project's, else rn's, else its Metro's (which pnpm only exposes there).
   if (file === false) {
     const plugins = project.locate('metro-transform-plugins') ?? besideMetro(locateThrough(project, 'metro', ['react-native', '@react-native/community-cli-plugin']) ?? locateThrough(project, 'metro', ['@react-native/metro-config', 'metro-config']), 'metro-transform-plugins')
-    return fallback(project, fail, { packageExports: true }, inlineRequiresOf(reactNativeTransformOptions, plugins, serving), forcedInliningOf(reactNativeTransformOptions, plugins, serving))
+    return fallback(project, fail, { packageExports: true }, inliningsOf(reactNativeTransformOptions, plugins, serving))
   }
   const given = typeof file === 'string' ? resolve(cwd, file) : undefined
   if (given !== undefined && !existsSync(given)) fail(`no such Metro config: ${file}`)
@@ -222,8 +218,7 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   // @react-native/metro-config does, if the project has it.
   if (isEmpty) {
     const baselines = await baselinesOf(metro, project, cwd)
-    const getTransformOptions = baselines.at(-1).transformer?.getTransformOptions
-    return fallback(project, fail, { packageExports: Boolean(baselines[0].resolver.unstable_enablePackageExports) }, inlineRequiresOf(getTransformOptions, plugins, hot), forcedInliningOf(getTransformOptions, plugins, hot))
+    return fallback(project, fail, { packageExports: Boolean(baselines[0].resolver.unstable_enablePackageExports) }, inliningsOf(baselines.at(-1).transformer?.getTransformOptions, plugins, hot))
   }
   const shown = relative(cwd, filepath)
   let config
@@ -235,10 +230,10 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
   const baselines = await baselinesOf(metro, project, cwd)
   const refusal = (what) => `${shown}: ${what}: ${name} does it as Metro's default alone`
   const joined = (errors) => (errors.length === 0 ? null : errors.join(`\n${name}: `))
-  const errorsOf = (options) => options.map(([path, value]) => refusal(`${path} is ${show(value, cwd)}${WHY.has(path) ? `, ${WHY.get(path)}` : ''}`))
+  const refusalOf = (options) => joined(options.map(([path, value]) => refusal(`${path} is ${show(value, cwd)}${WHY.has(path) ? `, ${WHY.get(path)}` : ''}`)))
   const refused = refusedOptions(config, baselines, serving)
-  const now = minify ? refused : refused.filter(([path]) => !MINIFIER.has(path))
-  if (now.length > 0) fail(joined(errorsOf(now)))
+  const now = refusalOf(minify ? refused : refused.filter(([path]) => !MINIFIER.has(path)))
+  if (now !== null) fail(now)
   const { resolver, serializer, transformer, server } = config
   const absolute = (path) => (isAbsolute(path) ? path : resolve(config.projectRoot ?? cwd, path))
   return {
@@ -264,10 +259,8 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     assetRegistryPath: transformer.assetRegistryPath === 'missing-asset-registry-path' ? null : transformer.assetRegistryPath,
     babelRCLookup: transformer.enableBabelRCLookup !== false,
     babelRuntime: transformer.enableBabelRuntime ?? true,
-    inlineRequires: inlineRequiresOf(transformer.getTransformOptions, plugins, hot),
-    // Inline requires turned on, for rn.config.json's inlineRequires (rn-config.js); and whether the
-    // config's getTransformOptions is its own, which may set them otherwise.
-    inlining: forcedInliningOf(transformer.getTransformOptions, plugins, hot),
+    ...inliningsOf(transformer.getTransformOptions, plugins, hot),
+    // Whether getTransformOptions is the config's own, which may set inline requires otherwise.
     ownTransformOptions: !baselines.some((baseline) => same(transformer.getTransformOptions, baseline.transformer?.getTransformOptions)),
     port: server?.port ?? null,
     watchFolders: config.watchFolders.map((folder) => realPathOf(resolve(cwd, folder))),
@@ -275,13 +268,13 @@ export async function metroOptions(cwd, project, fail, { file = null, name, serv
     maxWorkers: baselines.some((baseline) => baseline.maxWorkers === config.maxWorkers) ? null : workersOf(config.maxWorkers),
     defaultLists: baselines.map(({ resolver: lists }) => ({ assetExts: lists.assetExts, sourceExts: lists.sourceExts, assetResolutions: lists.assetResolutions })),
     // Of the minifier's options alone, as any other refused fails above.
-    minifyRefusal: joined(errorsOf(refused)),
+    minifyRefusal: refusalOf(refused),
     transformRefusal: async (entryPath, target) => {
       const { transform, dependencies } = await transformOf(transformer.getTransformOptions, entryPath, target, hot)
       const errors = []
       const refuse = (key, what) => errors.push(refusal(`transformer.getTransformOptions gives ${key} ${show(transform[key], cwd)}, ${what}`))
       // Refused unless at Metro's default. The rest concern inline requires, which are honored
-      // (inlineRequiresOf()), or are unread since Metro 0.81.
+      // (inliningsOf()), or are unread since Metro 0.81.
       if (transform.experimentalImportSupport) refuse('experimentalImportSupport', "Metro's own transform of import and export")
       if (transform.unstable_inlinePlatform === false) refuse('unstable_inlinePlatform', 'Platform.OS left to run time')
       // getDependencies only matters here when inlineRequires depends on it.

@@ -13,29 +13,31 @@ const COMMONJS = 'transform-modules-commonjs'
 const BLOCK_SCOPING = 'transform-block-scoping'
 const LET = /\b(?:let|const)\b/u
 
-// -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, module?, uncacheable?,
-// spent? } or { error, loc? }; fingerprint is null but with `fingerprintOf` (babel-worker.js's fingerprinter's).
-// The options are Babel's, plus ownPlugins, keepPlugins, inlineRequires, fingerprinter, oneBuild and switches
-// (cli.js's projectBabel()).
+// -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, module?,
+// uncacheable?, spent? } or { error, loc? }; fingerprint is null without `fingerprintOf`. The options are
+// Babel's, plus cli.js's projectBabel() ones: ownPlugins, keepPlugins, inlineRequires, fingerprinter, etc.
 export function transformerOf({ corePath, options, profile, fingerprintOf = null }) {
-  const { ownPlugins = [], keepPlugins = false, inlineRequires = null, fingerprinter: _fingerprinter = null, oneBuild = false, switches = [], ...given } = options
+  const { ownPlugins = [], keepPlugins = false, inlineRequires = null, fingerprinter: _fingerprinter, oneBuild = false, switches = [], ...given } = options
   const core = createRequire(corePath)(corePath)
   memoizeHelpers(core)
   const cwd = given.cwd ?? process.cwd()
+  const loadPlugin = (plugin) => core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [plugin] }).plugins[0]
   // Metro's inline-requires, run after all of the config's plugins, its presets' included.
-  const inlining = inlineRequires === null ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [[gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options]] }).plugins[0]
-  // rn.config.json's plugins switched on and off (babel-switches.js), loaded as the config's are:
-  // with the config, in loadConfig(), whose reads the fingerprint is of.
+  const inlining = inlineRequires === null ? null : loadPlugin([gatedInlining(createRequire(inlineRequires.plugin)(inlineRequires.plugin).inlineRequiresPlugin), inlineRequires.options])
+  // rn.config.json's switches, loaded with the config in loadConfig() so the fingerprint covers them.
   let switchedNow = null
   const switchedOf = () => (switchedNow ??= switchesOf(core, switches, { cwd: given.cwd, root: given.root, caller: given.caller, envName: given.envName }, { ...given, filename: join(cwd, 'index.js') }))
-  // A plugin switched off as the syntax it has Babel parse alone (its manipulateOptions, as of the
-  // syntax plugin it inherits): none of its transform, nor its parser's or generator's override.
-  const syntaxOf = memoized((plugin) => (plugin.manipulateOptions === undefined ? null : core.loadOptionsSync({ babelrc: false, configFile: false, cwd: given.cwd, plugins: [() => ({ name: `${plugin.key}:syntax`, manipulateOptions: plugin.manipulateOptions })] }).plugins[0]))
+  // A plugin switched off keeps only the syntax it enables (its manipulateOptions): no visitor or override.
+  const syntaxes = new WeakMap()
+  const syntaxOf = (plugin) => {
+    if (!syntaxes.has(plugin)) syntaxes.set(plugin, plugin.manipulateOptions === undefined ? null : loadPlugin(() => ({ name: `${plugin.key}:syntax`, manipulateOptions: plugin.manipulateOptions })))
+    return syntaxes.get(plugin)
+  }
   // Within one build, Babel's .babelrc lookup is skipped where it would find nothing.
   const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
   const configOf = (filename) => {
     const plugins = [...(given.plugins ?? []), IMPORTS]
-    // The project's own files' alone, as Metro's transformer has Fast Refresh's: none in node_modules.
+    // In the project's own files alone, as Metro's transformer has Fast Refresh's.
     if (!filename.includes('node_modules')) plugins.push(...ownPlugins)
     return core.loadOptionsSync({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins })
   }
@@ -44,8 +46,8 @@ export function transformerOf({ corePath, options, profile, fingerprintOf = null
   const gate = keepPlugins ? () => {} : resolverGate(core, cwd, () => profiler?.skip())
   const quiet = keepPlugins ? () => false : workletsGate({ cwd, envName: given.envName })
   const listOf = lister()
-  // With the config's plugins, but those switched off, and those keyed in `without` and Reanimated's
-  // where quiet, unless switched on; then those switched on that the config lacks, in order.
+  // The config's plugins, less those switched off and, unless switched on, those in `without` or quiet;
+  // then those switched on that the config lacks, in order.
   const run = (source, filename, without) => {
     const switched = switchedOf()
     if (switched.errors.length > 0) throw new Error(switched.errors[0])
@@ -67,15 +69,13 @@ export function transformerOf({ corePath, options, profile, fingerprintOf = null
     // The AST kept for lowered().
     const babelOptions = { ...config, plugins: listOf(plugins), ast: true }
     const result = core.transformSync(source, profiler?.timing(babelOptions) ?? babelOptions)
-    // None where a plugin before IMPORTS stops the traversal.
+    // No metadata where a plugin before IMPORTS stops the traversal.
     const { imports, namesCommonJs, module = null } = result.metadata.rnBundle ?? { imports: [], namesCommonJs: false }
-    // An ES module built without CommonJS (load.js, for --esm) that uses `module` or `exports`
-    // unbound is built again with it, which binds them.
+    // An ES module built without CommonJS (--esm) that uses `module` or `exports` unbound is rebuilt with it.
     if (namesCommonJs && without.includes(COMMONJS) && !switched.on.has(COMMONJS)) return run(source, filename, without.filter((key) => key !== COMMONJS))
-    // Of the plugins run, else (skipped where it had nothing to do) the config's: but switched off, none.
-    const blockScoping = switched.off.has(BLOCK_SCOPING) ? null : (plugins.find(({ key }) => key === BLOCK_SCOPING) ?? config.plugins.find(({ key }) => key === BLOCK_SCOPING) ?? null)
-    // `module`, of an ES module: one that names `module` or `exports` is CommonJS too, whose exports
-    // aren't only those it declares.
+    // The block-scoping plugin run, else the config's (skipped where it had nothing to do), unless switched off.
+    const blockScoping = switched.off.has(BLOCK_SCOPING) ? null : ([...plugins, ...config.plugins].find(({ key }) => key === BLOCK_SCOPING) ?? null)
+    // An ES module that names `module` or `exports` is CommonJS too: its exports aren't only those it declares.
     const esModule = module === null ? {} : { module: { ...module, ...(namesCommonJs && { commonJs: true }) } }
     return { code: lowered(core, config, result, given.sourceMaps, blockScoping), imports: [...imports], ...esModule, ...(result.externalDependencies?.size > 0 && { uncacheable: true }) }
   }
@@ -87,19 +87,16 @@ export function transformerOf({ corePath, options, profile, fingerprintOf = null
       return { error: error.message, ...(error.loc && { loc: { line: error.loc.line, column: error.loc.column } }) }
     }
   }
-  // Loads the config's plugins and presets before the first file, as for a file at the root.
-  // Its errors are each file's, as that fails.
+  // Loads the config before the first file, as for a file at the root; its errors are each file's.
   const loadConfig = () => {
     try {
       switchedOf()
       configOf(join(cwd, 'index.js'))
     } catch {}
   }
-  if (fingerprintOf === null) {
-    loadConfig()
-    return { transform, fingerprint: null }
-  }
-  return { transform, fingerprint: fingerprintOf({ load: loadConfig, corePath, cwd, options }) }
+  if (fingerprintOf !== null) return { transform, fingerprint: fingerprintOf({ load: loadConfig, corePath, cwd, options }) }
+  loadConfig()
+  return { transform, fingerprint: null }
 }
 
 // Memoizes File#availableHelper(name, versionRange), which transform-runtime calls for each helper a
@@ -120,10 +117,8 @@ export function memoizeHelpers(core) {
 const MEMOIZED = new WeakSet()
 
 // Records in a file's metadata its import and export-from specifiers (not type-only ones), as Metro's
-// importLocationsPlugin does: Metro resolves the requires Babel's CommonJS makes of them as ESM imports
-// (bundle.js). Also whether an ES module uses `module` or `exports` unbound, which esbuild won't bind;
-// and its imports by name and its exports (es-module.js), on the program's exit, else, where a plugin's
-// exit before this one's made it CommonJS (the config's own CommonJS plugin, before a preset's), its entry.
+// importLocationsPlugin does, for bundle.js to resolve as ESM imports; whether an ES module uses
+// `module` or `exports` unbound, which esbuild won't bind; and its esModuleOf() record.
 const IMPORTS = {
   name: 'rn-bundle-imports',
   visitor: {
@@ -131,8 +126,8 @@ const IMPORTS = {
       enter(path, { file }) {
         file.metadata.rnBundle = { imports: new Set(), namesCommonJs: path.node.sourceType === 'module' && (path.scope.hasGlobal('module') || path.scope.hasGlobal('exports')), module: esModuleOf(path.node) }
       },
-      // As the visitors leave it, types stripped (a Flow enum with them, where the config strips them
-      // first), unless a plugin's exit before this one's made it CommonJS.
+      // Again with types (and Flow enums) stripped, unless an earlier exit made it CommonJS (the config's
+      // own CommonJS plugin, before a preset's): then the entry's record stays.
       exit(path, { file }) {
         file.metadata.rnBundle.module = esModuleOf(path.node) ?? file.metadata.rnBundle.module
       },
@@ -143,9 +138,9 @@ const IMPORTS = {
   },
 }
 
-// Metro's inline-requires plugin, whose Program exit only runs where a top-level var is initialized by an
-// inlineable call (require or one of inlineableCalls) of a module it doesn't ignore, or by a member of
-// one. Elsewhere it would crawl the program's scopes and walk it for no change.
+// Metro's inline-requires plugin, its Program exit run only where a top-level var is initialized by an
+// inlineable call (or a member of one) of a module it doesn't ignore: elsewhere it would crawl the
+// program's scopes and walk it for no change.
 export function gatedInlining(plugin) {
   return (api, options) => {
     const instance = plugin(api, options)
@@ -168,8 +163,7 @@ export function gatedInlining(plugin) {
     const program = instance.visitor.Program
     const { exit } = program
     program.exit = function (path, state) {
-      if (path.node.body.some((statement) => statement.type === 'VariableDeclaration' && statement.declarations.some(inlinable))) return exit.call(this, path, state)
-      return undefined
+      return path.node.body.some((statement) => statement.type === 'VariableDeclaration' && statement.declarations.some(inlinable)) ? exit.call(this, path, state) : undefined
     }
     return instance
   }
@@ -211,7 +205,6 @@ function profilerOf(corePath) {
         skipped = false
       })
     }
-  const time = (name, start) => add(own, name, performance.now() - start)
   // Within a plugin's call, the work is the plugin's.
   const timeOwn = (name, object, method) => {
     const fn = object[method]
@@ -231,7 +224,7 @@ function profilerOf(corePath) {
       own = new Map()
       return performance.now()
     },
-    time,
+    time: (name, start) => add(own, name, performance.now() - start),
     // The options transformSync takes, with each plugin timed, inside the config's own visitor wrapper if any.
     timing: (options) => {
       for (const plugin of options.plugins) {
@@ -276,7 +269,7 @@ function resolverGate(core, cwd, skip) {
     t.traverseFast(node, (child) => {
       named ||= child.type === 'StringLiteral' && alias.some(([regExp]) => regExp.test(child.value))
       if (t.isImportDeclaration(child) || t.isExportDeclaration(child)) sites.push([child, child, 'source'])
-      else if (child.type === 'CallExpression' && transforms(child, transformFunctions)) sites.push([child, child.arguments, 0])
+      if (child.type === 'CallExpression' && transforms(child, transformFunctions)) sites.push([child, child.arguments, 0])
     })
     return named ? sites : null
   }
@@ -303,10 +296,13 @@ function resolverGate(core, cwd, skip) {
       const options = this.normalizedOpts
       if (!aliasesAlone(options)) return fn.call(this, path, ...rest)
       const sites = sitesOf(path.node, options)
-      if (sites === null) skip()
-      else if (resolvePath === null || !(this.moduleResolverVisited instanceof Set)) return fn.call(this, path, ...rest)
-      else resolve(sites, this, resolvePath)
-      return undefined
+      if (sites === null) {
+        skip()
+      } else if (resolvePath === null || !(this.moduleResolverVisited instanceof Set)) {
+        return fn.call(this, path, ...rest)
+      } else {
+        resolve(sites, this, resolvePath)
+      }
     }
   return (plugin) => {
     const program = plugin.visitor.Program
@@ -347,13 +343,4 @@ function declaresLet(keys, node) {
   if (node == null) return false
   if (node.type === 'VariableDeclaration' && (node.kind === 'let' || node.kind === 'const')) return true
   return (keys[node.type] ?? []).some((key) => declaresLet(keys, node[key]))
-}
-
-// `make` of each object once.
-function memoized(make) {
-  const made = new WeakMap()
-  return (object) => {
-    if (!made.has(object)) made.set(object, make(object))
-    return made.get(object)
-  }
 }

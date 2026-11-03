@@ -1,5 +1,4 @@
-// Bundles with esbuild over the module graph Metro resolves for a platform, each asset built as
-// Metro's asset module and each file read through the host. The layout is Metro's serializer's
+// Bundles with esbuild over the module graph Metro resolves, in the layout of Metro's serializer
 // (serializer.js): the prelude, the polyfills, the modules run before the entry, then the entry.
 
 import { dirname, relative, resolve } from 'node:path'
@@ -34,12 +33,10 @@ const TS_AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForCl
 const decoder = new TextDecoder('utf-8', { fatal: true })
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
 export const ANY = /.*/
-// The main module imports the polyfills, the modules run before the entry, then the entry.
 const MAIN = 'metro-main'
 const POLYFILL = 'metro-polyfill:'
 const ENTRY = 'metro-entry:'
 
-// A file's text, or null where it isn't UTF-8.
 export function utf8(bytes) {
   try {
     return decoder.decode(bytes)
@@ -51,9 +48,8 @@ export function utf8(bytes) {
 // esbuild's `supported`: where Babel lowers let and const (lowersLetOf()), esbuild must add none.
 export const supportedOf = (babel, lowersLet) => (babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) })
 
-// The options of bundle() and serve/'s bundlers (bundler.js, modules.js), with their defaults. `esm` is false, or
-// the Set of files left CommonJS (`commonJs`, kept across builds); the rest are ES modules esbuild links.
-// `checkImports` checks the imports of ES modules where esbuild doesn't link them (esm-imports.js).
+// The options of bundle() and serve/'s bundlers, with their defaults. `esm`: false, or the Set of files left
+// CommonJS (`commonJs`, kept across builds). `checkImports`: check ES imports esbuild doesn't link (esm-imports.js).
 export function withDefaults(options) {
   const given = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined))
   return {
@@ -75,15 +71,13 @@ export function withDefaults(options) {
     assetExts: defaults.assetExts,
     resolver: {},
     blockList: null,
-    // The bundle's.
     define: {},
     minify: false,
     sourcemap: false,
     prelude: null,
-    // Map<path, { contents, result, at }>: each file as last loaded (of the build at `at`), reused while its
+    // Map<path, { contents, result, at }>: each file as last loaded (by the build `at`), reused while its
     // contents are the same; a store of loaded files (serve/load-cache.js's, on disk across runs); and
-    // kept(path), a file to take as loaded, unread, else undefined (serve/bundler.js's, of a build its
-    // watcher caused).
+    // kept(path), a file to take as loaded, unread, else undefined (serve/bundler.js's, of a watcher's build).
     cache: null,
     store: null,
     kept: null,
@@ -131,9 +125,8 @@ export async function linking({ esm, cache, projectRoot }, build) {
   }
 }
 
-// esbuild takes .mjs and .mts files for Node's ES modules whatever their code: `exports` unbound, and
-// a default import of CommonJS the whole module.exports where Metro's (Babel's) interop takes
-// exports.default. So esbuild gets them by another name, mapped back in messages and maps.
+// esbuild takes .mjs/.mts files as Node's ES modules whatever their code (`exports` unbound, a default import of
+// CommonJS the whole module.exports, not Babel's exports.default): renamed for it, mapped back in messages and maps.
 const esbuildPath = (path) => path.replace(/\.m([jt])s$/u, '.m$1s.rn.$1s')
 const realPath = (path) => path.replace(/(\.m[jt]s)\.rn\.[jt]s$/u, '$1')
 const realMessage = (message) => (message.location?.file === undefined ? message : { ...message, location: { ...message.location, file: realPath(message.location.file) } })
@@ -293,7 +286,7 @@ const named = (projectRoot, path, namespace) => ({ path: posixRelative(projectRo
 export async function loadCached(options, path, bytes) {
   const contents = utf8(bytes)
   if (contents === null) return { errors: [{ text: 'Not UTF-8: the file has bytes UTF-8 has no character of', location: { file: posixRelative(options.projectRoot, path) } }] }
-  const { cache = null, store = null, esm = false } = options
+  const { cache, store = null, esm = false } = options
   const hit = cache?.get(path)
   if (hit?.contents === contents) {
     store?.note('memory')
@@ -306,8 +299,11 @@ export async function loadCached(options, path, bytes) {
   if (kept === null && store !== null) {
     const unkept = result.errors === undefined ? (why ?? (uncacheable ? 'external' : null)) : 'failed'
     store.note('misses')
-    if (unkept === null) store.set(key, result)
-    else store.note('unkept', unkept)
+    if (unkept === null) {
+      store.set(key, result)
+    } else {
+      store.note('unkept', unkept)
+    }
   }
   if (result.errors === undefined) cache?.set(path, { contents, result, at: options.at ?? null })
   return result

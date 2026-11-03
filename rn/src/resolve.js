@@ -54,14 +54,13 @@ export function createMetroResolver({
     custom,
     dev,
     extra,
-    // Caches: each package.json, real package root and redirect map, and each path's package.
+    // Caches of package.json by file, package by path, real path by root, redirects by package.json.
     manifests: new Map(),
     packages: new Map(),
     roots: new Map(),
     redirects: new WeakMap(),
   }
-  // Keyed like Metro's DependencyGraph _resolutionCache, so a config's resolveRequest also runs
-  // once per key.
+  // Keyed like Metro's DependencyGraph _resolutionCache, so resolveRequest runs once per key too.
   const resolved = new Map()
   return (originModulePath, specifier, { platform = null, isESMImport = false } = {}) => {
     if (!isAbsolute(originModulePath)) throw new TypeError(`resolve: the origin must be an absolute path, not ${JSON.stringify(originModulePath)}`)
@@ -117,8 +116,7 @@ function resolveRequest(context, specifier) {
   return fromTargetPath(context, join(extra, subpath)) ?? FAILED
 }
 
-// Each node_modules from the origin up, then the nodeModulesPaths not among them; only the
-// latter without hierarchical lookup.
+// Each node_modules from the origin up, then the other nodeModulesPaths: alone if not hierarchical.
 function nodeModulesDirs({ origin, nodeModulesPaths, disableHierarchicalLookup }) {
   if (disableHierarchicalLookup) return nodeModulesPaths
   const above = []
@@ -136,7 +134,6 @@ function fromTargetPath(context, targetPath) {
   return fromExports(context, pkg, pkg?.packageRelativePath ? `./${pkg.packageRelativePath}` : '.') ?? resolveModulePath(context, candidate)
 }
 
-// The package's exports target of `subpath`, where exports are read, else null.
 function fromExports(context, pkg, subpath) {
   if (!context.packageExports || pkg?.packageJson.exports == null) return null
   return packageTarget(context, pkg.rootPath, exportsTarget(pkg.packageJson.exports, subpath, context.conditions))
@@ -144,7 +141,7 @@ function fromExports(context, pkg, subpath) {
 
 // A package map's target is taken as is: no extension or index is probed.
 function packageTarget(context, rootPath, target) {
-  if (target === null || target === FAILED) return target
+  if (typeof target !== 'string') return target
   const filePath = join(rootPath, target)
   const asset = isAssetFile(filePath, context.assetExts) ? assetResolution(context, filePath) : null
   return asset ?? (context.host.isFile(filePath) ? sourceFile(context, filePath) : null)
@@ -170,8 +167,8 @@ function resolvePackageEntryPoint(context, packagePath) {
 // The name itself, then for each source extension the platform, native and plain files, each
 // through its package's redirects.
 function resolveFile(context, dirPath, fileName) {
-  if (isAssetFile(fileName, context.assetExts)) return assetResolution(context, join(dirPath, fileName))
   const prefix = join(dirPath, fileName)
+  if (isAssetFile(fileName, context.assetExts)) return assetResolution(context, prefix)
   if (context.host.isFile(prefix)) return sourceFile(context, prefix)
   for (const ext of context.sourceExts) {
     for (const suffix of context.suffixes) {
@@ -236,8 +233,11 @@ function match({ mainFields, redirects }, subpaths, pkg) {
       const value = pkg[field]
       if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
       for (const [key, to] of Object.entries(value)) {
-        if (typeof to === 'string' || to === false) merged.set(key, to)
-        else merged.delete(key)
+        if (typeof to === 'string' || to === false) {
+          merged.set(key, to)
+        } else {
+          merged.delete(key)
+        }
       }
     }
     return merged

@@ -5,17 +5,9 @@ import { dirname, relative, resolve } from 'node:path'
 
 const isRelativePath = (path) => /^\.?\.\//u.test(path)
 
-// A key that is no pattern matches as the plugin's `^key(/.*|)$` would.
+// [RegExp, (groups) => target] of an alias, as the plugin's normalizeOptions makes them.
 function matcher(key, value) {
-  if (!key.startsWith('^') && !key.endsWith('$')) {
-    const exec = (specifier) => {
-      if (!specifier.startsWith(key)) return null
-      const rest = specifier.slice(key.length)
-      // `.` matches no line terminator.
-      return rest === '' || (rest.startsWith('/') && !/[\n\r\u2028\u2029]/u.test(rest)) ? [specifier, rest] : null
-    }
-    return [{ exec }, ([, rest]) => `${value}${rest}`]
-  }
+  if (!key.startsWith('^') && !key.endsWith('$')) return [new RegExp(`^${RegExp.escape(key)}(/.*|)$`, 'u'), ([, rest]) => `${value}${rest}`]
   let regExp
   try {
     // No `u`, as the plugin builds it: `u` would reject some patterns it accepts.
@@ -29,9 +21,7 @@ function matcher(key, value) {
 }
 
 export function createAliases(alias, cwd) {
-  if (alias === null || typeof alias !== 'object' || Array.isArray(alias) || !Object.values(alias).every((value) => typeof value === 'string')) {
-    throw new TypeError('alias must be an object mapping each alias to a string')
-  }
+  if (alias === null || typeof alias !== 'object' || Array.isArray(alias) || !Object.values(alias).every((value) => typeof value === 'string')) throw new TypeError('alias must be an object mapping each alias to a string')
   const matchers = Object.entries(alias).map(([key, value]) => matcher(key, value))
   return (file, specifier) => {
     if (isRelativePath(specifier) || specifier === '.') return null
@@ -51,18 +41,17 @@ export function createAliases(alias, cwd) {
 // createAliases() of a file's { alias, cwd } (load.js), made once per object and per value,
 // since a load cache restores equal copies; null where createAliases() throws.
 export function aliasing(of) {
-  if (!OF.has(of)) {
-    const key = JSON.stringify([of.alias, of.cwd])
-    if (!MADE.has(key)) {
-      try {
-        MADE.set(key, createAliases(of.alias, of.cwd))
-      } catch {
-        MADE.set(key, null)
-      }
+  if (OF.has(of)) return OF.get(of)
+  const key = JSON.stringify([of.alias, of.cwd])
+  if (!MADE.has(key)) {
+    try {
+      MADE.set(key, createAliases(of.alias, of.cwd))
+    } catch {
+      MADE.set(key, null)
     }
-    OF.set(of, MADE.get(key))
   }
-  return OF.get(of)
+  OF.set(of, MADE.get(key))
+  return MADE.get(key)
 }
 const MADE = new Map()
 const OF = new WeakMap()
