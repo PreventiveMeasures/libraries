@@ -5,6 +5,7 @@
 export const FAILED = Symbol('failed')
 const NO_MATCH = Symbol('no match')
 const REFUSED = Symbol('refused')
+const INVALID_SEGMENTS = new Set(['', '.', '..', 'node_modules'])
 
 // normalizeExportsField.
 function exportsMap(exportsField) {
@@ -17,9 +18,8 @@ function exportsMap(exportsField) {
   const entries = Object.entries(root)
   if (entries.some(([, value]) => Array.isArray(value) && (value.length === 0 || Array.isArray(value[0])))) return null
   const flat = new Map(entries.map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]))
-  const keys = [...flat.keys()]
-  if (keys.every((key) => key.startsWith('.') || key.startsWith('#'))) return flat
-  return keys.some((key) => key.startsWith('.')) ? null : new Map([['.', Object.fromEntries(flat)]])
+  if (flat.keys().every((key) => key.startsWith('.') || key.startsWith('#'))) return flat
+  return flat.keys().some((key) => key.startsWith('.')) ? null : new Map([['.', Object.fromEntries(flat)]])
 }
 
 // What the pattern's `*` stands for in `subpath`, else null.
@@ -47,26 +47,20 @@ function reduce(value, conditions) {
 // exact key wins even when null; else the pattern with the longest base, then the longest pattern.
 function target(map, subpath, conditions) {
   if (!map.has(subpath) && !map.keys().some((key) => key.split('*').length === 2 && patternMatch(key, subpath) !== null)) return null
-  const reduced = new Map()
-  for (const [key, value] of map) {
-    const to = reduce(value, conditions)
-    if (to === REFUSED) return null
-    reduced.set(key, typeof to === 'string' ? to : null)
-  }
-  if (reduced.values().some((to) => to !== null && !to.startsWith('./'))) return null
+  const reduced = new Map([...map].map(([key, value]) => [key, reduce(value, conditions)]))
+  if (reduced.values().some((to) => to === REFUSED || (typeof to === 'string' && !to.startsWith('./')))) return null
   const patterns = [...reduced.keys()].filter((key) => key.includes('*')).toSorted((a, b) => b.indexOf('*') - a.indexOf('*') || b.length - a.length)
   const key = reduced.has(subpath) ? subpath : patterns.find((pattern) => patternMatch(pattern, subpath) !== null)
-  const to = reduced.get(key) ?? null
-  // As a replacement string, as Metro puts it in: a `$&` in the match is the `*`.
-  return to === null ? null : { to, path: key === subpath ? to : to.replaceAll('*', patternMatch(key, subpath)) }
+  const to = reduced.get(key)
+  if (typeof to !== 'string') return null
+  // A replacement string, as Metro uses it: a `$&` in the match is the `*`.
+  return { to, path: key === subpath ? to : to.replaceAll('*', patternMatch(key, subpath)) }
 }
-
-const INVALID_SEGMENTS = new Set(['', '.', '..', 'node_modules'])
 
 // The package-relative target of `subpath` (`.` or `./x`), null, or FAILED.
 export function exportsTarget(exportsField, subpath, conditions) {
   const map = exportsMap(exportsField)
-  if (map === null || map === FAILED) return map
+  if (!(map instanceof Map)) return map
   const found = target(map, subpath, conditions)
   // Segments are checked as the target spells them, before `*` is replaced.
   if (found === null || found.to.slice(2).split(/[\\/]/u).some((segment) => INVALID_SEGMENTS.has(segment))) return null

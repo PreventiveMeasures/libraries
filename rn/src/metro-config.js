@@ -4,12 +4,9 @@
 const LIST_METHODS = new Set(['concat', 'filter', 'slice'])
 
 function walk(node, fn) {
-  if (Array.isArray(node)) {
-    for (const child of node) walk(child, fn)
-  } else if (typeof node?.type === 'string') {
-    fn(node)
-    for (const child of Object.values(node)) walk(child, fn)
-  }
+  const isNode = typeof node?.type === 'string'
+  if (isNode) fn(node)
+  if (isNode || Array.isArray(node)) for (const child of Object.values(node)) walk(child, fn)
 }
 
 const string = (node) => (node.type === 'Literal' && typeof node.value === 'string' ? node.value
