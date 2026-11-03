@@ -89,7 +89,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     // A file changed, as a watcher saw it (`path`, its `event`, fs.watch()'s): each build is stale, and the
     // next builds again what the change may make another: the file, and each under it (a directory), let go
     // from the files kept in memory, and its resolutions (resolution.js's resolutionOf()) of the change. Of
-    // no path (a reload `r` asks for), each builds all anew, resolving and reading each file again.
+    // no path (a rebuild `b` asks for), each builds all anew, resolving and reading each file again.
     changed(path = null, event = null) {
       version++
       for (const build of builds.values()) {

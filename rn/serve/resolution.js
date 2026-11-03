@@ -50,7 +50,7 @@ export function keptLookups(host) {
 
 // A bundler's resolver, kept in memory across its watcher-caused builds: (changes, read) => Metro's resolver,
 // each resolution made once, its lookups (keptLookups()) noted in `read`; made anew of a full build (`changes`
-// null: a bundle's first, or one `r` asks for) or of changes after which what it looked up no longer holds.
+// null: a bundle's first, or one `b` asks for) or of changes after which what it looked up no longer holds.
 export function resolutionOf(run) {
   let kept = null
   return (changes, read) => {
