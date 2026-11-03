@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -200,17 +200,36 @@ describe('metroOptions, of none loaded (rn.config.json\'s metroConfig false)', (
   })
   const optionsOf = (dir) => metroOptions(dir, peers(dir, assert.fail), assert.fail, { file: false, name: 'rn-bundle' })
 
-  it("loads neither metro-config nor @react-native/metro-config: React Native's defaults, its requires inlined by its Metro's plugin, a package's exports read, Metro's blockList", async () => {
+  it("loads neither metro-config nor @react-native/metro-config: React Native's defaults, a package's exports read, Metro's blockList", async () => {
     const options = await optionsOf(root)
     assert.deepEqual([options.file, options.resolver.packageExports], [null, true])
     assert.deepEqual(options.blockList.map(({ source }) => source), [(await metroBlockList(root)).source])
-    assert.deepEqual(await options.inlineRequires(join(root, 'index.js'), { platform: 'ios', dev: true }), { plugin: METRO_PLUGINS, options: { ignoredRequires: NOT_INLINED, memoizeCalls: false, nonMemoizedModules: [] }, blockList: [] })
     assert.equal(await options.transformRefusal(join(root, 'index.js'), { platform: 'ios', dev: true }), null)
   })
 
-  it('inlines none where the project has no Metro, its exports read still', async () => {
-    const options = await optionsOf(bare.root)
-    assert.deepEqual([options.resolver.packageExports, await options.inlineRequires(join(bare.root, 'index.js'), { platform: 'ios', dev: true })], [true, null])
+  // The plugin that inlines them, of each of options' inlineRequires.
+  const pluginOf = async (dir, project = peers(dir, assert.fail)) => {
+    const inline = await (await metroOptions(dir, project, assert.fail, { file: false, name: 'rn-bundle' })).inlineRequires(join(dir, 'index.js'), { platform: 'ios', dev: true })
+    if (inline !== null) assert.deepEqual([inline.options, inline.blockList], [{ ignoredRequires: NOT_INLINED, memoizeCalls: false, nonMemoizedModules: [] }, []])
+    return inline?.plugin ?? null
+  }
+  // A project of none of metro-transform-plugins of its own, nor beside rn/.
+  const without = (dir) => ({ ...peers(dir, assert.fail), locate: (name) => (name === 'metro-transform-plugins' ? null : peers(dir, assert.fail).locate(name)) })
+
+  it("inlines its requires by metro-transform-plugins' plugin, an optional peer: the project's own first", async () => {
+    const own = writeTree({ 'package.json': { name: 'own' }, 'node_modules/metro-transform-plugins/package.json': { name: 'metro-transform-plugins', main: 'index.js' }, 'node_modules/metro-transform-plugins/index.js': never })
+    try {
+      assert.equal(await pluginOf(own.root), realpathSync(join(own.root, 'node_modules/metro-transform-plugins/index.js')))
+    } finally {
+      own.cleanup()
+    }
+  })
+
+  it("else the one beside rn/, else its Metro's, else none", async () => {
+    assert.equal(await pluginOf(bare.root), fromHere.resolve('metro-transform-plugins'))
+    assert.equal(await pluginOf(root, without(root)), METRO_PLUGINS)
+    assert.equal(await pluginOf(bare.root, without(bare.root)), null)
+    assert.equal((await optionsOf(bare.root)).resolver.packageExports, true)
   })
 })
 

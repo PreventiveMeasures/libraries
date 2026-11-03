@@ -89,10 +89,14 @@ function transformPluginsOf(metroConfig) {
   }
 }
 
-// Metro's metro-transform-plugins, of the project's Metro, as no metro-config
-// is loaded to have it: its own, else react-native's (its CLI's), else
-// @react-native/metro-config's; null where it has none. Of paths alone.
+// Metro's metro-transform-plugins, as no metro-config is loaded to have it,
+// an optional peer: the project's, else the one beside rn/; else its
+// Metro's (its own, else react-native's, of its CLI's, else
+// @react-native/metro-config's), which a project of pnpm reaches through it
+// alone; null where there's none. Of paths alone.
 function metroPluginsOf(project) {
+  const peer = project.locate('metro-transform-plugins')
+  if (peer !== null) return peer
   const metro = locateThrough(project, 'metro', ['react-native', '@react-native/community-cli-plugin']) ?? locateThrough(project, 'metro', ['@react-native/metro-config', 'metro-config'])
   return metro === null ? null : tryResolve(createRequire(metro), 'metro-transform-plugins')
 }

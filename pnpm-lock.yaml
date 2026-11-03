@@ -151,6 +151,9 @@ importers:
       metro-runtime-0.81:
         specifier: npm:metro-runtime@0.81.5
         version: metro-runtime@0.81.5
+      metro-transform-plugins:
+        specifier: 0.87.2
+        version: 0.87.2
       oxc-parser:
         specifier: ^0.152.0
         version: 0.152.0
