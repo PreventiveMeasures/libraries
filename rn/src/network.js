@@ -1,40 +1,20 @@
-// React Native DevTools' Network panel, for an app whose runtime reports no
-// request (React Native before 0.83): dev-middleware shows the panel
-// (its enableNetworkInspector), and where the app answers the panel's
-// Network.enable with an error, rn-serve answers it, and sends the panel each
-// request the app's reporter (app/network.js, in each dev bundle) tells it of,
-// as CDP's Network events: requestWillBeSent, responseReceived,
-// loadingFinished or loadingFailed; and the response's body for
-// Network.getResponseBody, the newest kept, MAX_BODIES characters of them,
-// as React Native's own keeps 100 MB of them. A runtime that answers
-// Network.enable reports its requests itself: rn-serve leaves its DevTools
-// be.
-// An app's requests go to the DevTools of its runtime alone: a reporter
-// names itself (an id of its own, which it keeps on the global object, as
-// REPORTER_GLOBAL), and rn-serve asks the runtime of each DevTools it serves
-// which it has (Runtime.evaluate, its answer the DevTools never sees), as it
-// serves it and as a reporter says hello; their call stacks in the scripts
-// the runtime parsed (Debugger.scriptParsed), for the Initiator. Each
-// DevTools by its connection (dev-middleware's custom inspector message
-// handler, of each device and debugger), until its socket closes. A reporter
-// keeps the requests of the app's start until rn-serve first says: rn-serve
-// has it report while a DevTools is there for it, lets it wait while one may
-// yet be (one connected, its runtime not asked yet, or one just gone, of an
-// app reloaded), for `wait` ms at most; and else has it not report.
+// DevTools' Network panel for runtimes that report no requests (React Native < 0.83): where the app answers
+// Network.enable with an error, rn-serve answers it and relays, as CDP Network events, the requests that
+// app/network.js (in each dev bundle) reports. Runtimes that answer Network.enable are left alone.
 
 import { STATUS_CODES } from 'node:http'
 import { fileURLToPath } from 'node:url'
 
-// The reporter: in each dev bundle rn-serve serves where DevTools are.
+// Injected into each dev bundle when DevTools are available.
 export const REPORTER = fileURLToPath(new URL('../app/network.js', import.meta.url))
-// Where the reporter keeps its id on the app's global object (app/network.js's).
+// Where app/network.js keeps the reporter's id on the global object.
 const REPORTER_GLOBAL = '__rnServeReporter'
-// rn-serve's own requests of a runtime: of ids no DevTools sends.
+// Ids of rn-serve's own requests to a runtime start here, past any a DevTools sends.
 const ASKED = 1_000_000_000
 
+// Characters of response bodies kept, as React Native's own inspector keeps 100 MB.
 const MAX_BODIES = 100 * 1024 * 1024
-// How long a reporter is let keep the requests of the app's start for a
-// DevTools that may yet be there for it.
+// How long a reporter may hold its startup requests for a DevTools that may yet connect.
 const WAIT = 10_000
 const MAX_FRAMES = 50
 const TYPE = 'XHR'
@@ -43,8 +23,6 @@ const isObject = (value) => typeof value === 'object' && value !== null && !Arra
 const isTime = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const headersOf = (value) => (isObject(value) ? Object.fromEntries(Object.entries(value).filter(([, each]) => typeof each === 'string')) : {})
 
-// -> { handler(connection), debuggerConnected(socket), reporter(client) ->
-// { onMessage, onClose } }.
 export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } = {}) {
   const sessions = new Set()
   const reporters = new Set()
@@ -54,13 +32,11 @@ export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } =
   let asked = ASKED
   let ended = -Infinity
 
-  // A session's `network`: 'pending' until its runtime answers Network.enable;
-  // 'native', where it reports its requests itself; 'served', by rn-serve;
-  // 'off', where its DevTools disabled it since. Its `reporter`: the id of
-  // the reporter its runtime has, where rn-serve serves it and has asked.
+  // A session's `network` is 'pending' until its runtime answers Network.enable, then 'native' (it reports
+  // itself) or 'served' (by rn-serve), and 'off' once DevTools disable it. `reporter` is its runtime's reporter id.
   const servedBy = (reporter) => [...sessions].filter((session) => session.network === 'served' && reporter.id !== null && session.reporter === reporter.id)
-  // 'wait', while a DevTools may yet be this reporter's: one not decided, one
-  // whose runtime is asked, or has a reporter none known here, or one just gone.
+  // A reporter holds its startup requests until told: 'on' while a DevTools serves it; 'wait' while one may yet
+  // (one undecided, its runtime being asked or naming an unknown reporter, or one just gone); else 'off'.
   const verdict = (reporter) => {
     if (servedBy(reporter).length > 0) return 'on'
     const known = new Set([...reporters].map(({ id }) => id))
@@ -69,7 +45,7 @@ export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } =
   }
   const told = (reporter) => tell(reporter, verdict(reporter), wait)
   const retell = () => reporters.forEach(told)
-  // Which reporter the session's runtime has.
+  // Asks the runtime for its reporter's id (DevTools never see this), so an app's requests reach only its DevTools.
   const ask = (session) => {
     session.asking.add(++asked)
     session.device.sendMessage({ id: asked, method: 'Runtime.evaluate', params: { expression: `globalThis.${REPORTER_GLOBAL}`, returnByValue: true } })
@@ -80,14 +56,13 @@ export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } =
   const end = (session) => {
     if (!sessions.delete(session)) return
     ended = Date.now()
-    // Of no DevTools served, no body is asked for again.
+    // With no DevTools served, no body is asked for again.
     if (![...sessions].some(({ network }) => network === 'served')) bodies.clear()
     retell()
   }
 
   return {
-    // dev-middleware's unstable_customInspectorMessageHandler: a DevTools
-    // of a device, which has one at a time.
+    // dev-middleware's unstable_customInspectorMessageHandler, per DevTools connection; a device has one at a time.
     handler({ device, debugger: frontend }) {
       for (const other of sessions) if (other.device.id === device.id && other.socket === null) end(other)
       const session = { device, frontend, socket: connecting, enabling: new Set(), asking: new Set(), network: 'pending', reporter: null, scripts: new Map() }
@@ -98,15 +73,14 @@ export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } =
         handleDeviceMessage: (message) => deviceMessage(session, message, { retell, ask }),
       }
     },
-    // The socket of /inspector/debug a handler is made for as it connects,
-    // before dev-middleware's own listener: its close ends that DevTools.
+    // Prepended to /inspector/debug's listeners: the handler made next takes this socket, and ends on its close.
     debuggerConnected(socket) {
       connecting = socket
       queueMicrotask(() => {
         if (connecting === socket) connecting = null
       })
     },
-    // An app's reporter, on rn-serve's /network.
+    // An app's reporter, connected to rn-serve's /network.
     reporter(client) {
       const reporter = { client, n: ++count, id: null, said: false, state: 'new', timer: null, inflight: new Set(), time: 0 }
       reporters.add(reporter)
@@ -115,7 +89,7 @@ export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } =
         onClose: () => {
           reporters.delete(reporter)
           clearTimeout(reporter.timer)
-          // What it left going, failed: the app is gone, or reloaded.
+          // Its requests in flight fail: the app is gone, or reloaded.
           const served = servedBy(reporter)
           for (const id of reporter.inflight) send(served, () => ({ method: 'Network.loadingFailed', params: { requestId: id, timestamp: reporter.time, type: TYPE, errorText: 'The app went away', canceled: false } }))
         },
@@ -124,21 +98,18 @@ export function createNetworkInspector({ wait = WAIT, maxBodies = MAX_BODIES } =
   }
 }
 
-// A message of the DevTools to its app. -> true where rn-serve answers it.
+// A message from DevTools to the app; true if rn-serve answers it instead.
 function debuggerMessage(session, message, { bodies, retell }) {
-  if (!isObject(message) || typeof message.method !== 'string') return undefined
-  if (message.method === 'Network.enable') {
-    session.enabling.add(message.id)
-    return undefined
-  }
+  const method = message?.method
+  if (method === 'Network.enable') session.enabling.add(message.id)
   if (session.network !== 'served') return undefined
-  if (message.method === 'Network.disable') {
+  if (method === 'Network.disable') {
     session.network = 'off'
     session.frontend.sendMessage({ id: message.id, result: {} })
     retell()
     return true
   }
-  if (message.method === 'Network.getResponseBody') {
+  if (method === 'Network.getResponseBody') {
     const body = bodies.get(message.params?.requestId)
     session.frontend.sendMessage(body === null ? { id: message.id, error: { code: -32_000, message: 'No data found for resource with given identifier' } } : { id: message.id, result: body })
     return true
@@ -146,13 +117,13 @@ function debuggerMessage(session, message, { bodies, retell }) {
   return undefined
 }
 
-// A message of the app to its DevTools. -> true where it is rn-serve's: the
-// answer to what it asked, or an error of Network.enable, which rn-serve
-// answers in its place; its answer else says it reports its requests itself.
+// A message from the app to DevTools; true if it is for rn-serve: an answer to rn-serve's question, or a
+// Network.enable error, which rn-serve answers in the app's place. A Network.enable success means 'native'.
 function deviceMessage(session, message, { retell, ask }) {
   if (!isObject(message)) return undefined
-  if (message.method === 'Debugger.scriptParsed' && isObject(message.params) && typeof message.params.url === 'string' && message.params.url !== '') {
-    session.scripts.set(message.params.url, String(message.params.scriptId))
+  const url = message.params?.url
+  if (message.method === 'Debugger.scriptParsed' && typeof url === 'string' && url !== '') {
+    session.scripts.set(url, String(message.params.scriptId))
     return undefined
   }
   if (!('id' in message)) return undefined
@@ -175,8 +146,7 @@ function deviceMessage(session, message, { retell, ask }) {
   return true
 }
 
-// Has the reporter report ('on'), or not; one not told yet let keep the
-// requests of the app's start for `wait` ms at most where it may yet.
+// Tells the reporter 'on' or 'off'; one not yet told may wait up to `wait` ms first.
 function tell(reporter, verdict, wait) {
   if (!reporter.said) return
   if (verdict === 'wait' && reporter.state === 'new') {
@@ -190,7 +160,7 @@ function tell(reporter, verdict, wait) {
   if (reporter.state !== state) say(reporter, state)
 }
 
-// Told not to, it tells of nothing more, of what it left going too.
+// Once off, a reporter reports nothing more, not even the requests it had in flight.
 function say(reporter, state) {
   clearTimeout(reporter.timer)
   reporter.timer = null
@@ -203,8 +173,7 @@ const send = (sessions, eventOf) => {
   for (const session of sessions) session.frontend.sendMessage(eventOf(session))
 }
 
-// A message of a reporter: its hello, which names it, then each request's
-// events, as app/network.js sends them.
+// A reporter's message: its hello with its id, then each request's events.
 function reported(reporter, text, { servedBy, told, askServed, bodies }) {
   let message
   try {
@@ -216,7 +185,7 @@ function reported(reporter, text, { servedBy, told, askServed, bodies }) {
   if (message.type === 'hello') {
     reporter.id = typeof message.reporter === 'string' && message.reporter !== '' ? message.reporter : null
     reporter.said = true
-    // Its runtime's DevTools, if one is there, says so.
+    // A DevTools of its runtime, if any, now answers with its id.
     askServed()
     return told(reporter)
   }
@@ -236,7 +205,7 @@ function reported(reporter, text, { servedBy, told, askServed, bodies }) {
   send(servedBy(reporter), event)
 }
 
-// Each event of a request as CDP's: null where the message is no such event.
+// A reporter's event as CDP's, or null if the message is malformed.
 const EVENTS = {
   request: (requestId, { url, method, headers, postData, hasPostData, time, wallTime, stack }, session) => {
     if (typeof url !== 'string' || typeof method !== 'string' || !isTime(time) || !isTime(wallTime)) return null
@@ -252,8 +221,7 @@ const EVENTS = {
   failed: (requestId, { time, error, canceled }) => (isTime(time) ? { method: 'Network.loadingFailed', params: { requestId, timestamp: time, type: TYPE, errorText: typeof error === 'string' ? error : '', canceled: canceled === true } } : null),
 }
 
-// A request's call stack, React Native's parseErrorStack()'s frames, in the
-// scripts the DevTools' runtime parsed: what of it the Initiator has.
+// The Initiator of a request from its stack (React Native's parseErrorStack() frames), in the runtime's parsed scripts.
 function initiatorOf(stack, session) {
   if (!Array.isArray(stack) || session === null) return { type: 'other' }
   const callFrames = stack.slice(0, MAX_FRAMES).filter((frame) => isObject(frame) && typeof frame.file === 'string' && Number.isSafeInteger(frame.lineNumber) && frame.lineNumber > 0).map(({ methodName, file, lineNumber, column }) => ({
@@ -266,10 +234,7 @@ function initiatorOf(stack, session) {
   return callFrames.some(({ scriptId }) => scriptId !== '') ? { type: 'script', stack: { callFrames } } : { type: 'other' }
 }
 
-// The responses' bodies, as their chunks come, each in order (`at`, its
-// offset), joined as the last comes, the oldest dropped past `max`
-// characters of them. -> { add(id, { data, at, more }, base64), get(id) ->
-// { body, base64Encoded }, else null, clear() }.
+// Response bodies assembled from in-order chunks (`at` is the offset), dropping the oldest past `max` characters.
 function createBodies(max) {
   const kept = new Map()
   let size = 0
@@ -277,6 +242,7 @@ function createBodies(max) {
     add(id, { data, at, more }, base64) {
       const body = kept.get(id) ?? { chunks: [], base64, size: 0, text: null }
       if (body.text !== null || at !== body.size) return
+      // Re-added below, as the newest.
       kept.delete(id)
       body.chunks.push(data)
       body.size += data.length
