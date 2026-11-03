@@ -31,7 +31,7 @@ const stat = (path) => {
 }
 
 // readFileAsync reads off the main thread, for a build's read-ahead (bundle.js); dirents lists a
-// directory with types for build-host.js's listing(), throwing if there is none.
+// directory with types for build-host.js's buildHost(), throwing if there is none.
 export const diskHost = freeze({
   isFile: (path) => stat(path)?.isFile() ?? false,
   isDirectory: (path) => stat(path)?.isDirectory() ?? false,

@@ -158,6 +158,7 @@ describe('bundle, of a manifest that is no JSON', () => {
     try {
       const error = await bundler.rebuild().then(() => null, (failure) => failure)
       assert.ok(Array.isArray(error?.errors), String(error))
+      assert.equal(error.errors.length, 1, error.errors.map(({ text }) => text).join('\n'))
       assert.ok(error.files.includes(join(root, 'package.json')), String(error.files))
       writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app' }))
       assert.equal(run(js(await bundler.rebuild())), 1)
