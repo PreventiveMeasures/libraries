@@ -41,7 +41,7 @@ const OPTIONS = {
 
 const fail = failer('rn-cli')
 
-// Parses as commander does, into a Map of each name to its value or true.
+// Parses as commander does: each name to its value, or true.
 function parse(argv) {
   const values = new Map()
   for (let at = 0; at < argv.length; at++) {
@@ -64,10 +64,10 @@ function parse(argv) {
 }
 
 // rn-bundle's arguments for Metro's options.
-function translate(values, cwd) {
+function translate(values) {
   if (values.has('transformer')) fail('--transformer: rn-bundle transforms by esbuild and the project\'s Babel config alone')
   if (values.has('resolver-option')) fail('--resolver-option: rn-bundle resolves as Metro does by default alone')
-  if (values.has('bundle-encoding') && !['utf8', 'utf-8'].includes(String(values.get('bundle-encoding')).toLowerCase())) fail('--bundle-encoding: rn-bundle writes utf8 alone')
+  if (values.has('bundle-encoding') && !['utf8', 'utf-8'].includes(values.get('bundle-encoding').toLowerCase())) fail('--bundle-encoding: rn-bundle writes utf8 alone')
   for (const name of ['entry-file', 'bundle-output']) {
     if (!values.has(name)) fail(`--${name} is required`)
   }
@@ -77,7 +77,7 @@ function translate(values, cwd) {
   const platform = values.get('platform') ?? 'ios'
   const dev = bool('dev', true)
   const args = [`--platform=${platform}`, `--output=${values.get('bundle-output')}`]
-  // An option rn-bundle takes as it is, if given.
+  // An option rn-bundle takes as is.
   const pass = (name) => {
     if (values.has(name)) args.push(`--${name}=${values.get(name)}`)
   }
@@ -91,9 +91,9 @@ function translate(values, cwd) {
     pass('sourcemap-sources-root')
     if (values.has('sourcemap-use-absolute-path')) args.push('--sourcemap-use-absolute-path')
   }
-  if (values.has('config')) args.push(`--metro-config=${resolve(cwd, values.get('config'))}`)
+  if (values.has('config')) args.push(`--metro-config=${resolve(values.get('config'))}`)
   pass('max-workers')
-  // 'default' is rn-bundle's default too, so it isn't passed.
+  // 'default' is rn-bundle's default too.
   if (values.get('unstable-transform-profile') !== 'default') pass('unstable-transform-profile')
   return [...args, '--', values.get('entry-file')]
 }
@@ -103,7 +103,7 @@ if (command === undefined || ['--help', '-h', 'help'].includes(command) || argv.
   process.stdout.write(USAGE)
 } else if (command === 'bundle') {
   const values = parse(argv)
-  const args = translate(values, process.cwd())
+  const args = translate(values)
   if (values.has('verbose')) process.stderr.write(`rn-cli: rn-bundle ${args.join(' ')}\n`)
   const child = spawnSync(process.execPath, [...process.execArgv, RN_BUNDLE, ...args], { stdio: 'inherit' })
   if (child.error !== undefined) throw child.error

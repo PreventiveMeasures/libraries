@@ -89,11 +89,11 @@ function babelConfigOf(cwd, project) {
   return preset === null ? null : { options: { configFile: false }, what: '@react-native/babel-preset', preset }
 }
 
-// The project's Babel config, run by the @babel/core Metro's transformer uses, as a function of
-// { platform, dev, inlineRequires } to bundle()'s Babel options, one set of workers per target.
-// Null without a config, or with only the preset and no @babel/core. ownPlugins(dev): plugins run on
-// the project's own files, after the config's ([path, options]; rn-serve's Fast Refresh); `fingerprinter`,
-// the module the workers make their fingerprint with (babel-worker.js), for a cache of their output.
+// The project's Babel config, run by the @babel/core of Metro's transformer: a function of
+// { platform, dev, inlineRequires } to bundle()'s Babel options, with workers per target. Null
+// without a config, or with only the preset and no @babel/core. ownPlugins(dev): [path, options]
+// run on the project's own files after the config's (rn-serve's Fast Refresh). `fingerprinter`:
+// the module the workers fingerprint with (babel-worker.js), for a cache of their output.
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, switches = () => [] } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
@@ -126,8 +126,8 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     return {
       profile: timed,
       babel,
-      // The config's plugins, but those switched off, and those switched on, FORCED; then Metro's
-      // inline-requires, which the workers run after them.
+      // The config's plugins less those switched off, plus those switched on, FORCED; then Metro's
+      // inline-requires, which the workers run last.
       babelPlugins: async (filename) => {
         const plugins = pluginsByKey((await loadCore().loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
         if (switched.length > 0) {
@@ -139,8 +139,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
         }
         return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
       },
-      // For a cache of the workers' output (serve/load-cache.js): their options and fingerprint, and the
-      // config's core and options, of which it keys each file.
+      // For a cache of the workers' output (serve/load-cache.js), which keys each file by these.
       ...(fingerprinter !== null && { workerOptions, fingerprint: babel.fingerprint, core: loadCore, configOptions: options }),
     }
   }

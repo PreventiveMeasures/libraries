@@ -1,14 +1,11 @@
-// A project's rn.config.json, in the root where rn-bundle, rn-serve and rn-cli run: defaults for
-// their flags, which override it. Its lists add to Metro's defaults; a Metro config that sets one
-// differently is an error, so asset-exts.js can skip reading it. Unknown or mistyped options are errors.
-// `babel` switches Babel plugins on and off (babel-switches.js). `inlineRequires` sets Metro's inline
-// requires, a Metro config of its own getTransformOptions that sets them otherwise an error. A build has
-// one of three modes: inline requires, each module run where first used and each import of an ES module
-// checked as esbuild links them (esm-imports.js); or none, its modules made CommonJS by Babel; or none and
-// `esm`, its ES modules linked by esbuild, each run as it is imported: `esm` with inline requires is an
-// error. `development` and `production` set the options of dev builds and release builds (babel, esm,
-// inlineRequires): an option is set either at the top level, for both, or in either or both of them,
-// never in both places.
+// rn.config.json, in the project root: defaults for the flags of rn-bundle, rn-serve and rn-cli.
+// Unknown or mistyped options are errors. Its lists add to Metro's defaults, and a Metro config that
+// sets one otherwise is an error, so asset-exts.js needn't read that config. `babel` switches Babel
+// plugins (babel-switches.js). `inlineRequires` sets Metro's inline requires (each module run where
+// first used); a Metro config's own getTransformOptions that disagrees is an error. `esm` has esbuild
+// link ES modules, each run as imported, so it can't go with inline requires. `development` and
+// `production` set babel, esm and inlineRequires for dev and release builds: an option is set there
+// or at the top level, never both.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -26,9 +23,9 @@ const extensions = [listOf((value) => typeof value === 'string' && /^[^./\\][^/\
 const isScale = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0) || (typeof value === 'string' && /^\d+(?:\.\d+)?$/u.test(value) && Number(value) > 0)
 const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-// Babel plugins by name, each true or false, in order.
+// Babel plugins by name, each on or off, in order.
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
-// The options a dev build's and a release build's own section may set.
+// What `development` and `production` may set.
 const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
 // Each option's [validator, description]; a section is an object of its own options.
 const OPTIONS = {
@@ -57,10 +54,9 @@ const OPTIONS = {
 }
 const MODES = ['development', 'production']
 
-// The first error of the options in `values`, of those in `options`, each named after `prefix`; or null.
+// The first error of `values` as `options`, each named after `prefix`; or null.
 const errorIn = (options, values, prefix) => Object.entries(values).map(([key, value]) => errorOf(options, key, value, `${prefix}${key}`)).find((error) => error !== null) ?? null
 
-// The error of `value` as `key` of `options`, shown as `name`; or null.
 function errorOf(options, key, value, name) {
   if (!Object.hasOwn(options, key)) return `no such option ${name}: it has ${Object.keys(options).join(', ')}`
   const option = options[key]
@@ -69,7 +65,7 @@ function errorOf(options, key, value, name) {
   return errorIn(option, value, `${name}.`)
 }
 
-// The project's rn.config.json: {} if it has none.
+// The project's rn.config.json, or {}.
 export function readRnConfig(projectRoot, fail) {
   let config
   try {
@@ -88,10 +84,7 @@ export function readRnConfig(projectRoot, fail) {
   return config
 }
 
-// The section of the options of a dev build, or a release build.
-const modeOf = (dev) => (dev ? 'development' : 'production')
-
-// The config as a dev build (or a release build) has it: its section's options, else the top level's.
+// The config of a dev build (or a release build): its section's options, else the top level's.
 export function inMode(config, dev) {
   const { development, production, ...rest } = config
   return { ...rest, ...(dev ? development : production) }
@@ -108,15 +101,15 @@ const LISTS = ['assetExts', 'sourceExts', 'assetResolutions']
 const listIn = (metro, key) => (key === 'assetExts' ? metro.assetExts : metro.resolver[key]) ?? defaults[key]
 // `base`, then each of `more` it lacks, once.
 export const added = (base, more) => [...base, ...new Set(more).difference(new Set(base))]
-// Whether two lists build alike: sourceExts in order, as imports try them in order; the rest as sets.
+// Whether two lists build alike: sourceExts in order, as imports try them so; the rest as sets.
 function alike(key, a, b) {
   const [ours, theirs] = [a, b].map((list) => new Set(list.map(String)))
   return key === 'sourceExts' ? isDeepStrictEqual([...ours], [...theirs]) : ours.symmetricDifference(theirs).size === 0
 }
 const shown = (list) => (list.length > 5 ? `${list.slice(0, 5).join(', ')} and ${list.length - 5} more` : list.join(', '))
 
-// The error of a list rn.config.json adds `additions` to that the loaded Metro config (`metro`) sets
-// other than a default does, with or without them; or null.
+// The error if the loaded Metro config sets the list `key` unlike any default, with or without
+// rn.config.json's `additions`; or null.
 function conflictOf(metro, key, additions) {
   const current = listIn(metro, key).map(String)
   if (metro.defaultLists.some((base) => alike(key, current, base[key]) || alike(key, current, added(base[key], additions)))) return null
@@ -143,43 +136,34 @@ export function extendedMetro(metro, config, fail) {
   return { ...metro, assetExts, resolver: { ...metro.resolver, sourceExts, assetResolutions }, maxWorkers: config.maxWorkers ?? metro.maxWorkers }
 }
 
-// A boolean flag: --name (`flagName`) if given, else the config's `name` (of a dev build's or a release
-// build's section, given `dev`, where it is set there), else `unset`; `by` names its source for errors,
-// and `flag` whether it is the flag.
+// A boolean option: --flagName if given, else the config's `name` (in the section for `dev`, if given
+// and set there), else `unset`. `by` names its source for errors.
 export function flagOf(flag, config, name, dev, { flagName = name, unset = false } = {}) {
   if (flag !== undefined) return { on: flag, by: `--${flag ? '' : 'no-'}${flagName}`, flag: true }
-  const mode = dev === undefined ? null : modeOf(dev)
-  if (mode !== null && config[mode]?.[name] !== undefined) return { on: config[mode][name], by: `${RN_CONFIG}'s ${mode}.${name}`, flag: false }
+  const mode = dev ? 'development' : 'production'
+  if (dev !== undefined && config[mode]?.[name] !== undefined) return { on: config[mode][name], by: `${RN_CONFIG}'s ${mode}.${name}`, flag: false }
   return { on: config[name] ?? unset, by: `${RN_CONFIG}'s ${name}`, flag: false }
 }
 
-// --inline-requires, else rn.config.json's inlineRequires, of a dev build or a release build: on is
-// null where neither sets them.
+// Its `on` is null where neither the flag nor the config sets them.
 export const inlineRequiresOf = (flag, config, dev) => flagOf(flag, config, 'inlineRequires', dev, { flagName: 'inline-requires', unset: null })
 
-// metroOptions()'s `metro` with inline requires as `wanted(dev)` (inlineRequiresOf()'s) sets them, else as
-// the Metro config does. Where rn.config.json sets them, a Metro config whose getTransformOptions is its
-// own and sets them otherwise refuses the bundle (transformRefusal), as does a lack of metro-transform-plugins;
-// and `esm(dev)` (flagOf()'s) on where they are, as esbuild links ES modules each run as it is imported.
+// metroOptions()'s `metro` with inline requires as `wanted(dev)` (inlineRequiresOf()'s) sets them,
+// else as the Metro config does. Its transformRefusal() refuses them without metro-transform-plugins,
+// against the Metro config's own getTransformOptions, or with `esm(dev)` (flagOf()'s) on.
 export function withInlineRequires(metro, wanted, esm = () => ({ on: false })) {
   const inlined = (entryPath, target) => {
     const { on } = wanted(target.dev)
     if (on === null) return metro.inlineRequires(entryPath, target)
     return on ? metro.inlining(entryPath, target) : Promise.resolve(null)
   }
-  // Where the build's inline requires are set.
-  const sourceOf = ({ on, by }) => {
-    if (on === null) return metro.file === null ? "React Native's defaults" : `${metro.file}'s transformer.getTransformOptions`
-    return by
-  }
   return {
     ...metro,
     inlineRequires: inlined,
     transformRefusal: async (entryPath, target) => {
       const refusal = await metro.transformRefusal(entryPath, target)
-      const set = wanted(target.dev)
-      const { on, by, flag } = set
       if (refusal !== null) return refusal
+      const { on, by, flag } = wanted(target.dev)
       if (on && (await metro.inlining(entryPath, target)) === null) return `${by} inlines requires with metro-transform-plugins, which the project lacks: npm i -D metro-transform-plugins`
       if (on !== null && !flag && metro.ownTransformOptions) {
         const given = (await metro.inlineRequires(entryPath, target)) !== null
@@ -187,7 +171,8 @@ export function withInlineRequires(metro, wanted, esm = () => ({ on: false })) {
       }
       const linking = esm(target.dev)
       if (!linking.on || (await inlined(entryPath, target)) === null) return null
-      return `${linking.by} links ES modules, each run as it is imported, and ${sourceOf(set)} inlines requires, each module run where first used: turn them off for it (--no-inline-requires, or rn.config.json's inlineRequires false), or leave esm off, the imports checked all the same`
+      const source = on === null ? (metro.file === null ? "React Native's defaults" : `${metro.file}'s transformer.getTransformOptions`) : by
+      return `${linking.by} links ES modules, each run as it is imported, and ${source} inlines requires, each module run where first used: turn them off for it (--no-inline-requires, or rn.config.json's inlineRequires false), or leave esm off, the imports checked all the same`
     },
   }
 }

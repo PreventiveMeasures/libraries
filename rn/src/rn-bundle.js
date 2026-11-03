@@ -46,7 +46,6 @@ const fail = (message) => {
   throw new Failed(message)
 }
 
-// rn-bundle's options, validated, as parseArgs gives them, and the entry.
 function argsOf(argv) {
   const { values, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true, allowNegative: true })
   if (positionals.length !== 1) fail('one entry file is required')
@@ -61,7 +60,7 @@ function argsOf(argv) {
 }
 
 export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.stderr } = {}) {
-  // Each Babel target's close(), for its workers, called at the end.
+  // Each Babel target's close() for its workers.
   const closing = []
   try {
     return await run(argsOf(argv), { cwd, stderr, closing })
@@ -74,7 +73,6 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
   }
 }
 
-// The build `args` asks for, and its --self-test: resolves to the exit code.
 async function run(args, { cwd, stderr, closing }) {
   const { platform, dev, entry } = args
   const sourcemap = args['sourcemap-output'] !== undefined
@@ -84,11 +82,12 @@ async function run(args, { cwd, stderr, closing }) {
   // reads it, omitting worklets' locations and maps in production.
   process.env.NODE_ENV = env
   const rnConfig = readRnConfig(cwd, fail)
-  const esm = flagOf(args.esm, rnConfig, 'esm', dev)
+  const esmOf = (forDev) => flagOf(args.esm, rnConfig, 'esm', forDev)
+  const inliningOf = (forDev) => inlineRequiresOf(args['inline-requires'], rnConfig, forDev)
   const project = peers(cwd, fail)
   const esbuild = project.peer('esbuild', 'bundling')
   const metroConfig = extendedMetro(await metroOptions(cwd, project, fail, { file: metroConfigOf(args['metro-config'], rnConfig), name: 'rn-bundle', minify: args.minify }), rnConfig, fail)
-  const metro = withInlineRequires(metroConfig, (forDev) => inlineRequiresOf(args['inline-requires'], rnConfig, forDev), (forDev) => flagOf(args.esm, rnConfig, 'esm', forDev))
+  const metro = withInlineRequires(metroConfig, inliningOf, esmOf)
   const entryPath = resolve(cwd, entry)
   const target = { platform, dev }
   const transformRefusal = await metro.transformRefusal(entryPath, target)
@@ -102,18 +101,18 @@ async function run(args, { cwd, stderr, closing }) {
     return babel
   }
   const babel = babelOf({ profile: args.profile, warm: bigBuild(project) })
+  const esm = esmOf(dev)
   if (babel === null) {
     if (args.profile) fail("--profile times the plugins of the project's Babel config, and it has none")
     if (args['self-test']) fail("--self-test builds again with each of the plugins of the project's Babel config, and it has none")
     if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)
-    const inlining = inlineRequiresOf(args['inline-requires'], rnConfig, dev)
+    const inlining = inliningOf(dev)
     if (inlining.on) fail(`${inlining.by} inlines requires through the project's Babel config, and it has none`)
     if (babelSwitchesOf(rnConfig, dev).length > 0) fail("rn.config.json's babel switches the plugins of the project's Babel config, and it has none")
     if (transformProfile !== 'default') fail("--unstable-transform-profile is the profile the project's Babel config builds for, and it has none")
   } else if (args['babel-aliases'] !== undefined) {
     fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
   }
-  // Reports esbuild's errors as esbuild formats them.
   const build = async (options) => {
     try {
       return await bundle(options)
@@ -131,9 +130,8 @@ async function run(args, { cwd, stderr, closing }) {
     esbuild,
     projectRoot: cwd,
     stripFlow: timedBefore(babel?.profile ?? null, 'flow-remove-types', flowStripper(project, babel !== null)),
-    // Its babel and babelPlugins, if the project has a Babel config.
     ...babel,
-    // Its imports checked with inline requires (esm off: transformRefusal), and with esm.
+    // Imports are checked with esm, and with inline requires (never both: transformRefusal).
     esm: esm.on,
     checkImports: esm.on || inlineRequires !== null,
     assetExts: metro.assetExts,
