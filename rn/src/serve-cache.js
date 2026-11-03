@@ -3,12 +3,11 @@
 // ownModules()): nothing here changes what the cache holds.
 
 import { createHash } from 'node:crypto'
-import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { globSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { touch } from './load-pack.js'
-import { oneBundleOf } from './native-bundles.js'
 
 // At most as many bundles as a dev bundler keeps built.
 const KEPT = 8
@@ -38,13 +37,10 @@ export function cacheDirOf(reset, log) {
 // './index for ios', or './index for ios, release, minified'.
 export const bundleName = ({ entryFile, platform, dev, minify }) => `${entryFile} for ${platform ?? 'no platform'}${dev ? '' : ', release'}${minify ? ', minified' : ''}`
 
-// A kept bundle as a dev bundler's request (bundle-url.js's bundleRequest()), or null if it is malformed.
-const requestOf = (kept) => {
-  if (kept === null || typeof kept !== 'object') return null
-  const { entryFile, platform, dev, minify } = kept
-  if (typeof entryFile !== 'string' || !entryFile.startsWith('./') || !(platform === null || typeof platform === 'string') || typeof dev !== 'boolean' || typeof minify !== 'boolean') return null
-  return { kind: 'bundle', entryFile, platform, dev, minify, shallow: false }
-}
+// A dev bundler's request (bundle-url.js's bundleRequest()) of a bundle.
+const requestOf = ({ entryFile, platform, dev, minify }) => ({ kind: 'bundle', entryFile, platform, dev, minify, shallow: false })
+// Whether a kept bundle is one to build: well-formed, its entry in the project.
+const isKept = (kept) => typeof kept?.entryFile === 'string' && kept.entryFile.startsWith('./') && (kept.platform === null || typeof kept.platform === 'string') && typeof kept.dev === 'boolean' && typeof kept.minify === 'boolean'
 
 // served(devBundler) wraps it to record each non-shallow request of this run, replacing the last run's.
 // warm() builds the last run's bundles one after another; without any, the project's one bundle for
@@ -53,7 +49,7 @@ export function lastBuilds(dir, projectRoot, { system = process.platform, launch
   const path = join(dir, 'builds', `${createHash('sha256').update(projectRoot).digest('hex')}.json`)
   let last = []
   try {
-    last = JSON.parse(readFileSync(path, 'utf8')).map(requestOf).filter((request) => request !== null)
+    last = JSON.parse(readFileSync(path, 'utf8')).filter(isKept).map(requestOf)
     // Keeps load-prune.js from removing it as unused.
     touch(path)
   } catch {
@@ -84,9 +80,54 @@ export function lastBuilds(dir, projectRoot, { system = process.platform, launch
       },
     }),
     async warm(devBundler, log) {
-      const requests = last.length > 0 ? last : [oneBundleOf(projectRoot, launched ?? (system === 'darwin' ? 'ios' : 'android')).request].filter((request) => request !== null)
+      let requests = last
+      if (requests.length === 0) {
+        const platform = launched ?? (system === 'darwin' ? 'ios' : 'android')
+        const entries = entriesOf(projectRoot, platform)
+        requests = entries.length === 1 ? [requestOf({ entryFile: entries[0], platform, dev: true, minify: false })] : []
+      }
       if (requests.length > 0) log(`rn-serve: building ${requests.map(bundleName).join('; ')}`)
       for (const request of requests) await devBundler.get(request).catch(() => {})
     },
+  }
+}
+
+// Where a native project names its bundles: the iOS AppDelegate's bundle root, or the Android MainApplication's
+// getJSMainModuleName() or jsMainModulePath ("index" if unnamed, as React Native's DefaultReactHost has it).
+const NATIVE = {
+  ios: { dir: ['ios'], depth: 3, files: 'AppDelegate.{swift,mm,m}', roots: [/BundleRoot:\s*@?"([^"]+)"/gu], unnamed: [] },
+  android: { dir: ['android', 'app', 'src', 'main'], depth: 8, files: 'MainApplication.{kt,java}', roots: [/jsMainModulePath\s*=\s*"([^"]+)"/gu, /getJSMainModuleName\(\)[^"]*?"([^"]+)"/gu], unnamed: ['index'] },
+}
+// Directories that hold none of the project's own native code; hidden ones, which globs skip, neither.
+const SKIPPED = ['**/Pods', '**/build', '**/node_modules']
+
+// The entries ('./index') of the project's bundles for `platform` that it has a file of, as its native project
+// names them; without a native project, or one naming none, its index.
+export function entriesOf(projectRoot, platform) {
+  const { dir, depth, files, roots, unnamed } = NATIVE[platform]
+  const native = join(projectRoot, ...dir)
+  // Down to `depth` directories.
+  const patterns = Array.from({ length: depth + 1 }, (_, n) => `${'*/'.repeat(n)}${files}`)
+  const named = new Set()
+  for (const path of globSync(patterns, { cwd: native, exclude: SKIPPED })) {
+    let code
+    try {
+      code = readFileSync(join(native, path), 'utf8')
+    } catch {
+      continue
+    }
+    const found = roots.flatMap((pattern) => Array.from(code.matchAll(pattern), (match) => match[1]))
+    for (const root of found.length > 0 ? found : unnamed) named.add(root.replace(/^\.?\//u, ''))
+  }
+  if (named.size === 0) named.add('index')
+  return [...named].filter((root) => exists(projectRoot, root)).map((root) => `./${root}`)
+}
+
+// Whether the project has a file for the bundle root with any extension: index.js, index.ios.tsx.
+function exists(projectRoot, root) {
+  try {
+    return readdirSync(join(projectRoot, dirname(root))).some((name) => name.startsWith(`${basename(root)}.`))
+  } catch {
+    return false
   }
 }

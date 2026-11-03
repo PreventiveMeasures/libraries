@@ -9,32 +9,32 @@ import { inside } from './dev-bundler.js'
 
 const RECURSIVE = process.platform === 'darwin' || process.platform === 'win32'
 
+// The directories of `files`, and those above them up to `projectRoot`.
+function dirsOf(projectRoot, files) {
+  const found = new Set([projectRoot])
+  for (const file of files) {
+    for (let dir = dirname(file); !found.has(dir); dir = dirname(dir)) {
+      found.add(dir)
+      if (!inside(projectRoot, dir)) break
+    }
+  }
+  return found
+}
+
 // Calls `onChange(path)` on each relevant change; update(files) sets the files builds read.
 export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursive = RECURSIVE, onError = () => {} } = {}) {
   const watchers = new Map()
-  let dirs = new Set()
   let read = new Set()
-  const dirsOf = (files) => {
-    const found = new Set([projectRoot])
-    for (const file of files) {
-      for (let dir = dirname(file); !found.has(dir); dir = dirname(dir)) {
-        found.add(dir)
-        if (!inside(projectRoot, dir)) break
-      }
-    }
-    return found
-  }
+  let dirs = new Set()
   const add = (dir) => {
-    const deep = recursive && dir === projectRoot
-    // The recursive watch counts only the build's directories. There, edits count only to files a build read
-    // (a log written beside them mustn't rebuild); adds, removes and renames count for any, as they may change resolution.
-    const seen = (event, path) => {
-      if (deep && !dirs.has(dirname(path)) && !dirs.has(path)) return
-      if (event === 'change' && !read.has(path)) return
-      onChange(path)
-    }
     try {
-      const watcher = watch(dir, { persistent: false, recursive: deep }, (event, name) => seen(event, name === null ? dir : join(dir, String(name))))
+      const watcher = watch(dir, { persistent: false, recursive: recursive && dir === projectRoot }, (event, name) => {
+        const path = name === null ? dir : join(dir, name)
+        // Only the build's directories count, of all the recursive watch sees. There, edits count only to files a build
+        // read (a log written beside them mustn't rebuild); adds, removes and renames count for any, as they may change resolution.
+        if (!dirs.has(dirname(path)) && !dirs.has(path)) return
+        if (event !== 'change' || read.has(path)) onChange(path)
+      })
       // A watch that fails (its directory removed, say) counts as a change.
       watcher.on('error', () => {
         watcher.close()
@@ -43,14 +43,15 @@ export function createWatcher(projectRoot, onChange, { watch = fsWatch, recursiv
       })
       watchers.set(dir, watcher)
     } catch (error) {
-      if (error?.code !== 'ENOENT') onError(error)
+      if (error.code !== 'ENOENT') onError(error)
     }
   }
   return {
     update(files) {
       read = new Set(files)
-      dirs = dirsOf(read)
-      const wanted = recursive ? new Set([...dirs].filter((dir) => dir === projectRoot || !inside(projectRoot, dir))) : dirs
+      dirs = dirsOf(projectRoot, read)
+      // The recursive watch of the root has the directories inside it.
+      const wanted = recursive ? new Set(dirs.values().filter((dir) => !inside(projectRoot, dir))) : dirs
       for (const [dir, watcher] of watchers) {
         if (wanted.has(dir)) continue
         watcher.close()
