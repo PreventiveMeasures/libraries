@@ -39,7 +39,8 @@ export function createMetroLoader(options) {
     target.babel.close()
     fail("aliases map the imports where no Babel runs: the project's Babel config has its aliases")
   }
-  // Each file as last loaded, reused while its contents are the same, across the builds it serves.
+  // Each file as last loaded, reused while its contents are the same, across the builds it serves; each
+  // resolution, as createMetroResolver() keeps it, for as long.
   const run = withDefaults({ projectRoot, esbuild, stripFlow: flowStripper(project, target !== null), babel: target?.babel, babelPlugins: target?.babelPlugins, sourcemap, cache: new Map() })
   const resolveModule = createMetroResolver({ ...resolver, host: diskHost, dev })
   const resolution = importResolution(resolveModule, { platform, aliases })

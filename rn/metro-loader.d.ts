@@ -56,7 +56,9 @@ export interface MetroLoaderOptions {
 }
 
 // Babel runs in worker threads until close(). Each file is loaded again only
-// when its contents change.
+// when its contents change; resolutions, as Babel's config, are kept while
+// it lives, so a build that follows which files exist (a watcher's) makes a
+// new one.
 export interface MetroLoader {
   // __DEV__ and process.env.NODE_ENV, as Metro's prelude sets them.
   define: Record<string, string>
@@ -71,8 +73,9 @@ export interface MetroLoader {
   // namespace's file (stdin) by resolveDir; an entry point as a path. A file
   // by a path esbuild takes as Metro does (a .mjs one renamed); an asset or
   // the empty module in a namespace whose onLoad is load()'s; undefined where
-  // Metro resolves nothing, for esbuild to fail on, but on a require in a
-  // try block.
+  // Metro resolves nothing, left to esbuild: to fail, but on a require in a
+  // try block, or to find a file Metro doesn't (a redirect Metro fails on),
+  // which load() loads as any other, where rn-bundle refuses it.
   resolve(args: ResolveArgs): ResolveResult | undefined
   // onLoad: a file as Metro's transformer makes it (Flow stripped, the
   // project's Babel config run), esbuild lowering what it can first; its
