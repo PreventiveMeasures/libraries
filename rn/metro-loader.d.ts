@@ -11,12 +11,10 @@ export interface ResolveArgs {
   pluginData?: unknown
 }
 
-// A file by a path esbuild takes as Metro does (a .mjs one renamed, which
-// realPath() maps back); an asset or the empty module, in a namespace whose
-// onLoad is load()'s.
-export type ResolveResult =
-  | { path: string; namespace?: undefined }
-  | { path: string; namespace: 'metro-asset' | 'metro-empty' }
+export interface ResolveResult {
+  path: string
+  namespace?: 'metro-asset' | 'metro-empty'
+}
 
 // What of esbuild's onLoad arguments load() reads.
 export interface LoadArgs {
@@ -44,8 +42,9 @@ export interface MetroLoaderOptions {
   // The profile the project's Babel config builds for, as
   // `react-native bundle --unstable-transform-profile` takes it.
   transformProfile?: 'default' | 'hermes-stable' | 'hermes-canary'
-  // Metro's resolver options, as createMetroResolver() takes them.
-  resolver?: Omit<MetroResolverOptions, 'dev'>
+  // Metro's resolver options, as createMetroResolver() takes them, over the
+  // disk: the project's metro.config.js isn't read.
+  resolver?: Omit<MetroResolverOptions, 'dev' | 'host'>
   // babel-plugin-module-resolver's aliases (babel-aliases.js), applied where
   // the project has no Babel config: refused where it has one, which has
   // its own.
@@ -69,17 +68,18 @@ export interface MetroLoader {
   supported(): Promise<Record<string, boolean>>
   // onResolve: an import as Metro resolves it, for the platform, of a file
   // load() loaded (its pluginData passed on), an asset's module, or another
-  // namespace's file (stdin) by resolveDir; an entry point as a path.
-  // Undefined where Metro resolves nothing, for esbuild to fail on, but on a
-  // require in a try block.
+  // namespace's file (stdin) by resolveDir; an entry point as a path. A file
+  // by a path esbuild takes as Metro does (a .mjs one renamed); an asset or
+  // the empty module in a namespace whose onLoad is load()'s; undefined where
+  // Metro resolves nothing, for esbuild to fail on, but on a require in a
+  // try block.
   resolve(args: ResolveArgs): ResolveResult | undefined
   // onLoad: a file as Metro's transformer makes it (Flow stripped, the
   // project's Babel config run), esbuild lowering what it can first; its
   // pluginData, the imports and aliases resolve() reads, are to be passed on
   // with whatever contents the build makes of it.
   load(args: LoadArgs): Promise<LoadResult>
-  // The file a path resolve() gave names, for the build's messages and
-  // source maps, which name a .mjs file by its renamed path.
+  // The file a path resolve() gave names, for the build's messages and maps.
   realPath(path: string): string
   close(): Promise<void>
 }

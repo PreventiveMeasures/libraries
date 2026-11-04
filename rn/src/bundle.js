@@ -3,7 +3,7 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { EMPTY, newState, posixRelative } from './build-host.js'
+import { ASSET, EMPTY, newState, posixRelative } from './build-host.js'
 import { defaults, diskHost } from './defaults.js'
 import { unmatchedImports } from './esm-imports.js'
 import { jsval } from './jsval.js'
@@ -145,9 +145,12 @@ const realSources = (file) => {
 export async function lowersLetOf({ babel, babelPlugins, host = diskHost, projectRoot, entry, store }) {
   if (babel === null) return false
   const path = host.realpath(resolve(projectRoot, entry))
-  const lowers = async () => (await babelPlugins?.(path))?.has('transform-block-scoping') === true
+  const lowers = () => lowersLetAt(babelPlugins, path)
   return await (store === null ? lowers() : store.keep('lowers-let', path, lowers))
 }
+
+// Whether the Babel config of the file at `path` lowers let and const.
+export const lowersLetAt = async (babelPlugins, path) => (await babelPlugins?.(path))?.has('transform-block-scoping') === true
 
 // keepNames: with `esm`, esbuild joins the ES modules in one scope, renaming clashes (`Text3`) and so
 // their functions' `name`, which React shows; Babel's CommonJS keeps it. Not when minifying, as in Metro.
@@ -219,12 +222,7 @@ export function metroGraph(run, first = null) {
       const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
       if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
       if (namespace === MAIN && specifier === ENTRY) return file(importer)
-      const found = state.resolveImport(importer, specifier, kind, pluginData)
-      // Left to esbuild, which can't resolve it either: an error, but in a try block, where it is
-      // an optional dependency, as Metro takes one, which fails at run time.
-      if (found === null) return undefined
-      if (found.kind === 'empty') return { path: 'empty', namespace: EMPTY }
-      return found.kind === 'asset' ? named(projectRoot, found.key, 'metro-asset') : file(found.key)
+      return resolvedAs(projectRoot, state.resolveImport(importer, specifier, kind, pluginData), file)
     })
     build.onLoad({ filter: ANY, namespace: 'file' }, async ({ path: esbuilt }) => {
       const path = realPath(esbuilt)
@@ -235,10 +233,7 @@ export function metroGraph(run, first = null) {
         graph.onProgress?.(++loaded, resolved.size)
       }
     })
-    build.onLoad({ filter: ANY, namespace: 'metro-asset' }, ({ path }) => {
-      const asset = resolve(projectRoot, path)
-      return { contents: state.assetSource(asset), loader: 'js', resolveDir: dirname(asset) }
-    })
+    build.onLoad({ filter: ANY, namespace: ASSET }, ({ path }) => assetLoaded(projectRoot, path, state.assetSource))
     build.onLoad({ filter: ANY, namespace: EMPTY }, () => ({ contents: '', loader: 'js' }))
     // The main module, and each polyfill, loaded as any file and run as a script.
     build.onLoad({ filter: ANY, namespace: MAIN }, () => {
@@ -279,6 +274,21 @@ export function importWarnings({ checkImports, projectRoot, host }, modules, gra
 // A path in one of this plugin's namespaces, which esbuild prints as is (in comments and module names):
 // relative to the project, as esbuild prints a file's, so the bundle doesn't depend on where it is.
 const named = (projectRoot, path, namespace) => ({ path: posixRelative(projectRoot, path), namespace })
+
+// An import Metro resolved (resolvedModule()), as onResolve gives it: a file by file(key), an asset or the
+// empty module named in a namespace of its own; undefined where nothing, left to esbuild, which can't
+// resolve it either: an error, but in a try block, where it is an optional dependency, as Metro takes one.
+export function resolvedAs(projectRoot, found, file) {
+  if (found === null) return undefined
+  if (found.kind === 'empty') return { path: 'empty', namespace: EMPTY }
+  return found.kind === 'asset' ? named(projectRoot, found.key, ASSET) : file(found.key)
+}
+
+// The onLoad of an asset resolvedAs() named: the module assetSource(path) gives of it.
+export function assetLoaded(projectRoot, path, assetSource) {
+  const asset = resolve(projectRoot, path)
+  return { contents: assetSource(asset), loader: 'js', resolveDir: dirname(asset) }
+}
 
 // Loads a file of these bytes with loadFile(): from options.cache while its contents are the same, else from
 // options.store (serve/load-cache.js's) by the options that shape it, kept there unless it failed or Babel said

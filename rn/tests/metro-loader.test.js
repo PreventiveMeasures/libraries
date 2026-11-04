@@ -112,17 +112,17 @@ describe('createMetroLoader, without a Babel config', () => {
 
   it('loads a file again only when its contents change', async () => {
     const loader = loaderOf({ aliases })
-    const path = join(root, 'lib/changing.js')
-    const first = await loader.load({ path, namespace: 'file' })
-    assert.equal(await loader.load({ path, namespace: 'file' }), first)
-    writeFileSync(path, 'export const changing = 2\n')
-    const changed = await loader.load({ path, namespace: 'file' })
+    const args = { path: join(root, 'lib/changing.js') }
+    const first = await loader.load(args)
+    assert.equal(await loader.load(args), first)
+    writeFileSync(args.path, 'export const changing = 2\n')
+    const changed = await loader.load(args)
     assert.notEqual(changed, first)
     assert.match(changed.contents, /changing = 2/u)
   })
 
   it("reports a file it can't load in that file", async () => {
-    const { errors } = await loaderOf({ aliases }).load({ path: join(root, 'lib/broken.js'), namespace: 'file' })
+    const { errors } = await loaderOf({ aliases }).load({ path: join(root, 'lib/broken.js') })
     assert.equal(errors.length, 1)
     assert.equal(errors[0].location.file, 'lib/broken.js')
   })
@@ -139,8 +139,10 @@ describe('createMetroLoader, with a Babel config', () => {
 
   it("builds each module as rn-bundle does with the project's Babel config: its env, caller and lowering", async () => {
     const loader = loaderOf({})
-    for (const entry of ['index.js', 'modern.js']) assert.deepEqual(await built(loader, root, entry), await bundled(root, ['--platform=ios', ...RELEASE], entry))
-    assert.deepEqual(await built(loader, root, 'modern.js'), MODERN)
+    assert.deepEqual(await built(loader, root, 'index.js'), await bundled(root, ['--platform=ios', ...RELEASE], 'index.js'))
+    const modern = await built(loader, root, 'modern.js')
+    assert.deepEqual(modern, MODERN)
+    assert.deepEqual(modern, await bundled(root, ['--platform=ios', ...RELEASE], 'modern.js'))
   })
 
   it('has esbuild lower the class syntax Babel leaves, and add no let or const where the config lowers them', async () => {
@@ -172,13 +174,13 @@ describe("createMetroLoader, module-resolver's aliases and CommonJS", () => {
 
   it("maps them as rn-bundle does: in Babel where it maps a call's string (jest.mock), else as it resolves", async () => {
     const loader = loaderOf({})
-    const plain = await loader.load({ path: join(root, 'plain.js'), namespace: 'file' })
+    const plain = await loader.load({ path: join(root, 'plain.js') })
     assert.deepEqual(plain.pluginData.aliases, { alias: { '#lib': './lib' }, cwd: root })
     assert.match(plain.contents, /require\("#lib\/where"\)/u)
-    const importer = { importer: join(root, 'plain.js'), namespace: 'file', kind: 'require-call', path: '#lib/where' }
-    assert.deepEqual(loader.resolve({ ...importer, pluginData: plain.pluginData }), { path: join(root, 'lib/where.ios.js') })
-    assert.equal(loader.resolve(importer), undefined)
-    const mocks = await loader.load({ path: join(root, 'mocks.js'), namespace: 'file' })
+    const args = { path: '#lib/where', importer: join(root, 'plain.js'), namespace: 'file', kind: 'require-call' }
+    assert.deepEqual(loader.resolve({ ...args, pluginData: plain.pluginData }), { path: join(root, 'lib/where.ios.js') })
+    assert.equal(loader.resolve(args), undefined)
+    const mocks = await loader.load({ path: join(root, 'mocks.js') })
     assert.equal(mocks.pluginData?.aliases, undefined)
     assert.match(mocks.contents, /jest\.mock\(["']\.\/lib\/where["']\)/u)
   })
@@ -188,8 +190,9 @@ describe("createMetroLoader, module-resolver's aliases and CommonJS", () => {
     const found = loader.resolve({ path: 'esm-only', importer: join(root, 'index.js'), namespace: 'file', kind: 'import-statement' })
     assert.deepEqual(found, { path: join(root, 'node_modules/esm-only/index.mjs.rn.js') })
     assert.equal(loader.realPath(found.path), join(root, 'node_modules/esm-only/index.mjs'))
-    assert.deepEqual(await built(loader, root, 'index.js'), ['ios', 'default', 'named'])
-    assert.deepEqual(await built(loader, root, 'index.js'), await bundled(root, ['--platform=ios'], 'index.js'))
+    const out = await built(loader, root, 'index.js')
+    assert.deepEqual(out, ['ios', 'default', 'named'])
+    assert.deepEqual(out, await bundled(root, ['--platform=ios'], 'index.js'))
     assert.deepEqual(await built(loaderOf({ platform: 'android' }), root, 'index.js'), ['android', 'default', 'named'])
   })
 })

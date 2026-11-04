@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util'
 import { assetCatalogFiles, assetsDestFiles } from './assets-dest.js'
 import { profileReport, timedBefore } from './babel-worker.js'
 import { bundle } from './bundle.js'
-import { babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
+import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
 import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from './rn-config.js'
@@ -36,8 +36,6 @@ const OPTIONS = {
   define: { type: 'string', multiple: true, default: [] },
   'babel-aliases': { type: 'string' },
 }
-// Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
-const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 
 // A usage error or failed build, reported as `rn-bundle: <message>`.
 class Failed extends Error {}

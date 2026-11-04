@@ -89,6 +89,9 @@ function babelConfigOf(cwd, project) {
   return preset === null ? null : { options: { configFile: false }, what: '@react-native/babel-preset', preset }
 }
 
+// Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
+export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
+
 // The project's Babel config, run by the @babel/core of Metro's transformer: a function of
 // { platform, dev, inlineRequires } to bundle()'s Babel options, with workers per target. Null
 // without a config, or with only the preset and no @babel/core. ownPlugins(dev): [path, options]
