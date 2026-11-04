@@ -6,7 +6,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 
 import { assetModule } from './assets.js'
 import { ASSET, EMPTY, assetDataOf, importResolution, resolvedModule } from './build-host.js'
-import { TS_AS_JS, assetLoaded, esbuildPath, loadCached, lowersLetAt, realPath, resolvedAs, supportedOf, withDefaults } from './bundle.js'
+import { TS_AS_JS, assetLoaded, esbuildPath, loadCached, lowersLetAt, notResolved, realPath, resolvedAs, supportedOf, withDefaults } from './bundle.js'
 import { TRANSFORM_PROFILES, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { createMetroResolver } from './resolve.js'
@@ -18,7 +18,6 @@ const refuse = (message) => {
 const fail = (message) => {
   throw new Error(`createMetroLoader: ${message}`)
 }
-const file = (path) => ({ path: esbuildPath(path) })
 
 export function createMetroLoader(options) {
   if (options === null || typeof options !== 'object') refuse('takes an options object')
@@ -45,6 +44,12 @@ export function createMetroLoader(options) {
   const resolveModule = createMetroResolver({ ...resolver, host: diskHost, dev })
   const resolution = importResolution(resolveModule, { platform, aliases })
   const assetOf = assetSource ?? metroAssets(resolveModule, projectRoot, platform)
+  // Each file Metro resolved while it lives, which alone load() loads, as metroGraph() loads only those.
+  const resolved = new Set()
+  const file = (path) => {
+    resolved.add(path)
+    return { path: esbuildPath(path) }
+  }
   let supported = null
   return {
     define: defines(dev, [], fail),
@@ -69,6 +74,7 @@ export function createMetroLoader(options) {
       if (namespace === EMPTY) return { contents: '', loader: 'js' }
       if (namespace === ASSET) return assetLoaded(projectRoot, path, assetOf)
       const real = realPath(path)
+      if (!resolved.has(real)) return notResolved(projectRoot, real)
       return await loadCached(run, real, await diskHost.readFileAsync(real))
     },
     realPath,

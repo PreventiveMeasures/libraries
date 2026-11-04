@@ -226,7 +226,7 @@ export function metroGraph(run, first = null) {
     })
     build.onLoad({ filter: ANY, namespace: 'file' }, async ({ path: esbuilt }) => {
       const path = realPath(esbuilt)
-      if (!resolved.has(path)) return { errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] }
+      if (!resolved.has(path)) return notResolved(projectRoot, path)
       try {
         return await load(path)
       } finally {
@@ -283,6 +283,9 @@ export function resolvedAs(projectRoot, found, file) {
   if (found.kind === 'empty') return { path: 'empty', namespace: EMPTY }
   return found.kind === 'asset' ? named(projectRoot, found.key, ASSET) : file(found.key)
 }
+
+// The onLoad of a file esbuild resolved where Metro resolves nothing (resolvedAs() left it to esbuild).
+export const notResolved = (projectRoot, path) => ({ errors: [{ text: `esbuild resolved ${relative(projectRoot, path)} where Metro resolves nothing` }] })
 
 // The onLoad of an asset resolvedAs() named: the module assetSource(path) gives of it.
 export function assetLoaded(projectRoot, path, assetSource) {
