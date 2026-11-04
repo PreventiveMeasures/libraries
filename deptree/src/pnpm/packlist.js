@@ -89,13 +89,13 @@ const checkGlobs12 = (lines, what, where) => {
 // pnpm 12's `files` allowlist: its matcher, or undefined where no entry is
 // one, and the files it names outright.
 function filesOf12(view, files, where) {
-  checkGlobs12(files ?? [], 'its package.json has `files`', where)
+  checkGlobs12(files, 'its package.json has `files`', where)
   const globs = []
-  for (const entry of files ?? []) {
+  for (const entry of files) {
     const path = fieldPath(entry)
     if (path !== '') globs.push(gitignoreGlob(path.startsWith('!') ? path : `/${path}`, `${where}: files[${quote(entry)}]`))
   }
-  const named = new Set((files ?? []).filter((entry) => !entry.startsWith('!') && !entry.endsWith('/') && !/[*?[\]{}]/u.test(entry)).map(fieldPath).filter((path) => path !== '' && !path.split('/').includes('..') && view.type(path) === 'file'))
+  const named = new Set(files.filter((entry) => !entry.startsWith('!') && !entry.endsWith('/') && !/[*?[\]{}]/u.test(entry)).map(fieldPath).filter((path) => path !== '' && !path.split('/').includes('..') && view.type(path) === 'file'))
   return { globs: globs.length > 0 ? globs : undefined, named }
 }
 
@@ -141,7 +141,7 @@ function walk12(view, { globs }, where) {
 }
 
 function pack12(view, manifest, where) {
-  const files = Array.isArray(manifest.files) ? filesOf12(view, manifest.files, where) : { named: new Set() }
+  const files = Array.isArray(manifest.files) ? filesOf12(view, manifest.files, where) : {}
   const main = typeof manifest.main === 'string' ? [manifest.main] : []
   const bins = typeof manifest.bin === 'string' ? [manifest.bin] : manifest.bin !== null && typeof manifest.bin === 'object' && !Array.isArray(manifest.bin) ? Object.values(manifest.bin).filter((bin) => typeof bin === 'string') : []
   const fields = [...main, ...bins].map(fieldPath)

@@ -25,6 +25,12 @@ export function attempt(run, otherwise) {
   }
 }
 
+// What `run` returns; a refusal of no place it throws, placed at `where`.
+export const placed = (run, where) => attempt(run, (error) => {
+  if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
+  throw error
+})
+
 // A piece of the lockfile for a message, as excerpt.js shows one: at most
 // 200 code units, and an ellipsis, U+2026, within the quote where cut.
 export function quote(text) {

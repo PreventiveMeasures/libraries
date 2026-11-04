@@ -7,7 +7,7 @@
 // buildLegacyLockfile does; it is held to that here, field by field, so
 // that npm 6 reads the lockfile as npm 7 and later do.
 
-import { LockfileError, at, attempt, quote } from '../error.js'
+import { LockfileError, at, placed, quote } from '../error.js'
 import { relativeTo } from '../names.js'
 import { kind, record } from '../shape.js'
 import { inDepBundle } from './bundles.js'
@@ -104,10 +104,7 @@ const expect = (entry, key, expected, where, node) => expectValue(entry[key], ex
 // that asks for it to where the spec leads from there. A path npm would
 // write by where the project is, or the home directory, is refused.
 function fileSpec(edge, dir, escape, where) {
-  const { path } = attempt(() => readSpec(edge.name, edge.spec, dir, undefined), (error) => {
-    if (error instanceof LockfileError && error.where === undefined) throw new LockfileError(error.message, where)
-    throw error
-  })
+  const { path } = placed(() => readSpec(edge.name, edge.spec, dir, undefined), where)
   return escape(savedPath(dir, path))
 }
 

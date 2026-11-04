@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { pack, packStream, unpack, unpackStream } from '../../tar.js'
-import { concat } from '../../src/bytes.js'
+import { EMPTY, concat } from '../../src/bytes.js'
+import { encodeHeader } from '../../src/tar/header.js'
+import { encodePax } from '../../src/tar/pax.js'
 import { RECORDINGS, bytesOf } from './fixtures/gnu-tar.js'
 import { assertBytes, entriesOf, readable, utf8 } from '../helpers.js'
 
@@ -44,6 +46,21 @@ describe('the streams take the options the in-memory calls take', () => {
     const bytes = concat(await all(packStream(entries, { symlinksAbove: 1 })))
     await assert.rejects(all(unpackStream([bytes])), /points outside the archive/u)
     assert.equal((await all(unpackStream([bytes], { symlinksAbove: 1 })))[0].linkname, '../x')
+  })
+  it('a global header after the last entry, however it is cut, where trailingGlobal takes it', async () => {
+    const records = encodePax([['comment', 'x']])
+    const body = new Uint8Array(512)
+    body.set(records)
+    const global = encodeHeader({
+      gnu: false, name: utf8('pax_global_header'), prefix: EMPTY, linkname: EMPTY, uname: EMPTY, gname: EMPTY,
+      typeflag: 0x67, mode: 0o644, uid: 0, gid: 0, size: records.length, mtime: 0, devmajor: null, devminor: null,
+    })
+    const entry = pack([{ name: 'a' }], { blocking: 1 })
+    const bytes = concat([entry.subarray(0, 512), global, body, entry.subarray(512)])
+    for (const size of [1, 511, 512, 513, bytes.length]) {
+      await assert.rejects(all(unpackStream(split(bytes, size))), /an extended header is not followed by an entry at byte 1536/u)
+      assert.deepEqual((await all(unpackStream(split(bytes, size), { trailingGlobal: true }))).map((e) => e.name), ['a'], `${size}-byte chunks`)
+    }
   })
 })
 

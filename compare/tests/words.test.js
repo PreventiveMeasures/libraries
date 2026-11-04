@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { changeSet } from '@preventive/diff'
 import { hidesMixedWhitespace, pairLines, wordRanges } from '../compare.js'
 import { random } from './random.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // Short lines of a few words, blanks and marks, some invisible or a lone surrogate.
 function lines(seed) {
@@ -59,9 +64,9 @@ describe('pairLines', () => {
     // Long lines all alike: each pair a long script, more of them than the budget weighs.
     const line = (k, mark) => Array.from({ length: 390 }, (_, t) => ((t * 7 + k) % 13 === 0 ? `q${k}${mark}` : `w${t % 50}`)).join(' ')
     const news = Array.from({ length: 40 }, (_, k) => line(k, 'x')), olds = Array.from({ length: 40 }, (_, k) => line(k, ''))
-    const start = performance.now()
+    const start = cpuUsage()
     assert.deepEqual(pairLines(olds, news), olds.map((_, k) => [k, k]))
-    assert.ok(performance.now() - start < 2000)
+    assert.ok(cpuMs(start) < 2000)
   })
 
   it('pairs as many lines as can be, and of those the most alike, as wordRanges marks them, for blocks made at random', () => {

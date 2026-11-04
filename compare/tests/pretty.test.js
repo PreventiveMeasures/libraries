@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import * as csstree from 'css-tree'
 import { minifySync } from 'oxc-minify'
 import { format } from '../pretty.js'
 import { sameCode } from '../src/pretty.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 const sameCss = (text, formatted) => sameCode(text, formatted, 'css', csstree)
 // A name's escape as a file writes it.
@@ -136,7 +141,7 @@ describe('sameCode', () => {
   })
 
   it('reads text in time linear in its length', { timeout: 20_000 }, () => {
-    const start = performance.now()
+    const start = cpuUsage()
     for (const text of ['a:b'.repeat(12_500) + '{c:d}', `a{${'b:c;'.repeat(12_500)}}`, '/*'.repeat(25_000), `a${' '.repeat(300_000)}b{}`, `[a=${' '.repeat(300_000)}b]{}`,
       `/*${' '.repeat(300_000)}*/`, `a{${'color:#ABC;'.repeat(5000)}}`, `a{${'b:#ABC;'.repeat(5000)}}`, `a{background:${'url(x) #ABC 1px, '.repeat(2500)}red}`, `a{--x:${'.5 '.repeat(25_000)}}`]) {
       sameCss(text, text)
@@ -145,7 +150,7 @@ describe('sameCode', () => {
     // A comma, comments after it, and no bracket: each comment read one way, not split every way, which
     // for these takes seconds, doubling with each comment more.
     for (const text of [`f(a,${'/* x */ '.repeat(29)}b)`, `f(a,${'// x // y\n'.repeat(17)}b)`]) assert.ok(sameCode(text, text, 'js'))
-    assert.ok(performance.now() - start < 5000)
+    assert.ok(cpuMs(start) < 5000)
   })
 
   it('takes no other kind of file', () => {

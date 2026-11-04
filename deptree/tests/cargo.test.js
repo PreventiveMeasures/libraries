@@ -369,13 +369,13 @@ describe('a .crate', () => {
 })
 
 describe('fetching', () => {
-  it('fetches eight .crates at a time', async () => {
-    const crates = await Promise.all(Array.from({ length: 12 }, (_, i) => crate(`pkg-${String.fromCodePoint(108 - i)}`, '1.0.0', { a: String(i) })))
+  it('fetches sixteen .crates at a time', async () => {
+    const crates = await Promise.all(Array.from({ length: 20 }, (_, i) => crate(`pkg-${String.fromCodePoint(122 - i)}`, '1.0.0', { a: String(i) })))
     stubCrates(crates)
-    const count = gathered(8)
+    const count = gathered(16)
     const { stats } = await buildCargoTree(givenOf(crates))
-    assert.equal(count.most, 8)
-    assert.equal(stats.vendored, 12)
+    assert.equal(count.most, 16)
+    assert.equal(stats.vendored, 20)
   })
 
   it('refuses once every fetch started has ended', async () => {

@@ -3,7 +3,7 @@
 // them, and the sections to each other. The sections are Lockfile.generate's:
 //
 // - PODS: every pod installed, a root or a subspec, at its version, and
-//   what its podspec depends on, on every platform it names.
+//   what its podspec depends on, on every platform it names, each once.
 // - DEPENDENCIES: what the Podfile asks for, each by requirements or by an
 //   external source.
 // - SPEC REPOS: by URL, or `trunk` for the CDN, the roots each spec repo
@@ -49,6 +49,21 @@ function readVersion(node) {
   return { version, rules: rulesOf(Number(m[2])) }
 }
 
+// What a pod depends on, each once, as Lockfile.generate lists what
+// Dependency#to_s writes of each: uniq, though a name may be in two, as
+// two platforms ask for it by two requirements.
+function readDependencies(list, there) {
+  const seen = new Set()
+  return itemsOf(list, there).map((item, index) => {
+    const here = `${there}[${index}]`
+    const text = textOf(item, here)
+    const dependency = readDependency(text, here)
+    if (seen.has(text)) throw new LockfileError(`a second ${quote(text)}, where CocoaPods lists each dependency of a pod once`, here)
+    seen.add(text)
+    return dependency
+  })
+}
+
 // The pods by name, and where each is in PODS.
 function readPods(node) {
   const pods = Object.create(null)
@@ -59,7 +74,7 @@ function readPods(node) {
     const [key, list] = item.kind === 'map' ? [item.entries[0].key, item.entries[0].value] : [item, undefined]
     const there = at(here, String(key.value))
     if (isEmpty(list)) throw new LockfileError('none it depends on, where CocoaPods writes the pod alone', there)
-    const dependencies = itemsOf(list, there).map((dependency, number) => readDependency(textOf(dependency, `${there}[${number}]`), `${there}[${number}]`))
+    const dependencies = readDependencies(list, there)
     const { name, version } = readPodString(textOf(key, here), here)
     if (name in pods) throw new LockfileError(`a second ${quote(name)}`, here)
     pods[name] = { name, root: rootOf(name), version, dependencies }

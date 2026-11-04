@@ -5,7 +5,7 @@
 // 1.x or none, is refused, as is a field Composer 2 does not write.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkOptions, isMapping, kind, mapping, record, refuse, sequence, string } from '../shape.js'
+import { boolean, checkOptions, isMapping, kind, mapping, record, refuse, sequence, string } from '../shape.js'
 import { isEmptyObject, readJson } from './json.js'
 import { entriesOf, isPlatform, ordered, plain, readConstraint, readPackage, readVersion, sortedKeys } from './package.js'
 import { compareBytes, lower } from './php.js'
@@ -48,9 +48,9 @@ function readTop(doc) {
   if (!Array.isArray(readme) || readme.length !== README.length || readme.some((line, index) => line !== README[index])) throw new LockfileError('expected the three lines Composer writes', '_readme')
   const contentHash = string(doc['content-hash'], 'content-hash')
   if (!/^[\da-f]{32}$/u.test(contentHash)) throw new LockfileError(`${quote(contentHash)} is not an md5 in lowercase hex`, 'content-hash')
-  for (const key of ['prefer-stable', 'prefer-lowest']) if (typeof doc[key] !== 'boolean') throw refuse('true or false', doc[key], key)
+  for (const key of ['prefer-stable', 'prefer-lowest']) boolean(doc[key], key)
   const minimumStability = doc['minimum-stability']
-  if (typeof minimumStability !== 'string' || !Object.hasOwn(STABILITIES, minimumStability)) throw new LockfileError(`expected one of ${Object.keys(STABILITIES).join(', ')}, found ${kind(minimumStability)}`, 'minimum-stability')
+  if (typeof minimumStability !== 'string' || !Object.hasOwn(STABILITIES, minimumStability)) throw refuse(`one of ${Object.keys(STABILITIES).join(', ')}`, minimumStability, 'minimum-stability')
   return { contentHash, pluginApiVersion, minimumStability }
 }
 
@@ -129,7 +129,7 @@ function readList(doc, key) {
 function checkSorted(items) {
   for (let i = 1; i < items.length; i++) {
     const [a, b] = [items[i - 1].pkg, items[i].pkg]
-    if (items[i - 1].dev !== items[i].dev) continue
+    if (a.dev !== b.dev) continue
     const order = compareBytes(a.name, b.name) || compareBytes(a.version, b.version)
     if (order > 0) throw new LockfileError(`out of the order Composer sorts packages in, by name then version, after ${quote(a.name)}`, items[i].where)
   }
@@ -177,7 +177,7 @@ export function parseComposerLock(text, options = {}) {
   for (const [key, dev] of [['packages', false], ['packages-dev', true]]) {
     for (const [index, value] of readList(doc, key).entries()) {
       const where = `${key}[${index}]`
-      items.push({ ...readPackage(value, where, dev), where, dev })
+      items.push({ ...readPackage(value, where, dev), where })
     }
   }
   checkSorted(items)

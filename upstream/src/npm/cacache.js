@@ -13,6 +13,7 @@ import { readRegularFile } from '../cache.js'
 const KEY = 'make-fetch-happen:request-cache:'
 const digest = (algorithm, data, encoding) => createHash(algorithm).update(data).digest(encoding)
 const shard = (hex) => [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4)]
+export const contentPath = (cache, sha512) => join(cache, 'content-v2', 'sha512', ...shard(Buffer.from(sha512, 'base64').toString('hex')))
 const decoder = new TextDecoder('utf-8')
 
 async function lastEntry(root, key) {
@@ -39,6 +40,6 @@ export async function readNpmCached(root, url) {
   const integrity = typeof entry?.integrity === 'string' ? entry.integrity : ''
   const sha512 = /(?:^|\s)sha512-([\d+/A-Za-z]+={0,2})(?=[\s?]|$)/u.exec(integrity)?.[1]
   if (sha512 === undefined) return null
-  const body = await readRegularFile(join(root, 'content-v2', 'sha512', ...shard(Buffer.from(sha512, 'base64').toString('hex'))))
+  const body = await readRegularFile(contentPath(root, sha512))
   return body && digest('sha512', body, 'base64') === sha512 ? { body, metadata: entry.metadata } : null
 }

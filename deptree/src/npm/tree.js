@@ -75,20 +75,26 @@ async function fetchAll(tarballs, host, fetching) {
     const pkg = { ...await fetch(tarball, where), integrity: tarball.integrity }
     for (const node of copies) fetched.set(node, pkg)
   }, ({ where }) => where)
-  return { fetched, tarballs: tarballs.size }
+  return fetched
 }
 
 // npm 10 makes every package's directory before leaving out those the host
 // cannot run, or --omit=dev omits, and leaves the directories they were in.
 function residueOf(nodes, left) {
-  const removed = [...left].map((node) => node.location)
-  const inRemoved = (dir) => removed.some((location) => dir === location || dir.startsWith(`${location}/`))
+  const removed = new Set([...left].map((node) => node.location))
+  const inRemoved = (dir) => {
+    for (let at = dir; at !== '.'; at = dirname(at)) if (removed.has(at)) return true
+    return false
+  }
   const dirs = new Set()
   for (const location of removed) {
     for (let dir = dirname(location); dir !== '.' && !nodes.has(dir) && !inRemoved(dir); dir = dirname(dir)) dirs.add(dir)
   }
   return dirs
 }
+
+// A package's files with those `fixed` by linking its bins in their place.
+const withFixed = (files, fixed) => (fixed === undefined || fixed.size === 0 ? files : new Map([...files].map(([path, file]) => [path, fixed.get(path) ?? file])))
 
 // With `sizeEstimateOnly`, each package's directory alone is made, and its
 // size counted; with `lazy`, its directory alone.
@@ -102,8 +108,7 @@ function writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly
       continue
     }
     const { files, dirs } = fetched.get(node)
-    const fixed = changed.get(node.location)
-    writeFiles(vfs, node.location, { dirs, files: fixed === undefined ? files : new Map([...files].map(([path, file]) => [path, fixed.get(path) ?? file])) }, stats)
+    writeFiles(vfs, node.location, { dirs, files: withFixed(files, changed.get(node.location)) }, stats)
   }
   // checkLinks has each a workspace's, in the project.
   for (const [location, target] of Object.entries(lockfile.links)) {
@@ -145,7 +150,7 @@ function lazyUnpacker({ vfs, kept, tarballOf, settings, host, fetching, stats, f
     const written = { files: 0, bytes: 0, links: 0 }
     try {
       const fixed = claimed.has(node.location) ? fixClaimed(node.location, claimed.get(node.location), got) : new Map()
-      writeFiles(tree, node.location, { dirs: got.dirs, files: fixed.size === 0 ? got.files : new Map([...got.files].map(([path, file]) => [path, fixed.get(path) ?? file])) }, written)
+      writeFiles(tree, node.location, { dirs: got.dirs, files: withFixed(got.files, fixed) }, written)
       writeInto(vfs, tree, folded)
     } catch (error) {
       throw refusalOf(error, whereOf(node))
@@ -170,9 +175,7 @@ function rootListsOf(text) {
 export async function buildNpmTree(options) {
   const { host: given, vfs: into } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const fetching = fetchingOf(options ?? {})
-  if (fetching.sizeEstimateOnly && into !== undefined) throw new TypeError('vfs is not taken with sizeEstimateOnly, whose tree has no files to mount')
-  if (fetching.lazy && into !== undefined) throw new TypeError('vfs is not taken with lazy, whose tree is unpacked a package at a time')
+  const fetching = fetchingOf(options ?? {}, into)
   const production = productionOf(options ?? {})
   const host = checkHost(given)
   const folded = host.os === 'darwin'
@@ -192,12 +195,12 @@ export async function buildNpmTree(options) {
   const skipped = skippedOf(nodes, host, settings, omitted)
   const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node) && !omitted.has(node))
   const tarballs = tarballsOf(kept)
-  const { fetched, tarballs: count } = fetching.lazy ? { fetched: new Map(), tarballs: 0 } : await fetchAll(tarballs, host, fetching)
+  const fetched = fetching.lazy ? new Map() : await fetchAll(tarballs, host, fetching)
   const changed = settings.binLinks && !fetching.sizeEstimateOnly && !fetching.lazy ? fixBins(kept, fetched) : new Map()
   const residue = host.reuse ? residueOf(nodes, new Set([...skipped, ...omitted])) : new Set()
   const { vfs, stats: written } = writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly: fetching.sizeEstimateOnly, lazy: fetching.lazy })
   const packages = Object.keys(lockfile.packages).length
-  const stats = { packages, installed: kept.length, skipped: packages - kept.length - omitted.size, tarballs: count, ...written }
+  const stats = { packages, installed: kept.length, skipped: packages - kept.length - omitted.size, tarballs: fetching.lazy ? 0 : tarballs.size, ...written }
   const entryOf = (node, { integrity, about, size }) => {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
     return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer, ...fetching.sizeEstimateOnly ? { size } : {} }

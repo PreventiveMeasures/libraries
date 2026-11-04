@@ -6,6 +6,7 @@
 import { valid } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
+import { own } from '../manifest.js'
 
 // From validate-npm-package-name 5, by which pnpm reads a selector's name.
 const SCOPED = /^(?:@([^/]+?)\/)?([^/]+?)$/u
@@ -37,12 +38,12 @@ export function parseSelector(selector, where) {
 
 // A layer's overrides with each `$name` replaced from the root package.json.
 export function replaceReferences(overrides, manifest, where) {
-  const own = { ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }
+  const deps = { ...manifest.devDependencies, ...manifest.dependencies, ...manifest.optionalDependencies }
   const replaced = Object.create(null)
   for (const [selector, spec] of Object.entries(overrides)) {
     if (typeof spec !== 'string') throw new DeptreeError(`expected a string for ${quote(selector)}`, where)
     if (!spec.startsWith('$')) { replaced[selector] = spec; continue }
-    const found = Object.hasOwn(own, spec.slice(1)) ? own[spec.slice(1)] : undefined
+    const found = own(deps, spec.slice(1))
     if (typeof found !== 'string' || found === '') throw new DeptreeError(`${quote(spec)} names no dependency of the root package.json`, where)
     replaced[selector] = found
   }
@@ -53,7 +54,7 @@ const CATALOG = 'catalog:'
 
 export const catalogOf = (spec) => (spec.startsWith(CATALOG) ? spec.slice(CATALOG.length).trim() || 'default' : undefined)
 
-export const catalogEntry = (catalogs, catalog, name) => (Object.hasOwn(catalogs, catalog) && Object.hasOwn(catalogs[catalog], name) ? catalogs[catalog][name] : undefined)
+export const catalogEntry = (catalogs, catalog, name) => own(own(catalogs, catalog), name)
 
 // @pnpm/catalogs.resolver's resolveFromCatalog.
 function fromCatalog(catalogs, spec, name, where, major) {

@@ -3,9 +3,7 @@
 // renamed names alone. null where `given` has another number of lines.
 
 import { blocksHold } from './blocks.js'
-import { checkLineOptions, lineChangeSet } from './text.js'
-
-const records = (text) => (text === '' ? [] : text.split(/(?<=\n)/u))
+import { checkLineOptions, lineChangeSet, records } from './text.js'
 
 export function markedBlocks(before, given, after, options) {
   const lineOptions = checkLineOptions(options)

@@ -36,15 +36,16 @@ export type EntryType =
 // `extended` is the extended headers read since the entry before it, in
 // the order stored, each its kind -- its own pax header, a global one,
 // GNU's long name and long link -- and its magic; the one empty list where
-// none was, and frozen, as a Map is. An extended header, a global one too,
-// with no entry after it is refused. `magic` is the entry's own header's:
-// POSIX's 'ustar', or 'gnu', under which the bytes ustar holds a name's
-// prefix in are GNU's own and not read as one. `typeflag` and `storedMode`
-// are its header's type flag and mode as stored: '\0' where `type` is a
-// 'file' as '0' is, and the file type bits among the permission bits
-// `mode` keeps. `octal` is whether every numeric field of its header -- an
-// extended one's too -- holds octal digits, as POSIX writes them, rather
-// than nothing or GNU's base 256, both of which are read too.
+// none was, and frozen, as a Map is. An extended header with no entry after
+// it is refused, a global one too unless `trailingGlobal` takes it. `magic`
+// is the entry's own header's: POSIX's 'ustar', or 'gnu', under which the
+// bytes ustar holds a name's prefix in are GNU's own and not read as one.
+// `typeflag` and `storedMode` are its header's type flag and mode as
+// stored: '\0' where `type` is a 'file' as '0' is, and the file type bits
+// among the permission bits `mode` keeps. `octal` is whether every numeric
+// field of its header -- an extended one's too -- holds octal digits, as
+// POSIX writes them, rather than nothing or GNU's base 256, both of which
+// are read too.
 export interface Entry {
   name: string
   type: EntryType
@@ -125,8 +126,13 @@ export interface PackOptions extends SymlinkOptions {
 // counted and a repeat again, its extended headers not: past it the call
 // throws with `limited` set, at the header that crosses it, before that
 // entry is read. No bound by default.
+// `trailingGlobal` takes a global header with no entry after it, as GNU tar
+// lists one: as nothing, carried in no entry's `extended`. By default it is
+// refused, as any extended header with no entry to describe is. A pax or
+// long name header with nothing after it is refused either way.
 export interface UnpackOptions extends SymlinkOptions {
   maxEntries?: number
+  trailingGlobal?: boolean
 }
 
 // Both refuse a name that repeats as a different entry -- anything but the

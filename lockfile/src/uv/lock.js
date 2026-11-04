@@ -41,7 +41,8 @@ const keyOf = (name, version, sourceId) => `${name}${version === undefined ? '' 
 function readEdge(value, where) {
   table(value, where, EDGE)
   const extras = field(value, 'extra', where, names) ?? []
-  if (new Set(extras).size !== extras.length) throw new LockfileError(`${quote(extras.find((extra, i) => extras.indexOf(extra) !== i))} is listed twice`, at(where, 'extra'))
+  const twice = repeated(extras)
+  if (twice !== undefined) throw new LockfileError(`${quote(twice)} is listed twice`, at(where, 'extra'))
   return {
     name: checkNormalName(value.name, at(where, 'name')),
     version: field(value, 'version', where, checkNormalVersion),

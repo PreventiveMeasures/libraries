@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 
-import { assertArgs, assertBoolean, assertGhsa, assertLevels, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, isRepo, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
+import { assertArgs, assertBoolean, assertGhsa, assertLevels, assertLogin, assertNumber, assertPath, assertRef, assertRepo, assertSha, assertTagName, assertTreeId, assertion, isRefName, isRepo, isRepoPath, isSha, isSha1, isTagName, optional, sameName, show } from '../args.js'
 import { verifiedDownload } from '../download.js'
 import { HttpError, decode, encodeSegment, requestWithHeaders } from '../http.js'
 import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
+import { pool } from '../pool.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
+const MAX_TREES = 500
+const TREES_AT_ONCE = 6
 
 // A list of exactly `maxPages` full pages is whole only if the next is empty.
 async function* pages(method, headers, pageUrl, maxPages = MAX_PAGES) {
@@ -109,6 +112,49 @@ async function listRepoTags(headers, options) {
     assert.ok(isTagName(entry?.name) && isSha(entry.commit?.sha), `listRepoTags: GitHub listed ${show(entry?.name)} in ${repo}, which is no tag name with a commit`)
     return { tag: entry.name, oid: entry.commit.sha }
   })
+}
+
+// GitHub lists each branch with the commit at its head.
+async function listRepoBranches(headers, options) {
+  assertArgs('listRepoBranches', options, { repo: assertRepo, maxPages: optional(assertNumber) })
+  const { repo, maxPages } = options
+  const branches = await paginate('listRepoBranches', headers, (paging) => repoApi(repo, ['branches'], paging), maxPages)
+  return branches.map((entry) => {
+    assert.ok(isRefName(entry?.name) && isSha(entry.commit?.sha), `listRepoBranches: GitHub listed ${show(entry?.name)} in ${repo}, which is no branch name with a commit`)
+    return { branch: entry.name, oid: entry.commit.sha }
+  })
+}
+
+const assertRevision = assertion('a full commit sha, or a branch or tag name', (value) => isSha(value) || isRefName(value))
+// What GitHub's compare says of the counts it gives with it.
+const COMPARED = {
+  ahead: (ahead, behind) => ahead > 0 && behind === 0,
+  behind: (ahead, behind) => ahead === 0 && behind > 0,
+  identical: (ahead, behind) => ahead === 0 && behind === 0,
+  diverged: (ahead, behind) => ahead > 0 && behind > 0,
+}
+const isCount = (value) => Number.isSafeInteger(value) && value >= 0
+
+// How `head` stands to `base` in the repo, as GitHub's compare tells it:
+// `ahead` where `base` is in `head`'s history, `behind` the other way round,
+// `identical`, or `diverged`; with the commits each has that the other
+// hasn't, and their merge base. Refused unless the status agrees with those
+// counts, the merge base is `base` where `head` is ahead of it or the same,
+// and the base GitHub compared is `base` where that is a commit. GitHub
+// answers for a commit of any fork of the repo too: whether one is the
+// repo's own is whether a ref of the repo has it in its history.
+async function compareCommits(headers, options) {
+  assertArgs('compareCommits', options, { repo: assertRepo, base: assertRevision, head: assertRevision })
+  const { repo, base, head } = options
+  const body = await call(headers, repoApi(repo, ['compare', `${encodeSegment(base)}...${encodeSegment(head)}`], { per_page: 1 }))
+  const { status, ahead_by: aheadBy, behind_by: behindBy } = body ?? {}
+  const baseCommit = body?.base_commit?.sha
+  const mergeBase = body?.merge_base_commit?.sha
+  assert.ok(Object.hasOwn(COMPARED, status) && isCount(aheadBy) && isCount(behindBy) && COMPARED[status](aheadBy, behindBy),
+    `compareCommits: GitHub compared ${repo} ${base}...${head} as ${show(status)}, ${show(aheadBy)} ahead and ${show(behindBy)} behind`)
+  assert.ok(isSha(baseCommit) && isSha(mergeBase) && (!isSha(base) || baseCommit === base) && (!['ahead', 'identical'].includes(status) || mergeBase === baseCommit),
+    `compareCommits: GitHub compared ${repo} ${base}...${head} from ${show(baseCommit)}, merge base ${show(mergeBase)}`)
+  return { status, aheadBy, behindBy, mergeBase }
 }
 
 // GitHub's object for the path first: a directory, symlink or submodule is
@@ -232,6 +278,40 @@ async function* filesIn(method, headers, repo, tree, base) {
   }
 }
 
+const assertPaths = assertion('an array of paths inside a repository', (value) => Array.isArray(value) && value.every(isRepoPath))
+
+// Every entry of a commit's tree, by its path from the root, as
+// listTreeDeep lists it; where GitHub cuts that short, the tree's own
+// listing, then each tree in it the same way, only those `paths` are in
+// if given, `maxTrees` trees listed at most. Whether some were left
+// unlisted is `cut`.
+async function listRepoTree(headers, options) {
+  assertArgs('listRepoTree', options, { repo: assertRepo, sha: assertSha, paths: optional(assertPaths), maxTrees: optional(assertNumber) })
+  const { repo, sha, paths, maxTrees = MAX_TREES } = options
+  const dirs = paths && new Set(paths.flatMap((path) => path.split('/').slice(0, -1).map((_, at, names) => names.slice(0, at + 1).join('/'))))
+  const at = (base, entries) => entries.map(({ path, mode, type, sha: id }) => ({ path: `${base}${path}`, mode, type, sha: id }))
+  const entries = []
+  let cut = false
+  let listed = 0
+  let round = [{ tree: await commitTree('listRepoTree', headers, repo, sha), base: '' }]
+  while (round.length > 0) {
+    const asked = round.slice(0, maxTrees - listed)
+    cut ||= asked.length < round.length
+    listed += asked.length
+    const answers = await pool(asked, TREES_AT_ONCE, async ({ tree, base }) => {
+      const deep = await listTreeDeep('listRepoTree', headers, repo, tree)
+      return { base, deep, own: deep ?? await listTree('listRepoTree', headers, repo, tree) }
+    })
+    round = []
+    for (const { base, deep, own } of answers) {
+      const found = at(base, own)
+      entries.push(...found)
+      if (deep === null) round.push(...found.filter(({ path, type }) => type === 'tree' && (dirs?.has(path) ?? true)).map(({ path, sha: tree }) => ({ tree, base: `${path}/` })))
+    }
+  }
+  return { entries, cut }
+}
+
 const byPath = (a, b) => (a.path < b.path ? -1 : 1)
 
 async function findRepoLockfiles(headers, options) {
@@ -305,5 +385,5 @@ async function listRepoAdvisories(headers, options) {
   return (await Array.fromAsync(cursorPages('listRepoAdvisories', headers, pageUrl))).flat()
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, listRepoBranches, compareCommits, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, listRepoTree, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

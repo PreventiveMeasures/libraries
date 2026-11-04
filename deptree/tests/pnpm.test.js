@@ -1816,6 +1816,19 @@ describe('buildPnpmTree with lazy', () => {
     assert.equal(lazy.vfs.realpath('/node_modules/my-lodash/lodash.js'), `/${LODASH}/lodash.js`)
   })
 
+  // As its tarball unpacked them: views of the one array it decompressed to, which nothing writes into.
+  it('holds a package\'s files as its tarball unpacked them, not copied, in the full tree and lazily', async () => {
+    stubRegistry(told)
+    const full = await buildResult()
+    const lazy = await buildResult({ lazy: true })
+    await lazy.unpack([LODASH])
+    for (const { vfs } of [full, lazy]) {
+      const [manifest, code] = ['package.json', 'lodash.js'].map((name) => vfs.readFile(`/${LODASH}/${name}`))
+      assert.equal(manifest.buffer, code.buffer)
+      assert.ok(manifest.buffer.byteLength > manifest.length + code.length, 'the tar, headers and all')
+    }
+  })
+
   it('unpacks each package once, however often and at once it is asked for', async () => {
     stubRegistry(TARBALLS)
     const lazy = await buildResult({ lazy: true, metadata: false })

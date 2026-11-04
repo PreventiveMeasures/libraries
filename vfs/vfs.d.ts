@@ -82,7 +82,7 @@ export function vfsFromEntries(entries: Iterable<EntryInput>): Vfs
 // spelling. Every method throws a VfsError with the POSIX code for what
 // went wrong, and a TypeError or RangeError for an argument of the wrong
 // type or range. Bytes returned are the file's own and must not be written
-// into; bytes given are copied.
+// into; bytes given are copied, unless writeFile is told to adopt them.
 export class Vfs {
   constructor()
   stat(path: string): Stat
@@ -95,7 +95,9 @@ export class Vfs {
   readText(path: string): string
   readlink(path: string): string
   readdir(path: string): string[]
-  writeFile(path: string, data: string | Uint8Array, options?: { mode?: number; mtime?: number }): void
+  // With `adopt`, bytes given are stored as they are, not copied: the writer
+  // hands them over and must not write into them after.
+  writeFile(path: string, data: string | Uint8Array, options?: { mode?: number; mtime?: number; adopt?: boolean }): void
   appendFile(path: string, data: string | Uint8Array): void
   mkdir(path: string, options?: { recursive?: boolean; mode?: number; mtime?: number }): void
   // A link's mode is 0o777 unless given; chmod follows the link, so it is

@@ -37,9 +37,21 @@ export function checkLineOptions({ horizon = Infinity, whitespace = 'none', igno
 }
 
 const changes = (blocks) => blocks.reduce((n, { a0, a1, b0, b1 }) => n + a1 - a0 + b1 - b0, 0)
-const records = (text) => (text === '' ? [] : text.split(/(?<=\n)/u))
+export const records = (text) => (text === '' ? [] : text.split(/(?<=\n)/u))
 const minding = (options) => ({ ...options, ignoreCase: false, whitespace: 'none' })
 const ignoring = (options) => (options.whitespace ?? 'none') !== 'none' || Boolean(options.ignoreCase)
+
+// Whether `blocks` take `a` to `b` as diff holds its own change set to, under
+// options already checked (checkLineOptions): blocksHold's test, and noLonger's.
+export function changeSetHolds(a, b, blocks, { whitespace, ignoreCase }) {
+  try {
+    formatChangeSet(a, b, blocks, { format: 'normal', ignoreCase, whitespace })
+    return true
+  } catch (error) {
+    if (error instanceof DiffError) return false
+    throw error
+  }
+}
 
 // Ignoring blanks or case keeps every line minding them keeps, so it never
 // shows more: past the search's cutoff it may, and then it is the diff minding
@@ -52,16 +64,7 @@ function noLonger(a, b, options, blocks, minded) {
     ? [block(a0, a1, b0, b1)]
     : changeSet(A.slice(a0, a1).join(''), B.slice(b0, b1).join(''), options).map((part) => block(a0 + part.a0, a0 + part.a1, b0 + part.b0, b0 + part.b1))))
   // Blocks put together from diffs of their own are held to what diff holds its own to.
-  const holds = (set) => {
-    try {
-      formatChangeSet(a, b, set, { format: 'normal', ignoreCase: options.ignoreCase, whitespace: options.whitespace })
-      return true
-    } catch (error) {
-      if (error instanceof DiffError) return false
-      throw error
-    }
-  }
-  const best = changes(again) < changes(blocks) && holds(again) ? again : blocks
+  const best = changes(again) < changes(blocks) && changeSetHolds(a, b, again, options) ? again : blocks
   return changes(best) < changes(minded) ? best : minded
 }
 

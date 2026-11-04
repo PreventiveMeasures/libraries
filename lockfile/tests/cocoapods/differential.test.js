@@ -169,22 +169,26 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
     const generator = random(0xDE5C)
     const { next, pick } = generator
     const maybe = (entry) => (next() < 0.5 ? [entry] : [])
+    // Options a string names, as a Podfile may name them, which
+    // Dependency#to_s passes over, `'git'` and `'path'` among them.
+    const named = () => [...maybe([{ s: 'inhibit_warnings' }, { b: false }]), ...maybe([{ s: pick(['git', 'path', 'podspec']) }, s('https://example.com/b.git')])]
     const sources = Array.from({ length: 1500 }, () => {
       const kind = pick(['git', 'git', 'path', 'podspec', 'hg', 'svn', 'http', 'http'])
       const url = pick(['https://example.com/a.git', 'git@example.com:a/b.git', 'https://example.com/a+b', 'https://example.com/"a"'])
       const entries = {
         git: () => [['git', s(url)], ...maybe(['commit', s('abc1234')]), ...maybe(['branch', s(pick(['main', 'a/b', 'yes']))]), ...maybe(['tag', s('v1.0')]), ...maybe(['submodules', { b: true }])],
-        path: () => [['path', s(pick(['../a', 'LocalPods/A b', 'é/#{x}']))], ...maybe(['tag', s('t')])],
-        podspec: () => [['podspec', s(pick(['specs/A.podspec', 'https://example.com/A.podspec']))], ...maybe(['tag', s('hermes')])],
+        path: () => [['path', s(pick(['../a', 'LocalPods/A b', 'é/#{x}']))], ...maybe(['tag', s('t')]), ...named()],
+        podspec: () => [['podspec', s(pick(['specs/A.podspec', 'https://example.com/A.podspec']))], ...maybe(['tag', s('hermes')]), ...named()],
         hg: () => [['hg', s(url)], ...maybe(['revision', s('abc')])],
         svn: () => [['svn', s(url)], ...maybe(['tag', s('1.0')]), ...maybe(['folder', s('trunk')])],
         http: () => [['http', s(pick(['https://example.com/a.zip', 'https://example.com/a b"#{c}.zip']))], ...maybe(['type', s('zip')]), ...maybe(['flatten', { b: next() < 0.5 }]), ...maybe(['sha256', s('a'.repeat(64))]), ...maybe(['headers', { a: [s('Accept: */*'), s('X-A: "b"')] }])],
       }[kind]()
-      return entries.sort(() => next() - 0.5).map(([key, item]) => [{ y: key }, item])
+      return entries.sort(() => next() - 0.5).map(([key, item]) => [typeof key === 'string' ? { y: key } : key, item])
     })
     const results = cocoapods(sources.map((entries) => ['describe', ['A', { m: entries }]]))
+    let strings = 0
     for (const [index, entries] of sources.entries()) {
-      const node = { kind: 'map', entries: entries.map(([key, item]) => ({ key: { kind: 'scalar', type: 'symbol', value: key.y }, value: item.a === undefined ? { kind: 'scalar', type: item.b === undefined ? 'string' : 'boolean', value: item.s ?? item.b } : { kind: 'seq', items: item.a.map((header) => ({ kind: 'scalar', type: 'string', value: header.s })) } })) }
+      const node = { kind: 'map', entries: entries.map(([key, item]) => ({ key: { kind: 'scalar', type: key.y === undefined ? 'string' : 'symbol', value: key.y ?? key.s }, value: item.a === undefined ? { kind: 'scalar', type: item.b === undefined ? 'string' : 'boolean', value: item.s ?? item.b } : { kind: 'seq', items: item.a.map((header) => ({ kind: 'scalar', type: 'string', value: header.s })) } })) }
       let source
       try {
         source = readExternalSource(node, 'here')
@@ -194,6 +198,8 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
       const description = results[index].value.replace(/^A \((.*)\)$/su, '$1')
       checkDescription(description, source, 'here')
       assert.throws(() => checkDescription(`${description.slice(0, -2)}x${description.slice(-1)}`, source, 'here'), /as CocoaPods describes the external source/u)
+      if (entries.some(([key]) => key.s !== undefined)) strings++
     }
+    assert.ok(strings > 100, `${strings} taken with an option a string names`)
   })
 })

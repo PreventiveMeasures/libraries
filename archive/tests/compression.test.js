@@ -129,6 +129,80 @@ describe('gzip padding', () => {
   })
 })
 
+// gzip's trailer says how much its last member decompresses to: the output
+// is made into one array that size as it comes, where the trailer is to be
+// believed, and is the same where it is not.
+describe('gzip output sized by its trailer', () => {
+  const join = (...parts) => new Uint8Array(parts.flatMap((part) => [...part]))
+  it('is one array, the size of the output, for one member', async () => {
+    const out = await decompress(new Uint8Array(gzipSync(text)), 'gzip')
+    assertBytes(out, text)
+    assert.equal(out.buffer.byteLength, text.length, 'no array joined from pieces, nor room to spare')
+  })
+  it('is all of it where the last member says less than all of it is', async () => {
+    const a = utf8('alpha\n'.repeat(1000))
+    assertBytes(await decompress(join(gzipSync(text), gzipSync(a)), 'gzip'), join(text, a))
+  })
+  it('is refused as before where the trailer says other than the member makes, keeping what came out', async () => {
+    const packed = new Uint8Array(gzipSync(text))
+    const view = new DataView(packed.buffer, packed.byteOffset)
+    for (const said of [text.length + 1, text.length - 1, 0xffffffff]) {
+      const forged = packed.slice()
+      new DataView(forged.buffer).setUint32(forged.length - 4, said, true)
+      await assert.rejects(decompress(forged, 'gzip'), (error) => {
+        assert.ok(error instanceof CompressionError && !error.limited, String(said))
+        assert.equal(error.message, 'the data does not decompress')
+        assertBytes(error.bytes, text.subarray(0, error.bytes.length))
+        return true
+      })
+    }
+    assert.equal(view.getUint32(packed.length - 4, true), text.length)
+  })
+  // What the output is made into, in the arrays decompress makes of a size.
+  const allocated = async (run) => {
+    const sizes = []
+    const native = globalThis.Uint8Array
+    globalThis.Uint8Array = new Proxy(native, {
+      construct(target, args, newTarget) {
+        if (typeof args[0] === 'number') sizes.push(args[0])
+        return Reflect.construct(target, args, newTarget)
+      },
+    })
+    try {
+      await run()
+    } finally {
+      globalThis.Uint8Array = native
+    }
+    return Math.max(0, ...sizes)
+  }
+  it('of no more than the trailer of the data as given, and none of the places padding is tried ending at', async () => {
+    // Incompressible: the places tried before the member's end have its checksum where a trailer would be.
+    const noise = new Uint8Array(1 << 20).map(() => Math.floor(Math.random() * 256))
+    const packed = new Uint8Array(gzipSync(noise))
+    const padded = join(packed, new Uint8Array(10240 - (packed.length % 10240)))
+    let out
+    const most = await allocated(async () => {
+      out = await decompress(padded, 'gzip')
+    })
+    assertBytes(out, noise)
+    assert.ok(most <= packed.length * 2, `${most} bytes allocated at once for ${padded.length} in`)
+  })
+  it('of no more than sixteen times the data, whatever the trailer says', async () => {
+    const forged = new Uint8Array(gzipSync(text))
+    // More than comes out, and than sixteen times the data, though deflate could make that much.
+    const said = text.length + 4096
+    assert.ok(said > forged.length * 16 && said < forged.length * 1032)
+    new DataView(forged.buffer).setUint32(forged.length - 4, said, true)
+    const most = await allocated(() => assert.rejects(decompress(forged, 'gzip'), /the data does not decompress/u))
+    assert.ok(most < said, `${most} bytes allocated at once, the trailer saying ${said}`)
+  })
+  it('within the limit alone', async () => {
+    const packed = new Uint8Array(gzipSync(text))
+    await assert.rejects(decompress(packed, 'gzip', { limit: text.length - 1 }), (error) => error.limited && error.bytes.length <= text.length - 1)
+    assertBytes(await decompress(packed, 'gzip', { limit: text.length }), text)
+  })
+})
+
 describe('the output bound', () => {
   it('lets output up to the limit through, and refuses past it where it is', async () => {
     const packed = await compress(text, 'gzip')

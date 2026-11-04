@@ -62,7 +62,8 @@ export function writeNode(vfs, dir, files, stats) {
       makeDirs(vfs, parent.slice(1), real)
       addMade(made, parent)
     }
-    vfs.writeFile(checkWrite(vfs, dir, path, real), file.data, { mode: file.mode })
+    // A package's bytes are handed over, not copied: nothing writes into them after (vfs's `adopt`).
+    vfs.writeFile(checkWrite(vfs, dir, path, real), file.data, { mode: file.mode, adopt: true })
     stats.files++
     stats.bytes += file.data.length
   }

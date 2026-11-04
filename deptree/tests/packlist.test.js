@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { packDirectory } from '../src/pnpm/packlist.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // What pnpm 9, 10, 11 and 12 install of a `file:` dependency's directory.
 // Each list here is what real installs of these versions kept, file for file.
@@ -337,7 +342,7 @@ describe('packDirectory bounds', () => {
   const own = (pnpm, name) => (pnpm === V12 ? [name] : [])
 
   it('matches in time linear in the path and the pattern', () => {
-    const start = performance.now()
+    const start = cpuUsage()
     const name = 'a'.repeat(250)
     const glob = `${'*a'.repeat(60)}b`
     for (const pnpm of ALL) {
@@ -345,7 +350,8 @@ describe('packDirectory bounds', () => {
       assert.deepEqual(pack({ [`l/${name}`]: '', '.npmignore': `${glob}\n` }, pnpm), [...own(pnpm, '.npmignore'), `l/${name}`, 'package.json'], pnpm)
       assert.deepEqual(pack({ x: '', 'a/b/x': '', y: '', '.npmignore': `${'**/'.repeat(100)}x\n` }, pnpm), [...own(pnpm, '.npmignore'), 'package.json', 'y'], pnpm)
     }
-    assert.ok(performance.now() - start < 1000, `${performance.now() - start}ms`)
+    const took = cpuMs(start)
+    assert.ok(took < 1000, `${took}ms`)
   })
 
   // Past it minimatch may make too large a regexp, which pnpm 9, 10 and 11

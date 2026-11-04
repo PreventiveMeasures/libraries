@@ -4,11 +4,13 @@
 // CocoaPods reads by ExternalSources.from_params and cocoapods-downloader.
 // A `:podspec` comes first, then a `:path`, then one way to download;
 // anything else beside a `:podspec` or a `:path` CocoaPods carries along,
-// and passes over, and it is handed back as `options`.
+// and passes over, and it is handed back as `options`: one a symbol names,
+// or a string, as a Podfile may name one too, as Expo's autolinking names
+// `inhibit_warnings`, which the Podfile then does not read either.
 
 import { LockfileError, quote } from '../error.js'
 import { checkRefName, checkRepo, isCommit, isHexSha1, isHexSha256, isHttpUrl } from '../names.js'
-import { checker, entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
+import { checker, entriesOf, itemsOf, refuse, scalarOf, textOf } from './shape.js'
 
 // cocoapods-downloader's strategies, each with the options it takes, and
 // the field each is handed back as.
@@ -105,23 +107,32 @@ function readOption(strategy, option, node, where) {
 
 const readUrl = (strategy, node, where) => checkRepo((URLS[strategy] ?? textOf)(node, where), where)
 
-// The options of a mapping, by name, each with its node and where it is.
+// The options of a mapping, in its order, each with its name, its node,
+// where it is, and whether a string names it, as a Podfile may name one,
+// rather than a symbol, as CocoaPods reads one; and by name, those a
+// symbol names.
 function readOptions(node, where) {
-  const options = Object.create(null)
+  const list = []
+  const symbols = Object.create(null)
   for (const [key, value, here] of entriesOf(node, where)) {
-    if (key.type !== 'symbol') throw new LockfileError('a key that is not a symbol, where CocoaPods reads options by symbol', here)
-    options[key.value] = { node: value, where: here }
+    if (key.type !== 'symbol' && key.type !== 'string') throw new LockfileError(`the ${key.type} ${String(key.value)} as a key, where a symbol or a string names an option`, here)
+    const option = { name: key.value, string: key.type === 'string', node: value, where: here }
+    list.push(option)
+    if (!option.string) symbols[option.name] = option
   }
-  return options
+  return { list, symbols }
 }
 
 // One way to download, with the options it takes alone: cocoapods-downloader
-// refuses any other.
-function readDownload(options, where) {
+// refuses any other. It reads an option a string names as the symbol, as
+// ExternalSources and Dependency#to_s do not, so that is refused too.
+function readDownload({ list, symbols: options }, where) {
   const names = Object.keys(options)
   const strategies = names.filter((name) => name in DOWNLOADS)
   if (strategies.length === 0) throw new LockfileError('names no source CocoaPods knows: :podspec, :path, or one of :git, :hg, :http, :scp and :svn', where)
   if (strategies.length > 1) throw new LockfileError(`both :${strategies[0]} and :${strategies[1]}, which CocoaPods reads as no source at all`, where)
+  const named = list.find((option) => option.string)
+  if (named !== undefined) throw new LockfileError('a key that is not a symbol, which cocoapods-downloader reads as one and the rest of CocoaPods passes over', named.where)
   const [strategy] = strategies
   const other = names.find((name) => name !== strategy && !DOWNLOADS[strategy].includes(name))
   if (other !== undefined) throw new LockfileError(`an option cocoapods-downloader does not take of :${strategy}`, options[other].where)
@@ -133,18 +144,29 @@ function readDownload(options, where) {
   return download
 }
 
-// EXTERNAL SOURCES's entry of a root.
+// An option CocoaPods carries: a string or a boolean, as it was given.
+function readCarried(node, where) {
+  if (node?.kind === 'scalar' && (node.type === 'string' || node.type === 'boolean')) return node.value
+  throw refuse('a string or a boolean', node, where)
+}
+
+// EXTERNAL SOURCES's entry of a root. An option a string names beside a
+// `:podspec` or a `:path`, CocoaPods carries as it does one a symbol
+// names, and it is handed back by its name likewise: so a name that a
+// symbol and a string both give is refused.
 export function readExternalSource(node, where) {
   const options = readOptions(node, where)
-  const type = 'podspec' in options ? 'podspec' : 'path' in options ? 'path' : undefined
+  const { symbols } = options
+  const type = 'podspec' in symbols ? 'podspec' : 'path' in symbols ? 'path' : undefined
   if (type === undefined) return readDownload(options, where)
   const carried = Object.create(null)
-  for (const [name, { node: value, where: here }] of Object.entries(options)) {
-    if (name === type) continue
-    if (name === 'podspec' || name === 'path' || name in DOWNLOADS) throw new LockfileError(`beside :${type}, which CocoaPods reads alone`, here)
-    carried[name] = scalarOf(value, 'string', here)
+  for (const { name, string, node: value, where: here } of options.list) {
+    if (!string && name === type) continue
+    if (!string && (name === 'podspec' || name === 'path' || name in DOWNLOADS)) throw new LockfileError(`beside :${type}, which CocoaPods reads alone`, here)
+    if (name in carried) throw new LockfileError(`both :${name} and ${quote(name)}, where options has each name once`, here)
+    carried[name] = readCarried(value, here)
   }
-  const { node: value, where: here } = options[type]
+  const { node: value, where: here } = symbols[type]
   const location = textOf(value, here)
   if (type === 'podspec' && /^https?:/iu.test(location)) URLS.http(value, here)
   else checkPath(location, here)

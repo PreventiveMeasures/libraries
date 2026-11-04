@@ -1,0 +1,416 @@
+import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
+import { realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { after, describe, it } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
+
+import { gatedInlining, memoizeHelpers } from '../src/babel-transformer.js'
+import { babelWorkers, defaultWorkers, newProfile, profileReport, timedBefore } from '../src/babel-worker.js'
+import { bigBuild, peers } from '../src/cli.js'
+import { writeTree } from './fixtures.js'
+
+const CORE = fileURLToPath(import.meta.resolve('@babel/core'))
+const FINGERPRINTER = fileURLToPath(new URL('../serve/fingerprint.js', import.meta.url))
+const core = createRequire(import.meta.url)('@babel/core')
+const MODULES_COMMONJS = fileURLToPath(import.meta.resolve('@babel/plugin-transform-modules-commonjs'))
+
+// () => the thread a transform's file is transformed in (thread.cjs's): 0, the main thread.
+const threader = (transform) => {
+  let files = 0
+  return async () => Number(/(\d+);$/u.exec((await transform('a()', `/t${files++}.js`)).code)[1])
+}
+
+// Transforms one file after another till a worker does one: -> how many the main thread did.
+const readied = async (threadOf) => {
+  let files = 0
+  while ((await threadOf()) === 0) {
+    files++
+    await delay(5)
+  }
+  return files
+}
+
+describe('babelWorkers', () => {
+  const { root, cleanup } = writeTree({
+    'broken.cjs': "throw new Error('broken core')\n",
+    // A pre hook, run in each file, and a visitor of classes, in a file with one.
+    'classy.cjs': "module.exports = () => ({ name: 'classy', pre() {}, visitor: { ClassDeclaration() {} } })\n",
+    // module-resolver, as the project installs it: its module's own resolvePath maps its specifiers.
+    'node_modules/babel-plugin-module-resolver': { link: realpathSync(fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')).replace(/[\\/]lib[\\/]index\.js$/u, '')) },
+    // A require of an alias, put in as Babel traverses the file.
+    'inject.cjs': "module.exports = ({ types: t }) => ({ name: 'inject', visitor: { Identifier(path) { if (path.node.name === '__DEP__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('#lib/b')])) } } })\n",
+    // The worker's thread, by which file it transforms.
+    'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
+    'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
+    'blocked.cjs': "module.exports = (api, { signal }) => ({ pre(file) { if (require('node:path').basename(file.opts.filename) === 'slow.js') { const gate = new Int32Array(signal); Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); Atomics.wait(gate, 1, 0); } } })\n",
+    'tag.cjs': "module.exports = ({ types: t }, { value }) => ({ name: 'tag', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(value))) } } } })\n",
+    'overrides.config.cjs': "module.exports = { overrides: [{ test: /special\\.js$/, plugins: [['./tag.cjs', { value: 'special' }, 'special']] }] }\n",
+    // A config with its own visitor wrapper, which marks after mark's visitor.
+    'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
+  })
+  after(cleanup)
+
+  it('transforms in a worker, by the @babel/core given, failing with its errors', async () => {
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false })
+    const files = await Promise.all(['a', 'b', 'c'].map((name) => transform(`const ${name} = 1 ?? 2`, join(root, `${name}.js`))))
+    assert.deepEqual(files, ['a', 'b', 'c'].map((name) => ({ code: `const ${name} = 1 ?? 2;`, imports: [] })))
+    await assert.rejects(transform('const a = (b: ) => 1', join(root, 'bad.js')), /bad\.js: Unexpected token/u)
+  })
+
+  it('transforms in at most as many workers as it is given, else 2 of 4 CPUs or more, 1 of fewer', async () => {
+    assert.deepEqual([1, 2, 3, 4, 8, 12, 16].map((cores) => defaultWorkers(cores)), [1, 1, 1, 3, 3, 3, 3])
+    // In workers from the first file, as with keepPlugins (none of which
+    // this config has), not in band.
+    const threads = async (max, length) => {
+      const threadOf = threader(babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')], keepPlugins: true }, null, max))
+      return new Set(await Promise.all(Array.from({ length }, () => threadOf()))).size
+    }
+    assert.deepEqual([await threads(1, 30), await threads(3, 30)], [1, 3])
+    // A few files, which one does before another would have loaded Babel.
+    assert.equal(await threads(3, 8), 1)
+  })
+
+  it("transforms a build's first files in band, on the main thread, then in a worker once one is ready, but with keepPlugins", async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }
+    const threadOf = threader(babelWorkers(CORE, options))
+    // Those sent at once, before one is.
+    assert.deepEqual(new Set(await Promise.all(Array.from({ length: 24 }, () => threadOf()))), new Set([0]))
+    await readied(threadOf)
+    assert.notEqual(await threadOf(), 0)
+    assert.notEqual(await threader(babelWorkers(CORE, { ...options, keepPlugins: true }))(), 0)
+  })
+
+  it('makes each of its workers at once, warm, which a few files then each go to, the main thread transforming till one is ready', async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }
+    const threads = async (warm) => {
+      const threadOf = threader(babelWorkers(CORE, options, null, 2, { warm }))
+      assert.equal(await threadOf(), 0)
+      await readied(threadOf)
+      return new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size
+    }
+    assert.deepEqual([await threads(true), await threads(false)], [2, 1])
+  })
+
+  it('makes each of its workers at once, eager, as a build is past its files in band, but none of a few files', async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'thread.cjs')] }
+    const threads = async (eager) => {
+      const threadOf = threader(babelWorkers(CORE, options, null, 2, { eager }))
+      // Past the 16 in band, sent at once, none of which a worker is ready for.
+      assert.deepEqual(new Set(await Promise.all(Array.from({ length: 24 }, () => threadOf()))), new Set([0]))
+      await readied(threadOf)
+      return new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size
+    }
+    // Lazily, one more only as each has a backlog: 4 files, all the first's.
+    assert.deepEqual([await threads(true), await threads(false)], [2, 1])
+    // Of a few files, as a build that the cache has but for them: each in band, and no worker.
+    const threadOf = threader(babelWorkers(CORE, options, null, 2, { eager: true }))
+    for (let i = 0; i < 8; i++) assert.equal(await threadOf(), 0)
+    await delay(400)
+    assert.deepEqual(new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))), new Set([0]))
+  })
+
+  it("leaves out the config's plugins of the keys it is given", async () => {
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs')] })
+    assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
+    assert.equal((await transform('a()', join(root, 'a.js'), ['mark'])).code, 'a();')
+    assert.equal((await transform('a()', join(root, 'a.js'), ['other'])).code, 'a();\n"marked";')
+  })
+
+  it('lets small files finish on another worker while a cold build without output maps transforms a large file', async () => {
+    const signal = new SharedArrayBuffer(8)
+    const gate = new Int32Array(signal)
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, sourceMaps: false, oneBuild: true, keepPlugins: true, plugins: [[join(root, 'blocked.cjs'), { signal }], join(root, 'thread.cjs')] }, null, 2, { warm: true })
+    const timeout = new AbortController()
+    const slow = transform(`/* ${'large source '.repeat(5000)} */\n0;`, join(root, 'slow.js'))
+    try {
+      assert.notEqual(await Atomics.waitAsync(gate, 0, 0, 5000).value, 'timed-out')
+      // Inline map data must not make these tiny files look larger than the blocked file.
+      const map = Buffer.from(JSON.stringify({ version: 3, sources: ['original.js'], names: [], mappings: 'AAAA', sourcesContent: ['x'.repeat(100000)] })).toString('base64')
+      const small = Array.from({ length: 12 }, (_, i) => transform(`${i};\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${map}\n`, join(root, `small-${i}.js`)))
+      const results = await Promise.race([
+        Promise.all(small),
+        delay(5000, null, { signal: timeout.signal }).then(() => assert.fail('small files queued behind the blocked transform')),
+      ])
+      assert.deepEqual(results.map(({ code }) => code.split('\n')[0]), Array.from({ length: 12 }, (_, i) => `${i};`))
+      Atomics.store(gate, 1, 1)
+      Atomics.notify(gate, 1)
+      await slow
+      // Completed work no longer counts against either worker.
+      const threadOf = threader(transform)
+      assert.equal(new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size, 2)
+    } finally {
+      timeout.abort()
+      Atomics.store(gate, 1, 1)
+      Atomics.notify(gate, 1)
+      try {
+        await slow
+      } finally {
+        await transform.close()
+      }
+    }
+  })
+
+  it('keeps project-only plugins out of dependencies while resolving overrides for each file', async () => {
+    for (const keepPlugins of [false, true]) {
+      const tag = join(root, 'tag.cjs')
+      const transform = babelWorkers(CORE, { cwd: root, babelrc: false, configFile: join(root, 'overrides.config.cjs'), compact: false, plugins: [[tag, { value: 'base' }, 'base']], ownPlugins: [[tag, { value: 'own' }, 'own']], keepPlugins }, null, 1)
+      try {
+        const cases = [
+          ['a.js', ['base', 'own']],
+          ['node_modules/dep/a.js', ['base']],
+          ['special.js', ['base', 'own', 'special']],
+          ['node_modules/dep/special.js', ['base', 'special']],
+          ['b.js', ['base', 'own']],
+        ]
+        for (const [file, tags] of cases) {
+          const { code, imports } = await transform("import value from 'dep'\nvalue()\n", join(root, file))
+          assert.deepEqual([...code.matchAll(/"(base|own|special)";/gu)].map(([, value]) => value).toSorted(), tags)
+          assert.deepEqual(imports, ['dep'])
+        }
+      } finally {
+        await transform.close()
+      }
+    }
+  })
+
+  it('adds to a profile the time of each transform, and of each plugin: the files its visitors ran in, and their calls', async () => {
+    const profile = newProfile()
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'mark.cjs'), join(root, 'classy.cjs')] }, profile)
+    assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
+    assert.equal((await transform('class B {}', join(root, 'b.js'), ['mark'])).code, 'class B {}')
+    assert.equal(profile.files, 2)
+    const { files, calls, ms } = profile.plugins.get('mark')
+    assert.deepEqual([files, calls], [1, 1])
+    // In both files, its visitor run in one: its pre hook's calls count, not their files.
+    assert.deepEqual([profile.plugins.get('classy').files, profile.plugins.get('classy').calls], [1, 3])
+    assert.ok(ms > 0 && profile.ms > ms)
+    // Babel's own, in each file: its config loaded, parsed, its scope crawled, printed.
+    assert.deepEqual([...profile.own].map(([name, own]) => [name, own.files, own.calls >= 1, own.ms > 0]).toSorted(), ['config', 'parsing', 'printing', 'scopes'].map((name) => [name, 2, true, true]))
+  })
+
+  it("profiles through the config's own visitor wrapper", async () => {
+    const options = { babelrc: false, configFile: join(root, 'wrap.config.cjs'), compact: false }
+    for (const profile of [null, newProfile()]) assert.equal((await babelWorkers(CORE, options, profile)('a()', join(root, 'a.js'))).code, 'a();\n"marked";\n"wrapped";')
+  })
+
+  it("gives the specifiers of the file's import and export-from declarations, as Metro's transformer records them, though Babel makes each a require call", async () => {
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, compact: false, plugins: [MODULES_COMMONJS, join(root, 'mark.cjs')] })
+    const source = "import a from 'a'\nexport { b } from 'b'\nexport * from 'c'\nexport const d = require('d')\n"
+    const { code, imports } = await transform(source, join(root, 'imports.js'))
+    assert.deepEqual([...code.matchAll(/require\(["'](\w)["']\)/gu)].map(([, specifier]) => specifier).toSorted(), ['a', 'b', 'c', 'd'])
+    assert.deepEqual(imports, ['a', 'b', 'c'])
+  })
+
+  it("runs module-resolver's traversals where a string names one of its aliases, as Babel has the file when each starts", async () => {
+    const profile = newProfile()
+    const plugins = [[fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')), { cwd: root, alias: { '#lib': './lib', '^~(.+)$': './lib/\\1' } }], join(root, 'inject.cjs')]
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, cwd: root, compact: false, plugins }, profile)
+    const code = async (source) => (await transform(source, join(root, 'a.js'))).code
+    assert.equal(await code("const a = require('#lib/a')"), 'const a = require("./lib/a");')
+    assert.equal(await code("const a = require('~a')"), 'const a = require("./lib/a");')
+    assert.equal(await code('const b = __DEP__'), 'const b = require("./lib/b");')
+    assert.equal(await code("// #lib\nconst c = require('c')"), "// #lib\nconst c = require('c');")
+    // Its enter, of the first two, which leaves no alias to its exit; its
+    // exit, of the third. Its pre and post hooks, of each.
+    const { files, calls } = profile.plugins.get('module-resolver')
+    assert.deepEqual([files, calls], [3, 3 + 4 * 2])
+  })
+
+  it('maps the specifiers module-resolver maps, as its traversals map them', async () => {
+    const plugins = [[fileURLToPath(import.meta.resolve('babel-plugin-module-resolver')), { cwd: root, alias: { '#lib': './lib', '^~(.+)$': './lib/\\1' } }]]
+    const options = { babelrc: false, configFile: false, cwd: root, compact: false, plugins }
+    const source = [
+      "import a from '#lib/a'",
+      "export { b } from '~b'",
+      "export * from './c'",
+      "import * as d from 'd'",
+      "const e = require('#lib/e')",
+      "require.resolve('#lib/f')",
+      "jest.mock('#lib/g', () => ({}))",
+      "import('#lib/h')",
+      "other('#lib/i')",
+      "const j = require(/* j */ '#lib/j')",
+      'const k = require(`#lib/k`)',
+      '',
+    ].join('\n')
+    const filename = join(root, 'src/all.js')
+    assert.equal((await babelWorkers(CORE, options)(source, filename)).code, (await core.transformAsync(source, { ...options, filename })).code)
+  })
+
+  it("checks each module-resolver's aliases, where the config has more than one", async () => {
+    const resolver = fileURLToPath(import.meta.resolve('babel-plugin-module-resolver'))
+    const plugins = [[resolver, { cwd: root, alias: { '#first': './first' } }, 'first'], [resolver, { cwd: root, alias: { '#second': './second' } }, 'second']]
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, cwd: root, compact: false, plugins })
+    assert.equal((await transform("require('#first/a')", join(root, 'a.js'))).code, 'require("./first/a");')
+    assert.equal((await transform("require('#second/b')", join(root, 'b.js'))).code, 'require("./second/b");')
+  })
+
+  it('reports a profile, most time first, with that outside the plugins', () => {
+    const plugins = new Map([['/app/node_modules/preset/index.js$0', { files: 1, calls: 1, ms: 1 }], ['transform-x', { files: 2, calls: 30, ms: 6 }]])
+    const own = new Map([['parsing', { files: 2, calls: 2, ms: 2 }], ['config', { files: 2, calls: 2, ms: 0.5 }]])
+    assert.equal(
+      profileReport({ files: 2, ms: 10, plugins, own }, '/app'),
+      [
+        'Babel: 2 files, 10 ms, summed over its threads',
+        '      ms       %    files      calls  plugin',
+        '       6    60.0        2         30  transform-x',
+        '       1    10.0        1          1  node_modules/preset/index.js$0',
+        '      ms       %    files      calls  Babel, outside plugins',
+        '       1     5.0        2          2  config',
+        '       2    20.0        2          2  parsing',
+        '       0     0.0        0          0  scopes',
+        '       0     0.0        0          0  printing',
+        '       1     5.0                      traversal, and the rest',
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it("reports after Babel's the main thread's work before it, of no share of Babel's", () => {
+    const before = new Map([['flow-remove-types', { files: 3, ms: 4.4 }]])
+    const report = profileReport({ files: 0, ms: 0, plugins: new Map(), own: new Map(), before }, '/app').split('\n')
+    assert.deepEqual(report.slice(-3), ['      ms            files             before Babel, on the main thread', '       4                3             flow-remove-types', ''])
+  })
+
+  it('times each call of a function of the main thread before Babel, though it throws', () => {
+    const profile = newProfile()
+    const strip = timedBefore(profile, 'flow-remove-types', (source) => {
+      if (source === 'bad') throw new SyntaxError('bad')
+      return source.toUpperCase()
+    })
+    assert.deepEqual(profile.before.get('flow-remove-types'), { files: 0, ms: 0 })
+    assert.equal(strip('a'), 'A')
+    assert.throws(() => strip('bad'), SyntaxError)
+    const { files, ms } = profile.before.get('flow-remove-types')
+    assert.ok(files === 2 && ms >= 0)
+    // Of no profile, or no function: as it is.
+    const fn = () => 1
+    assert.equal(timedBefore(null, 'flow-remove-types', fn), fn)
+    assert.equal(timedBefore(profile, 'other', null), null)
+    assert.equal(profile.before.has('other'), false)
+  })
+
+  it('fails each transform of a worker that dies, none left waiting', { timeout: 10_000 }, async () => {
+    const transform = babelWorkers(join(root, 'broken.cjs'), {})
+    for (const name of ['a', 'b', 'c']) await assert.rejects(transform('x', join(root, `${name}.js`)), /broken core/u)
+  })
+})
+
+describe('babelWorkers, asked for a fingerprint', () => {
+  const { root, cleanup } = writeTree({
+    'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
+    // Its output of a file it names, which may change.
+    'external.cjs': "module.exports = (api) => { api.cache.never(); api.addExternalDependency(__dirname + '/dep.txt'); return { name: 'external', visitor: {} } }\n",
+    'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
+  })
+  after(cleanup)
+  const options = { babelrc: false, configFile: false, cwd: root, compact: false, plugins: [join(root, 'mark.cjs')] }
+
+  it('gives one of what it loaded with the config, and its options, with the option alone', async () => {
+    const { fingerprint, modules, reads, options: given } = await babelWorkers(CORE, { ...options, fingerprinter: FINGERPRINTER }, null, 1).fingerprint()
+    assert.match(fingerprint, /^[\da-f]{64}$/u)
+    assert.ok(modules.includes(CORE) && modules.includes(join(root, 'mark.cjs')))
+    assert.ok(Array.isArray(reads))
+    assert.deepEqual(given, { ...options, fingerprinter: FINGERPRINTER })
+    assert.equal(babelWorkers(CORE, options, null, 1).fingerprint, undefined)
+  })
+
+  it("transforms in band still, but gives a worker's: of what Babel loaded, not of what the main thread has", async () => {
+    const { threadOf, fingerprintOf } = (() => {
+      const transform = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprinter: FINGERPRINTER }, null, 1)
+      return { threadOf: threader(transform), fingerprintOf: () => transform.fingerprint() }
+    })()
+    // esbuild's, CommonJS, which the main thread has loaded, Babel not.
+    const require = createRequire(import.meta.url)
+    const esbuild = require.resolve('esbuild')
+    require(esbuild)
+    assert.deepEqual(await Promise.all([threadOf(), threadOf()]), [0, 0])
+    const { fingerprint, modules } = await fingerprintOf()
+    assert.ok(modules.includes(join(root, 'thread.cjs')) && !modules.includes(esbuild), String(modules))
+    const fresh = babelWorkers(CORE, { ...options, plugins: [...options.plugins, join(root, 'thread.cjs')], fingerprinter: FINGERPRINTER }, null, 1)
+    assert.equal((await fresh.fingerprint()).fingerprint, fingerprint)
+  })
+
+  it("says an output is of a plugin's of files it names, which a cache keeps none of", async () => {
+    const transform = babelWorkers(CORE, options, null, 1)
+    assert.deepEqual(await transform('a()', join(root, 'a.js')), { code: 'a();\n"marked";', imports: [] })
+    const external = babelWorkers(CORE, { ...options, plugins: [join(root, 'external.cjs')] }, null, 1)
+    assert.deepEqual(await external('a()', join(root, 'a.js')), { code: 'a();', imports: [], uncacheable: true })
+  })
+})
+
+describe("Metro's inline-requires plugin, where the program has what it inlines", () => {
+  // Metro's own, as the project's Metro has it (metro-config's metro's).
+  const metroRequire = createRequire(createRequire(import.meta.url).resolve('metro-config'))
+  const { inlineRequiresPlugin } = createRequire(metroRequire.resolve('metro'))('metro-transform-plugins')
+  const IGNORED = ['React', 'react', 'react-native']
+  const transform = (code, plugin, options) => core.transformSync(code, { babelrc: false, configFile: false, compact: false, plugins: [[plugin, options ?? { ignoredRequires: IGNORED }]] }).code
+
+  it('runs its exit where a top-level var is of a module required, or a member of it, or destructured, not of one it ignores', () => {
+    const exits = []
+    const plugin = () => ({ name: 'inline-requires', visitor: { Program: { enter() {}, exit() { exits.push(true) } } } })
+    const runs = (code, options) => {
+      exits.length = 0
+      transform(code, gatedInlining(plugin), options)
+      return exits.length === 1
+    }
+    for (const code of ["var a = require('./a')", "var a = require('./a').b", "var a = registry[require('./key')]", "var { b } = require('./a')", "var a = require(require.resolve('./a'))", "var x = 1, a = require('./a')", "var r = importAll('./a')"]) assert.ok(runs(code, { ignoredRequires: IGNORED, inlineableCalls: ['importAll'] }), code)
+    for (const code of ["var r = require('react')", "var h = require('@babel/runtime/helpers/interopRequireDefault')", "var d = h(require('./a'))", "require('./a')", "function f() { var a = require('./a') }", 'var a = require(name)', "var r = importAll('./a')"]) assert.ok(!runs(code), code)
+    assert.ok(!runs("var a = require('./a')", { ignoredRequires: ['./a'] }))
+  })
+
+  it("makes each program as Metro's plugin makes it", () => {
+    for (const code of [
+      "var _a = require('./a')\nvar _r = require('react')\nexports.f = function () { return _a.x + _r.y }",
+      "var h = require('@babel/runtime/helpers/interopRequireDefault')\nvar _d = h(require('./d'))\nexports.g = function () { return _d.default }",
+      "var { z } = require('./z')\nvar w = require('./w').w\nconsole.log(z, w)",
+      // A require of a member's computed property: of no property name, which Metro inlines not.
+      "var v = registry[require('./key')]\nexports.h = function () { return v }",
+    ]) assert.equal(transform(code, gatedInlining(inlineRequiresPlugin)), transform(code, inlineRequiresPlugin), code)
+  })
+})
+
+describe('memoizeHelpers', () => {
+  it("answers File#availableHelper once of each helper and version range, as it would, and wraps it once", () => {
+    const asked = []
+    const fake = { File: class { availableHelper(name, versionRange) { asked.push([name, versionRange]); return name === 'extends' && versionRange !== '^6.0.0' } } }
+    memoizeHelpers(fake)
+    memoizeHelpers(fake)
+    const file = new fake.File()
+    const answers = [['extends', '^7.0.0'], ['extends', '^7.0.0'], ['extends', '^6.0.0'], ['jsx', undefined], ['jsx', undefined], ['extends', '^7.0.0']].map(([name, range]) => file.availableHelper(name, range))
+    assert.deepEqual(answers, [true, true, false, false, false, true])
+    assert.deepEqual(asked, [['extends', '^7.0.0'], ['extends', '^6.0.0'], ['jsx', undefined]])
+    // A range of another kind, as Babel's own has it, asked each time.
+    file.availableHelper('extends', 7)
+    file.availableHelper('extends', 7)
+    assert.equal(asked.length, 5)
+  })
+
+  it("leaves a @babel/core of no File#availableHelper as it is", () => {
+    assert.doesNotThrow(() => memoizeHelpers({}))
+    assert.doesNotThrow(() => memoizeHelpers({ File: class {} }))
+  })
+})
+
+describe('bigBuild', () => {
+  const libraries = (count) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`node_modules/react-native/Libraries/L${i}/index.js`, '']))
+  const of = (tree) => {
+    const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...tree })
+    try {
+      return bigBuild(peers(root, assert.fail))
+    } finally {
+      cleanup()
+    }
+  }
+
+  it("is of React Native itself, its Libraries of dozens of directories, as a fixture's stub is not", () => {
+    const manifest = { 'node_modules/react-native/package.json': { name: 'react-native', version: '0.81.0' } }
+    assert.equal(of({ ...manifest, ...libraries(24) }), true)
+    assert.equal(of({ ...manifest, ...libraries(2) }), false)
+    assert.equal(of(manifest), false)
+    assert.equal(of({}), false)
+  })
+})

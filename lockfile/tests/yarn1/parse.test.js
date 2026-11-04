@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { LockfileError, parseYarn1Lockfile } from '../../yarn1.js'
 import { semver } from './semver.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 // One small yarn.lock with a package of every kind — from the registry,
 // with patterns merged, a sha1 integrity and an npm alias; a directory, a
@@ -794,13 +799,13 @@ describe('in time linear in its length, whatever a key or a manifest holds', () 
   const withRoot = (root) => ({ ...MANIFESTS, '.': { ...MANIFESTS['.'], ...root } })
   // Read or refused, either within a second.
   const quick = (text, manifests) => {
-    const start = performance.now()
+    const start = cpuUsage()
     try {
       parse(text, manifests)
     } catch (error) {
       assert.ok(error instanceof LockfileError, error.stack)
     }
-    const took = performance.now() - start
+    const took = cpuMs(start)
     assert.ok(took < 1000, `${Math.round(took)} ms`)
   }
 

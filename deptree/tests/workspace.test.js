@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { createVfs } from '@preventive/vfs'
 import { checkWorkspace, findProjects } from '../src/pnpm/workspace.js'
+
+// Milliseconds of CPU spent since `start`: what the work cost, which a
+// machine busy with other tests stretches on the clock and not here.
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 const viewOf = (vfs, calls = {}) => ({
   readdir: (path) => vfs.readdir(path),
@@ -229,9 +234,10 @@ describe('the globs', () => {
   })
 
   it('match as many `**` as there are names in time', () => {
-    const start = performance.now()
+    const start = cpuUsage()
     assert.throws(() => checkWorkspace(['.', 'd/'.repeat(15) + 'd'], [`${'**/'.repeat(16)}x`]), /do not take this directory/u)
-    assert.ok(performance.now() - start < 1000, `${performance.now() - start}ms`)
+    const took = cpuMs(start)
+    assert.ok(took < 1000, `${took}ms`)
   })
 })
 

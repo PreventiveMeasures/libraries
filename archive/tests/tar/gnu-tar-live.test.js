@@ -4,7 +4,7 @@ import { lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { pack } from '../../tar.js'
+import { pack, unpack } from '../../tar.js'
 import { assertBytes, utf8 } from '../helpers.js'
 
 // The recordings say what GNU tar wrote once; this asks the GNU tar on the
@@ -74,4 +74,22 @@ describe('GNU tar reads what pack writes', { skip: gnu ? false : 'GNU tar is not
       }
     })
   }
+})
+
+describe('unpack reads what GNU tar writes', { skip: gnu ? false : 'GNU tar is not on the PATH' }, () => {
+  it('a global header and no entry, as nothing, where trailingGlobal takes it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tar-live-'))
+    try {
+      const file = join(root, 'archive.tar')
+      // What `tar --pax-option` writes with no file to archive: the global
+      // header those options go in, and nothing it applies to.
+      execFileSync('tar', ['--format=posix', '--pax-option=comment=x', '-cf', file, '-T', '/dev/null'])
+      assert.equal(execFileSync('tar', ['-tf', file]).toString(), '', `${version} lists nothing`)
+      const bytes = new Uint8Array(readFileSync(file))
+      assert.throws(() => unpack(bytes), /an extended header is not followed by an entry at byte 1024/u)
+      assert.deepEqual(unpack(bytes, { trailingGlobal: true }), [])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

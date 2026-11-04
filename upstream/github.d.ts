@@ -89,6 +89,17 @@ export interface Client {
   // `node_modules`, of packages installed. A symlink is no file. Refused
   // where a path found is one getRepoFile does not take, such as one with a
   // control character in it.
+  // How `head` stands to `base` in the repo (each a full commit sha, or a
+  // branch or tag name), as GitHub's compare tells it: `ahead` where `base`
+  // is in `head`'s history, `behind` the other way round, `identical`, or
+  // `diverged`; with the commits each has that the other hasn't, and their
+  // merge base. Refused unless the status agrees with those counts, the
+  // merge base is `base` where `head` is ahead of it or the same, and the
+  // base GitHub compared is `base` where that is a commit. GitHub answers
+  // for a commit of any fork of the repo too, through the repo's own name:
+  // whether one is the repo's own is whether a ref of the repo (its default
+  // branch, say) is ahead of it or the same.
+  compareCommits(options: { repo: RepoName; base: string; head: string }): Promise<{ status: 'ahead' | 'behind' | 'identical' | 'diverged'; aheadBy: number; behindBy: number; mergeBase: string }>
   findRepoLockfiles(options: { repo: RepoName; sha: string; directory?: string }): Promise<{ lockfiles: RepoLockfile[]; projects: RepoProjectFile[] }>
   // An advisory by its GHSA id. With `repo`, that repository's published
   // copy: the maintainer's latest text, there before GitHub reviews it,
@@ -169,6 +180,20 @@ export interface Client {
   // found as getRepoTreeId finds it: GitHub's listing, hashed back to the
   // tree's id, so none is left out or changed.
   listRepoDir(options: { repo: RepoName; sha: string; directory?: string }): Promise<RepoDirEntry[]>
+  // Every entry of the full commit `sha`'s tree, `path` the one from its
+  // root: GitHub's listing of the tree with every tree under it, each of
+  // those hashed back to its id, so none is left out, changed or added.
+  // Where GitHub cuts that short, past 100,000 entries or 7 MB, its own
+  // listing instead, then each tree's in it the same way, as GitHub
+  // advises; with `paths`, only the trees those paths are in, so another
+  // tree's entries may be left out. No more than `maxTrees` trees (500 by
+  // default) are listed, six at once: past them, the rest are left out
+  // too, and `cut` is true.
+  listRepoTree(options: { repo: RepoName; sha: string; paths?: string[]; maxTrees?: number }): Promise<{ entries: RepoDirEntry[]; cut: boolean }>
+  // Every page of the repo's branches, as GitHub lists them, each with the
+  // commit at its head; more than `maxPages` (100 by default) pages of 100
+  // is an error, as is a branch with no commit.
+  listRepoBranches(options: { repo: RepoName; maxPages?: number }): Promise<{ branch: string; oid: string }[]>
   // Every page of the repo's tags, as GitHub lists them, each with the
   // commit GitHub names for it, an annotated tag's included, which
   // getRepoTag checks is one; more than `maxPages` (100 by default) pages

@@ -133,7 +133,10 @@ const CARET = regex(`^\\^${VERSION}($)`, 'i')
 const X_RANGE = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.[xX*])+$/u
 const HYPHEN = regex(`^(${VERSION}) +- +(${VERSION})($)`, 'i')
 const BASIC = regex(`^(<>|!=|>=?|<=?|==?)?${S}*([^\\n]*)`)
-const MODIFIED = regex(`-${MODIFIER}$`)
+// Caseless as of composer/semver 3.5, Composer 2.11: `<1.0-RC1` is below
+// 1.0.0.0-RC1, as `<1.0-beta1` is below 1.0.0.0-beta1. Before, it read the
+// text lowered, where `rc` is not `RC`, and put `-dev` on it.
+const MODIFIED = regex(`-${MODIFIER}$`, 'i')
 const set = (value) => value !== undefined && value !== ''
 
 // `~` and `^`: from the version as written to below the next at `position`.
@@ -198,7 +201,7 @@ function parseOne(input) {
   const operator = match[1] || '='
   if (operator !== '==' && operator !== '=' && !empty(stabilityModifier) && parseStability(version) === 'stable') {
     version += `-${stabilityModifier}`
-  } else if ((operator === '<' || operator === '>=') && !MODIFIED.test(lower(match[2])) && !match[2].startsWith('dev-')) {
+  } else if ((operator === '<' || operator === '>=') && !MODIFIED.test(match[2]) && !match[2].startsWith('dev-')) {
     version += '-dev'
   }
   return [constraint(operator, version)]

@@ -53,7 +53,7 @@ const decoder = new TextDecoder('utf-8', { fatal: true })
 // 3.10.8, is the first it signed over one it made, and superstatic@6.0.0, at
 // 2018-08-03T20:22:28.120Z, the last over none. It has since made one for
 // every version published before too.
-export const SHA512_SINCE = '2018-08-05T14:58:16.253Z'
+const SHA512_SINCE = '2018-08-05T14:58:16.253Z'
 
 // The hex of an integrity that is a sha1 alone.
 function sha1Of(integrity) {

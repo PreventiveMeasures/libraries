@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { assertArgs, assertBoolean, assertRepo, assertion, isIterable, optional, sameName } from '../args.js'
 import { assertCache } from '../cache.js'
-import { order } from './common.js'
+import { SEVERITIES, isMalware, order } from './common.js'
 import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER } from './osv.js'
@@ -37,7 +37,6 @@ function collect(packages) {
 // Which of an advisory's rows stands for it: npm's registry's, then OSV's,
 // then its repository's.
 const SOURCES = ['registry', 'osv', 'repository']
-const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info']
 const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
 // An advisory's rows as one: the first's by source, what it lacks from the
@@ -96,7 +95,7 @@ export async function advisories(packages, options = {}) {
     const asked = new Map(names.map((name) => [name, [...named.get(name).versions].toSorted(compare)]))
     const known = new Map(names.filter((name) => named.get(name).github).map((name) => [name, named.get(name).github]))
     const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, details: options.details === true, osv: options.osv === true, known, cache: options.cache })
-    return oneRowPerAdvisory(rows.filter((row) => row.versions.length > 0), asked).map((row) => ({ ecosystem, ...row }))
+    return oneRowPerAdvisory(rows.filter((row) => row.versions.length > 0), asked).map((row) => ({ ecosystem, ...row, ...(isMalware(row) && { malware: true }) }))
   }))
   return found.flat().toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))
 }

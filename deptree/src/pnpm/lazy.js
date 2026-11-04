@@ -6,8 +6,8 @@ import { Vfs } from '@preventive/vfs'
 import { eachConcurrently, limited } from '../concurrent.js'
 import { quote, refusalOf } from '../error.js'
 import { unpacker, writeInto } from '../lazy.js'
-import { NO_ABOUT, crlfShebang } from '../tarball.js'
-import { executableMode } from './bins.js'
+import { NO_ABOUT } from '../tarball.js'
+import { failsAsDirectory, fixChanges } from './bins.js'
 import { binsOf } from './commands.js'
 import { checkFetched, fetchPackage } from './package.js'
 import { compose, writeNode } from './write.js'
@@ -21,7 +21,7 @@ import { compose, writeNode } from './write.js'
 // is a directory; or the package is patched, which is held to its bins as
 // linked; or its commands cannot be read alone. Else its files are as fetched
 // and patched, whatever pnpm links of its bins, and of anything else's.
-export function bound(node, major, builds) {
+function bound(node, major, builds) {
   if (builds?.(node)) return true
   let bins
   try {
@@ -32,10 +32,10 @@ export function bound(node, major, builds) {
   if (bins.size === 0) return false
   if (node.pkg.patchHash !== undefined) return true
   for (const path of bins.keys()) {
-    if ((major < 10 || major >= 12) && (path === '' || node.files.keys().some((name) => name.startsWith(`${path}/`)))) return true
+    if (failsAsDirectory(node, path, major)) return true
     const file = node.files.get(path)
     if (file?.data === undefined) continue
-    if (executableMode(file.mode, major) !== file.mode || (major < 12 && crlfShebang(file.data) !== -1)) return true
+    if (fixChanges(file, major)) return true
   }
   return false
 }
@@ -134,7 +134,7 @@ export async function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, ea
     await eachConcurrently(early.nodes, prepare, (node) => quote(node.key))
     early.check()
   }
-  return unpacker(new Map([...byDir.values()].map((node) => [node.dir, node])), async (node) => {
+  return unpacker(byDir, async (node) => {
     await prepare(node)
     const { targets, executable } = bound(node, major, builds) ? await fixesFor(node) : { targets: new Map(), executable: new Map() }
     const tree = new Vfs()

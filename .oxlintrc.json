@@ -77,17 +77,7 @@
   "overrides": [
     {
       "files": [
-        "ai/tests/**",
-        "grid/tests/**",
-        "compare/tests/**",
-        "diff/tests/**",
-        "archive/tests/**",
-        "deptree/tests/**",
-        "lockfile/tests/**",
-        "upstream/tests/**",
-        "vfs/tests/**",
-        "report/tests/**",
-        "sourcemap/tests/**"
+        "*/tests/**"
       ],
       "rules": {
         "max-lines-per-function": "off",

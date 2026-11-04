@@ -44,8 +44,8 @@ function codeSpan(s) {
 // itself is md-structure.js's, which is the whole library's; a link
 // found further along belongs to something else in the value, so only
 // one at index 0 answers here.
-export function readLink(s) {
-  const link = findMdLink(String(s ?? ''))
+function readLink(s) {
+  const link = findMdLink(s)
   return link?.index === 0 ? { label: link.label, url: link.url } : null
 }
 

@@ -9,7 +9,7 @@ import { gateSystem, proposeSystem, proposeUser, requestBlock } from './prompts.
 // Column ids as the pages name them: the task's questions `q1..`, a request's extra ones `x1..`,
 // so a row's answers and a page header line up by position and a model copying an id cannot
 // confuse the two kinds.
-export const questionIds = (texts, prefix) => texts.map((text, i) => ({ id: `${prefix}${i + 1}`, text }))
+const questionIds = (texts, prefix) => texts.map((text, i) => ({ id: `${prefix}${i + 1}`, text }))
 
 // Both halves of the schema, or a re-ask: the focus shapes every compaction prompt after it, and a
 // stand-in would be cached in its place for the whole table.

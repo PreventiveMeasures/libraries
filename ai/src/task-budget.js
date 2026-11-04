@@ -19,21 +19,21 @@ export function resolveTaskBudget(model, mode) {
 // the retry path fired, so the caller can still account for the failed attempt's usage in its
 // running totals.
 export async function issueTurn({ model, maxTokens, systemPrompt, messages, think, effort, tools, label, turn, taskBudgetAlways, taskBudgetOnError, debug, retries }) {
-  const send = async (useTaskBudget, suffix) => {
+  const send = async (useTaskBudget) => {
     const req = buildRequestBody(model, maxTokens, systemPrompt, messages, { think, effort, tools, taskBudget: useTaskBudget, turn })
     // Not fetchJSON directly: one provider serves its turns out of a browser rather than over HTTP,
     // and which it is belongs to the adapter.
-    const res = await sendRequest(model, req, { taskBudget: useTaskBudget, debug, retries, label: `${label} (turn ${turn}${suffix})` })
+    const res = await sendRequest(model, req, { taskBudget: useTaskBudget, debug, retries, label: `${label} (turn ${turn}${useTaskBudget ? ', task_budget' : ''})` })
     return { request: req, response: res }
   }
 
-  let { request, response } = await send(taskBudgetAlways, taskBudgetAlways ? ', task_budget' : '')
+  let { request, response } = await send(taskBudgetAlways)
   let error = checkResponse(response)
   let failedAttemptResponse = null
   if (isMaxTokensTruncation(error) && taskBudgetOnError && !taskBudgetAlways) {
     if (debug) console.warn(`[debug] ${label} (turn ${turn}): truncated, retrying with task_budget`)
     failedAttemptResponse = response
-    ;({ request, response } = await send(true, ', task_budget'))
+    ;({ request, response } = await send(true))
     error = checkResponse(response)
   }
   return { request, response, error, failedAttemptResponse }
