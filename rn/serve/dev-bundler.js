@@ -82,6 +82,8 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
 
   // Those each build read, and its last good one: watched while a build fails, as its app runs those.
   const files = () => new Set([...builds.values()].flatMap((build) => [...(build.last?.files ?? []), ...(build.good?.files ?? [])]))
+  // Source requests and code frames need one membership check, not a union of every bundle's files.
+  const hasFile = (path) => builds.values().some(({ last, good }) => last?.files.has(path) || good?.files.has(path))
   const uncovered = () => unwatched(config.caches, files())
 
   return {
@@ -123,9 +125,9 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     // The asset a bundle built at `/assets/...`, else null.
     asset: (httpServerLocation, name, type) => [...builds.values()].flatMap(({ last }) => (last?.ok ? last.assets : [])).find((data) => data.httpServerLocation === httpServerLocation && data.name === name && data.type === type) ?? null,
     // A file a bundle was built from, its bytes, else null.
-    sourceFile: (path) => (files().has(path) ? host.readFile(path) : null),
+    sourceFile: (path) => (hasFile(path) ? host.readFile(path) : null),
     // A source a bundle was built from, as text; else null, as where it isn't UTF-8.
-    readSource: (path) => (files().has(path) ? utf8(host.readFile(path)) : null),
+    readSource: (path) => (hasFile(path) ? utf8(host.readFile(path)) : null),
     dispose: () => evict(0),
   }
 }

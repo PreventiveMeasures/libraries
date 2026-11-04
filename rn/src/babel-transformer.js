@@ -35,12 +35,11 @@ export function transformerOf({ corePath, options, profile, fingerprintOf = null
   }
   // Within one build, Babel's .babelrc lookup is skipped where it would find nothing.
   const finds = oneBuild && given.babelrc !== false ? babelrcFinder() : null
-  const configOf = (filename) => {
-    const plugins = [...(given.plugins ?? []), IMPORTS]
-    // In the project's own files alone, as Metro's transformer has Fast Refresh's.
-    if (!filename.includes('node_modules')) plugins.push(...ownPlugins)
-    return core.loadOptionsSync({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins })
-  }
+  // Babel caches plugin descriptors by the input array: keep these lists across files, while still
+  // loading each file's config. Only the project's own files get Fast Refresh's plugins.
+  const dependencyPlugins = [...(given.plugins ?? []), IMPORTS]
+  const projectPlugins = ownPlugins.length === 0 ? dependencyPlugins : [...dependencyPlugins, ...ownPlugins]
+  const configOf = (filename) => core.loadOptionsSync({ ...given, filename, ...(finds?.(filename) === false && { babelrc: false }), plugins: filename.includes('node_modules') ? dependencyPlugins : projectPlugins })
   const profiler = profile ? profilerOf(corePath) : null
   // keepPlugins (--self-test's second build) runs every plugin in full.
   const gate = keepPlugins ? () => {} : resolverGate(core, cwd, () => profiler?.skip())

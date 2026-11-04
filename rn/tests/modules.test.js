@@ -107,6 +107,22 @@ describe('the module format, of a deep graph with shared dependencies and a cycl
   })
 })
 
+describe('hotUpdate', () => {
+  it('ignores reused and equivalent records, and notices dependency ids and their order changing', () => {
+    const record = { id: 0, name: 'index.js', factory: 'function () {}', deps: [1, 2] }
+    const before = { modules: new Map([[record.id, record]]) }
+    const update = (next) => hotUpdate(before, { modules: new Map([[next.id, next]]), version: 1 }, 'http://localhost:8081/index.bundle?platform=ios')
+    assert.equal(update(record), null)
+    assert.equal(update({ ...record, deps: [...record.deps] }), null)
+    for (const deps of [[2, 1], [1, 3], [1], []]) {
+      const changed = update({ ...record, deps })
+      assert.deepEqual(changed.modified.map(({ module: [id] }) => id), [record.id])
+      assert.deepEqual(changed.added, [])
+      assert.deepEqual(changed.deleted, [])
+    }
+  })
+})
+
 describe('the module format', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)

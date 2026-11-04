@@ -44,6 +44,8 @@ describe('babelWorkers', () => {
     // The worker's thread, by which file it transforms.
     'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
+    'tag.cjs': "module.exports = ({ types: t }, { value }) => ({ name: 'tag', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(value))) } } } })\n",
+    'overrides.config.cjs': "module.exports = { overrides: [{ test: /special\\.js$/, plugins: [['./tag.cjs', { value: 'special' }, 'special']] }] }\n",
     // A config with its own visitor wrapper, which marks after mark's visitor.
     'wrap.config.cjs': "module.exports = { plugins: ['./mark.cjs'], wrapPluginVisitorMethod: (key, phase, fn) => function (path, ...rest) { fn.call(this, path, ...rest); if (key === 'mark') path.pushContainer('body', { type: 'ExpressionStatement', expression: { type: 'StringLiteral', value: 'wrapped' } }) } }\n",
   })
@@ -113,6 +115,29 @@ describe('babelWorkers', () => {
     assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
     assert.equal((await transform('a()', join(root, 'a.js'), ['mark'])).code, 'a();')
     assert.equal((await transform('a()', join(root, 'a.js'), ['other'])).code, 'a();\n"marked";')
+  })
+
+  it('keeps project-only plugins out of dependencies while resolving overrides for each file', async () => {
+    for (const keepPlugins of [false, true]) {
+      const tag = join(root, 'tag.cjs')
+      const transform = babelWorkers(CORE, { cwd: root, babelrc: false, configFile: join(root, 'overrides.config.cjs'), compact: false, plugins: [[tag, { value: 'base' }, 'base']], ownPlugins: [[tag, { value: 'own' }, 'own']], keepPlugins }, null, 1)
+      try {
+        const cases = [
+          ['a.js', ['base', 'own']],
+          ['node_modules/dep/a.js', ['base']],
+          ['special.js', ['base', 'own', 'special']],
+          ['node_modules/dep/special.js', ['base', 'special']],
+          ['b.js', ['base', 'own']],
+        ]
+        for (const [file, tags] of cases) {
+          const { code, imports } = await transform("import value from 'dep'\nvalue()\n", join(root, file))
+          assert.deepEqual([...code.matchAll(/"(base|own|special)";/gu)].map(([, value]) => value).toSorted(), tags)
+          assert.deepEqual(imports, ['dep'])
+        }
+      } finally {
+        await transform.close()
+      }
+    }
   })
 
   it('adds to a profile the time of each transform, and of each plugin: the files its visitors ran in, and their calls', async () => {

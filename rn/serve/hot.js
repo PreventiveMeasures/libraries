@@ -45,7 +45,7 @@ function inverseDependencies(id, dependents) {
   return out
 }
 
-const same = (a, b) => a.factory === b.factory && a.name === b.name && String(a.deps) === String(b.deps)
+const same = (a, b) => a === b || (a.factory === b.factory && a.name === b.name && a.deps.length === b.deps.length && a.deps.every((id, i) => id === b.deps[i]))
 
 // What changed from `before` to `after`, as the body of Metro's `update` message for the client of
 // `clientUrl`; null where nothing did, unless `always`, giving an empty one to tell a build failed no more.
