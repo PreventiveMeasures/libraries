@@ -15,8 +15,8 @@ import { buildCargoTree } from '../cargo.js'
 import { buildCocoaPodsTree } from '../cocoapods.js'
 import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { ACME, PODFILE, coreLock } from './cocoapods-fixture.js'
-import { rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, url } from './registry.js'
+import { ACME, MIXED_PODFILE, OTHER, PODFILE, coreLock, mixedLock } from './cocoapods-fixture.js'
+import { podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, url } from './registry.js'
 
 // The deptree command: its modules, and the command as it is run, on
 // projects whose tarball, zip or .crate a cache holds.
@@ -155,11 +155,11 @@ describe('leftOut', () => {
 
   it('takes what deptree never builds on disk alone, and nothing like it', () => {
     const alone = (path, mark = '-') => leftOut([{ mark, path }], side({ [path]: file('x') })).size === 1
-    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git', 'Pods/Manifest.lock', 'Pods/Headers', 'Pods/Target Support Files', 'Pods/Local Podspecs', 'Pods/Pods.xcodeproj', 'Pods/Acme.xcodeproj', 'Pods/.project_cache']) {
+    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git', 'Pods/Headers', 'Pods/Target Support Files', 'Pods/Local Podspecs', 'Pods/Pods.xcodeproj', 'Pods/Acme.xcodeproj', 'Pods/.project_cache']) {
       assert.equal(alone(path), true, path)
       assert.equal(alone(path, '~'), false, path)
     }
-    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github', 'Pods/Acme', 'Pods/Acme/Headers', 'Pods/Acme/Manifest.lock', 'ios/Pods/Headers', 'Pods/Headers.txt']) assert.equal(alone(path), false, path)
+    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github', 'Pods/Acme', 'Pods/Manifest.lock', 'Pods/Acme/Headers', 'Pods/Acme/Manifest.lock', 'ios/Pods/Headers', 'Pods/Headers.txt']) assert.equal(alone(path), false, path)
   })
 })
 
@@ -464,6 +464,11 @@ describe('deptree compare, with Cargo', async () => {
     const production = cli(home, ['compare', '--cargo', '1.97.0', '--production', project])
     assert.match(production.stderr, /^deptree: Cargo\.lock: --production is not taken: cargo vendor vendors dev-dependencies too$/mu)
     assert.equal(production.status, 2)
+    for (const flag of [['--platform', 'ios'], ['--partial']]) {
+      const cocoapods = cli(home, ['compare', '--cargo', '1.97.0', ...flag, project])
+      assert.match(cocoapods.stderr, new RegExp(`^deptree: Cargo\\.lock: ${flag[0]} is taken for CocoaPods alone$`, 'mu'))
+      assert.equal(cocoapods.status, 2)
+    }
   })
 })
 
@@ -477,8 +482,10 @@ describe('deptree compare, with CocoaPods', async () => {
   writeDisk(home, side({
     'stub.mjs': file(`const podspec = Buffer.from('${podspec.toString('base64')}', 'base64')
 const tarball = Buffer.from('${ACME.tarball.toString('base64')}', 'base64')
+const other = Buffer.from('${OTHER.toString('base64')}', 'base64')
 const answers = {
   '${trunk}': () => new Response(podspec),
+  '${podspecUrl('Other', '1.0.0')}': () => new Response(other),
   '${repo}git/ref/tags/v1.2.0': () => Response.json({ ref: 'refs/tags/v1.2.0', object: { type: 'commit', sha: '${ACME.commit}' } }),
   '${repo}git/commits/${ACME.commit}': () => Response.json({ sha: '${ACME.commit}', tree: { sha: '${ACME.tree}' } }),
   '${repo}tarball/${ACME.tree}': () => new Response(tarball),
@@ -504,20 +511,42 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     'Pods/Target Support Files/Acme/Acme.xcconfig': file(''),
     'Pods/Pods.xcodeproj/project.pbxproj': file(''),
   }))
-  const run = (args) => cli(home, ['compare', ...args, project], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
+  // A project of two pods deptree does not download beside Acme, which
+  // CocoaPods downloaded, and a Manifest.lock of another lockfile.
+  const mixed = join(home, 'mixed')
+  writeDisk(mixed, readSide(vfs, ['Pods']))
+  writeDisk(mixed, side({
+    Podfile: file(MIXED_PODFILE),
+    'Podfile.lock': file(mixedLock(MIXED_PODFILE)),
+    'Pods/Manifest.lock': file(coreLock()),
+    'Pods/Local/Local.swift': file(''),
+    'Pods/Other/Other.h': file(''),
+  }))
+  const run = (args, at = project) => cli(home, ['compare', ...args, at], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
 
   it('lists what differs in the pods\' directories Podfile.lock installs, with the CocoaPods it names', () => {
     const r = run([])
     assert.equal(r.stdout, '~ Pods/Acme/README.md  (content)\n- Pods/Other/\n', r.stderr)
     assert.match(r.stderr, /^Pods on disk: \d+ files, /mu)
-    assert.match(r.stderr, /; 4 left out \(--all lists them\)$/mu)
+    assert.match(r.stderr, /; 3 left out \(--all lists them\)$/mu)
     assert.equal(r.status, 1)
-    assert.equal(run(['--all']).stdout, '~ Pods/Acme/README.md  (content)\n- Pods/Headers/\n- Pods/Manifest.lock\n- Pods/Other/\n- Pods/Pods.xcodeproj/\n- Pods/Target Support Files/\n')
+    assert.equal(run(['--all']).stdout, '~ Pods/Acme/README.md  (content)\n- Pods/Headers/\n- Pods/Other/\n- Pods/Pods.xcodeproj/\n- Pods/Target Support Files/\n')
     assert.equal(run(['--platform', 'ios', '--platform', 'osx']).status, 1)
     assert.equal(run(['--cocoapods', '1.12.1']).status, 2, 'only the CocoaPods deptree builds for')
     const production = run(['--production'])
     assert.match(production.stderr, /^deptree: Podfile\.lock: --production is not taken: CocoaPods installs every pod the Podfile asks for$/mu)
     assert.equal(production.status, 2)
+  })
+
+  it('compares Manifest.lock with the lockfile, and with --partial leaves out the pods CocoaPods downloads on its own', () => {
+    const refused = run([], mixed)
+    assert.match(refused.stderr, /^deptree: pods\["Local"\]: a pod from an external source by :git is not supported/mu)
+    assert.equal(refused.status, 2)
+    const r = run(['--partial'], mixed)
+    assert.equal(r.stdout, '~ Pods/Manifest.lock  (content)\n', r.stderr)
+    assert.match(r.stderr, /^not compared: pods\["Local"\]: a pod from an external source by :git is not supported: only those from trunk, and by :path, are$/mu)
+    assert.match(r.stderr, /^not compared: pods\["Other"\]: a source by :http is not supported: only git from GitHub is$/mu)
+    assert.equal(r.status, 1)
   })
 })
 

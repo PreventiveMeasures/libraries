@@ -240,13 +240,18 @@ export function stubGitHub(repos) {
 // Beside the fetch stubbed already, trunk's CDN for `podspecs`, each a
 // podspec's bytes by `<name>@<version>`, at the path CocoaPods shards it
 // under. Returns what was asked of it.
+// Where trunk's CDN serves a podspec, sharded as CocoaPods shards it.
+export function podspecUrl(name, version) {
+  const shard = [...createHash('md5').update(name).digest('hex').slice(0, 3)].join('/')
+  return `https://cdn.cocoapods.org/Specs/${shard}/${encodeURIComponent(name)}/${version}/${encodeURIComponent(name)}.podspec.json`
+}
+
 export function stubTrunk(podspecs) {
   const served = globalThis.fetch
   const calls = []
   const byUrl = new Map(Object.entries(podspecs).map(([id, bytes]) => {
     const [name, version] = id.split('@')
-    const shard = [...createHash('md5').update(name).digest('hex').slice(0, 3)].join('/')
-    return [`https://cdn.cocoapods.org/Specs/${shard}/${encodeURIComponent(name)}/${version}/${encodeURIComponent(name)}.podspec.json`, bytes]
+    return [podspecUrl(name, version), bytes]
   }))
   globalThis.fetch = (input, init) => {
     const asked = String(input)
