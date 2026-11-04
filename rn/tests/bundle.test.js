@@ -34,6 +34,44 @@ const run = (code) => {
 }
 const js = (result) => result.outputFiles.find(({ path }) => path.endsWith('.js')).text
 
+describe('bundle source paths', () => {
+  it('reads output maps only when inputs were renamed, resetting that decision on each rebuild', async () => {
+    const { root, cleanup } = writeTree({
+      'index.js': '',
+      'plain.js': 'export const value = 1\n',
+      'module.mjs': 'export const value = 2\n',
+      'typed.mts': 'export const value: number = 3\n',
+    })
+    let reads = 0
+    const counted = { ...esbuild, context: async (options) => {
+      const context = await esbuild.context(options)
+      return { ...context, rebuild: async () => {
+        const result = await context.rebuild()
+        return { ...result, outputFiles: result.outputFiles.map((file) => file.path.endsWith('.map') ? {
+          path: file.path, contents: file.contents,
+          get text() { reads++; return file.text },
+        } : file) }
+      } }
+    } }
+    const bundler = await createBundler({ entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild: counted, projectRoot: root, sourcemap: true })
+    try {
+      for (const [file, value, expectedReads] of [['plain.js', 1, 0], ['module.mjs', 2, 1], ['typed.mts', 3, 1], ['plain.js', 1, 0]]) {
+        writeFileSync(join(root, 'index.js'), `import { value } from './${file}'\nglobalThis.result = value\n`)
+        reads = 0
+        const result = await bundler.rebuild()
+        assert.equal(reads, expectedReads, file)
+        assert.equal(run(js(result)), value)
+        const map = JSON.parse(result.outputFiles.find((output) => output.path.endsWith('.map')).text)
+        assert.ok(map.sources.some((source) => source.endsWith(file)), file)
+        assert.ok(!map.sources.some((source) => /\.m[jt]s\.rn\.[jt]s$/u.test(source)))
+      }
+    } finally {
+      await bundler.dispose()
+      cleanup()
+    }
+  })
+})
+
 describe('bundle', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)

@@ -223,7 +223,8 @@ const decorated = (code) => code.includes('__decoratorStart(')
 async function lower({ esbuild, sourcemap }, contents, loader, path, options) {
   const transform = (source) => esbuild.transform(source, { loader, jsx: 'preserve', sourcefile: path, logLevel: 'silent', ...options, ...(sourcemap && { sourcemap: 'external' }) })
   const mapped = ({ code, map }) => (sourcemap ? `${code}//# sourceMappingURL=data:application/json;charset=utf-8;base64,${Buffer.from(map).toString('base64')}\n` : code)
-  if (loader === 'tsx') {
+  // Without `<`, TSX cannot contain JSX: no React sentinel or extra parse is needed.
+  if (loader === 'tsx' && contents.includes('<')) {
     const lowered = await transform(`${contents}\n;${USE_REACT}`)
     // With JSX (it doesn't parse as plain JS), keep React's import; else drop it, as Babel's TS plugin does.
     if ((await parseErrors(esbuild, lowered.code, 'js', path)) !== null) return mapped({ ...lowered, code: lowered.code.endsWith(USE_REACT) ? lowered.code.slice(0, -USE_REACT.length) : lowered.code })
