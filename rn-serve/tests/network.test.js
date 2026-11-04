@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-import { createNetworkInspector } from '../serve/network.js'
+import { createNetworkInspector } from '../src/network.js'
 
 const BUNDLE = 'http://localhost:8081/index.bundle?platform=ios&dev=true'
 

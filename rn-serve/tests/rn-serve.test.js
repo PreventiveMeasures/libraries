@@ -5,7 +5,7 @@ import { createServer, request } from 'node:http'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { connect as connectTcp } from 'node:net'
 import { hostname, networkInterfaces, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -962,9 +962,11 @@ describe('rn-serve, its cache of each file as it loads', () => {
   })
 
   it('is of rn-serve alone: rn-bundle keeps none', () => {
+    // @preventive/rn's bin, beside the src/ rn-serve imports.
+    const RN_BUNDLE = join(dirname(dirname(fileURLToPath(import.meta.resolve('@preventive/rn/src/bundle.js')))), 'bin/rn-bundle.js')
     const fresh = mkdtempSync(join(tmpdir(), 'rn-serve-tmp-'))
     try {
-      const bundled = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/rn-bundle.js', import.meta.url)), '--platform=ios', `--output=${join(fresh, 'out.js')}`, 'index.js'], { cwd: root, env: envOf(fresh), encoding: 'utf8' })
+      const bundled = spawnSync(process.execPath, [RN_BUNDLE, '--platform=ios', `--output=${join(fresh, 'out.js')}`, 'index.js'], { cwd: root, env: envOf(fresh), encoding: 'utf8' })
       assert.equal(bundled.status, 0, bundled.stderr)
       assert.deepEqual(readdirSync(fresh).filter((name) => name.startsWith('rn-serve-cache')), [])
     } finally {
@@ -998,7 +1000,7 @@ describe("rn-serve, with @react-native/dev-middleware and rn.config.json's devto
   // and of each /open-debugger asked (GET /test/opened).
   const DEV_MIDDLEWARE = [
     "const { EventEmitter } = require('node:events')",
-    `const { acceptWebSocket } = require(${JSON.stringify(fileURLToPath(new URL('../serve/websocket.js', import.meta.url)))})`,
+    `const { acceptWebSocket } = require(${JSON.stringify(fileURLToPath(new URL('../src/websocket.js', import.meta.url)))})`,
     'const endpoint = () => {',
     '  const server = new EventEmitter()',
     '  server.handleUpgrade = (request, socket, head, done) => {',

@@ -4,10 +4,10 @@
 
 import { dirname, relative, resolve } from 'node:path'
 
-import { EMPTY, newState, posixRelative } from '../src/build-host.js'
-import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, withDefaults } from '../src/bundle.js'
-import { jsval } from '../src/jsval.js'
-import { GLOBAL } from '../src/serializer.js'
+import { EMPTY, newState, posixRelative } from '@preventive/rn/src/build-host.js'
+import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, withDefaults } from '@preventive/rn/src/bundle.js'
+import { jsval } from '@preventive/rn/src/jsval.js'
+import { GLOBAL } from '@preventive/rn/src/serializer.js'
 import { keptOf } from './bundler.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
 import { resolutionOf } from './resolution.js'

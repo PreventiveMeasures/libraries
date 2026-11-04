@@ -20,21 +20,21 @@ import { emitKeypressEvents } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, format as printf, styleText } from 'node:util'
 
-import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '../src/cli.js'
-import { createDevBundler } from '../serve/dev-bundler.js'
-import { createDevToolsOpener } from '../serve/devtools.js'
-import { createGate, hostnamesOf, isLoopback } from '../serve/gate.js'
-import { applicationIdOf, launchAndroid, sdkTool, variantApk } from '../serve/launch-android.js'
-import { launchIos } from '../serve/launch-ios.js'
-import { createLoadCache } from '../serve/load-cache.js'
-import { prune } from '../serve/load-prune.js'
-import { maxWorkersOf, metroOptions } from '../src/metro-options.js'
-import { REPORTER } from '../serve/network.js'
-import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from '../src/rn-config.js'
-import { bundlingError, createDevServer } from '../serve/serve.js'
-import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../serve/serve-cache.js'
-import { printable } from '../serve/terminal.js'
-import { createWatcher } from '../serve/watch.js'
+import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '@preventive/rn/src/cli.js'
+import { createDevBundler } from '../src/dev-bundler.js'
+import { createDevToolsOpener } from '../src/devtools.js'
+import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
+import { applicationIdOf, launchAndroid, sdkTool, variantApk } from '../src/launch-android.js'
+import { launchIos } from '../src/launch-ios.js'
+import { createLoadCache } from '../src/load-cache.js'
+import { prune } from '../src/load-prune.js'
+import { maxWorkersOf, metroOptions } from '@preventive/rn/src/metro-options.js'
+import { REPORTER } from '../src/network.js'
+import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from '@preventive/rn/src/rn-config.js'
+import { bundlingError, createDevServer } from '../src/serve.js'
+import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
+import { printable } from '../src/terminal.js'
+import { createWatcher } from '../src/watch.js'
 
 // Caches compiled code (@babel/core, esbuild, the Metro config) on disk; NODE_DISABLE_COMPILE_CACHE=1 opts out.
 enableCompileCache()
@@ -95,7 +95,7 @@ const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { laun
 // as Metro's transformer has it.
 const ownPlugins = (dev) => (dev && runtime !== null && refreshPlugin !== null ? [[refreshPlugin, { skipEnvCheck: true }]] : [])
 // The cache's fingerprint of Babel's workers, which they make with this module.
-const fingerprinter = cacheDir === null ? null : fileURLToPath(new URL('../serve/fingerprint.js', import.meta.url))
+const fingerprinter = cacheDir === null ? null : fileURLToPath(new URL('../src/fingerprint.js', import.meta.url))
 const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, ownPlugins, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprinter, eager: true, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
 for (const dev of babelFor === null ? [true, false] : []) {
   const esm = esmOf(dev)
@@ -278,7 +278,7 @@ async function portTaken({ code, message }) {
   process.exit(0)
 }
 
-// dev-middleware's debugger, with rn-serve's Network panel (serve/network.js); with --devtools, DevTools open
+// dev-middleware's debugger, with rn-serve's Network panel (src/network.js); with --devtools, DevTools open
 // for each app as it connects. Its logger is called like console; control characters a device sends are escaped.
 function mountDebugger(serverUrl) {
   const { network } = devServer

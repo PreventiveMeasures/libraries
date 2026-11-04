@@ -1,4 +1,4 @@
-// A build's view of the project, as both bundle formats (bundle.js, serve/modules.js) have it: Metro's resolver
+// A build's view of the project, as both bundle formats (bundle.js, rn-serve's modules.js) have it: Metro's resolver
 // over a host that notes each file it reads or looks for, for a watcher, and the assets built.
 
 import { basename, dirname, relative, resolve } from 'node:path'
@@ -15,7 +15,7 @@ export const ASSET = 'metro-asset'
 export const posixRelative = (from, to) => relative(from, to).replaceAll('\\', '/')
 
 // A build's state, resolving through buildHost() (each package.json read anew, each file read noted in
-// `read`) or run.resolution (serve/resolution.js). made(state) gets it before react-native's modules are
+// `read`) or run.resolution (rn-serve's resolution.js). made(state) gets it before react-native's modules are
 // found, which may fail (a package.json of no JSON): the build goes on with it, as with no react-native.
 export function newState(run, read = new Set(), made = () => {}) {
   const { projectRoot, entry, platform } = run
@@ -88,7 +88,7 @@ export function buildHost(host, read) {
 
 // buildHost()'s host, and what it knows: `known(name, path)`, a path's isFile or realpath as looked up;
 // entry(path), its entry in its directory's listing (null where none, undefined where none listed);
-// forget(dir), that directory's listing let go (serve/resolution.js keeps it across builds).
+// forget(dir), that directory's listing let go (rn-serve's resolution.js keeps it across builds).
 export function lookups(host, read) {
   // The resolver tries every spelling of each import (platform, extension) and each directory up to its package.json.
   const once = (find) => {

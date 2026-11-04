@@ -7,12 +7,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { createContext, runInContext } from 'node:vm'
 
-import { babelWorkers } from '../src/babel-worker.js'
-import { bundleRequest } from '../serve/bundle-url.js'
-import { hotUpdate, moduleName, moduleUrls } from '../serve/hot.js'
-import { createLoadCache } from '../serve/load-cache.js'
-import { createModuleBundler } from '../serve/modules.js'
-import { prelude } from '../src/serializer.js'
+import { babelWorkers } from '@preventive/rn/src/babel-worker.js'
+import { bundleRequest } from '../src/bundle-url.js'
+import { hotUpdate, moduleName, moduleUrls } from '../src/hot.js'
+import { createLoadCache } from '../src/load-cache.js'
+import { createModuleBundler } from '../src/modules.js'
+import { prelude } from '@preventive/rn/src/serializer.js'
 import { png, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)

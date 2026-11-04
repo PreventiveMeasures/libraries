@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { writeTree } from './fixtures.js'
-import { applicationIdOf, devicesOf, launchAndroid, sdkTool, variantApk } from '../serve/launch-android.js'
+import { applicationIdOf, devicesOf, launchAndroid, sdkTool, variantApk } from '../src/launch-android.js'
 
 // Gradle's output-metadata.json of a variant's APKs, as AGP 8 writes it.
 const metadata = (variantName, applicationId, elements) => ({ version: 3, artifactType: { type: 'APK', kind: 'Directory' }, applicationId, variantName, elements })

@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn",
   "version": "1.0.0-alpha.4",
-  "description": "React Native tooling: Metro resolution, assets, bundling, a `react-native bundle` for Xcode and Gradle, and a dev server with Fast Refresh",
+  "description": "React Native tooling: Metro resolution, assets, bundling, and a `react-native bundle` for Xcode and Gradle",
   "type": "module",
   "exports": {
     "./metro-resolver.js": {
@@ -31,12 +31,47 @@
     "./babel-aliases.js": {
       "types": "./babel-aliases.d.ts",
       "default": "./babel-aliases.js"
+    },
+    "./src/assets.js": {
+      "default": "./src/assets.js"
+    },
+    "./src/babel-transformer.js": {
+      "default": "./src/babel-transformer.js"
+    },
+    "./src/babel-worker.js": {
+      "default": "./src/babel-worker.js"
+    },
+    "./src/build-host.js": {
+      "default": "./src/build-host.js"
+    },
+    "./src/bundle.js": {
+      "default": "./src/bundle.js"
+    },
+    "./src/cli.js": {
+      "default": "./src/cli.js"
+    },
+    "./src/defaults.js": {
+      "default": "./src/defaults.js"
+    },
+    "./src/jsval.js": {
+      "default": "./src/jsval.js"
+    },
+    "./src/metro-options.js": {
+      "default": "./src/metro-options.js"
+    },
+    "./src/rn-config.js": {
+      "default": "./src/rn-config.js"
+    },
+    "./src/serializer.js": {
+      "default": "./src/serializer.js"
+    },
+    "./src/source-map.js": {
+      "default": "./src/source-map.js"
     }
   },
   "bin": {
     "rn-bundle": "bin/rn-bundle.js",
-    "rn-cli": "bin/rn-cli.js",
-    "rn-serve": "bin/rn-serve.js"
+    "rn-cli": "bin/rn-cli.js"
   },
   "files": [
     "LICENSE-APACHE",
@@ -49,7 +84,6 @@
     "babel-aliases.js",
     "bin/rn-bundle.js",
     "bin/rn-cli.js",
-    "bin/rn-serve.js",
     "metro-assets.d.ts",
     "metro-assets.js",
     "metro-config.d.ts",
@@ -58,30 +92,6 @@
     "metro-loader.js",
     "metro-resolver.d.ts",
     "metro-resolver.js",
-    "serve/app/network.js",
-    "serve/bundle-url.js",
-    "serve/bundler.js",
-    "serve/dev-bundler.js",
-    "serve/devtools.js",
-    "serve/fingerprint.js",
-    "serve/gate.js",
-    "serve/hot.js",
-    "serve/launch-android.js",
-    "serve/launch-ios.js",
-    "serve/load-cache.js",
-    "serve/load-pack.js",
-    "serve/load-prune.js",
-    "serve/mappings.js",
-    "serve/modules.js",
-    "serve/network.js",
-    "serve/resolution.js",
-    "serve/serve-cache.js",
-    "serve/serve.js",
-    "serve/source-map.js",
-    "serve/symbolicate.js",
-    "serve/terminal.js",
-    "serve/watch.js",
-    "serve/websocket.js",
     "src/asset-exts.js",
     "src/assets-dest.js",
     "src/assets.js",
@@ -150,11 +160,8 @@
     "flow-remove-types": "^2.338.0",
     "metro-config": "0.87.2",
     "metro-resolver": "0.87.2",
-    "metro-runtime": "0.87.2",
-    "metro-runtime-0.81": "npm:metro-runtime@0.81.5",
     "metro-transform-plugins": "0.87.2",
-    "oxc-parser": "^0.152.0",
-    "react-refresh": "0.14.2"
+    "oxc-parser": "^0.152.0"
   },
   "peerDependencies": {
     "esbuild": ">=0.25.0",

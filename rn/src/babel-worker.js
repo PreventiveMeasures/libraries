@@ -170,7 +170,7 @@ if (workerData?.babel !== undefined) {
   // Only serve reuses compiled code on disk; a one-off bundle keeps nothing across runs.
   if (!workerData.babel.options.oneBuild) enableCompileCache()
   // options.fingerprinter: the path of a module whose workerFingerprint() makes the worker's fingerprint
-  // (rn-serve's, serve/fingerprint.js), as the worker loads its config.
+  // (@preventive/rn-serve's src/fingerprint.js), as the worker loads its config.
   const { fingerprinter = null } = workerData.babel.options
   const fingerprintOf = fingerprinter === null ? null : (await import(pathToFileURL(fingerprinter).href)).workerFingerprint
   const { transform, fingerprint } = transformerOf({ ...workerData.babel, fingerprintOf })

@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { createPack, pause } from '../serve/load-pack.js'
+import { createPack, pause } from '../src/load-pack.js'
 import { packedRecords, writeTree } from './fixtures.js'
 
 const key = (n) => String(n).padStart(64, '0')

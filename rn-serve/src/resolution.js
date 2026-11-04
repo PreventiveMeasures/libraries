@@ -1,9 +1,9 @@
-// The resolutions a bundler keeps in memory across the builds its watcher causes (serve/bundler.js,
-// serve/modules.js), as build-host.js's newState() takes them (run.resolution).
+// The resolutions a bundler keeps in memory across the builds its watcher causes (bundler.js,
+// modules.js), as rn's build-host.js's newState() takes them (run.resolution).
 
 import { basename, dirname } from 'node:path'
 
-import { lookups, metroResolverOf } from '../src/build-host.js'
+import { lookups, metroResolverOf } from '@preventive/rn/src/build-host.js'
 
 const plainFile = (entry) => entry != null && entry.isFile() && !entry.isSymbolicLink()
 

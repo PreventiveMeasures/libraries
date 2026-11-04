@@ -145,7 +145,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
         }
         return inlineRequires === null || inlineRequires.blockList.includes(filename) ? plugins : plugins.set('inline-requires', inlineRequires.options)
       },
-      // For a cache of the workers' output (serve/load-cache.js), which keys each file by these.
+      // For a cache of the workers' output (rn-serve's load-cache.js), which keys each file by these.
       ...(fingerprinter !== null && { workerOptions, fingerprint: babel.fingerprint, core: loadCore, configOptions: options }),
     }
   }
