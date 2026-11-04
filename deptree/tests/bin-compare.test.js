@@ -15,7 +15,7 @@ import { buildCargoTree } from '../cargo.js'
 import { buildCocoaPodsTree } from '../cocoapods.js'
 import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { ACME, MIXED_PODFILE, OTHER, PODFILE, coreLock, mixedLock } from './cocoapods-fixture.js'
+import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
 import { podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, url } from './registry.js'
 
 // The deptree command: its modules, and the command as it is run, on
@@ -484,6 +484,7 @@ describe('deptree compare, with CocoaPods', async () => {
 const tarball = Buffer.from('${ACME.tarball.toString('base64')}', 'base64')
 const other = Buffer.from('${OTHER.toString('base64')}', 'base64')
 const answers = {
+  '${ACME_ARCHIVE}': () => new Response(tarball),
   '${trunk}': () => new Response(podspec),
   '${podspecUrl('Other', '1.0.0')}': () => new Response(other),
   '${repo}git/ref/tags/v1.2.0': () => Response.json({ ref: 'refs/tags/v1.2.0', object: { type: 'commit', sha: '${ACME.commit}' } }),
@@ -522,6 +523,18 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     'Pods/Local/Local.swift': file(''),
     'Pods/Other/Other.h': file(''),
   }))
+  // Acme by :podspec, from GitHub's archive of the tag, as CocoaPods left
+  // it: its podspec in Pods/Local Podspecs, which compare reads.
+  const byHttp = join(home, 'http')
+  const httpPodspec = httpPodspecOf()
+  const httpLock = podspecLock(httpPodspec).replace('COCOAPODS', `PODFILE CHECKSUM: ${sha1(PODFILE)}\n\nCOCOAPODS`)
+  writeDisk(byHttp, readSide(vfs, ['Pods']))
+  writeDisk(byHttp, side({
+    Podfile: file(PODFILE),
+    'Podfile.lock': file(httpLock),
+    'Pods/Manifest.lock': file(httpLock),
+    'Pods/Local Podspecs/Acme.podspec.json': file(httpPodspec),
+  }))
   const run = (args, at = project) => cli(home, ['compare', ...args, at], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
 
   it('lists what differs in the pods\' directories Podfile.lock installs, with the CocoaPods it names', () => {
@@ -538,14 +551,21 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     assert.equal(production.status, 2)
   })
 
+  it("builds a pod by :podspec by its podspec in Pods/Local Podspecs, and an :http archive from GitHub", () => {
+    const r = run([], byHttp)
+    assert.equal(r.stdout, '', r.stderr)
+    assert.match(r.stderr, /; 1 left out \(--all lists them\)$/mu)
+    assert.equal(r.status, 0)
+  })
+
   it('compares Manifest.lock with the lockfile, and with --partial leaves out the pods CocoaPods downloads on its own', () => {
     const refused = run([], mixed)
     assert.match(refused.stderr, /^deptree: pods\["Local"\]: a pod from an external source by :git is not supported/mu)
     assert.equal(refused.status, 2)
     const r = run(['--partial'], mixed)
     assert.equal(r.stdout, '~ Pods/Manifest.lock  (content)\n', r.stderr)
-    assert.match(r.stderr, /^not compared: pods\["Local"\]: a pod from an external source by :git is not supported: only those from trunk, and by :path, are$/mu)
-    assert.match(r.stderr, /^not compared: pods\["Other"\]: a source by :http is not supported: only git from GitHub is$/mu)
+    assert.match(r.stderr, /^not compared: pods\["Local"\]: a pod from an external source by :git is not supported: only those from trunk, by :podspec and by :path are$/mu)
+    assert.match(r.stderr, /^not compared: pods\["Other"\]: an :http source from "https:\/\/example\.com\/other\.zip", not https:\/\/github\.com\/<owner>\/<repo>\/ and a path of letters, digits and `_\.~@-%` under it, is not supported$/mu)
     assert.equal(r.status, 1)
   })
 })

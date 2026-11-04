@@ -244,15 +244,15 @@ export function stubGitHub(repos) {
   return calls
 }
 
-// Beside the fetch stubbed already, trunk's CDN for `podspecs`, each a
-// podspec's bytes by `<name>@<version>`, at the path CocoaPods shards it
-// under. Returns what was asked of it.
 // Where trunk's CDN serves a podspec, sharded as CocoaPods shards it.
 export function podspecUrl(name, version) {
   const shard = [...createHash('md5').update(name).digest('hex').slice(0, 3)].join('/')
   return `https://cdn.cocoapods.org/Specs/${shard}/${encodeURIComponent(name)}/${version}/${encodeURIComponent(name)}.podspec.json`
 }
 
+// Beside the fetch stubbed already, trunk's CDN for `podspecs`, each a
+// podspec's bytes by `<name>@<version>`, at the path CocoaPods shards it
+// under. Returns what was asked of it.
 export function stubTrunk(podspecs) {
   const served = globalThis.fetch
   const calls = []
@@ -265,6 +265,21 @@ export function stubTrunk(podspecs) {
     if (!asked.startsWith('https://cdn.cocoapods.org/')) return served(input, init)
     calls.push(asked)
     return Promise.resolve(byUrl.has(asked) ? new Response(byUrl.get(asked)) : new Response('Not found', { status: 404 }))
+  }
+  return calls
+}
+
+// Beside the fetch stubbed already, GitHub's web host for `archives`, each
+// an archive's bytes by its URL there, as GitHub serves a tag's archive
+// once its redirect to codeload is followed. Returns what was asked of it.
+export function stubArchives(archives) {
+  const served = globalThis.fetch
+  const calls = []
+  globalThis.fetch = (input, init) => {
+    const asked = String(input)
+    if (!asked.startsWith('https://github.com/')) return served(input, init)
+    calls.push(asked)
+    return Promise.resolve(Object.hasOwn(archives, asked) ? new Response(archives[asked]) : new Response('Not Found', { status: 404 }))
   }
   return calls
 }

@@ -56,6 +56,7 @@
     "src/cargo/registry.js",
     "src/cargo/tree.js",
     "src/cargo/workspace.js",
+    "src/cocoapods/archive.js",
     "src/cocoapods/clean.js",
     "src/cocoapods/fnmatch.js",
     "src/cocoapods/inputs.js",

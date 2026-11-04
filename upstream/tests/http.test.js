@@ -19,7 +19,7 @@ describe('buildUrl', () => {
   })
 
   it('refuses any origin but the ones this package talks to', () => {
-    for (const origin of ['https://evil.example', 'http://registry.npmjs.org', 'https://api.github.com/', 'https://api.github.com.evil.example', 'https://github.com']) {
+    for (const origin of ['https://evil.example', 'http://registry.npmjs.org', 'https://api.github.com/', 'https://api.github.com.evil.example', 'https://codeload.github.com', 'http://github.com']) {
       assert.throws(() => buildUrl(origin, ['x']), /Unexpected origin/u, origin)
     }
   })

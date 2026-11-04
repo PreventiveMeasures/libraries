@@ -41,16 +41,17 @@ export function planPod(podspec, installed, platforms, where) {
 }
 
 // The download, `contents` as writeFiles takes them, as planPod's `plan`
-// leaves it. `folded` where the pod is on macOS; `keepsGit` where
-// CocoaPods copies the clone's .git into its cache with the rest, as 1.13
-// to 1.15 do, which is refused where the clean there keeps it, as what is
-// in it is not known.
+// leaves it. `folded` where the pod is on macOS; `keepsGit` where the
+// download is a clone, whose .git CocoaPods copies into its cache with the
+// rest, as 1.13 to 1.15 do, which is refused where the clean there keeps
+// it, as what is in it is not known; an archive has none.
 export function installPod(contents, plan, { folded, keepsGit, where }) {
   const tree = new PodTree(keepsGit ? { ...contents, dirs: [...contents.dirs, '.git'] } : contents, folded, where)
   const budget = { matches: 0 }
   // Downloader::Cache#copy_and_clean, its group_subspecs_by_platform. Its
   // copy into Pods/, FileUtils.cp_r under a umask of 0o022, keeps the modes
-  // a checkout has, 0o644 and 0o755.
+  // a download has, a checkout's 0o644 and 0o755 or an archive's under that
+  // umask as tar extracts it.
   clean(tree, plan.every, plan.license, budget)
   if (tree.nodes.has('.git')) throw new DeptreeError('its file patterns keep the .git of the clone, which CocoaPods before 1.16 copies into its cache, and which is not built', where)
   // PodSourceInstaller#clean!, then Installer#lock_pod_sources.
