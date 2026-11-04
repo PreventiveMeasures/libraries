@@ -81,12 +81,15 @@ export interface MetroLoader {
   // the empty module in a namespace whose onLoad is load()'s; undefined where
   // Metro resolves nothing, left to esbuild: to fail, but on a require in a
   // try block, or to find a file Metro doesn't (a redirect Metro fails on),
-  // which load() loads as any other, where rn-bundle refuses it.
+  // which load() refuses, as rn-bundle does.
   resolve(args: ResolveArgs): ResolveResult | undefined
-  // onLoad: a file as Metro's transformer makes it (Flow stripped, the
-  // project's Babel config run), esbuild lowering what it can first; its
-  // pluginData, the imports and aliases resolve() reads, are to be passed on
-  // with whatever contents the build makes of it.
+  // onLoad: a file resolve() resolved, as Metro's transformer makes it (Flow
+  // stripped, the project's Babel config run), esbuild lowering what it can
+  // first; an error of any other, as rn-bundle has. A build loads its own
+  // files its own way, or resolves them by resolve() (as entry points, or
+  // from its stdin) for load() to load. Its pluginData, the imports and
+  // aliases resolve() reads, are to be passed on with whatever contents the
+  // build makes of it.
   load(args: LoadArgs): Promise<LoadResult>
   // The file a path resolve() gave names, for the build's messages and maps.
   realPath(path: string): string

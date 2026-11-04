@@ -58,11 +58,13 @@ function project(tree) {
     loaders.push(loader)
     return loader
   }
-  return { root, loaderOf }
+  // A file of the project, resolved as an entry point is: what load() takes.
+  const entryOf = (loader, rel) => loader.resolve({ path: rel, importer: '', namespace: '', resolveDir: root, kind: 'entry-point' })
+  return { root, loaderOf, entryOf }
 }
 
 describe('createMetroLoader, without a Babel config', () => {
-  const { root, loaderOf } = project({
+  const { root, loaderOf, entryOf } = project({
     ...APP,
     'node_modules/redirected/package.json': { name: 'redirected', main: 'index.js', 'react-native': { './unused.js': false } },
     'node_modules/redirected/index.js': "module.exports = require('./unused')\n",
@@ -103,6 +105,13 @@ describe('createMetroLoader, without a Babel config', () => {
     assert.deepEqual(loader.resolve({ ...from('index.js'), path: '#lib/greet', kind: 'import-statement' }), { path: join(root, 'lib/greet.js') })
   })
 
+  it('refuses a file esbuild resolves where Metro resolves nothing, as rn-bundle does', async () => {
+    const loader = loaderOf({ aliases })
+    const refused = 'esbuild resolved node_modules/dep/index.js where Metro resolves nothing'
+    await assert.rejects(built(loader, root, 'divergent/index.js'), ({ errors }) => errors.some(({ text }) => text === refused))
+    assert.deepEqual(await loader.load({ path: join(root, 'node_modules/dep/index.js') }), { errors: [{ text: refused }] })
+  })
+
   it("resolves an entry point as a path, and another namespace's imports (stdin's) from resolveDir", async () => {
     const loader = loaderOf({ aliases })
     const entry = (path) => loader.resolve({ path, importer: '', namespace: '', resolveDir: root, kind: 'entry-point' })
@@ -113,7 +122,7 @@ describe('createMetroLoader, without a Babel config', () => {
 
   it('loads a file again only when its contents change', async () => {
     const loader = loaderOf({ aliases })
-    const args = { path: join(root, 'lib/changing.js') }
+    const args = entryOf(loader, 'lib/changing.js')
     const first = await loader.load(args)
     assert.equal(await loader.load(args), first)
     writeFileSync(args.path, 'export const changing = 2\n')
@@ -123,7 +132,8 @@ describe('createMetroLoader, without a Babel config', () => {
   })
 
   it("reports a file it can't load in that file", async () => {
-    const { errors } = await loaderOf({ aliases }).load({ path: join(root, 'lib/broken.js') })
+    const loader = loaderOf({ aliases })
+    const { errors } = await loader.load(entryOf(loader, 'lib/broken.js'))
     assert.equal(errors.length, 1)
     assert.equal(errors[0].location.file, 'lib/broken.js')
   })
@@ -159,7 +169,7 @@ describe('createMetroLoader, with a Babel config', () => {
 })
 
 describe("createMetroLoader, module-resolver's aliases and CommonJS", () => {
-  const { root, loaderOf } = project({
+  const { root, loaderOf, entryOf } = project({
     'babel.config.js': "module.exports = { plugins: [['module-resolver', { alias: { '#lib': './lib' } }], '@babel/plugin-transform-modules-commonjs'] }\n",
     'lib/where.ios.js': "export const where = 'ios'\n",
     'lib/where.android.js': "export const where = 'android'\n",
@@ -175,13 +185,13 @@ describe("createMetroLoader, module-resolver's aliases and CommonJS", () => {
 
   it("maps them as rn-bundle does: in Babel where it maps a call's string (jest.mock), else as it resolves", async () => {
     const loader = loaderOf({})
-    const plain = await loader.load({ path: join(root, 'plain.js') })
+    const plain = await loader.load(entryOf(loader, 'plain.js'))
     assert.deepEqual(plain.pluginData.aliases, { alias: { '#lib': './lib' }, cwd: root })
     assert.match(plain.contents, /require\("#lib\/where"\)/u)
     const args = { path: '#lib/where', importer: join(root, 'plain.js'), namespace: 'file', kind: 'require-call' }
     assert.deepEqual(loader.resolve({ ...args, pluginData: plain.pluginData }), { path: join(root, 'lib/where.ios.js') })
     assert.equal(loader.resolve(args), undefined)
-    const mocks = await loader.load({ path: join(root, 'mocks.js') })
+    const mocks = await loader.load(entryOf(loader, 'mocks.js'))
     assert.equal(mocks.pluginData?.aliases, undefined)
     assert.match(mocks.contents, /jest\.mock\(["']\.\/lib\/where["']\)/u)
   })
