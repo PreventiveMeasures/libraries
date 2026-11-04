@@ -11,41 +11,47 @@ import { createClient } from '@preventive/upstream/github.js'
 import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
 import { join } from '@preventive/vfs/path.js'
 import { buildCargoTree } from '../cargo.js'
+import { buildCocoaPodsTree } from '../cocoapods.js'
 import { buildNpmTree, findNpmWorkspaces } from '../npm.js'
 import { DeptreeError, LockfileError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
 import { TomlError, buildSoldeerTree } from '../soldeer.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
 import { escaped } from '../src/error.js'
-import { typeOf } from '../src/project.js'
+import { readText, typeOf } from '../src/project.js'
 import { difference, leftBehind, leftOut, projectView, readSide } from './compare.js'
 import { userToken } from './npmrc.js'
 
 const USAGE = `Usage: deptree compare [options] [<dir>]
 
 Builds the tree the lockfile in <dir> (by default .) installs, from
-pnpm-lock.yaml, package-lock.json, yarn.lock, soldeer.lock or Cargo.lock,
-and lists where it differs from what is on disk, every node_modules of the
-project, Soldeer's dependencies or cargo's vendor:
+pnpm-lock.yaml, package-lock.json, yarn.lock, soldeer.lock, Cargo.lock or
+Podfile.lock, and lists where it differs from what is on disk, every
+node_modules of the project, Soldeer's dependencies, cargo's vendor or the
+pods' directories in CocoaPods' Pods:
 
   + <path>   only in the tree
   - <path>   only on disk
   ~ <path>   in both, but of another type, content, mode or link target
 
 A directory one side has alone is one line, ending in /. Left out unless
---all: .bin directories, state files, Soldeer's .git, and directories on
-disk holding nothing else. Exits 0 where the two are the same, 1 where
-they differ, 2 on trouble.
+--all: .bin directories, state files, Soldeer's .git, what CocoaPods
+generates in Pods, and directories on disk holding nothing else. Exits 0
+where the two are the same, 1 where they differ, 2 on trouble.
 
-Tarballs, zips and crates are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
+Tarballs, zips, crates and podspecs are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
 STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
-//registry.npmjs.org/:_authToken=npm_\u2026; a Soldeer git dependency with
-GITHUB_TOKEN or GH_TOKEN, else anonymously.
+//registry.npmjs.org/:_authToken=npm_\u2026; a Soldeer git dependency or a
+pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
 
-  --pnpm, --yarn, --npm, --soldeer, --cargo <version>
+  --pnpm, --yarn, --npm, --soldeer, --cargo, --cocoapods <version>
                      the one that installed: by default the one
-                     packageManager pins, or Soldeer 0.12.0; npm's and
-                     cargo's are needed
+                     packageManager pins, Soldeer 0.12.0, or the
+                     CocoaPods Podfile.lock names; npm's and cargo's are
+                     needed
+  --platform <name>  a platform the Podfile's targets are for, ios, osx,
+                     tvos, visionos or watchos, once for each; needed
+                     where a pod names other files on another
   --node <version>   the Node it installed with; by default this one
   --production       devDependencies were left out, as by pnpm install
                      --prod, npm ci --omit=dev or yarn install --production
@@ -63,6 +69,8 @@ const OPTIONS = {
   npm: { type: 'string' },
   soldeer: { type: 'string' },
   cargo: { type: 'string' },
+  cocoapods: { type: 'string' },
+  platform: { type: 'string', multiple: true },
   node: { type: 'string' },
   metadata: { type: 'boolean', default: false },
   production: { type: 'boolean', default: false },
@@ -73,8 +81,11 @@ const OPTIONS = {
 
 // Each package manager by its version flag: its lockfile, the folder it
 // installs into in each project it finds, and the version where the flag is
-// left out and nothing pins one, or, `unpinned`, that the flag is needed;
-// `development`, that it installs every dependency, there being no other kind.
+// left out and nothing pins one, or, `pinned`, what the project pins, or,
+// `unpinned`, that the flag is needed; `development`, that it installs every
+// dependency, there being no other kind.
+const github = () => createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null })
+
 const MANAGERS = {
   pnpm: { lockfile: 'pnpm-lock.yaml', folder: 'node_modules', projects: findPnpmProjects, build: buildPnpmTree },
   yarn: { lockfile: 'yarn.lock', folder: 'node_modules', projects: findYarn1Workspaces, build: buildYarn1Tree },
@@ -85,9 +96,18 @@ const MANAGERS = {
     version: '0.12.0',
     development: true,
     projects: () => ['.'],
-    build: (options) => buildSoldeerTree({ ...options, github: createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null }) }),
+    build: (options) => buildSoldeerTree({ ...options, github: github() }),
   },
   cargo: { lockfile: 'Cargo.lock', folder: 'vendor', unpinned: true, development: true, projects: () => ['.'], build: buildCargoTree },
+  // The pods' directories alone: what else is in Pods, CocoaPods generates.
+  cocoapods: {
+    lockfile: 'Podfile.lock',
+    folder: 'Pods',
+    pinned: (project) => /^COCOAPODS: (\S+)$/mu.exec(readText(project, '/Podfile.lock', 'Podfile.lock') ?? '')?.[1],
+    development: true,
+    projects: () => ['.'],
+    build: ({ platform, ...options }) => buildCocoaPodsTree({ ...options, github: github(), ...platform === undefined ? {} : { platforms: platform } }),
+  },
 }
 
 async function main(argv) {
@@ -101,20 +121,21 @@ async function main(argv) {
   const project = projectView(resolve(dir))
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
-  if (values.production && manager.development) fail(`deptree: ${manager.lockfile}: --production is not taken: ${name === 'cargo' ? 'cargo vendor vendors dev-dependencies too' : 'Soldeer has no devDependencies to leave out'}\n`)
+  if (values.production && manager.development) fail(`deptree: ${manager.lockfile}: --production is not taken: ${DEVELOPMENT[name]}\n`)
+  if (values.platform !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --platform is taken for CocoaPods alone\n`)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
   // This machine, which installed what is on disk; npm takes no libc where
   // there is none to find.
   const libc = libcOf()
-  const host = { [name]: values[name] ?? manager.version, node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
+  const host = { [name]: values[name] ?? manager.version ?? manager.pinned?.(project), node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
   // The disk first, as it is before anything is fetched.
   const dirs = manager.projects({ project, host, os: host.os }).map((at) => join(at, manager.folder))
   const disk = readSide(project, dirs)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
   note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
-  const tree = await manager.build({ project, host, metadata: values.metadata, ...values.production ? { production: true } : {} })
+  const tree = await manager.build({ project, host, metadata: values.metadata, ...values.production ? { production: true } : {}, ...values.platform === undefined ? {} : { platform: values.platform } })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
   const built = readSide(tree.vfs, dirs)
   const changes = difference(disk, built)
@@ -128,6 +149,13 @@ async function main(argv) {
   note(summary(listed, left.size))
   if (name === 'pnpm') pruneHint(listed)
   return listed.length === 0 ? 0 : 1
+}
+
+// Why --production means nothing to each manager that installs everything.
+const DEVELOPMENT = {
+  soldeer: 'Soldeer has no devDependencies to leave out',
+  cargo: 'cargo vendor vendors dev-dependencies too',
+  cocoapods: 'CocoaPods installs every pod the Podfile asks for',
 }
 
 // The one a version flag names, or else the one whose lockfile is there.

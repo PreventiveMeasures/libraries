@@ -9,11 +9,14 @@ import { after, describe, it } from 'node:test'
 import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { CompareError, formatPatch } from '@preventive/compare'
+import { createClient } from '@preventive/upstream/github.js'
 import { createVfs } from '@preventive/vfs'
 import { buildCargoTree } from '../cargo.js'
+import { buildCocoaPodsTree } from '../cocoapods.js'
 import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { rawZip, sha256, stubRegistry, tarball, url } from './registry.js'
+import { ACME, PODFILE, coreLock } from './cocoapods-fixture.js'
+import { rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, url } from './registry.js'
 
 // The deptree command: its modules, and the command as it is run, on
 // projects whose tarball, zip or .crate a cache holds.
@@ -152,11 +155,11 @@ describe('leftOut', () => {
 
   it('takes what deptree never builds on disk alone, and nothing like it', () => {
     const alone = (path, mark = '-') => leftOut([{ mark, path }], side({ [path]: file('x') })).size === 1
-    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git']) {
+    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git', 'Pods/Manifest.lock', 'Pods/Headers', 'Pods/Target Support Files', 'Pods/Local Podspecs', 'Pods/Pods.xcodeproj', 'Pods/Acme.xcodeproj', 'Pods/.project_cache']) {
       assert.equal(alone(path), true, path)
       assert.equal(alone(path, '~'), false, path)
     }
-    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github']) assert.equal(alone(path), false, path)
+    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github', 'Pods/Acme', 'Pods/Acme/Headers', 'Pods/Acme/Manifest.lock', 'ios/Pods/Headers', 'Pods/Headers.txt']) assert.equal(alone(path), false, path)
   })
 })
 
@@ -463,3 +466,58 @@ describe('deptree compare, with Cargo', async () => {
     assert.equal(production.status, 2)
   })
 })
+
+describe('deptree compare, with CocoaPods', async () => {
+  const home = temp('deptree-bin-cocoapods-')
+  const project = join(home, 'project')
+  // Trunk and GitHub as the CLI asks them, in its own process.
+  const podspec = (await import('./cocoapods-fixture.js')).PODSPEC
+  const trunk = 'https://cdn.cocoapods.org/Specs/7/9/d/Acme/1.2.0/Acme.podspec.json'
+  const repo = 'https://api.github.com/repos/acme/acme/'
+  writeDisk(home, side({
+    'stub.mjs': file(`const podspec = Buffer.from('${podspec.toString('base64')}', 'base64')
+const tarball = Buffer.from('${ACME.tarball.toString('base64')}', 'base64')
+const answers = {
+  '${trunk}': () => new Response(podspec),
+  '${repo}git/ref/tags/v1.2.0': () => Response.json({ ref: 'refs/tags/v1.2.0', object: { type: 'commit', sha: '${ACME.commit}' } }),
+  '${repo}git/commits/${ACME.commit}': () => Response.json({ sha: '${ACME.commit}', tree: { sha: '${ACME.tree}' } }),
+  '${repo}tarball/${ACME.tree}': () => new Response(tarball),
+}
+globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Response.json({ message: 'Not Found' }, { status: 404 }))
+`),
+  }))
+  // Pods/ as deptree builds it, which tests/cocoapods.test.js holds to
+  // CocoaPods', but for one file changed and a pod the lockfile has not;
+  // and beside it what CocoaPods generates there.
+  stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags: { 'v1.2.0': ACME.commit } } })
+  stubTrunk({ 'Acme@1.2.0': podspec })
+  const { vfs } = await buildCocoaPodsTree({ lockfile: coreLock(), host: { cocoapods: '1.16.2', os: 'linux' }, github: createClient({ token: null }) })
+  writeDisk(project, readSide(vfs, ['Pods']))
+  chmodSync(join(project, 'Pods/Acme/README.md'), 0o644)
+  writeDisk(project, side({
+    Podfile: file(PODFILE),
+    'Podfile.lock': file(coreLock()),
+    'Pods/Manifest.lock': file(coreLock()),
+    'Pods/Acme/README.md': file('changed\n'),
+    'Pods/Other/x.swift': file(''),
+    'Pods/Headers/Public/Acme/Acme.h': link('../../../Acme/Sources/Core/Acme.h'),
+    'Pods/Target Support Files/Acme/Acme.xcconfig': file(''),
+    'Pods/Pods.xcodeproj/project.pbxproj': file(''),
+  }))
+  const run = (args) => cli(home, ['compare', ...args, project], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
+
+  it('lists what differs in the pods\' directories Podfile.lock installs, with the CocoaPods it names', () => {
+    const r = run([])
+    assert.equal(r.stdout, '~ Pods/Acme/README.md  (content)\n- Pods/Other/\n', r.stderr)
+    assert.match(r.stderr, /^Pods on disk: \d+ files, /mu)
+    assert.match(r.stderr, /; 4 left out \(--all lists them\)$/mu)
+    assert.equal(r.status, 1)
+    assert.equal(run(['--all']).stdout, '~ Pods/Acme/README.md  (content)\n- Pods/Headers/\n- Pods/Manifest.lock\n- Pods/Other/\n- Pods/Pods.xcodeproj/\n- Pods/Target Support Files/\n')
+    assert.equal(run(['--platform', 'ios', '--platform', 'osx']).status, 1)
+    assert.equal(run(['--cocoapods', '1.12.1']).status, 2, 'only the CocoaPods deptree builds for')
+    const production = run(['--production'])
+    assert.match(production.stderr, /^deptree: Podfile\.lock: --production is not taken: CocoaPods installs every pod the Podfile asks for$/mu)
+    assert.equal(production.status, 2)
+  })
+})
+

@@ -5,7 +5,7 @@ import { pack } from '@preventive/archive/tar.js'
 import { createClient } from '@preventive/upstream/github.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildSoldeerTree } from '../soldeer.js'
-import { githubRepoOf } from '../src/soldeer/git.js'
+import { githubRepoOf } from '../src/github.js'
 import { extractZip } from '../src/soldeer/zip.js'
 import { gathered, rawZip, sha256, slowed, stubGitHub, stubSoldeer } from './registry.js'
 
