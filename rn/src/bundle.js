@@ -127,8 +127,8 @@ export async function linking({ esm, cache, projectRoot }, build) {
 
 // esbuild takes .mjs/.mts files as Node's ES modules whatever their code (`exports` unbound, a default import of
 // CommonJS the whole module.exports, not Babel's exports.default): renamed for it, mapped back in messages and maps.
-const esbuildPath = (path) => path.replace(/\.m([jt])s$/u, '.m$1s.rn.$1s')
-const realPath = (path) => path.replace(/(\.m[jt]s)\.rn\.[jt]s$/u, '$1')
+export const esbuildPath = (path) => path.replace(/\.m([jt])s$/u, '.m$1s.rn.$1s')
+export const realPath = (path) => path.replace(/(\.m[jt]s)\.rn\.[jt]s$/u, '$1')
 const realMessage = (message) => (message.location?.file === undefined ? message : { ...message, location: { ...message.location, file: realPath(message.location.file) } })
 const encoder = new TextEncoder()
 const realSources = (file) => {

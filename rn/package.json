@@ -8,6 +8,10 @@
       "types": "./metro-resolver.d.ts",
       "default": "./metro-resolver.js"
     },
+    "./metro-loader.js": {
+      "types": "./metro-loader.d.ts",
+      "default": "./metro-loader.js"
+    },
     "./metro-assets.js": {
       "types": "./metro-assets.d.ts",
       "default": "./metro-assets.js"
@@ -50,6 +54,8 @@
     "metro-assets.js",
     "metro-config.d.ts",
     "metro-config.js",
+    "metro-loader.d.ts",
+    "metro-loader.js",
     "metro-resolver.d.ts",
     "metro-resolver.js",
     "serve/app/network.js",
@@ -95,6 +101,7 @@
     "src/jsval.js",
     "src/load.js",
     "src/metro-config.js",
+    "src/metro-loader.js",
     "src/metro-options.js",
     "src/module-resolver.js",
     "src/resolve.js",

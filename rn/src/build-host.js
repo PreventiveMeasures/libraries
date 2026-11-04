@@ -17,9 +17,10 @@ export const posixRelative = (from, to) => relative(from, to).replaceAll('\\', '
 // `read`) or run.resolution (serve/resolution.js). made(state) gets it before react-native's modules are
 // found, which may fail (a package.json of no JSON): the build goes on with it, as with no react-native.
 export function newState(run, read = new Set(), made = () => {}) {
-  const { projectRoot, entry, platform, aliases } = run
+  const { projectRoot, entry, platform } = run
   const host = buildHost(run.host, read)
   const resolveModule = run.resolution?.(run.changes ?? null, read) ?? metroResolverOf({ ...run, host })
+  const resolution = importResolution(resolveModule, run)
   const graph = new Map()
   const assets = new Map()
   let registry = run.assetRegistryPath
@@ -27,20 +28,12 @@ export function newState(run, read = new Set(), made = () => {}) {
     read,
     graph,
     before: run.runBeforeMain ?? [],
-    // Resolves an import as Metro does, recording it in `graph`: -> the module, { kind, key }, or null where
-    // nothing. pluginData's `imports`: the specifiers of the file's ES imports, which a require call Babel
-    // made of one resolves as; its `aliases`: module-resolver's Babel left (load.js), else run.aliases.
-    resolveImport(importer, specifier, kind, { imports = [], aliases: mapped = null } = {}) {
-      const isESMImport = kind === 'import-statement' || kind === 'dynamic-import' || (kind === 'require-call' && imports.includes(specifier))
-      const map = mapped === null ? aliases : aliasing(mapped)
-      const resolution = resolveModule(importer, map?.(importer, specifier) ?? specifier, { platform, isESMImport })
+    // Resolves an import as importResolution() does, recording it in `graph`: -> moduleOf() it.
+    resolveImport(importer, specifier, kind, pluginData) {
+      const resolved = resolution(importer, specifier, kind, pluginData)
       if (!graph.has(importer)) graph.set(importer, new Map())
-      graph.get(importer).set(specifier, resolution)
-      if (resolution === null) return null
-      if (resolution.type === 'empty') return { kind: 'empty', key: EMPTY }
-      // Metro builds an asset into the module of its lowest path.
-      if (resolution.type === 'assetFiles') return { kind: 'asset', key: resolution.filePaths.toSorted()[0] }
-      return { kind: 'file', key: resolution.filePath }
+      graph.get(importer).set(specifier, resolved)
+      return moduleOf(resolved)
     },
     // The files it reads are noted even if that fails (an empty image).
     assetSource(path) {
@@ -55,6 +48,26 @@ export function newState(run, read = new Set(), made = () => {}) {
   state.before = run.runBeforeMain ?? reactNative.runBeforeMain
   registry ??= reactNative.assetRegistryPath
   return state
+}
+
+// (importer, specifier, kind, pluginData) => Metro's resolution of an import, by esbuild's kind, or null.
+// pluginData is the importer's loadFile() data: `imports`, the specifiers of its ES imports, which a require
+// call Babel made of one resolves as; `aliases`, module-resolver's Babel left (load.js), else `aliases`.
+export function importResolution(resolveModule, { platform, aliases = null }) {
+  return (importer, specifier, kind, { imports = [], aliases: mapped = null } = {}) => {
+    const isESMImport = kind === 'import-statement' || kind === 'dynamic-import' || (kind === 'require-call' && imports.includes(specifier))
+    const map = mapped === null ? aliases : aliasing(mapped)
+    return resolveModule(importer, map?.(importer, specifier) ?? specifier, { platform, isESMImport })
+  }
+}
+
+// A resolution as the bundle takes it: the module, { kind, key }, or null where nothing. Metro builds an
+// asset into the module of its lowest path.
+export function moduleOf(resolution) {
+  if (resolution === null) return null
+  if (resolution.type === 'empty') return { kind: 'empty', key: EMPTY }
+  if (resolution.type === 'assetFiles') return { kind: 'asset', key: resolution.filePaths.toSorted()[0] }
+  return { kind: 'file', key: resolution.filePath }
 }
 
 // Metro's resolver over the host, seeing no file `blockList` matches, as Metro's file map has none.
