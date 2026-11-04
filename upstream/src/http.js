@@ -16,9 +16,10 @@ export const CRATES_STATIC = 'https://static.crates.io'
 export const SOLDEER_API = 'https://api.soldeer.xyz'
 export const SOLDEER_REVISIONS = 'https://soldeer-revisions.s3.amazonaws.com'
 export const COCOAPODS_CDN = 'https://cdn.cocoapods.org'
+export const GITHUB_WEB = 'https://github.com'
 export const MAX_BYTES = 512 * 1024 * 1024
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, GITHUB_WEB])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)

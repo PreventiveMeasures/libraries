@@ -39,7 +39,10 @@ generates in Pods but Manifest.lock, and directories on disk holding
 nothing else. Exits 0 where the two are the same, 1 where they differ, 2
 on trouble.
 
-Tarballs, zips, crates and podspecs are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
+A pod by :podspec is built by its podspec in Pods/Local Podspecs, which
+SPEC CHECKSUMS holds, and an archive by :http by the podspec's hash of it.
+
+Tarballs, zips, crates, podspecs and archives are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
 STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
 //registry.npmjs.org/:_authToken=npm_\u2026; a Soldeer git dependency or a
@@ -55,9 +58,9 @@ pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
                      where a pod names other files on another
   --partial          compare the pods deptree downloads alone, leaving
                      out each it does not for where it is from -- a spec
-                     repo but trunk, an external source but :path, a
-                     source but git from GitHub, a prepare_command --
-                     and saying why
+                     repo but trunk, an external source but :path and
+                     :podspec, a source but git and :http from GitHub, a
+                     prepare_command -- and saying why
   --node <version>   the Node it installed with; by default this one
   --production       devDependencies were left out, as by pnpm install
                      --prod, npm ci --omit=dev or yarn install --production

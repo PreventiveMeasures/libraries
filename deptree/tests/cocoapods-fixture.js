@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto'
 
 export const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
+export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
 // `git archive --prefix=acme-acme-ef76ec6/ <tree> | gzip -9n` of a repo of
 // LICENSE, README.md, `foo.`, run.sh and Sources/Core/Exec.c executable,
@@ -41,6 +42,16 @@ export const PODFILE = "platform :ios, '13.0'\ntarget 'App' do\n  pod 'Acme/Core
 
 // As CocoaPods writes the lockfile of PODFILE.
 export const coreLock = (podspec = PODSPEC, podfile = PODFILE) => `PODS:\n  - Acme/Core (1.2.0)\n\nDEPENDENCIES:\n  - Acme/Core\n\nSPEC REPOS:\n  trunk:\n    - Acme\n\nSPEC CHECKSUMS:\n  Acme: ${sha1(podspec)}\n\nPODFILE CHECKSUM: ${sha1(podfile)}\n\nCOCOAPODS: 1.16.2\n`
+
+// GitHub's archive of the tag, which is the tarball of its tree above; and
+// a podspec of Acme by :http, held to its sha256 unless `source` says.
+export const ACME_ARCHIVE = 'https://github.com/acme/acme/archive/refs/tags/v1.2.0.tar.gz'
+export const httpPodspecOf = (source = {}, rest = {}) => podspecOf({ source: { http: ACME_ARCHIVE, sha256: sha256(ACME.tarball), ...source }, ...rest })
+
+// Acme/Core by :podspec, as CocoaPods writes the lockfile of a Podfile that
+// asks for it so, `podspec` the JSON it wrote under Pods/Local Podspecs;
+// with `checkout`, the commit it resolved its podspec's source to.
+export const podspecLock = (podspec, checkout) => `PODS:\n  - Acme/Core (1.2.0)\n\nDEPENDENCIES:\n  - Acme/Core (from \`./Acme.podspec\`)\n\nEXTERNAL SOURCES:\n  Acme:\n    :podspec: "./Acme.podspec"\n\n${checkout === undefined ? '' : `CHECKOUT OPTIONS:\n  Acme:\n    :commit: ${checkout}\n    :git: https://github.com/acme/acme.git\n\n`}SPEC CHECKSUMS:\n  Acme: ${sha1(podspec)}\n\nCOCOAPODS: 1.16.2\n`
 
 // Acme/Core; Local by :git, an external source deptree does not download;
 // and Other from trunk, by :http, a source it does not download either.
