@@ -22,7 +22,7 @@ const plugin = (loader) => ({
 async function built(loader, root, entry) {
   const outfile = join(root, 'loaded.out.js')
   const input = typeof entry === 'string' ? { entryPoints: [entry] } : { stdin: entry }
-  await esbuild.build({ ...input, absWorkingDir: root, outfile, bundle: true, format: 'iife', platform: 'neutral', logLevel: 'silent', define: loader.define, supported: await loader.supported(), plugins: [plugin(loader)] })
+  await esbuild.build({ ...input, absWorkingDir: root, outfile, bundle: true, format: 'iife', platform: 'neutral', logLevel: 'silent', define: loader.define, tsconfigRaw: loader.tsconfigRaw, supported: await loader.supported(), plugins: [plugin(loader)] })
   return JSON.parse(printed(outfile))
 }
 
@@ -83,6 +83,7 @@ describe('createMetroLoader, without a Babel config', () => {
     const release = loaderOf({})
     assert.deepEqual(release.define, { __DEV__: 'false', 'process.env.NODE_ENV': '"production"' })
     assert.deepEqual(await release.supported(), {})
+    assert.equal(release.tsconfigRaw, undefined)
   })
 
   it("builds an asset into the module assetSource gives of the lowest path of its scales, Metro's where none", async () => {
@@ -212,5 +213,23 @@ describe('createMetroLoader, refusing options', () => {
       [{ ...base, assetSource: 'x' }, "assetSource is a function of an asset's path to its module's source"],
     ]
     for (const [options, message] of refused) assert.throws(() => createMetroLoader(options), { name: 'TypeError', message: `createMetroLoader: ${message}` })
+  })
+})
+
+describe("createMetroLoader, with Babel's TS plugin keeping imports and fields", () => {
+  const { root, loaderOf } = project({
+    'babel.config.js': "module.exports = { plugins: [['@babel/plugin-transform-typescript', { onlyRemoveTypeImports: true, allowDeclareFields: true }]] }\n",
+    'main.ts': "import { Mark } from './mark'\nimport { Child } from './fields'\nconst mark: Mark | null = null\nconsole.log(JSON.stringify({ effects: (globalThis as any).effects ?? [], field: new Child().value ?? null }))\n",
+    // Has a side effect; imported only for its type.
+    'mark.ts': ";((globalThis as any).effects ??= []).push('mark')\nexport type Mark = string\n",
+    'fields.ts': "class Base { value: string = 'base' }\nexport class Child extends Base { value: string }\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/@babel/plugin-transform-typescript': linked('@babel/plugin-transform-typescript'),
+  })
+
+  it("builds TS as rn-bundle does, where Babel's output keeps each import and field Babel kept", async () => {
+    const out = await built(loaderOf({}), root, 'main.ts')
+    assert.deepEqual(out, { effects: ['mark'], field: null })
+    assert.deepEqual(out, await bundled(root, ['--platform=ios'], 'main.ts'))
   })
 })

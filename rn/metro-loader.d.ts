@@ -62,6 +62,12 @@ export interface MetroLoaderOptions {
 export interface MetroLoader {
   // __DEV__ and process.env.NODE_ENV, as Metro's prelude sets them.
   define: Record<string, string>
+  // esbuild's `tsconfigRaw` for the build where the project's Babel config
+  // runs (else undefined): Babel's output of a TS file loads as TS, and
+  // esbuild is to keep each import and field Babel kept, as with
+  // verbatimModuleSyntax and useDefineForClassFields. It is the build's, in
+  // place of any tsconfig.json, for its other TS files too.
+  tsconfigRaw: { compilerOptions: { verbatimModuleSyntax: true; useDefineForClassFields: true } } | undefined
   // esbuild's `supported` for a build for the engine the project's Babel
   // config builds for, so that esbuild adds no syntax the config lowers: let
   // and const where it lowers them, as for Hermes. esbuild then fails on any

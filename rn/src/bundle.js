@@ -28,7 +28,7 @@ const LOWERED = Object.fromEntries(
   ].map((name) => [name, false]),
 )
 // Babel's output of a TS file is JS, which esbuild still loads as TS: keep each import, define fields.
-const TS_AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
+export const TS_AS_JS = { compilerOptions: { verbatimModuleSyntax: true, useDefineForClassFields: true } }
 // Fails on bytes that aren't UTF-8 instead of decoding them to U+FFFD.
 const decoder = new TextDecoder('utf-8', { fatal: true })
 // eslint-disable-next-line require-unicode-regexp -- esbuild's filters are Go regexps, which take no `u`
