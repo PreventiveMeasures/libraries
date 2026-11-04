@@ -27,7 +27,7 @@ Builds the tree the lockfile in <dir> (by default .) installs, from
 pnpm-lock.yaml, package-lock.json, yarn.lock, soldeer.lock, Cargo.lock or
 Podfile.lock, and lists where it differs from what is on disk, every
 node_modules of the project, Soldeer's dependencies, cargo's vendor or the
-pods' directories in CocoaPods' Pods:
+pods' directories and Manifest.lock in CocoaPods' Pods:
 
   + <path>   only in the tree
   - <path>   only on disk
@@ -35,8 +35,9 @@ pods' directories in CocoaPods' Pods:
 
 A directory one side has alone is one line, ending in /. Left out unless
 --all: .bin directories, state files, Soldeer's .git, what CocoaPods
-generates in Pods, and directories on disk holding nothing else. Exits 0
-where the two are the same, 1 where they differ, 2 on trouble.
+generates in Pods but Manifest.lock, and directories on disk holding
+nothing else. Exits 0 where the two are the same, 1 where they differ, 2
+on trouble.
 
 Tarballs, zips, crates and podspecs are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
@@ -52,6 +53,11 @@ pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
   --platform <name>  a platform the Podfile's targets are for, ios, osx,
                      tvos, visionos or watchos, once for each; needed
                      where a pod names other files on another
+  --partial          compare the pods deptree downloads alone, leaving
+                     out each it does not for where it is from -- a spec
+                     repo but trunk, an external source but :path, a
+                     source but git from GitHub, a prepare_command --
+                     and saying why
   --node <version>   the Node it installed with; by default this one
   --production       devDependencies were left out, as by pnpm install
                      --prod, npm ci --omit=dev or yarn install --production
@@ -71,6 +77,7 @@ const OPTIONS = {
   cargo: { type: 'string' },
   cocoapods: { type: 'string' },
   platform: { type: 'string', multiple: true },
+  partial: { type: 'boolean' },
   node: { type: 'string' },
   metadata: { type: 'boolean', default: false },
   production: { type: 'boolean', default: false },
@@ -99,14 +106,15 @@ const MANAGERS = {
     build: (options) => buildSoldeerTree({ ...options, github: github() }),
   },
   cargo: { lockfile: 'Cargo.lock', folder: 'vendor', unpinned: true, development: true, projects: () => ['.'], build: buildCargoTree },
-  // The pods' directories alone: what else is in Pods, CocoaPods generates.
+  // The pods' directories and Manifest.lock, a copy of the lockfile: what
+  // else is in Pods, CocoaPods generates.
   cocoapods: {
     lockfile: 'Podfile.lock',
     folder: 'Pods',
     pinned: (project) => /^COCOAPODS: (\S+)$/mu.exec(readText(project, '/Podfile.lock', 'Podfile.lock') ?? '')?.[1],
     development: true,
     projects: () => ['.'],
-    build: ({ platform, ...options }) => buildCocoaPodsTree({ ...options, github: github(), ...platform === undefined ? {} : { platforms: platform } }),
+    build: ({ platform, ...options }) => buildCocoaPodsTree({ ...options, github: github(), manifest: true, ...platform === undefined ? {} : { platforms: platform } }),
   },
 }
 
@@ -122,7 +130,7 @@ async function main(argv) {
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
   if (values.production && manager.development) fail(`deptree: ${manager.lockfile}: --production is not taken: ${DEVELOPMENT[name]}\n`)
-  if (values.platform !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --platform is taken for CocoaPods alone\n`)
+  for (const flag of ['platform', 'partial']) if (values[flag] !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --${flag} is taken for CocoaPods alone\n`)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
@@ -135,8 +143,14 @@ async function main(argv) {
   const disk = readSide(project, dirs)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
   note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
-  const tree = await manager.build({ project, host, metadata: values.metadata, ...values.production ? { production: true } : {}, ...values.platform === undefined ? {} : { platform: values.platform } })
+  const tree = await manager.build({ project, host, metadata: values.metadata, ...values.production ? { production: true } : {}, ...values.platform === undefined ? {} : { platform: values.platform }, ...values.partial ? { partial: true } : {} })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
+  // A pod --partial skips is CocoaPods' to download: its directory on disk
+  // is not compared. The reason quotes what it names, as a refusal does.
+  for (const { name: pod, reason } of tree.skipped ?? []) {
+    note(`not compared: ${reason}`)
+    for (const path of disk.keys()) if (path === `Pods/${pod}` || path.startsWith(`Pods/${pod}/`)) disk.delete(path)
+  }
   const built = readSide(tree.vfs, dirs)
   const changes = difference(disk, built)
   const left = values.all ? new Set() : leftOut(changes, disk)

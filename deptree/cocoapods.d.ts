@@ -59,6 +59,26 @@ export interface CocoaPodsProject {
 // platforms, it is installed for; one that names other files on another is
 // refused. A spec for none of them is refused too.
 //
+// `manifest` writes Pods/Manifest.lock too, CocoaPods' record of what is
+// in Pods/: the lockfile's bytes, as CocoaPods writes the two alike, and
+// as the Check Pods Manifest.lock phase of a build holds them to be. With
+// it there, `pod install` downloads no pod whose directory is there and
+// which the manifest has at the version, checksum, specs and dependency it
+// resolves; it downloads only the pods whose directory is not there, or
+// holds nothing but names that start with `.`, which it takes to be empty;
+// then it generates the rest of Pods/ as it does. Without it, CocoaPods
+// takes Pods/ to hold nothing, and downloads every pod again.
+//
+// `partial` skips each pod refused for where it is downloaded from, as the
+// lockfile or its podspec says, rather than refusing the call: one from a
+// spec repo but trunk, or an external source but :path; one with a
+// prepare_command; and one whose source is not git from GitHub by a tag or
+// a full commit, or is with its submodules. Nothing is written for it, and
+// it is listed in `skipped`, for CocoaPods to download: with `manifest`, it
+// downloads those and no other. A podspec from trunk is fetched and held
+// to the lockfile's checksum all the same. Every other refusal stands, a
+// tag that a branch is named as too, which GitHub is asked of, among them.
+//
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to be
 // the project's -- it may be `project` too; without one, a new Vfs holds
 // the tree alone. A Vfs that holds a `Pods` at its root, or on macOS a name
@@ -82,6 +102,8 @@ export interface CocoaPodsTreeGiven {
   project?: undefined
   host: CocoaPodsHost
   platforms?: CocoaPodsPlatform[]
+  manifest?: boolean
+  partial?: boolean
   vfs?: Vfs
   github?: Client
 }
@@ -92,14 +114,17 @@ export interface CocoaPodsTreeRead {
   project: CocoaPodsProject
   host: CocoaPodsHost
   platforms?: CocoaPodsPlatform[]
+  manifest?: boolean
+  partial?: boolean
   vfs?: Vfs
   github?: Client
 }
 
 // What buildCocoaPodsTree counts, all of it plain numbers: `pods` the
 // lockfile's roots; `downloaded` those written into Pods/, each a podspec
-// and a tarball fetched, and the others those by :path; `files` and
-// `bytes` what is written, and `links` the symlinks.
+// and a tarball fetched, and the others those by :path, or skipped;
+// `files` and `bytes` what is written, Manifest.lock among them, and
+// `links` the symlinks.
 export interface CocoaPodsTreeStats {
   pods: number
   downloaded: number
@@ -127,23 +152,36 @@ export interface CocoaPodsInstalled {
   commit: string
 }
 
+// A pod `partial` skips: `name` and `version` the lockfile's, of the root;
+// `reason` the refusal's message, as the call throws it without `partial`,
+// leading with `pods["<name>"]`.
+export interface CocoaPodsSkipped {
+  name: string
+  version: string
+  reason: string
+}
+
 // `vfs` is the one given, the tree mounted into it, or a new one.
-// `installed` is each pod downloaded, in the lockfile's order.
+// `installed` is each pod downloaded, in the lockfile's order; `skipped`
+// each pod `partial` skips, in the lockfile's order, and none without it.
 export interface CocoaPodsTree {
   vfs: Vfs
   stats: CocoaPodsTreeStats
   installed: CocoaPodsInstalled[]
+  skipped: CocoaPodsSkipped[]
 }
 
 // The pods' directories `pod install` makes in Pods/ from the lockfile,
 // with host.cocoapods, in a project with no Pods directory yet, its
 // install! options at their defaults and no hook that changes what is
 // downloaded: rooted at the project's root, it holds Pods/<name> for each
-// root CocoaPods downloads, and nothing else of the project; none at all
-// where every pod is by :path, as CocoaPods reads those where they are.
-// What CocoaPods writes beside them in Pods/ -- Manifest.lock, Local
-// Podspecs, Headers, Target Support Files, Pods.xcodeproj -- is not
-// written, nor is anything of the user's project.
+// root CocoaPods downloads, but those `partial` skips, and nothing else of
+// the project; none at all where every pod is by :path, as CocoaPods reads
+// those where they are. What CocoaPods writes beside them in Pods/ --
+// Manifest.lock, Local Podspecs, Headers, Target Support Files,
+// Pods.xcodeproj -- is not written, but Manifest.lock with `manifest`,
+// which is written whatever pods there are; nor is anything of the user's
+// project.
 //
 // Each root's podspec is fetched from trunk and held to the lockfile's
 // checksum, its sha1, with @preventive/upstream/cocoapods.js's getPodspec.
@@ -208,7 +246,8 @@ export interface CocoaPodsTree {
 // repository of CocoaPods/Specs, or by :path: one from another spec repo,
 // one from any other external source, one with a prepare_command, which
 // CocoaPods runs as a script in the download, and one whose source is not
-// git from GitHub, by a branch, or with its submodules, is refused.
+// git from GitHub, by a branch, or with its submodules, is refused, or
+// with `partial` skipped.
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a
 // pod from anywhere but trunk, a check above that fails -- each is refused

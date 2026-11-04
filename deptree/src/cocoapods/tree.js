@@ -1,5 +1,6 @@
 // The pods `pod install` downloads into Pods/ from a Podfile.lock.
 
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { parsePodfileLock } from '@preventive/lockfile/cocoapods.js'
 import { getPodspec } from '@preventive/upstream/cocoapods.js'
 import { Vfs } from '@preventive/vfs'
@@ -7,10 +8,10 @@ import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkoutOf, tagCommit } from '../github.js'
 import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
-import { checkHost, inputsOf, platformsOf } from './inputs.js'
+import { checkHost, flagsOf, inputsOf, platformsOf } from './inputs.js'
 import { installPod } from './install.js'
 import { readPodspec, specNamed } from './podspec.js'
-import { gitSourceOf } from './source.js'
+import { SourceRefusal, gitSourceOf } from './source.js'
 
 const GITHUB = 'github must be a GitHub client from createClient, which each pod is fetched through'
 
@@ -34,8 +35,8 @@ const about = (name) => `pods[${quote(name)}]`
 function isDownloaded(root, folded) {
   const where = about(root.name)
   if (root.external?.type === 'path') return false
-  if (root.external !== undefined) throw new DeptreeError(`a pod from an external source by :${root.external.type} is not supported: only those from trunk, and by :path, are`, where)
-  if (!isTrunk(root.repo)) throw new DeptreeError(`a pod from the spec repo ${quote(root.repo)} is not supported: only those from trunk are`, where)
+  if (root.external !== undefined) throw new SourceRefusal(`a pod from an external source by :${root.external.type} is not supported: only those from trunk, and by :path, are`, where)
+  if (!isTrunk(root.repo)) throw new SourceRefusal(`a pod from the spec repo ${quote(root.repo)} is not supported: only those from trunk are`, where)
   if (isGenerated(root.name, folded ? fold : (name) => name)) throw new DeptreeError('a pod named as what CocoaPods writes beside the pods in Pods/ is not supported', where)
   // ASCII, as the lockfile reader holds a pod's name to.
   if (root.name.length > 255) throw new DeptreeError('a name too long for a directory, which CocoaPods fails to make', where)
@@ -46,11 +47,25 @@ function refuse(detail, where) {
   throw new DeptreeError(detail, where)
 }
 
+// What `attempt` gives, or with `partial`, where it refuses where the pod
+// is downloaded from, undefined, its refusal kept in `skipped` by the
+// pod's name; any other refusal stands.
+function unlessSkipped(attempt, root, skipped) {
+  try {
+    return attempt()
+  } catch (error) {
+    if (skipped === undefined || !(error instanceof SourceRefusal)) throw error
+    skipped.set(root.name, error.message)
+    return undefined
+  }
+}
+
 // Each root's podspec, the specs of it installed, its source and the
 // commit of that, all before any download, so that a pod refused fails
 // the call before any tarball is fetched. A tag is asked of GitHub once,
-// as the pods of one repository often share one.
-async function planAll(roots, github) {
+// as the pods of one repository often share one. A pod skipped for its
+// source has no plan, its podspec held to the lockfile all the same.
+async function planAll(roots, github, skipped) {
   const plans = new Map()
   const tags = new Map()
   const commitOf = ({ repo, tag }, where) => {
@@ -61,7 +76,8 @@ async function planAll(roots, github) {
   await eachConcurrently(roots, async (root) => {
     const where = about(root.name)
     const podspec = readPodspec(await getPodspec(root.name, root.version, root.checksum), root.name, root.version, where)
-    const source = gitSourceOf(podspec, where)
+    const source = unlessSkipped(() => gitSourceOf(podspec, where), root, skipped)
+    if (source === undefined) return
     const specs = root.pods.map((name) => specNamed(podspec, name) ?? refuse(`its podspec has no ${quote(name)}, which the lockfile installs`, where))
     const commit = source.commit ?? await commitOf(source, where)
     plans.set(root.name, { root, podspec, specs, source, commit })
@@ -82,29 +98,46 @@ async function installAll(plans, github, options) {
   return installed
 }
 
+// Pods/Manifest.lock, which CocoaPods writes as it writes Podfile.lock;
+// the lockfile reader holds the lockfile to be as CocoaPods writes it, so
+// it is the lockfile's bytes: its text as UTF-8, of no lone surrogate, as
+// the reader refuses one.
+function writeManifest(vfs, lockfile, stats) {
+  const data = utf8fromString(lockfile)
+  makeDirs(vfs, 'Pods')
+  vfs.writeFile('/Pods/Manifest.lock', data)
+  stats.files++
+  stats.bytes += data.length
+}
+
 export async function buildCocoaPodsTree(options) {
   const { host: given, vfs: into, github, platforms: givenPlatforms } = options ?? {}
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   if (github !== undefined && ['getRepoTarball', 'getRepoTag', 'getRepoHead', 'getRepo'].some((name) => typeof github?.[name] !== 'function')) throw new TypeError(GITHUB)
   const inputs = inputsOf(options ?? {})
   const platforms = platformsOf(givenPlatforms)
+  const { manifest, partial } = flagsOf(options ?? {})
   const folded = checkHost(given).os === 'darwin'
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoPods(into, folded)
   const lock = parsePodfileLock(inputs.lockfile, inputs.podfile === undefined ? {} : { podfile: inputs.podfile })
   const roots = Object.values(lock.roots)
-  const downloaded = roots.filter((root) => isDownloaded(root, folded))
-  if (github === undefined && downloaded.length > 0) throw new TypeError(GITHUB)
-  const plans = await planAll(downloaded, github)
+  const skipped = partial ? new Map() : undefined
+  const fromTrunk = roots.filter((root) => unlessSkipped(() => isDownloaded(root, folded), root, skipped))
+  if (github === undefined && fromTrunk.length > 0) throw new TypeError(GITHUB)
+  const plans = await planAll(fromTrunk, github, skipped)
   const contents = await installAll(plans, github, { platforms, folded })
+  // In the lockfile's order, whatever order the fetches finished in.
+  const downloaded = fromTrunk.filter(({ name }) => plans.has(name))
   const vfs = new Vfs()
   const stats = { pods: roots.length, downloaded: downloaded.length, files: 0, bytes: 0, links: 0 }
   if (downloaded.length > 0) makeDirs(vfs, 'Pods')
-  // In the lockfile's order, whatever order the fetches finished in.
   for (const { name } of downloaded) writeFiles(vfs, `Pods/${name}`, contents.get(name), stats)
+  if (manifest) writeManifest(vfs, inputs.lockfile, stats)
   const installed = downloaded.map(({ name, version, checksum, pods }) => {
     const { source, commit } = plans.get(name)
     return { path: `Pods/${name}`, name, version, checksum, pods: [...pods], git: source.url, tag: source.tag, commit }
   })
-  return { vfs: mount(vfs, into, folded, checkNoPods), stats, installed }
+  const left = roots.filter(({ name }) => skipped?.has(name)).map(({ name, version }) => ({ name, version, reason: skipped.get(name) }))
+  return { vfs: mount(vfs, into, folded, checkNoPods), stats, installed, skipped: left }
 }

@@ -25,6 +25,12 @@ export function platformsOf(platforms) {
   return [...platforms]
 }
 
+// `manifest` and `partial`, each false unless given true.
+export function flagsOf({ manifest = false, partial = false }) {
+  for (const [name, value] of Object.entries({ manifest, partial })) if (typeof value !== 'boolean') throw new TypeError(`${name} must be a boolean, or left out`)
+  return { manifest, partial }
+}
+
 // The names CocoaPods reads a Podfile under, the first one there taken.
 const PODFILES = ['CocoaPods.podfile.yaml', 'CocoaPods.podfile', 'Podfile', 'Podfile.rb']
 

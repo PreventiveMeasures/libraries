@@ -42,5 +42,12 @@ export const PODFILE = "platform :ios, '13.0'\ntarget 'App' do\n  pod 'Acme/Core
 // As CocoaPods writes the lockfile of PODFILE.
 export const coreLock = (podspec = PODSPEC, podfile = PODFILE) => `PODS:\n  - Acme/Core (1.2.0)\n\nDEPENDENCIES:\n  - Acme/Core\n\nSPEC REPOS:\n  trunk:\n    - Acme\n\nSPEC CHECKSUMS:\n  Acme: ${sha1(podspec)}\n\nPODFILE CHECKSUM: ${sha1(podfile)}\n\nCOCOAPODS: 1.16.2\n`
 
+// Acme/Core; Local by :git, an external source deptree does not download;
+// and Other from trunk, by :http, a source it does not download either.
+// With `podfile`, the lockfile of that Podfile.
+export const OTHER = Buffer.from(`${JSON.stringify({ name: 'Other', version: '1.0.0', source: { http: 'https://example.com/other.zip' } })}\n`)
+export const MIXED_PODFILE = "platform :ios, '13.0'\ntarget 'App' do\n  pod 'Acme/Core'\n  pod 'Local', :git => 'https://github.com/acme/local.git'\n  pod 'Other'\nend\n"
+export const mixedLock = (podfile) => `PODS:\n  - Acme/Core (1.2.0)\n  - Local (0.1.0)\n  - Other (1.0.0)\n\nDEPENDENCIES:\n  - Acme/Core\n  - Local (from \`https://github.com/acme/local.git\`)\n  - Other\n\nSPEC REPOS:\n  trunk:\n    - Acme\n    - Other\n\nEXTERNAL SOURCES:\n  Local:\n    :git: https://github.com/acme/local.git\n\nCHECKOUT OPTIONS:\n  Local:\n    :commit: ${'b'.repeat(40)}\n    :git: https://github.com/acme/local.git\n\nSPEC CHECKSUMS:\n  Acme: ${sha1(PODSPEC)}\n  Local: ${'f'.repeat(40)}\n  Other: ${sha1(OTHER)}\n\n${podfile === undefined ? '' : `PODFILE CHECKSUM: ${sha1(podfile)}\n\n`}COCOAPODS: 1.16.2\n`
+
 // Acme, Acme/UI and a pod by :path.
 export const allLock = (podspec = PODSPEC) => `PODS:\n  - Acme (1.2.0):\n    - Acme/Core (= 1.2.0)\n  - Acme/Core (1.2.0)\n  - Acme/UI (1.2.0):\n    - Acme/Core\n  - Local (0.1.0)\n\nDEPENDENCIES:\n  - Acme\n  - Acme/UI\n  - Local (from \`../Local\`)\n\nSPEC REPOS:\n  trunk:\n    - Acme\n\nEXTERNAL SOURCES:\n  Local:\n    :path: "../Local"\n\nSPEC CHECKSUMS:\n  Acme: ${sha1(podspec)}\n  Local: ${'f'.repeat(40)}\n\nCOCOAPODS: 1.16.2\n`

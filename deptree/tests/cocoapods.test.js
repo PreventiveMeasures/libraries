@@ -8,7 +8,7 @@ import { DeptreeError, LockfileError, buildCocoaPodsTree } from '../cocoapods.js
 import { expandBraces, fnmatch } from '../src/cocoapods/fnmatch.js'
 import { installPod } from '../src/cocoapods/install.js'
 import { readPodspec } from '../src/cocoapods/podspec.js'
-import { ACME, PODFILE, PODSPEC, allLock, coreLock, podspecOf, sha1 } from './cocoapods-fixture.js'
+import { ACME, OTHER, PODFILE, PODSPEC, allLock, coreLock, mixedLock, podspecOf, sha1 } from './cocoapods-fixture.js'
 import { stubGitHub, stubTrunk } from './registry.js'
 
 // No spec repo of CocoaPods' own on this machine answers for the stubs.
@@ -24,6 +24,10 @@ function stubPods({ podspec = PODSPEC, tags = { 'v1.2.0': ACME.commit }, branche
 }
 
 const client = () => createClient({ token: null })
+
+// A pod by :path alone.
+const LOCAL_LOCK = `PODS:\n  - Local (0.1.0)\n\nDEPENDENCIES:\n  - Local (from \`../Local\`)\n\nEXTERNAL SOURCES:\n  Local:\n    :path: "../Local"\n\nSPEC CHECKSUMS:\n  Local: ${'f'.repeat(40)}\n\nCOCOAPODS: 1.16.2\n`
+const MIXED_LOCK = mixedLock()
 
 async function build({ lockfile = coreLock(), podspec, branches, tags, ...rest } = {}) {
   stubPods({ podspec, branches, tags })
@@ -86,11 +90,52 @@ describe('buildCocoaPodsTree', () => {
   })
 
   it('builds nothing, and fetches nothing, where every pod is by :path', async () => {
-    const lockfile = 'PODS:\n  - Local (0.1.0)\n\nDEPENDENCIES:\n  - Local (from `../Local`)\n\nEXTERNAL SOURCES:\n  Local:\n    :path: "../Local"\n\nSPEC CHECKSUMS:\n  Local: ' + 'f'.repeat(40) + '\n\nCOCOAPODS: 1.16.2\n'
-    const { vfs, stats, installed } = await buildCocoaPodsTree({ lockfile, host: HOST })
+    const { vfs, stats, installed, skipped } = await buildCocoaPodsTree({ lockfile: LOCAL_LOCK, host: HOST })
     assert.deepEqual(listing(vfs), {})
     assert.deepEqual(stats, { pods: 1, downloaded: 0, files: 0, bytes: 0, links: 0 })
     assert.deepEqual(installed, [])
+    assert.deepEqual(skipped, [])
+  })
+
+  it('writes Pods/Manifest.lock with manifest, the lockfile byte for byte, whatever pods there are', async () => {
+    const { vfs, stats } = await build({ manifest: true })
+    assert.deepEqual(listing(vfs), { ...CORE, 'Pods/Manifest.lock': `644 ${coreLock()}` })
+    assert.deepEqual(stats, { pods: 1, downloaded: 1, files: 10, bytes: 147 + Buffer.byteLength(coreLock()), links: 0 })
+    const { vfs: local, stats: none } = await buildCocoaPodsTree({ lockfile: LOCAL_LOCK, host: HOST, manifest: true })
+    assert.deepEqual(listing(local), { Pods: 'dir', 'Pods/Manifest.lock': `644 ${LOCAL_LOCK}` })
+    assert.deepEqual(none, { pods: 1, downloaded: 0, files: 1, bytes: Buffer.byteLength(LOCAL_LOCK), links: 0 })
+    const project = createVfs({ '/Podfile.lock': coreLock(), '/Podfile': PODFILE })
+    stubPods()
+    await buildCocoaPodsTree({ project, host: HOST, github: client(), vfs: project, manifest: true })
+    assert.deepEqual(project.readFile('/Pods/Manifest.lock'), project.readFile('/Podfile.lock'))
+    await assert.rejects(build({ manifest: 'yes' }), /manifest must be a boolean, or left out/u)
+  })
+
+  it('skips with partial each pod refused for where it is from, lockfile and podspec alike, and lists it', async () => {
+    const calls = stubPods({ others: { 'Other@1.0.0': OTHER } })
+    await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client() }), /pods\["Local"\]: a pod from an external source by :git is not supported/u)
+    const { vfs, stats, installed, skipped } = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), partial: true, manifest: true })
+    assert.deepEqual(listing(vfs), { ...CORE, 'Pods/Manifest.lock': `644 ${MIXED_LOCK}` })
+    assert.deepEqual(stats, { pods: 3, downloaded: 1, files: 10, bytes: 147 + Buffer.byteLength(MIXED_LOCK), links: 0 })
+    assert.deepEqual(installed.map(({ name }) => name), ['Acme'])
+    assert.deepEqual(skipped, [
+      { name: 'Local', version: '0.1.0', reason: 'pods["Local"]: a pod from an external source by :git is not supported: only those from trunk, and by :path, are' },
+      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: a source by :http is not supported: only git from GitHub is' },
+    ])
+    // Other's podspec is fetched, to know where it is from; nothing more of it.
+    assert.deepEqual(calls.trunk.map((at) => at.split('/').at(-1)).sort(), ['Acme.podspec.json', 'Other.podspec.json'])
+    assert.equal(calls.github.some((call) => /local|other/iu.test(call)), false)
+    await assert.rejects(build({ partial: 1 }), /partial must be a boolean, or left out/u)
+  })
+
+  it('holds a pod partial skips to the lockfile all the same, and refuses with it all but where a pod is from', async () => {
+    stubPods({ others: { 'Other@1.0.0': Buffer.from(`${OTHER}\n`) } })
+    await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), partial: true }), /integrity mismatch for Other@1\.0\.0/u)
+    await assert.rejects(build({ branches: { 'v1.2.0': 'a'.repeat(40) }, partial: true }), /has a branch named "v1\.2\.0" as well as the tag/u)
+    const podspec = podspecOf({ platforms: { ios: '13.0', osx: '10.15' }, subspecs: [{ name: 'Core', source_files: 'Sources/Core', osx: { exclude_files: 'Sources/Core/Exec.c' } }] })
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, partial: true }), /names other files on osx than on ios/u)
+    stubPods({ podspec: podspecOf({ summary: 'changed' }) })
+    await assert.rejects(buildCocoaPodsTree({ lockfile: coreLock(), host: HOST, github: client(), partial: true }), /integrity mismatch for Acme@1\.2\.0/u)
   })
 
   it('reads Podfile.lock and the Podfile from the project, and holds the Podfile to its checksum', async () => {
@@ -152,6 +197,10 @@ describe('buildCocoaPodsTree', () => {
     ]) {
       const podspec = podspecOf(extra)
       await assert.rejects(build({ lockfile: coreLock(podspec), podspec }), (error) => error instanceof DeptreeError && error.where === 'pods["Acme"]' && message.test(error.message), JSON.stringify(extra))
+      const { vfs, skipped } = await build({ lockfile: coreLock(podspec), podspec, partial: true })
+      assert.deepEqual(listing(vfs), {}, JSON.stringify(extra))
+      assert.deepEqual(skipped.map(({ name, version }) => `${name} ${version}`), ['Acme 1.2.0'], JSON.stringify(extra))
+      assert.match(skipped[0].reason, message, JSON.stringify(extra))
     }
   })
 
@@ -163,6 +212,10 @@ describe('buildCocoaPodsTree', () => {
       .replace(':path: "../Local"', `:git: https://github.com/acme/local.git\n\nCHECKOUT OPTIONS:\n  Local:\n    :commit: ${'b'.repeat(40)}\n    :git: https://github.com/acme/local.git`)
       .replace('(from `../Local`)', '(from `https://github.com/acme/local.git`)')
     await assert.rejects(buildCocoaPodsTree({ lockfile: git, host: HOST, github: client() }), /an external source by :git is not supported/u)
+    assert.deepEqual([...calls.trunk, ...calls.github], [])
+    const { vfs, skipped } = await buildCocoaPodsTree({ lockfile: other, host: HOST, github: client(), partial: true })
+    assert.deepEqual(listing(vfs), {})
+    assert.match(skipped[0].reason, /^pods\["Acme"\]: a pod from the spec repo "https:\/\/github\.com\/acme\/specs\.git" is not supported/u)
     assert.deepEqual([...calls.trunk, ...calls.github], [])
   })
 
