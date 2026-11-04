@@ -165,7 +165,10 @@ export interface CocoaPodsTree {
 // machine would change -- `core.autocrlf`, a filter such as Git LFS's --
 // is not followed. GitHub's tarball is refused where upstream refuses it,
 // and where the tar reader of @preventive/archive/tar.js does, and so is a
-// path with a `.git` in it, in any case.
+// path with a `.git` in it, in any case. Every podspec is fetched and
+// held to all of this, and every tag taken to its commit, before any
+// tarball is fetched, so that a pod refused costs no download; a tag is
+// asked of GitHub once, and a tarball fetched once, for all the pods of it.
 //
 // What CocoaPods then keeps of the checkout is what it keeps: it cleans
 // the download in its cache, by the file patterns of every spec of the
@@ -182,7 +185,9 @@ export interface CocoaPodsTree {
 // used file's path or one of the two is at the start of the other, as
 // Ruby's `include?` finds it in the pod's directory's path. Each source
 // file is then made read-only by its owner, through a link to the file it
-// leads to, as lock_files! leaves it. A link CocoaPods follows to find
+// leads to, as lock_files! leaves it. A link is followed as the machine
+// follows it, on macOS to a name whatever its case and normalization, and
+// a link to nothing at all leads nowhere. A link CocoaPods follows to find
 // whether it leads to a directory, which is every link, and which leads
 // out of the download, is refused, as what it finds there is the
 // machine's.
@@ -194,9 +199,10 @@ export interface CocoaPodsTree {
 // another case, or `xros`, and a value that breaks braces apart by a
 // backslash. A pattern that expands to more than 4096 is refused, and so
 // is a readme or a license of two files of one name but for case, of which
-// CocoaPods takes either. On macOS, two names in one directory that differ
-// only in case or normalization are refused, as they would be one name
-// there.
+// CocoaPods takes either. On macOS, a download with two names in one
+// directory that differ only in case or normalization is refused, as they
+// would be one name there and git's checkout writes one of them alone,
+// whatever CocoaPods keeps of it.
 //
 // Pods come from trunk, as SPEC REPOS has it, by `trunk` or by the git
 // repository of CocoaPods/Specs, or by :path: one from another spec repo,

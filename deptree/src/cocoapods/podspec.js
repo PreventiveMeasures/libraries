@@ -20,7 +20,7 @@ const DEPLOYMENT_TARGET = /^\d+(?:\.\d+)*$/u
 const CHILDREN = ['subspecs', 'testspecs', 'appspecs']
 
 // The file patterns, each a list, none inherited.
-export const LISTS = ['source_files', 'exclude_files', 'resources', 'preserve_paths', 'vendored_frameworks', 'vendored_libraries']
+const LISTS = ['source_files', 'exclude_files', 'resources', 'preserve_paths', 'vendored_frameworks', 'vendored_libraries']
 // One path each, inherited: a subspec takes its parent's where it has none.
 const PATHS = ['prefix_header_file', 'module_map']
 
@@ -144,31 +144,32 @@ function pathOf(spec, key, platform, where) {
   return checkPath(value, `${spec.at}${key}`, where)
 }
 
-// resource_bundles and on_demand_resources: a hash, the platform's merged
-// into the spec's, by name.
-function hashOf(spec, key, platform, where, prepare) {
-  const result = new Map()
-  for (const [value, what] of [[spec.attributes[key], `${spec.at}${key}`], [platformHash(spec, platform, where)?.[key], `${spec.at}${platform}.${key}`]]) {
-    if (value === undefined || value === null) continue
-    if (!isObject(value)) throw new DeptreeError(`${what} is not a hash, which CocoaPods fails on`, where)
-    for (const [name, patterns] of Object.entries(value)) {
-      const prepared = prepare(patterns, `${what}[${quote(name)}]`)
-      if (result.has(name) && key === 'on_demand_resources') throw new DeptreeError(`${what}[${quote(name)}] is given for the spec and for ${platform} too, which CocoaPods fails on`, where)
-      result.set(name, [...result.get(name) ?? [], ...prepared])
-    }
-  }
-  return [...result.values()].flat()
-}
-
-const bundlePatterns = (where) => (patterns, what) => patternsOf(patterns, what, where)
-
 // _prepare_on_demand_resources: patterns, or a hash of its `paths` and a
 // `category`, which has to be a name.
-const onDemandPatterns = (where) => (patterns, what) => {
+function onDemandPatterns(patterns, what, where) {
   if (typeof patterns === 'string' || Array.isArray(patterns)) return patternsOf(patterns, what, where)
   if (!isObject(patterns)) throw new DeptreeError(`${what} is not file patterns, or a hash of them, which CocoaPods fails on`, where)
   if (Object.hasOwn(patterns, 'category') && typeof patterns.category !== 'string') throw new DeptreeError(`${what}.category is not a name, which CocoaPods fails on`, where)
   return patternsOf(patterns.paths, `${what}.paths`, where)
+}
+
+// resource_bundles and on_demand_resources: a hash, the platform's merged
+// into the spec's, by name, each its patterns as `prepare` reads them. Of
+// a name in both, the bundle has the patterns of both; of an on-demand
+// resource, CocoaPods fails, as it adds the two hashes as if strings.
+function hashOf(spec, key, platform, where, prepare) {
+  const result = new Map()
+  const whats = [`${spec.at}${key}`, `${spec.at}${platform}.${key}`]
+  for (const [index, value] of rawValues(spec, key, platform, where).entries()) {
+    if (value === undefined || value === null) continue
+    if (!isObject(value)) throw new DeptreeError(`${whats[index]} is not a hash, which CocoaPods fails on`, where)
+    for (const [name, patterns] of Object.entries(value)) {
+      const what = `${whats[index]}[${quote(name)}]`
+      if (result.has(name) && prepare === onDemandPatterns) throw new DeptreeError(`${what} is given for the spec and for ${platform} too, which CocoaPods fails on`, where)
+      result.set(name, [...result.get(name) ?? [], ...prepare(patterns, what, where)])
+    }
+  }
+  return [...result.values()].flat()
 }
 
 // What a spec's Consumer on `platform` gives of each attribute that names
@@ -177,8 +178,8 @@ const onDemandPatterns = (where) => (patterns, what) => {
 export function consumerOf(spec, platform, where) {
   const values = {}
   for (const key of LISTS) values[key] = listOf(spec, key, platform, where)
-  values.resource_bundles = hashOf(spec, 'resource_bundles', platform, where, bundlePatterns(where))
-  values.on_demand_resources = hashOf(spec, 'on_demand_resources', platform, where, onDemandPatterns(where))
+  values.resource_bundles = hashOf(spec, 'resource_bundles', platform, where, patternsOf)
+  values.on_demand_resources = hashOf(spec, 'on_demand_resources', platform, where, onDemandPatterns)
   for (const key of PATHS) values[key] = pathOf(spec, key, platform, where)
   return values
 }

@@ -3,6 +3,7 @@
 // FileUtils.rm_rf leaves of it.
 
 import { DeptreeError, quote } from '../error.js'
+import { fold } from '../mount.js'
 
 // The links a path is followed through before it is taken to lead
 // nowhere, as Linux and macOS give up with ELOOP.
@@ -13,10 +14,13 @@ const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
 
 // A pod's directory: its paths from there, each a directory, a file with
 // its data and mode, or a link with its target, as given; every directory
-// on the way to one is one of them.
+// on the way to one is one of them. `folded` where it is on macOS, which
+// finds a name whatever its case and normalization: two that are one name
+// there are refused, as git's checkout would write one of them alone.
 export class PodTree {
-  constructor({ dirs, files, links }, where) {
+  constructor({ dirs, files, links }, folded, where) {
     this.where = where
+    this.key = folded ? fold : (path) => path
     this.nodes = new Map()
     const add = (path, node) => {
       for (let at = parentOf(path); at !== '' && !this.nodes.has(at); at = parentOf(at)) this.nodes.set(at, { type: 'directory' })
@@ -25,6 +29,13 @@ export class PodTree {
     for (const dir of dirs) add(dir, { type: 'directory' })
     for (const [path, { data, mode }] of files) add(path, { type: 'file', data, mode })
     for (const [path, target] of links) add(path, { type: 'symlink', target })
+    // Each path by its key, as a lookup finds it.
+    this.byKey = new Map()
+    for (const path of this.nodes.keys()) {
+      const other = this.byKey.get(this.key(path))
+      if (other !== undefined) throw new DeptreeError(`${quote(other)} and ${quote(path)} are one name on macOS`, where)
+      this.byKey.set(this.key(path), path)
+    }
   }
 
   get paths() {
@@ -47,11 +58,12 @@ export class PodTree {
         at = parentOf(at)
         continue
       }
-      const next = join(at, name)
-      const node = this.nodes.get(next)
+      const next = this.byKey.get(this.key(join(at, name)))
+      const node = next === undefined ? undefined : this.nodes.get(next)
       if (node === undefined) return undefined
       if (node.type === 'symlink') {
-        if (++followed > MAX_LINKS) return undefined
+        // A link to nothing at all, which leads nowhere.
+        if (++followed > MAX_LINKS || node.target === '') return undefined
         if (node.target.startsWith('/')) throw new DeptreeError(`${quote(next)} links to the absolute ${quote(node.target)}`, this.where)
         pending = [...node.target.split('/'), ...pending]
         continue
@@ -78,6 +90,7 @@ export class PodTree {
       for (let at = path; at !== ''; at = parentOf(at)) {
         if (!removed.has(at)) continue
         this.nodes.delete(path)
+        this.byKey.delete(this.key(path))
         break
       }
     }

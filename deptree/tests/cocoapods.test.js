@@ -6,6 +6,8 @@ import { createClient } from '@preventive/upstream/github.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildCocoaPodsTree } from '../cocoapods.js'
 import { expandBraces, fnmatch } from '../src/cocoapods/fnmatch.js'
+import { installPod } from '../src/cocoapods/install.js'
+import { readPodspec } from '../src/cocoapods/podspec.js'
 import { ACME, PODFILE, PODSPEC, allLock, coreLock, podspecOf, sha1 } from './cocoapods-fixture.js'
 import { stubGitHub, stubTrunk } from './registry.js'
 
@@ -13,11 +15,11 @@ import { stubGitHub, stubTrunk } from './registry.js'
 process.env.CP_REPOS_DIR = join(tmpdir(), `deptree-cocoapods-test-${process.pid}-none`)
 
 const HOST = Object.freeze({ cocoapods: '1.16.2', os: 'linux' })
-// Trunk with `podspec` for Acme 1.2.0, and GitHub with the repo, its tag
-// and `branches`. Returns what each was asked.
-function stubPods({ podspec = PODSPEC, tags = { 'v1.2.0': ACME.commit }, branches = {} } = {}) {
+// Trunk with `podspec` for Acme 1.2.0 and `others`, and GitHub with the
+// repo, its tag and `branches`. Returns what each was asked.
+function stubPods({ podspec = PODSPEC, tags = { 'v1.2.0': ACME.commit }, branches = {}, others = {} } = {}) {
   const github = stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags, branches } })
-  const trunk = stubTrunk({ 'Acme@1.2.0': podspec })
+  const trunk = stubTrunk({ 'Acme@1.2.0': podspec, ...others })
   return { github, trunk }
 }
 
@@ -120,6 +122,14 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(calls.github, [`acme/acme/git/commits/${ACME.commit}`, `acme/acme/tarball/${ACME.tree}`])
   })
 
+  it('refuses every pod before it fetches any tarball', async () => {
+    const other = Buffer.from(`${JSON.stringify({ name: 'Other', version: '1.0.0', source: { http: 'https://example.com/other.zip' } })}\n`)
+    const lockfile = `PODS:\n  - Acme/Core (1.2.0)\n  - Other (1.0.0)\n\nDEPENDENCIES:\n  - Acme/Core\n  - Other\n\nSPEC REPOS:\n  trunk:\n    - Acme\n    - Other\n\nSPEC CHECKSUMS:\n  Acme: ${sha1(PODSPEC)}\n  Other: ${sha1(other)}\n\nCOCOAPODS: 1.16.2\n`
+    const calls = stubPods({ others: { 'Other@1.0.0': other } })
+    await assert.rejects(buildCocoaPodsTree({ lockfile, host: HOST, github: client() }), /pods\["Other"\]: a source by :http is not supported/u)
+    assert.deepEqual(calls.github.filter((call) => /\/(?:git\/commits|tarball)\//u.test(call)), [])
+  })
+
   it("refuses a tag a branch is named as too, as git's clone takes the branch", async () => {
     await assert.rejects(build({ branches: { 'v1.2.0': 'a'.repeat(40) } }), /has a branch named "v1\.2\.0" as well as the tag/u)
   })
@@ -181,6 +191,34 @@ describe('buildCocoaPodsTree', () => {
     const { vfs } = await build({ lockfile: coreLock(podspec), podspec, host: { cocoapods: '1.16.2', os: 'darwin' } })
     assert.equal(vfs.readText('/Pods/Acme/LICENSE'), 'MIT\n')
     await assert.rejects(build({ lockfile: coreLock(podspec), podspec, host: { cocoapods: '1.16.2', os: 'darwin' }, vfs: createVfs({ '/pods': '' }) }), /a Pods directory is there already/u)
+  })
+})
+
+describe('installPod', () => {
+  // A download of Foo.h and \`Alias.h\` linking to \`foo.h\`, each a source
+  // file of the root, unless \`files\` and \`links\` say otherwise.
+  const FOO = { 'Foo.h': 'foo' }
+  const ALIAS = { 'Alias.h': 'foo.h' }
+  const install = (folded, files = FOO, links = ALIAS) => {
+    const podspec = readPodspec(Buffer.from(JSON.stringify({ name: 'Pod', version: '1.0.0', source_files: '*.h' })), 'Pod', '1.0.0', 'pod')
+    const contents = { dirs: [], files: new Map(Object.entries(files).map(([path, data]) => [path, { data: Buffer.from(data), mode: 0o644 }])), links: new Map(Object.entries(links)) }
+    const out = installPod(contents, podspec, [podspec], { folded, where: 'pod' })
+    return Object.fromEntries([...[...out.files].map(([path, { mode }]) => [path, mode.toString(8)]), ...out.links])
+  }
+
+  it('follows a link on macOS to a name of another case, as its filesystem finds one', () => {
+    assert.deepEqual(install(true), { 'Foo.h': '444', 'Alias.h': 'foo.h' })
+    assert.throws(() => install(false), /the source file "Alias\.h" links to nothing/u)
+  })
+
+  it('refuses on macOS a download with two names that are one there, whatever is kept of it', () => {
+    const files = { 'Foo.h': 'foo', 'A.txt': 'a', 'a.TXT': 'b' }
+    assert.throws(() => install(true, files, {}), /"A\.txt" and "a\.TXT" are one name on macOS/u)
+    assert.deepEqual(install(false, files, {}), { 'Foo.h': '444' })
+  })
+
+  it('takes a link to nothing at all as one that leads nowhere', () => {
+    assert.throws(() => install(true, { 'Foo.h': 'foo' }, { 'Alias.h': '' }), /the source file "Alias\.h" links to nothing/u)
   })
 })
 

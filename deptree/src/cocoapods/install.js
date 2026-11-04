@@ -26,15 +26,16 @@ function uniformConsumer(spec, platforms, where) {
 }
 
 // `contents` are the download's, as writeFiles takes them; `podspec` its
-// root spec, `installed` the specs of it the lockfile has, and `platforms`
-// those its targets are for, or undefined for any.
-export function installPod(contents, podspec, installed, platforms, where) {
-  const tree = new PodTree(contents, where)
+// root spec, and `installed` the specs of it the lockfile has. `platforms`
+// are those the Podfile's targets are for, or undefined for any; `folded`,
+// whether the pod is on macOS.
+export function installPod(contents, podspec, installed, { platforms, folded, where }) {
+  const tree = new PodTree(contents, folded, where)
   const license = licenseFileOf(podspec, where)
-  // Downloader::Cache#copy_and_clean, its group_subspecs_by_platform.
+  // Downloader::Cache#copy_and_clean, its group_subspecs_by_platform. Its
+  // copy into Pods/, FileUtils.cp_r under a umask of 0o022, keeps the modes
+  // a checkout has, 0o644 and 0o755.
   clean(tree, allSpecs(podspec).flatMap((spec) => platformsOf(spec, where).map((platform) => consumerOf(spec, platform, where))), license)
-  // FileUtils.cp_r into Pods/, as a umask of 0o022 leaves each file.
-  for (const node of tree.nodes.values()) if (node.type === 'file') node.mode &= ~0o022
   // PodSourceInstaller#clean!, then Installer#lock_pod_sources.
   const used = installed.map((spec) => uniformConsumer(spec, platforms, where))
   clean(tree, used, license)
