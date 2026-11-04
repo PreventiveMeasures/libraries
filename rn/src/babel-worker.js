@@ -18,11 +18,19 @@ export function defaultWorkers(cores = availableParallelism()) {
 
 // Files queued on each worker before another is started.
 const BACKLOG = 8
+// Configuration and transform setup give even tiny files some work, in source-character units.
+const FILE_COST = 1024
 // Files transformed on the main thread before a worker is started, and until it is ready:
 // its ~300 ms startup doesn't pay off for a few files.
 const IN_BAND = 16
 // A worker's first message: its config is loaded.
 const READY = 'ready'
+
+// esbuild's inline map can be larger than the code it maps, but adds no nodes for Babel to transform.
+const sourceSize = (source = '') => {
+  const map = source.lastIndexOf('\n//# sourceMappingURL=data:')
+  return map < 0 ? source.length : map
+}
 
 // -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
 // corePath, less the config's plugins keyed in `without` (options: transformerOf()). Runs up to `max`
@@ -31,15 +39,20 @@ const READY = 'ready'
 // one that hits it none. Has close(), and fingerprint() with a fingerprinter.
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false, eager = false } = {}) {
   const most = max ?? defaultWorkers()
+  const bySize = options.oneBuild && !options.sourceMaps
   const workers = []
   const made = () => {
     const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } })
     // The answers it owes, which it gives in turn.
-    const info = { worker, asked: [], ready: false }
+    const info = { worker, asked: [], ready: false, load: 0 }
     worker.on('message', (answer) => {
       // READY is its first message, so any means it is ready.
       info.ready = true
-      if (answer !== READY) info.asked.shift().resolve(answer)
+      if (answer !== READY) {
+        const task = info.asked.shift()
+        info.load -= task.cost
+        task.resolve(answer)
+      }
       // Only a busy worker keeps the process alive.
       if (info.asked.length === 0) worker.unref()
     })
@@ -54,11 +67,14 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
     workers.push(info)
     return info
   }
-  // The least busy worker's, unless each has a backlog and another may start.
+  // Cold builds without output maps account for source size as well as per-file work. Counting files
+  // alone queues small files behind a large transform while another worker can finish its queue.
   const inWorker = (message) => {
-    const least = workers.reduce((a, b) => (b.asked.length < a.asked.length ? b : a), workers[0])
-    const { worker, asked } = least !== undefined && (least.asked.length < BACKLOG || workers.length >= most) ? least : made()
-    const answer = Promise.withResolvers()
+    const least = workers.reduce((a, b) => (b.load < a.load ? b : a), workers[0])
+    const chosen = least !== undefined && (least.asked.length < BACKLOG || workers.length >= most) ? least : made()
+    const { worker, asked } = chosen
+    const answer = { ...Promise.withResolvers(), cost: bySize ? FILE_COST + sourceSize(message.source) : 1 }
+    chosen.load += answer.cost
     if (asked.push(answer) === 1) worker.ref()
     // eslint-disable-next-line unicorn/require-post-message-target-origin -- a worker, of no origin
     worker.postMessage(message)

@@ -102,6 +102,9 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
   // Loaded here only when first needed, after the workers load their own.
   let core = null
   const loadCore = () => (core ??= project.load(corePath))
+  // One-off builds without maps use the synchronous config path of their transforms too, while
+  // still resolving each filename's overrides and .babelrc independently.
+  const loadOptions = (options) => (oneBuild && !sourceMaps ? loadCore().loadOptionsSync(options) : loadCore().loadOptionsAsync(options))
   // In one build files don't change, so .babelrc lookups that find nothing can be skipped.
   const finds = oneBuild && babelRCLookup ? babelrcFinder() : null
   const targetOf = (platform, dev, inlineRequires) => {
@@ -129,7 +132,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
       // The config's plugins less those switched off, plus those switched on, FORCED; then Metro's
       // inline-requires, which the workers run last.
       babelPlugins: async (filename) => {
-        const plugins = pluginsByKey((await loadCore().loadOptionsAsync({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
+        const plugins = pluginsByKey((await loadOptions({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
         if (switched.length > 0) {
           switchedKeys ??= switchesOf(loadCore(), switched, { cwd, root: cwd, caller, envName }, { ...options, filename: join(cwd, 'index.js') })
           for (const key of switchedKeys.off) plugins.delete(key)
