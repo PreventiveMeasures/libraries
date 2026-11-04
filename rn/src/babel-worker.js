@@ -151,8 +151,8 @@ export function profileReport({ files, ms, plugins, own, before = new Map() }, r
 }
 
 if (workerData?.babel !== undefined) {
-  // As the bin does: @babel/core and the config's plugins compiled once.
-  enableCompileCache()
+  // Only serve reuses compiled code on disk; a one-off bundle keeps nothing across runs.
+  if (!workerData.babel.options.oneBuild) enableCompileCache()
   // options.fingerprinter: the path of a module whose workerFingerprint() makes the worker's fingerprint
   // (rn-serve's, serve/fingerprint.js), as the worker loads its config.
   const { fingerprinter = null } = workerData.babel.options

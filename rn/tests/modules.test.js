@@ -79,6 +79,34 @@ describe('the module format, of names JSON and JavaScript read otherwise', () =>
   })
 })
 
+describe('the module format, of a deep graph with shared dependencies and a cycle', () => {
+  const count = 96
+  const { root, cleanup } = writeTree({
+    'index.js': "globalThis.result = require('./m0').value\n",
+    'shared.js': 'exports.step = 1\n',
+    ...Object.fromEntries(Array.from({ length: count }, (_, i) => [`m${i}.js`, i === count - 1
+      ? "exports.value = require('./shared').step; exports.first = () => require('./m0')\n"
+      : `exports.value = require('./m${i + 1}').value + require('./shared').step\n`])),
+  })
+  after(cleanup)
+
+  it('finishes each module once, including dependencies found by cached modules on a later build', async () => {
+    const modules = createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, cache: new Map() })
+    try {
+      for (let build = 0; build < 2; build++) {
+        const progress = []
+        const result = await modules.rebuild((done, total) => progress.push([done, total]))
+        assert.equal(result.modules.size, count + 2)
+        assert.equal(run(result.js).context.result, count)
+        assert.deepEqual(progress.map(([done]) => done), Array.from({ length: count + 2 }, (_, i) => i + 1))
+        assert.deepEqual(progress[progress.length - 1], [count + 2, count + 2])
+      }
+    } finally {
+      await modules.dispose()
+    }
+  })
+})
+
 describe('the module format', () => {
   const { root, cleanup } = writeTree(APP)
   after(cleanup)
@@ -89,6 +117,38 @@ describe('the module format', () => {
     rmSync(join(root, 'extra.js'), { force: true })
   }
   const CLIENT = 'http://localhost:8081/index.bundle?platform=ios&dev=true'
+
+  it('reuses unchanged runtime scripts, rebuilding edited scripts and keeping their maps current', async () => {
+    for (const runtime of [RUNTIME, require.resolve('metro-runtime-0.81/src/polyfills/require.js')]) {
+      const transformed = []
+      const counting = { ...esbuild, transform: (code, options) => (transformed.push(options.sourcefile), esbuild.transform(code, options)) }
+      const options = { entry: 'index.js', platform: 'ios', esbuild: counting, projectRoot: root, runtime, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, ids: new Map(), cache: new Map() }
+      const modules = createModuleBundler(options)
+      try {
+        const first = await modules.rebuild()
+        assert.equal(transformed.length, 2)
+        transformed.length = 0
+        const again = await modules.rebuild()
+        assert.deepEqual([again.js, again.map], [first.js, first.map])
+        assert.equal(transformed.length, 0)
+        edit('polyfill.js', APP['polyfill.js'].replace("['polyfill']", "['edited polyfill']"))
+        const changed = await modules.rebuild()
+        assert.deepEqual(transformed, ['polyfill.js'])
+        assert.equal(run(changed.js).context.log[0], 'edited polyfill')
+        const fresh = await createModuleBundler({ ...options, cache: new Map() }).rebuild()
+        assert.deepEqual([changed.js, changed.map], [fresh.js, fresh.map])
+        // A failed edit must not serve the previous successful script.
+        edit('polyfill.js', 'const broken = (\n')
+        await assert.rejects(modules.rebuild(), /Build failed/u)
+        edit('polyfill.js', APP['polyfill.js'])
+        const restored = await modules.rebuild()
+        assert.deepEqual([restored.js, restored.map], [first.js, first.map])
+      } finally {
+        edit('polyfill.js', APP['polyfill.js'])
+        await modules.dispose()
+      }
+    }
+  })
 
   it("makes the bundle, and its map, each as it is first asked for, each module's record and definition the build before's where it is the same, to the bundle built anew", async () => {
     const ids = new Map()

@@ -31,7 +31,7 @@ export function createModuleBundler(options) {
     return ids.get(key)
   }
   // With `esm`, Babel leaves import and export to esbuild, which makes each module CommonJS, but `commonJs`'s.
-  const run = { ...withDefaults(options), injected, builds, idOf }
+  const run = { ...withDefaults(options), injected, builds, idOf, scriptBuilds: new Map() }
   // Its resolver, kept in memory across its watcher-caused builds (resolution.js's resolutionOf()).
   run.resolution = resolutionOf(run)
   const supported = lowersLetOf(run).catch(() => false).then((lowersLet) => ({ ...supportedOf(run.babel, lowersLet), 'dynamic-import': false }))
@@ -63,6 +63,7 @@ async function graphOf(run, state, scripts) {
     throw Object.assign(new Error('no entry'), { errors: [{ text: `Could not resolve "${entry}"`, location: null }] })
   }
   const pending = new Map()
+  let queued = []
   const errors = []
   let done = 0
   // Each ES module loaded, its imports and exports, for checkImports.
@@ -74,7 +75,10 @@ async function graphOf(run, state, scripts) {
   }
   // Builds a module once by its key, telling the progress of those built of those found, as Metro does.
   const visit = (found) => {
-    if (!pending.has(found.key)) pending.set(found.key, moduleOf(run, state, found, visit).catch(fail(found.key)).finally(() => run.onProgress?.(++done, pending.size)))
+    if (pending.has(found.key)) return
+    const building = moduleOf(run, state, found, visit).catch(fail(found.key)).finally(() => run.onProgress?.(++done, pending.size))
+    pending.set(found.key, building)
+    queued.push(building)
   }
   visit({ key: entryKey, kind: 'file' })
   // Those to run before the entry, then rn's own, whose imports resolve as the entry's.
@@ -82,11 +86,11 @@ async function graphOf(run, state, scripts) {
   const before = [...fromEntry(state.before), ...fromEntry(run.injected).map((found) => ({ ...found, importer: entryKey }))]
   for (const found of before) visit(found)
   const scriptsBuilt = Promise.all(scripts.map((path) => scriptOf(run, state, path).catch(fail(path))))
-  // Until building finds no module more.
-  let size = 0
-  while (size !== pending.size) {
-    size = pending.size
-    await Promise.all(pending.values())
+  // Await each newly found module once, not the entire graph again at each depth.
+  while (queued.length > 0) {
+    const batch = queued
+    queued = []
+    await Promise.all(batch)
   }
   const built = await scriptsBuilt
   if (errors.length > 0) throw Object.assign(new Error(`Build failed with ${errors.length} error(s)`), { errors })
@@ -209,8 +213,12 @@ export const defineCall = (record, inverse) => `__d(${record.factory},${record.i
 // A polyfill or metro-runtime's require: a script given the global object, as Metro wraps one.
 async function scriptOf(run, state, path) {
   const source = await loaded(run, state, path)
+  const kept = run.scriptBuilds.get(path)
+  if (kept?.contents === source.contents && kept.loader === source.loader) return kept.built
   const { code, map } = await run.esbuild.transform(source.contents, { loader: source.loader, sourcefile: posixRelative(run.projectRoot, path), sourcemap: 'external', define: run.define, minify: run.minify, supported: run.supported, logLevel: 'silent' })
-  return { text: `(function (global) {\n${code}})(${GLOBAL});\n`, lines: lineCount(code), piece: pieceOf(JSON.parse(map)) }
+  const built = { text: `(function (global) {\n${code}})(${GLOBAL});\n`, lines: lineCount(code), piece: pieceOf(JSON.parse(map)) }
+  run.scriptBuilds.set(path, { contents: source.contents, loader: source.loader, built })
+  return built
 }
 
 // Each record's definition, made once (recordOf() keeps records across builds).

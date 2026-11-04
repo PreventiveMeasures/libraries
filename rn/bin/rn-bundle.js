@@ -6,11 +6,5 @@
 // the project's Babel config run over each file, then esbuild. rn.config.json (src/rn-config.js) sets flag defaults.
 // --profile times the config's Babel plugins; --self-test rebuilds skipping none of them and fails if a module differs.
 
-import { enableCompileCache } from 'node:module'
-
-// Enabled before the dynamic import so @babel/core, esbuild and Metro's config also load from
-// Node's on-disk compile cache (NODE_DISABLE_COMPILE_CACHE=1 turns it off).
-enableCompileCache()
-
-const { rnBundle } = await import('../src/rn-bundle.js')
+import { rnBundle } from '../src/rn-bundle.js'
 process.exitCode = await rnBundle(process.argv.slice(2))

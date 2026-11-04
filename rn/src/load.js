@@ -142,6 +142,17 @@ async function withoutFlow({ esbuild, stripFlow }, contents, path) {
 
 // The JS source for Babel, and the plugins Babel can skip; null leaves the file to Babel as is.
 async function javascript(options, plugins, contents, path) {
+  const { supported, without } = lowering(plugins, INERT)
+  // Successful lowering also proves this is JavaScript: don't parse it separately just to decide
+  // whether it needs Flow stripping. On failure, keep the Flow and Babel fallbacks below.
+  if (options.stripFlow !== null && !isFlow(contents) && !contents.includes('@jsx')) {
+    try {
+      const lowered = await lower(options, contents, 'jsx', path, { supported })
+      return decorated(lowered) ? { code: contents, without: [] } : { code: lowered, without }
+    } catch {
+      // May be Flow, or syntax that only the Babel config can read.
+    }
+  }
   let code = contents
   try {
     code = (await withoutFlow(options, contents, path)) ?? contents
@@ -149,21 +160,20 @@ async function javascript(options, plugins, contents, path) {
     // Left for Babel to report.
     if (!(error instanceof SyntaxError)) throw error
   }
-  // flow-remove-types leaves Flow that is code (`component`, `hook`, `enum`) but drops the @flow pragma the
-  // config's Flow parser needs: leave such a file to Babel as is, as Metro does.
-  if (code !== contents && (await parseErrors(options.esbuild, code, 'jsx', path)) !== null) return null
   // Not lowered where esbuild can't parse it, would misread a Flow call with type arguments, would drop JSX
   // pragma comments Babel reads, or would lower decorators, whose semantics the Babel config picks.
   const unlowered = { code, without: [] }
-  if ((isFlow(code) && MAYBE_TYPE_ARGUMENTS.test(code)) || code.includes('@jsx')) return unlowered
-  const { supported, without } = lowering(plugins, INERT)
+  // flow-remove-types leaves Flow that is code (`component`, `hook`, `enum`) but drops the @flow pragma
+  // the config's parser needs. Check only where lowering can't prove it parses, leaving such files to Babel.
+  const fallback = async () => (code !== contents && (await parseErrors(options.esbuild, code, 'jsx', path)) !== null ? null : unlowered)
+  if ((isFlow(code) && MAYBE_TYPE_ARGUMENTS.test(code)) || code.includes('@jsx')) return fallback()
   let lowered
   try {
     lowered = await lower(options, code, 'jsx', path, { supported })
   } catch (error) {
     // Parse errors have a location; errors in options don't.
     if (!Array.isArray(error?.errors) || !error.errors.every(({ location }) => location)) throw error
-    return unlowered
+    return fallback()
   }
   return decorated(lowered) ? unlowered : { code: lowered, without }
 }
