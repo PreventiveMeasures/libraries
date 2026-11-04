@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -44,6 +45,7 @@ describe('babelWorkers', () => {
     // The worker's thread, by which file it transforms.
     'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
+    'blocked.cjs': "module.exports = (api, { signal }) => ({ pre(file) { if (require('node:path').basename(file.opts.filename) === 'slow.js') { const gate = new Int32Array(signal); Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); Atomics.wait(gate, 1, 0); } } })\n",
     'tag.cjs': "module.exports = ({ types: t }, { value }) => ({ name: 'tag', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral(value))) } } } })\n",
     'overrides.config.cjs': "module.exports = { overrides: [{ test: /special\\.js$/, plugins: [['./tag.cjs', { value: 'special' }, 'special']] }] }\n",
     // A config with its own visitor wrapper, which marks after mark's visitor.
@@ -115,6 +117,40 @@ describe('babelWorkers', () => {
     assert.equal((await transform('a()', join(root, 'a.js'))).code, 'a();\n"marked";')
     assert.equal((await transform('a()', join(root, 'a.js'), ['mark'])).code, 'a();')
     assert.equal((await transform('a()', join(root, 'a.js'), ['other'])).code, 'a();\n"marked";')
+  })
+
+  it('lets small files finish on another worker while a cold build without output maps transforms a large file', async () => {
+    const signal = new SharedArrayBuffer(8)
+    const gate = new Int32Array(signal)
+    const transform = babelWorkers(CORE, { babelrc: false, configFile: false, sourceMaps: false, oneBuild: true, keepPlugins: true, plugins: [[join(root, 'blocked.cjs'), { signal }], join(root, 'thread.cjs')] }, null, 2, { warm: true })
+    const timeout = new AbortController()
+    const slow = transform(`/* ${'large source '.repeat(5000)} */\n0;`, join(root, 'slow.js'))
+    try {
+      assert.notEqual(await Atomics.waitAsync(gate, 0, 0, 5000).value, 'timed-out')
+      // Inline map data must not make these tiny files look larger than the blocked file.
+      const map = Buffer.from(JSON.stringify({ version: 3, sources: ['original.js'], names: [], mappings: 'AAAA', sourcesContent: ['x'.repeat(100000)] })).toString('base64')
+      const small = Array.from({ length: 12 }, (_, i) => transform(`${i};\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${map}\n`, join(root, `small-${i}.js`)))
+      const results = await Promise.race([
+        Promise.all(small),
+        delay(5000, null, { signal: timeout.signal }).then(() => assert.fail('small files queued behind the blocked transform')),
+      ])
+      assert.deepEqual(results.map(({ code }) => code.split('\n')[0]), Array.from({ length: 12 }, (_, i) => `${i};`))
+      Atomics.store(gate, 1, 1)
+      Atomics.notify(gate, 1)
+      await slow
+      // Completed work no longer counts against either worker.
+      const threadOf = threader(transform)
+      assert.equal(new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size, 2)
+    } finally {
+      timeout.abort()
+      Atomics.store(gate, 1, 1)
+      Atomics.notify(gate, 1)
+      try {
+        await slow
+      } finally {
+        await transform.close()
+      }
+    }
   })
 
   it('keeps project-only plugins out of dependencies while resolving overrides for each file', async () => {
