@@ -5,7 +5,7 @@ import { dirname, join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { loadCached, lowersLetOf } from '@preventive/rn/src/bundle.js'
+import { loadCached, loweredOf } from '@preventive/rn/src/bundle.js'
 import { peers, projectBabel } from '@preventive/rn/src/cli.js'
 import { configKeyOf, fingerprintOf, withDependencies } from '../src/fingerprint.js'
 import { createLoadCache, ownModules } from '../src/load-cache.js'
@@ -156,14 +156,14 @@ describe('loadCached, with a store of load-cache.js', () => {
     assert.equal(await contents('d.js', 'd()', { esm: new Set() }), esModule)
   })
 
-  it("keeps what is of the entry's config, as lowersLetOf() has it, which a run after then loads none of", async () => {
+  it("keeps what is of the entry's config, as loweredOf() has it, which a run after then loads none of", async () => {
     writeFileSync(join(root, 'index.js'), '')
     const options = (each) => ({ babel: each.target.babel, babelPlugins: each.target.babelPlugins, projectRoot: root, entry: 'index.js', store: each.store })
     const first = run()
-    assert.equal(await lowersLetOf(options(first)), false)
+    assert.deepEqual(await loweredOf(options(first)), {})
     const second = run()
     second.target.babelPlugins = () => assert.fail('the config loaded')
-    assert.equal(await lowersLetOf(options(second)), false)
+    assert.deepEqual(await loweredOf(options(second)), {})
   })
 
   it("loads, though the cache can't be written", async () => {

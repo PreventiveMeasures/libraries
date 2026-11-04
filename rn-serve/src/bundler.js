@@ -2,7 +2,7 @@
 // metro-runtime): bundle.js's build on one esbuild context, whose builds a watcher causes take each file
 // unchanged from memory and keep the resolutions their changes leave.
 
-import { buildOptions, linking, lowersLetOf, metroGraph, withDefaults } from '@preventive/rn/src/bundle.js'
+import { buildOptions, linking, loweredOf, metroGraph, withDefaults } from '@preventive/rn/src/bundle.js'
 import { resolutionOf } from './resolution.js'
 
 // bundle() on one esbuild context: each full rebuild resolves and reads every file anew, but `cache`'s; a
@@ -14,9 +14,9 @@ export async function createBundler(options) {
   run.resolution = resolutionOf(run)
   run.kept = (path) => keptOf(run, path)
   const graph = metroGraph(run)
-  const lowersLet = await lowersLetOf(run).catch(() => false)
+  const lowered = await loweredOf(run).catch(() => ({}))
   // Always through the main module, as what runs before the entry may change.
-  const context = await run.esbuild.context(buildOptions(run, graph.plugin, true, lowersLet))
+  const context = await run.esbuild.context(buildOptions(run, graph.plugin, true, lowered))
   return {
     // Throws as esbuild does, with the error's `files` those the build read or looked for. `changes`, a
     // watcher's since the build before ({ path, event }); null, a full build. `at`, a dev bundler's version

@@ -6,7 +6,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 
 import { assetModule } from './assets.js'
 import { ASSET, EMPTY, assetDataOf, importResolution, resolvedModule } from './build-host.js'
-import { TS_AS_JS, assetLoaded, esbuildPath, loadCached, lowersLetAt, notResolved, realPath, resolvedAs, supportedOf, withDefaults } from './bundle.js'
+import { TS_AS_JS, assetLoaded, esbuildPath, loadCached, loweredAt, notResolved, realPath, resolvedAs, supportedOf, withDefaults } from './bundle.js'
 import { TRANSFORM_PROFILES, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { createMetroResolver } from './resolve.js'
@@ -55,8 +55,8 @@ export function createMetroLoader(options) {
     define: defines(dev, [], fail),
     // As bundle.js's buildOptions(): Babel's output of a TS file loads as TS, keeping each import and field.
     tsconfigRaw: target === null ? undefined : TS_AS_JS,
-    // As bundle.js's lowersLetOf(), for a file at the project's root.
-    supported: () => (supported ??= lowersLetAt(run.babelPlugins, join(projectRoot, 'index.js')).then((lowers) => supportedOf(run.babel, lowers))),
+    // As bundle.js's loweredOf(), for a file at the project's root.
+    supported: () => (supported ??= loweredAt(run.babelPlugins, join(projectRoot, 'index.js')).then((lowered) => supportedOf(run.babel, lowered))),
     // An entry point as a path; an import of a file of another namespace (stdin's) from resolveDir, as from a file in it.
     resolve({ path, importer, namespace, resolveDir, kind, pluginData }) {
       const dir = resolveDir || projectRoot

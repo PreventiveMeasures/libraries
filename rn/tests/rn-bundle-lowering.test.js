@@ -154,7 +154,8 @@ describe('rn-bundle, with Babel, with Babel plugins for what esbuild lowers befo
   it('leaves to Babel what a plugin with options lowers', async () => {
     const { code, ran } = await build({ 'transform-async-to-generator': { module: 'bluebird', method: 'coroutine' } })
     assert.deepEqual(ran, { ...once, ...js, 'transform-arrow-functions': 6, 'transform-async-to-generator': 6 })
-    assert.ok(/async function load\(/u.test(code) && code.includes('__asyncGenerator('))
+    // What it leaves (this one lowering nothing), esbuild lowers after Babel, the config lowering async functions.
+    assert.ok(!/\basync function\b/u.test(code) && code.includes('__async(') && code.includes('__asyncGenerator('))
   })
 })
 
@@ -231,6 +232,39 @@ describe('rn-bundle, with Babel, with a Babel config that lowers let and const',
     const r = await build([])
     assert.equal(r.status, 0, r.stderr)
     assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /for \(let key of/u)
+  })
+})
+
+describe('rn-bundle, with Babel, with a Babel config that lowers async functions', () => {
+  // Plugins of the keys of @react-native/babel-preset's, which here lower nothing: esbuild lowers async
+  // functions, async generators and for await before Babel, which then leaves the plugins out.
+  const config = (plugins) => `module.exports = { plugins: [${plugins.join(', ')}] }\n`
+  const { root, cleanup } = writeTree({
+    'main.js': "console.log('main')\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+  const build = (plugins, args = []) => {
+    writeFileSync(join(root, 'babel.config.js'), config(plugins))
+    return runBundle(['--platform=ios', ...args, '--output=out.js', 'main.js'], { cwd: root })
+  }
+  const lowering = ["() => ({ name: 'transform-async-to-generator', visitor: {} })", "() => ({ name: 'transform-async-generator-functions', visitor: {} })"]
+  // As a plugin run after the config's async ones: an async arrow, an async generator and a for await put in once they have run.
+  const late = "({ template }) => ({ post(file) { file.path.pushContainer('body', template.statements.ast('globalThis.later = async () => { for await (const each of (async function* () { yield 1 })()) return each }')) } })"
+
+  it('lowers what of them Babel leaves after its plugins, of a release build and a dev one', async () => {
+    for (const args of [[], ['--dev']]) {
+      const r = await build([...lowering, late], args)
+      assert.equal(r.status, 0, r.stderr)
+      const code = readFileSync(join(root, 'out.js'), 'utf8')
+      assert.ok(!/\b(?:async|await)\b/u.test(code), code)
+    }
+  })
+
+  it('leaves them where the config keeps them', async () => {
+    const r = await build([late])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(readFileSync(join(root, 'out.js'), 'utf8'), /async \(\) =>/u)
   })
 })
 
