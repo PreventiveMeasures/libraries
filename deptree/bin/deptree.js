@@ -114,7 +114,7 @@ const MANAGERS = {
     pinned: (project) => /^COCOAPODS: (\S+)$/mu.exec(readText(project, '/Podfile.lock', 'Podfile.lock') ?? '')?.[1],
     development: true,
     projects: () => ['.'],
-    build: ({ platform, ...options }) => buildCocoaPodsTree({ ...options, github: github(), manifest: true, ...platform === undefined ? {} : { platforms: platform } }),
+    build: (options) => buildCocoaPodsTree({ ...options, github: github(), manifest: true }),
   },
 }
 
@@ -143,7 +143,7 @@ async function main(argv) {
   const disk = readSide(project, dirs)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
   note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
-  const tree = await manager.build({ project, host, metadata: values.metadata, ...values.production ? { production: true } : {}, ...values.platform === undefined ? {} : { platform: values.platform }, ...values.partial ? { partial: true } : {} })
+  const tree = await manager.build({ project, host, metadata: values.metadata, platforms: values.platform, partial: values.partial, ...values.production ? { production: true } : {} })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
   // A pod --partial skips is CocoaPods' to download: its directory on disk
   // is not compared. The reason quotes what it names, as a refusal does.

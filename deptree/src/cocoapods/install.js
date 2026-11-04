@@ -25,20 +25,36 @@ function uniformConsumer(spec, platforms, where) {
   return first[1]
 }
 
-// `contents` are the download's, as writeFiles takes them; `podspec` its
-// root spec, and `installed` the specs of it the lockfile has. `platforms`
-// are those the Podfile's targets are for, or undefined for any; `folded`,
-// whether the pod is on macOS.
-export function installPod(contents, podspec, installed, { platforms, folded, where }) {
-  const tree = new PodTree(contents, folded, where)
-  const license = licenseFileOf(podspec, where)
+// What a pod's podspec says of the files CocoaPods keeps of it, read and
+// checked whole before anything is downloaded: the license file it names,
+// the consumerOf values of every spec on every platform each takes, for
+// the clean in the download cache, and of the specs installed, for the
+// clean in Pods/. `installed` are the specs of `podspec` the lockfile has,
+// and `platforms` those the Podfile's targets are for, or undefined for
+// any.
+export function planPod(podspec, installed, platforms, where) {
+  return {
+    license: licenseFileOf(podspec, where),
+    every: allSpecs(podspec).flatMap((spec) => platformsOf(spec, where).map((platform) => consumerOf(spec, platform, where))),
+    used: installed.map((spec) => uniformConsumer(spec, platforms, where)),
+  }
+}
+
+// The download, `contents` as writeFiles takes them, as planPod's `plan`
+// leaves it. `folded` where the pod is on macOS; `keepsGit` where
+// CocoaPods copies the clone's .git into its cache with the rest, as 1.13
+// to 1.15 do, which is refused where the clean there keeps it, as what is
+// in it is not known.
+export function installPod(contents, plan, { folded, keepsGit, where }) {
+  const tree = new PodTree(keepsGit ? { ...contents, dirs: [...contents.dirs, '.git'] } : contents, folded, where)
+  const budget = { matches: 0 }
   // Downloader::Cache#copy_and_clean, its group_subspecs_by_platform. Its
   // copy into Pods/, FileUtils.cp_r under a umask of 0o022, keeps the modes
   // a checkout has, 0o644 and 0o755.
-  clean(tree, allSpecs(podspec).flatMap((spec) => platformsOf(spec, where).map((platform) => consumerOf(spec, platform, where))), license)
+  clean(tree, plan.every, plan.license, budget)
+  if (tree.nodes.has('.git')) throw new DeptreeError('its file patterns keep the .git of the clone, which CocoaPods before 1.16 copies into its cache, and which is not built', where)
   // PodSourceInstaller#clean!, then Installer#lock_pod_sources.
-  const used = installed.map((spec) => uniformConsumer(spec, platforms, where))
-  clean(tree, used, license)
-  lock(tree, used)
+  clean(tree, plan.used, plan.license, budget)
+  lock(tree, plan.used, budget)
   return tree.contents()
 }

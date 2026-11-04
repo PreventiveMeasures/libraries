@@ -174,14 +174,23 @@ export interface CocoaPodsTree {
 // The pods' directories `pod install` makes in Pods/ from the lockfile,
 // with host.cocoapods, in a project with no Pods directory yet, its
 // install! options at their defaults and no hook that changes what is
-// downloaded: rooted at the project's root, it holds Pods/<name> for each
-// root CocoaPods downloads, but those `partial` skips, and nothing else of
-// the project; none at all where every pod is by :path, as CocoaPods reads
-// those where they are. What CocoaPods writes beside them in Pods/ --
-// Manifest.lock, Local Podspecs, Headers, Target Support Files,
-// Pods.xcodeproj -- is not written, but Manifest.lock with `manifest`,
-// which is written whatever pods there are; nor is anything of the user's
-// project.
+// downloaded, CocoaPods' download cache used, as it is unless
+// COCOAPODS_SKIP_CACHE is set, and each pod in one pod target, as where
+// the Podfile's targets that use a pod ask for the same specs of it: where
+// they ask for others, CocoaPods makes a pod target of each, and makes the
+// source files of the first of them read-only alone, which is not followed,
+// as the lockfile has the specs of them all and not which target has
+// which. The project's path and the cache's, ~/Library/Caches/CocoaPods or
+// $CP_CACHE_DIR, are taken to have none of a glob's `*`, `?`, `[`, `]`, `{`
+// and `}`, and to be as NFKC normalizes them, as CocoaPods cleans a pod's
+// directory by its path as it is. Rooted at the project's root, it holds
+// Pods/<name> for each root CocoaPods downloads, but those `partial`
+// skips, and nothing else of the project; none at all where every pod is
+// by :path, as CocoaPods reads those where they are. What CocoaPods writes
+// beside them in Pods/ -- Manifest.lock, Local Podspecs, Headers, Target
+// Support Files, Pods.xcodeproj -- is not written, but Manifest.lock with
+// `manifest`, which is written whatever pods there are; nor is anything of
+// the user's project.
 //
 // Each root's podspec is fetched from trunk and held to the lockfile's
 // checksum, its sha1, with @preventive/upstream/cocoapods.js's getPodspec.
@@ -203,9 +212,14 @@ export interface CocoaPodsTree {
 // machine would change -- `core.autocrlf`, a filter such as Git LFS's --
 // is not followed. GitHub's tarball is refused where upstream refuses it,
 // and where the tar reader of @preventive/archive/tar.js does, and so is a
-// path with a `.git` in it, in any case. Every podspec is fetched and
-// held to all of this, and every tag taken to its commit, before any
-// tarball is fetched, so that a pod refused costs no download; a tag is
+// path git refuses to check out: one with a `.git` in it, or its short name
+// `git~1`, in any case, dots and spaces after it, or a `:` after that. A
+// commit the podspec names has to be in the history of the repository's
+// default branch, as GitHub answers for a commit of any fork, and for one
+// no branch or tag reaches, which a clone does not have; one on another
+// branch alone is refused too. Every podspec is fetched and held to all
+// that it says, below as here, and every tag taken to its commit, before
+// any tarball is fetched, so that a pod refused costs no download; a tag is
 // asked of GitHub once, and a tarball fetched once, for all the pods of it.
 //
 // What CocoaPods then keeps of the checkout is what it keeps: it cleans
@@ -224,23 +238,33 @@ export interface CocoaPodsTree {
 // Ruby's `include?` finds it in the pod's directory's path. Each source
 // file is then made read-only by its owner, through a link to the file it
 // leads to, as lock_files! leaves it. A link is followed as the machine
-// follows it, on macOS to a name whatever its case and normalization, and
-// a link to nothing at all leads nowhere. A link CocoaPods follows to find
-// whether it leads to a directory, which is every link, and which leads
-// out of the download, is refused, as what it finds there is the
-// machine's.
+// follows it, on macOS to a name whatever its case and normalization, up to
+// 40 links on the way on Linux and 32 on macOS, past which the path leads
+// nowhere, and a link to nothing at all leads nowhere. A link CocoaPods
+// follows to find whether it leads to a directory, which is every link, and
+// which leads out of the download, is refused, as what it finds there is
+// the machine's.
 //
 // What CocoaPods fails on is refused: a podspec that is not JSON, a value
 // of a type it fails on, a source file that links to nothing, a pod named
-// as what it writes beside the pods in Pods/. And what one release of
-// CocoaPods or Ruby reads otherwise than another: a platform named in
-// another case, or `xros`, and a value that breaks braces apart by a
-// backslash. A pattern that expands to more than 4096 is refused, and so
-// is a readme or a license of two files of one name but for case, of which
-// CocoaPods takes either. On macOS, a download with two names in one
-// directory that differ only in case or normalization is refused, as they
-// would be one name there and git's checkout writes one of them alone,
-// whatever CocoaPods keeps of it.
+// as what it writes beside the pods in Pods/, a path in the download of
+// 4096 bytes or more on Linux, 1024 on macOS, or with a name of more than
+// 255. So is what CocoaPods cleans otherwise than its patterns say: a pod
+// named with a glob's `*`, `?`, `[`, `]`, `{` or `}`, whose directory it
+// then cleans by that glob; and, from 1.13 to 1.15, a pod whose patterns
+// keep the .git of the clone that they copy into their cache, as what is in
+// it is not known. And what one release of CocoaPods or Ruby reads
+// otherwise than another: a platform named in another case, or `xros`; a
+// value that breaks braces apart by a backslash; a path, a link's target or
+// a pattern with a letter whose case Ruby maps otherwise in a release from
+// 2.6 on than in another, as one encoded after Unicode 12.1. A pattern
+// longer than 4096 characters, or that expands to more than 4096, is
+// refused, and so is a pod whose patterns take more than 200,000,000
+// matches of a path to clean it, and a readme or a license of two files of
+// one name but for case, of which CocoaPods takes either. On macOS, a
+// download with two names in one directory that differ only in case or
+// normalization is refused, as they would be one name there and git's
+// checkout writes one of them alone, whatever CocoaPods keeps of it.
 //
 // Pods come from trunk, as SPEC REPOS has it, by `trunk` or by the git
 // repository of CocoaPods/Specs, or by :path: one from another spec repo,

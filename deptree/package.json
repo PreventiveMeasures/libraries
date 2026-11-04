@@ -64,6 +64,7 @@
     "src/cocoapods/podtree.js",
     "src/cocoapods/source.js",
     "src/cocoapods/tree.js",
+    "src/cocoapods/unicode.js",
     "src/concurrent.js",
     "src/error.js",
     "src/github.js",

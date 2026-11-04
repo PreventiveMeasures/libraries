@@ -202,9 +202,10 @@ const GITHUB_REPOS = 'https://api.github.com/repos/'
 const GITHUB_REPO_BY_ID = /^https:\/\/api\.github\.com\/(repositories\/(\d+))$/u
 
 // Beside the fetch stubbed already, GitHub's API for `repos`, each by
-// `owner/name`: { id, commit, tree, tarball, listings, tags, branches }, the
-// listings each tree's entries by its id, the tags and the branches each
-// one's commit by its name, or { location } for one renamed or transferred,
+// `owner/name`: { id, commit, tree, tarball, listings, tags, branches,
+// history }, the listings each tree's entries by its id, the tags and the
+// branches each one's commit by its name, `history` the commits the default
+// branch, main, is ahead of; or { location } for one renamed or transferred,
 // which GitHub redirects there, as it does to the repository by its `id`.
 // Returns what was asked of it, from the repo on.
 export function stubGitHub(repos) {
@@ -227,6 +228,12 @@ export function stubGitHub(repos) {
     const [kind, id] = [rest.slice(0, -1).join('/'), rest.at(-1)]
     if (repo === undefined) return notFound()
     if (repo.location !== undefined) return Promise.resolve(new Response('', { status: 301, headers: { location: repo.location } }))
+    if (rest.length === 0) return Promise.resolve(Response.json({ id: repo.id, full_name: `${owner}/${name}`, default_branch: 'main' }))
+    if (kind === 'compare') {
+      const [base] = id.split('?')[0].split('...')
+      const ahead = (repo.history ?? []).includes(base)
+      return Promise.resolve(Response.json({ status: ahead ? 'ahead' : 'diverged', ahead_by: 1, behind_by: ahead ? 0 : 1, base_commit: { sha: base }, merge_base_commit: { sha: ahead ? base : 'f'.repeat(40) } }))
+    }
     if (kind === 'git/ref/tags' && Object.hasOwn(repo.tags ?? {}, id)) return Promise.resolve(Response.json({ ref: `refs/tags/${id}`, object: { type: 'commit', sha: repo.tags[id] } }))
     if (kind === 'git/ref/heads' && Object.hasOwn(repo.branches ?? {}, id)) return Promise.resolve(Response.json({ ref: `refs/heads/${id}`, object: { type: 'commit', sha: repo.branches[id] } }))
     if (kind === 'git/commits' && id === repo.commit) return Promise.resolve(Response.json({ sha: repo.commit, tree: { sha: repo.tree } }))

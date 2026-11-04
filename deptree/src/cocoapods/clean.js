@@ -6,7 +6,7 @@
 // followed as CocoaPods 1.13 to 1.17 have it, in Ruby 2.6 to 3.4.
 
 import { DeptreeError, quote } from '../error.js'
-import { expandBraces, fnmatch } from './fnmatch.js'
+import { expandBraces, matcher } from './fnmatch.js'
 
 // FileAccessor::GLOB_PATTERNS, and what a source file is: Xcodeproj's
 // header extensions after CocoaPods' own.
@@ -17,6 +17,9 @@ const README = 'readme{*,.*}'
 const LICENSE = 'licen{c,s}e{*,.*}'
 // What PathList#relative_glob lays under a directory an exclusion names.
 const EXCLUDED_DIR = '**/*'
+// The paths matched against a pattern, each of a pattern's expansions
+// counted, past which a pod is refused rather than cleaned.
+export const MAX_MATCHES = 200_000_000
 
 // Ruby's String#downcase and #upcase: Unicode's mappings, without the
 // final sigma, which takes the letters around it into account and Ruby
@@ -35,8 +38,9 @@ const byUpcase = (paths) => paths.map((path) => [path, encoder.encode(path.toUpp
 // so and a file where it does not, a directory whose path ends in `.`
 // passed over; each list sorted by sort_by(&:upcase).
 class PathList {
-  constructor(tree) {
+  constructor(tree, budget) {
     this.tree = tree
+    this.budget = budget
     const dirs = []
     const files = []
     for (const path of tree.paths) {
@@ -70,8 +74,11 @@ class PathList {
       if (exact.has(pattern)) return [pattern]
       const full = this.isDirectory(pattern) && dirPattern !== undefined ? `${pattern.endsWith('/') ? pattern : `${pattern}/`}${dirPattern}` : pattern
       const expanded = expandBraces(full)
-      if (expanded === undefined) throw new DeptreeError(`the file pattern ${quote(pattern)} expands to more than CocoaPods would be followed in here, or has a backslash in braces`, this.tree.where)
-      return list.filter((path) => expanded.some((one) => fnmatch(one, path)))
+      if (expanded === undefined) throw new DeptreeError(`the file pattern ${quote(pattern)} is too long, expands to too many, or has a backslash in braces`, this.tree.where)
+      this.budget.matches += expanded.length * list.length
+      if (this.budget.matches > MAX_MATCHES) throw new DeptreeError(`its file patterns take more than ${MAX_MATCHES} matches of a path to clean it, which is not followed`, this.tree.where)
+      const matchers = expanded.map(matcher)
+      return list.filter((path) => matchers.some((matches) => matches(path)))
     })
     if (exclude.length > 0) {
       const excluded = new Set(this.glob(exclude, { dirPattern: EXCLUDED_DIR, includeDirs }))
@@ -116,43 +123,69 @@ function usedFiles(list, values, licenseFile) {
   ].filter((path) => path !== undefined)
 }
 
+// The index of the first of `sorted` at or after `text`.
+function firstFrom(sorted, text) {
+  let low = 0
+  let high = sorted.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    if (sorted[mid] < text) low = mid + 1
+    else high = mid
+  }
+  return low
+}
+
+// Whether one of `sorted` starts with `text`, or `text` with one of them.
+// One `text` starts with is at or before it, and so is all that comes
+// between the two: the last before it starts with that one too, so that
+// where it is not one, the search goes on in what the two have in common.
+function sharesStart(sorted, text) {
+  let at = firstFrom(sorted, text)
+  if (sorted[at]?.startsWith(text)) return true
+  for (let start = text; at > 0;) {
+    const before = sorted[at - 1]
+    if (start.startsWith(before)) return true
+    let common = 0
+    while (common < before.length && before[common] === start[common]) common++
+    if (common === 0) return false
+    start = start.slice(0, common)
+    at = firstFrom(sorted, start)
+    if (sorted[at] === start) return true
+  }
+  return false
+}
+
+// The used files of each set of values, each set once, as specs and
+// platforms often share one.
+function allUsed(list, accessors, licenseFile) {
+  const used = new Set()
+  for (const values of new Map(accessors.map((one) => [JSON.stringify(one), one])).values()) {
+    for (const path of usedFiles(list, values, licenseFile)) used.add(downcase(path))
+  }
+  return used
+}
+
 // PodDirCleaner#clean!, by the consumerOf values of each spec on each
 // platform it is cleaned for: every path of the pod's directory removed,
 // all under it with it, but what ends in `.`, and what is a used file's
 // path or one of whose paths is in the other, downcased, as `include?`
 // finds one string in another. The pod's directory has its own path in
 // front of each, and is taken not to come again within one, so that one
-// is in the other where it is at its start.
-export function clean(tree, accessors, licenseFile) {
-  const list = new PathList(tree)
-  const used = [...new Set(accessors.flatMap((values) => usedFiles(list, values, licenseFile)).map(downcase))].sort()
-  const usedSet = new Set(used)
-  const kept = (path) => {
-    if (path.endsWith('.')) return true
-    const lower = downcase(path)
-    if (usedSet.has(lower)) return true
-    // A used path that starts with this one: the first at or after it.
-    let low = 0
-    let high = used.length
-    while (low < high) {
-      const mid = (low + high) >>> 1
-      if (used[mid] < lower) low = mid + 1
-      else high = mid
-    }
-    if (used[low]?.startsWith(lower)) return true
-    // A used path this one starts with.
-    for (let end = 1; end < lower.length; end++) if (usedSet.has(lower.slice(0, end))) return true
-    return false
-  }
+// is in the other where it is at its start. `budget` counts the matches
+// made, across every clean of the pod.
+export function clean(tree, accessors, licenseFile, budget) {
+  const used = [...allUsed(new PathList(tree, budget), accessors, licenseFile)].sort()
+  const kept = (path) => path.endsWith('.') || sharesStart(used, downcase(path))
   tree.removeAll(new Set(tree.paths.filter((one) => !kept(one))))
 }
 
 // lock_files!: the owner's write taken off each source file, by the file
 // that a link among them leads to, as chmod follows it. A link that leads
 // to nothing CocoaPods fails on, as File.stat does.
-export function lock(tree, accessors) {
-  const list = new PathList(tree)
-  for (const path of new Set(accessors.flatMap((values) => sourceFiles(list, values)))) {
+export function lock(tree, accessors, budget) {
+  const list = new PathList(tree, budget)
+  const unique = new Map(accessors.map((one) => [JSON.stringify(one), one])).values()
+  for (const path of new Set([...unique].flatMap((values) => sourceFiles(list, values)))) {
     const resolved = tree.resolve(path)
     if (resolved === undefined) throw new DeptreeError(`the source file ${quote(path)} links to nothing, and CocoaPods fails on it as it makes it read-only`, tree.where)
     if (resolved.node.type === 'file') resolved.node.mode &= ~0o200

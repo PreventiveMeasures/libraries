@@ -209,8 +209,9 @@ export interface SoldeerTree {
 // `export-ignore`, `ident` or `working-tree-encoding`, from a repo set to
 // include Git LFS objects in archives -- and where the tar reader of
 // @preventive/archive/tar.js does, as for a symlink whose target climbs
-// out of the tarball; so is a path with a `.git` in it, in any case, which
-// git refuses to check out. That the repository's branches and tags still
+// out of the tarball; so is a path git refuses to check out, with a `.git`
+// in it, or its short name `git~1`, in any case, dots and spaces after it,
+// or a `:` after that. That the repository's branches and tags still
 // reach the commit, without which Soldeer's clone does not have it, is not
 // checked: GitHub answers for any commit it has.
 //
