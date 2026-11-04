@@ -218,3 +218,49 @@ describe('a dev server, of /reload', () => {
     }
   })
 })
+
+describe('a dev bundler, serving sources', () => {
+  it('serves current sources from retained builds, including the last good build during errors, and drops evicted sources', async () => {
+    const oldRuntime = createRequire(import.meta.url).resolve('metro-runtime-0.81/src/polyfills/require.js')
+    for (const runtime of [null, oldRuntime]) {
+      const tree = {
+        'index.js': "globalThis.value = require('./dep')\n",
+        'dep.js': "module.exports = 'first'\n",
+        'other.js': "globalThis.value = 'other'\n",
+        'private.js': "module.exports = 'unbundled'\n",
+      }
+      const { root, cleanup } = writeTree(tree)
+      const bundler = createDevBundler({ projectRoot: root, esbuild, runtime, targetOptions: () => ({ define: {} }), maxBuilds: 1 })
+      const request = { kind: 'bundle', entryFile: './index', platform: 'ios', dev: true, minify: false }
+      const source = (file) => [bundler.sourceFile(join(root, file))?.toString() ?? null, bundler.readSource(join(root, file))]
+      const edit = (file, text) => writeFileSync(join(root, file), text)
+      try {
+        assert.deepEqual(source('index.js'), [null, null])
+        assert.equal((await bundler.get(request)).ok, true)
+        assert.deepEqual(source('dep.js'), [tree['dep.js'], tree['dep.js']])
+        // Source requests still read disk; only membership comes from the retained sets.
+        edit('dep.js', "module.exports = 'edited'\n")
+        assert.deepEqual(source('dep.js'), ["module.exports = 'edited'\n", "module.exports = 'edited'\n"])
+        bundler.files().add(join(root, 'private.js'))
+        assert.deepEqual(source('private.js'), [null, null])
+        // The failed build no longer reads dep.js, but the running app's last good build did.
+        edit('index.js', 'const broken = (\n')
+        bundler.changed()
+        assert.equal((await bundler.get(request)).ok, false)
+        assert.notEqual(source('dep.js')[0], null)
+        edit('index.js', 'globalThis.value = 2\n')
+        bundler.changed()
+        assert.equal((await bundler.get(request)).ok, true)
+        assert.deepEqual(source('dep.js'), [null, null])
+        assert.equal((await bundler.get({ ...request, entryFile: './other' })).ok, true)
+        assert.deepEqual(source('index.js'), [null, null])
+        assert.deepEqual(source('other.js'), [tree['other.js'], tree['other.js']])
+        await bundler.dispose()
+        assert.deepEqual(source('other.js'), [null, null])
+      } finally {
+        await bundler.dispose()
+        cleanup()
+      }
+    }
+  })
+})
