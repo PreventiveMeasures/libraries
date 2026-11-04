@@ -251,7 +251,9 @@ export function metroGraph(run, first = null) {
   const graph = {
     onProgress: null,
     plugin: { name: 'metro-graph', setup },
-    result: ({ outputFiles, warnings }) => ({ outputFiles: outputFiles.map(realSources), warnings: [...warnings, ...importWarnings(run, esModules, state.graph, run.esm !== false)], assets: state.assets(), graph: state.graph, files: [...read] }),
+    // Only renamed inputs need their map paths restored. Otherwise leave the potentially large map
+    // unread: rn-bundle's serializer will parse it when writing Metro's source paths.
+    result: ({ outputFiles, warnings }) => ({ outputFiles: run.sourcemap && resolved.keys().some((path) => esbuildPath(path) !== path) ? outputFiles.map(realSources) : outputFiles, warnings: [...warnings, ...importWarnings(run, esModules, state.graph, run.esm !== false)], assets: state.assets(), graph: state.graph, files: [...read] }),
     files: () => [...read],
   }
   return graph
