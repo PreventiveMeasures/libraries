@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DeptreeError } from '../src/error.js'
 import { expandBraces, fnmatch } from '../src/cocoapods/fnmatch.js'
-import { installPod } from '../src/cocoapods/install.js'
+import { installPod, planPod } from '../src/cocoapods/install.js'
 import { readPodspec, specNamed } from '../src/cocoapods/podspec.js'
 import { cocoapods, cocoapodsVersion } from './cocoapods-reference.js'
 
@@ -83,7 +83,7 @@ function portInstall({ entries, podspec, installed: names }) {
   const files = new Map(entries.filter(([, type]) => type === 'file').map(([path, , mode, data]) => [path, { data: Buffer.from(data, 'base64'), mode }]))
   const links = new Map(entries.filter(([, type]) => type === 'symlink').map(([path, , , target]) => [path, target]))
   const spec = readPodspec(Buffer.from(podspec), 'Pod', '1.0.0', 'pod')
-  const out = installPod({ dirs, files, links }, spec, names.map((name) => specNamed(spec, name)), { where: 'pod' })
+  const out = installPod({ dirs, files, links }, planPod(spec, names.map((name) => specNamed(spec, name)), undefined, 'pod'), { where: 'pod' })
   return [...out.dirs.map((dir) => [dir, 'directory']), ...[...out.files].map(([path, { mode }]) => [path, 'file', mode]), ...[...out.links].map(([path, target]) => [path, 'symlink', target])]
 }
 

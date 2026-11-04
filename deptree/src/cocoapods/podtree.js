@@ -2,12 +2,19 @@
 // is there, what a path comes to through the links on the way, and what
 // FileUtils.rm_rf leaves of it.
 
+import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { DeptreeError, quote } from '../error.js'
 import { fold } from '../mount.js'
+import { CASE_UNSTABLE } from './unicode.js'
 
-// The links a path is followed through before it is taken to lead
-// nowhere, as Linux and macOS give up with ELOOP.
-const MAX_LINKS = 40
+// The links a path is followed through before it is taken to lead nowhere,
+// as each gives up with ELOOP; the longest path, in bytes, and the longest
+// name in it, that a call takes, which a path in the pod is shorter than
+// with the pod's directory in front of it.
+const LIMITS = {
+  linux: { links: 40, path: 4096, name: 255 },
+  darwin: { links: 32, path: 1024, name: 255 },
+}
 
 const parentOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
@@ -20,6 +27,7 @@ const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
 export class PodTree {
   constructor({ dirs, files, links }, folded, where) {
     this.where = where
+    this.limits = LIMITS[folded ? 'darwin' : 'linux']
     this.key = folded ? fold : (path) => path
     this.nodes = new Map()
     const add = (path, node) => {
@@ -31,10 +39,23 @@ export class PodTree {
     for (const [path, target] of links) add(path, { type: 'symlink', target })
     // Each path by its key, as a lookup finds it.
     this.byKey = new Map()
-    for (const path of this.nodes.keys()) {
+    for (const [path, node] of this.nodes) {
+      this.check(path, node.target)
       const other = this.byKey.get(this.key(path))
       if (other !== undefined) throw new DeptreeError(`${quote(other)} and ${quote(path)} are one name on macOS`, where)
       this.byKey.set(this.key(path), path)
+    }
+  }
+
+  // What CocoaPods fails on, a path too long or with a name too long, and
+  // what it reads by case otherwise in one release than another.
+  check(path, target) {
+    const bytes = utf8fromStringLoose(path).length
+    if (bytes >= this.limits.path || path.split('/').some((name) => utf8fromStringLoose(name).length > this.limits.name)) {
+      throw new DeptreeError(`${quote(path)} is longer than a path or a name can be, and CocoaPods fails on it`, this.where)
+    }
+    if (CASE_UNSTABLE.test(path) || (target !== undefined && CASE_UNSTABLE.test(target))) {
+      throw new DeptreeError(`${quote(path)} has a letter whose case each release of Ruby maps otherwise, by which CocoaPods compares names`, this.where)
     }
   }
 
@@ -46,12 +67,12 @@ export class PodTree {
   // to nothing. A link that leads out of the pod's directory reads as
   // whatever is there on the machine, which is refused.
   resolve(path) {
-    let pending = path.split('/')
+    // The names still to follow, the next one last.
+    const pending = path.split('/').toReversed()
     let at = ''
     let followed = 0
     while (pending.length > 0) {
-      const [name, ...rest] = pending
-      pending = rest
+      const name = pending.pop()
       if (name === '' || name === '.') continue
       if (name === '..') {
         if (at === '') throw new DeptreeError(`${quote(path)} leads out of the pod's directory through a link`, this.where)
@@ -63,9 +84,9 @@ export class PodTree {
       if (node === undefined) return undefined
       if (node.type === 'symlink') {
         // A link to nothing at all, which leads nowhere.
-        if (++followed > MAX_LINKS || node.target === '') return undefined
+        if (++followed > this.limits.links || node.target === '') return undefined
         if (node.target.startsWith('/')) throw new DeptreeError(`${quote(next)} links to the absolute ${quote(node.target)}`, this.where)
-        pending = [...node.target.split('/'), ...pending]
+        pending.push(...node.target.split('/').toReversed())
         continue
       }
       if (node.type === 'file' && pending.length > 0) return undefined

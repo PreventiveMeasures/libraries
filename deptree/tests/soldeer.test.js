@@ -281,9 +281,9 @@ describe('buildSoldeerTree', () => {
     // A client that answers whatever it is given, which upstream's would not.
     const answering = (bytes) => ({ getRepo: () => Promise.reject(new Error('unreachable')), getRepoTarball: () => Promise.resolve(bytes) })
     await assert.rejects(build([], { ...options, github: answering(new Uint8Array([1, 2, 3])) }), /^DeptreeError: dependencies\["acme-lib"\]: its tarball from GitHub cannot be read: /u)
-    for (const name of ['top/.git/config', 'top/sub/.GIT./config']) {
+    for (const name of ['top/.git/config', 'top/sub/.GIT./config', 'top/GIT~1/config', 'top/.git:x/config']) {
       const tarball = await compress(pack([{ name: 'top/', type: 'directory' }, { name, data: new TextEncoder().encode('x') }]), 'gzip')
-      await assert.rejects(build([], { ...options, github: answering(tarball) }), new RegExp(`^DeptreeError: dependencies\\["acme-lib"\\]: "${name.slice(4).replaceAll('.', '\\.')}": a path with a \\.git in it, which git refuses to check out$`, 'u'))
+      await assert.rejects(build([], { ...options, github: answering(tarball) }), new RegExp(`^DeptreeError: dependencies\\["acme-lib"\\]: "${name.slice(4).replaceAll('.', '\\.')}": a path with a \\.git in it, or its short name, which git refuses to check out$`, 'u'))
     }
   })
 

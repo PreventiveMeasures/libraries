@@ -6,7 +6,7 @@ import { createClient } from '@preventive/upstream/github.js'
 import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildCocoaPodsTree } from '../cocoapods.js'
 import { expandBraces, fnmatch } from '../src/cocoapods/fnmatch.js'
-import { installPod } from '../src/cocoapods/install.js'
+import { installPod, planPod } from '../src/cocoapods/install.js'
 import { readPodspec } from '../src/cocoapods/podspec.js'
 import { ACME, OTHER, PODFILE, PODSPEC, allLock, coreLock, mixedLock, podspecOf, sha1 } from './cocoapods-fixture.js'
 import { stubGitHub, stubTrunk } from './registry.js'
@@ -16,9 +16,10 @@ process.env.CP_REPOS_DIR = join(tmpdir(), `deptree-cocoapods-test-${process.pid}
 
 const HOST = Object.freeze({ cocoapods: '1.16.2', os: 'linux' })
 // Trunk with `podspec` for Acme 1.2.0 and `others`, and GitHub with the
-// repo, its tag and `branches`. Returns what each was asked.
-function stubPods({ podspec = PODSPEC, tags = { 'v1.2.0': ACME.commit }, branches = {}, others = {} } = {}) {
-  const github = stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags, branches } })
+// repo, its tag, `branches`, and the commits its default branch is ahead
+// of, `history`. Returns what each was asked.
+function stubPods({ podspec = PODSPEC, tags = { 'v1.2.0': ACME.commit }, branches = {}, history = [ACME.commit], others = {} } = {}) {
+  const github = stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags, branches, history } })
   const trunk = stubTrunk({ 'Acme@1.2.0': podspec, ...others })
   return { github, trunk }
 }
@@ -29,8 +30,8 @@ const client = () => createClient({ token: null })
 const LOCAL_LOCK = `PODS:\n  - Local (0.1.0)\n\nDEPENDENCIES:\n  - Local (from \`../Local\`)\n\nEXTERNAL SOURCES:\n  Local:\n    :path: "../Local"\n\nSPEC CHECKSUMS:\n  Local: ${'f'.repeat(40)}\n\nCOCOAPODS: 1.16.2\n`
 const MIXED_LOCK = mixedLock()
 
-async function build({ lockfile = coreLock(), podspec, branches, tags, ...rest } = {}) {
-  stubPods({ podspec, branches, tags })
+async function build({ lockfile = coreLock(), podspec, branches, tags, history, ...rest } = {}) {
+  stubPods({ podspec, branches, tags, history })
   return await buildCocoaPodsTree({ lockfile, host: HOST, github: client(), ...rest })
 }
 
@@ -164,7 +165,12 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(listing(vfs), CORE)
     assert.equal(installed[0].tag, undefined)
     assert.equal(installed[0].commit, ACME.commit)
-    assert.deepEqual(calls.github, [`acme/acme/git/commits/${ACME.commit}`, `acme/acme/tarball/${ACME.tree}`])
+    assert.deepEqual(calls.github, ['acme/acme', `acme/acme/compare/${ACME.commit}...main?per_page=1`, `acme/acme/git/commits/${ACME.commit}`, `acme/acme/tarball/${ACME.tree}`])
+  })
+
+  it('refuses a commit the default branch does not have, as a clone may not', async () => {
+    const podspec = podspecOf({ source: { git: 'https://github.com/acme/acme.git', commit: ACME.commit } })
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, history: [] }), /is not in the history of the repository's default branch/u)
   })
 
   it('refuses every pod before it fetches any tarball', async () => {
@@ -172,6 +178,13 @@ describe('buildCocoaPodsTree', () => {
     const lockfile = `PODS:\n  - Acme/Core (1.2.0)\n  - Other (1.0.0)\n\nDEPENDENCIES:\n  - Acme/Core\n  - Other\n\nSPEC REPOS:\n  trunk:\n    - Acme\n    - Other\n\nSPEC CHECKSUMS:\n  Acme: ${sha1(PODSPEC)}\n  Other: ${sha1(other)}\n\nCOCOAPODS: 1.16.2\n`
     const calls = stubPods({ others: { 'Other@1.0.0': other } })
     await assert.rejects(buildCocoaPodsTree({ lockfile, host: HOST, github: client() }), /pods\["Other"\]: a source by :http is not supported/u)
+    assert.deepEqual(calls.github.filter((call) => /\/(?:git\/commits|tarball)\//u.test(call)), [])
+  })
+
+  it('refuses what the podspec alone says before fetching any tarball', async () => {
+    const podspec = podspecOf({ platforms: 'iOS' })
+    const calls = stubPods({ podspec })
+    await assert.rejects(buildCocoaPodsTree({ lockfile: coreLock(podspec), host: HOST, github: client() }), /platforms names "iOS"/u)
     assert.deepEqual(calls.github.filter((call) => /\/(?:git\/commits|tarball)\//u.test(call)), [])
   })
 
@@ -219,6 +232,13 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual([...calls.trunk, ...calls.github], [])
   })
 
+  it('refuses a pod whose name is a glob, which CocoaPods cleans it by, before fetching anything', async () => {
+    const lockfile = `PODS:\n  - "Foo[1] (1.0.0)"\n\nDEPENDENCIES:\n  - "Foo[1]"\n\nSPEC REPOS:\n  trunk:\n    - "Foo[1]"\n\nSPEC CHECKSUMS:\n  "Foo[1]": ${'f'.repeat(40)}\n\nCOCOAPODS: 1.16.2\n`
+    const calls = stubPods()
+    await assert.rejects(buildCocoaPodsTree({ lockfile, host: HOST, github: client() }), /pods\["Foo\[1\]"\]: a name with a glob's/u)
+    assert.deepEqual([...calls.trunk, ...calls.github], [])
+  })
+
   it('refuses a spec that names other files on another platform, unless the platforms given are one', async () => {
     const podspec = podspecOf({ platforms: { ios: '13.0', osx: '10.15' }, subspecs: [{ name: 'Core', source_files: 'Sources/Core', osx: { exclude_files: 'Sources/Core/Exec.c' } }, { name: 'UI', source_files: 'Sources/UI/**/*.swift' }] })
     await assert.rejects(build({ lockfile: coreLock(podspec), podspec }), /"Acme\/Core" names other files on osx than on ios, and the platforms it is installed for are not given/u)
@@ -248,30 +268,62 @@ describe('buildCocoaPodsTree', () => {
 })
 
 describe('installPod', () => {
-  // A download of Foo.h and \`Alias.h\` linking to \`foo.h\`, each a source
-  // file of the root, unless \`files\` and \`links\` say otherwise.
+  // A download of Foo.h and `Alias.h` linking to `foo.h`, each a source
+  // file of the root, unless `files` and `links` say otherwise; `spec`
+  // what the root has beside its name and version.
   const FOO = { 'Foo.h': 'foo' }
   const ALIAS = { 'Alias.h': 'foo.h' }
-  const install = (folded, files = FOO, links = ALIAS) => {
-    const podspec = readPodspec(Buffer.from(JSON.stringify({ name: 'Pod', version: '1.0.0', source_files: '*.h' })), 'Pod', '1.0.0', 'pod')
+  const HEADERS = { source_files: '*.h' }
+  const install = ({ folded = false, keepsGit = false, files = FOO, links = ALIAS, spec = HEADERS }) => {
+    const podspec = readPodspec(Buffer.from(JSON.stringify({ name: 'Pod', version: '1.0.0', ...spec })), 'Pod', '1.0.0', 'pod')
     const contents = { dirs: [], files: new Map(Object.entries(files).map(([path, data]) => [path, { data: Buffer.from(data), mode: 0o644 }])), links: new Map(Object.entries(links)) }
-    const out = installPod(contents, podspec, [podspec], { folded, where: 'pod' })
+    const out = installPod(contents, planPod(podspec, [podspec], undefined, 'pod'), { folded, keepsGit, where: 'pod' })
     return Object.fromEntries([...[...out.files].map(([path, { mode }]) => [path, mode.toString(8)]), ...out.links])
   }
 
   it('follows a link on macOS to a name of another case, as its filesystem finds one', () => {
-    assert.deepEqual(install(true), { 'Foo.h': '444', 'Alias.h': 'foo.h' })
-    assert.throws(() => install(false), /the source file "Alias\.h" links to nothing/u)
+    assert.deepEqual(install({ folded: true }), { 'Foo.h': '444', 'Alias.h': 'foo.h' })
+    assert.throws(() => install({}), /the source file "Alias\.h" links to nothing/u)
   })
 
   it('refuses on macOS a download with two names that are one there, whatever is kept of it', () => {
     const files = { 'Foo.h': 'foo', 'A.txt': 'a', 'a.TXT': 'b' }
-    assert.throws(() => install(true, files, {}), /"A\.txt" and "a\.TXT" are one name on macOS/u)
-    assert.deepEqual(install(false, files, {}), { 'Foo.h': '444' })
+    assert.throws(() => install({ folded: true, files, links: {} }), /"A\.txt" and "a\.TXT" are one name on macOS/u)
+    assert.deepEqual(install({ files, links: {} }), { 'Foo.h': '444' })
   })
 
   it('takes a link to nothing at all as one that leads nowhere', () => {
-    assert.throws(() => install(true, { 'Foo.h': 'foo' }, { 'Alias.h': '' }), /the source file "Alias\.h" links to nothing/u)
+    assert.throws(() => install({ links: { 'Alias.h': '' } }), /the source file "Alias\.h" links to nothing/u)
+  })
+
+  it('gives up on a chain of links where the system does: after 40 on Linux, 32 on macOS', () => {
+    // c1.h to c35.h, each a link to the next, the last to Foo.h.
+    const links = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [`c${i + 1}.h`, i === 34 ? 'Foo.h' : `c${i + 2}.h`]))
+    assert.equal(install({ links })['Foo.h'], '444')
+    assert.throws(() => install({ folded: true, links }), /the source file "c1\.h" links to nothing/u)
+  })
+
+  it("refuses, before CocoaPods 1.16, a pod whose patterns keep the clone's .git", () => {
+    const spec = { source_files: '*.h', preserve_paths: '.*' }
+    assert.throws(() => install({ keepsGit: true, links: {}, spec }), /keep the \.git of the clone/u)
+    assert.deepEqual(install({ links: {}, spec }), { 'Foo.h': '444' })
+    assert.deepEqual(install({ keepsGit: true, links: {} }), { 'Foo.h': '444' })
+  })
+
+  it('refuses a name or a path longer than the system takes, and a letter Ruby releases case otherwise', () => {
+    assert.throws(() => install({ files: { [`${'a'.repeat(256)}.h`]: '' }, links: {} }), /longer than a path or a name can be/u)
+    const deep = { [`${'d/'.repeat(600)}x.h`]: '' }
+    assert.deepEqual(Object.keys(install({ files: deep, links: {} })), [])
+    assert.throws(() => install({ folded: true, files: deep, links: {} }), /longer than a path or a name can be/u)
+    assert.throws(() => install({ files: { '\u{10D50}.h': '' }, links: {} }), /a letter whose case each release of Ruby maps otherwise/u)
+  })
+
+  it('refuses a pod that takes too many matches to clean, before making them', () => {
+    const files = Object.fromEntries(Array.from({ length: 50_000 }, (_, i) => [`f${i}.h`, '']))
+    const spec = { source_files: Array.from({ length: 12 }, (_, i) => `{a${i},b${i}}`).join('') }
+    const started = Date.now()
+    assert.throws(() => install({ files, links: {}, spec }), /take more than 200000000 matches/u)
+    assert.ok(Date.now() - started < 10_000)
   })
 })
 

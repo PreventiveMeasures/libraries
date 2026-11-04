@@ -115,9 +115,15 @@ function helper(P, p0, S, s0) {
 }
 
 // File.fnmatch(pattern, path, File::FNM_CASEFOLD | File::FNM_PATHNAME).
-export function fnmatch(pattern, path) {
+export const fnmatch = (pattern, path) => matcher(pattern)(path)
+
+// fnmatch of one pattern, its characters read once for every path.
+export function matcher(pattern) {
   const P = Array.from(pattern)
-  const S = Array.from(path)
+  return (path) => matches(P, Array.from(path))
+}
+
+function matches(P, S) {
   let p = 0
   let s = 0
   let ptmp = -1
@@ -163,8 +169,11 @@ function splitCommas(text) {
   return values
 }
 
-// More than this many patterns from one is refused, rather than matched.
+// More than this many patterns from one is refused, rather than matched,
+// and so is a pattern longer than MAX_PATTERN, whose braces take time to
+// find in proportion to its length squared.
 export const MAX_EXPANDED = 4096
+const MAX_PATTERN = 4096
 
 // dir_glob_equivalent_patterns: each `/**/` as `{/**/,/}`, then each
 // `{...}` with no `}` inside, by the text of it, replaced wherever that text
@@ -172,8 +181,9 @@ export const MAX_EXPANDED = 4096
 // one set after another in the order each is first found. Ruby's gsub reads
 // a backslash in a value as the start of a reference to the match; a
 // pattern with one there, and one that comes to more than MAX_EXPANDED,
-// is undefined, for the caller to refuse.
+// is undefined, for the caller to refuse, before it is expanded.
 export function expandBraces(pattern) {
+  if (pattern.length > MAX_PATTERN) return undefined
   const rewritten = pattern.replaceAll('/**/', '{/**/,/}')
   const sets = new Map()
   for (const [set] of rewritten.matchAll(/\{[^}]*\}/gu)) {
@@ -181,9 +191,8 @@ export function expandBraces(pattern) {
   }
   let patterns = [rewritten]
   for (const [set, values] of sets) {
-    if (values.some((value) => value.includes('\\'))) return undefined
+    if (values.some((value) => value.includes('\\')) || patterns.length * values.length > MAX_EXPANDED) return undefined
     patterns = patterns.flatMap((old) => values.map((value) => old.replaceAll(set, () => value)))
-    if (patterns.length > MAX_EXPANDED) return undefined
   }
   return patterns
 }

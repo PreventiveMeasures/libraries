@@ -3,9 +3,10 @@
 import { DeptreeError, quote } from '../error.js'
 import { checkHostKeys, checkLeftOut, checkProject, readBytes, readText, typeOf } from '../project.js'
 
-// CocoaPods 1.13.0 to 1.17.x, which download, clean and lock a pod alike:
-// 1.16 copies a download into its cache with rsync where those before use
-// FileUtils.cp_r, which come to the same of a checkout.
+// CocoaPods 1.13.0 to 1.17.x, which download, clean and lock a pod alike
+// but for one thing, which tree.js follows: 1.16 on copy a download into
+// their cache with rsync, which leaves the clone's .git out, where those
+// before use FileUtils.cp_r, which copies it.
 const VERSION = /^1\.1[3-7]\.\d+$/u
 
 export function checkHost(host) {

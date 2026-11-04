@@ -7,6 +7,7 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE } from '../mount.js'
+import { CASE_UNSTABLE } from './unicode.js'
 
 // The platforms CocoaPods takes, by the names a podspec gives them, and
 // all of them, in its order, for a spec that names none; Platform takes
@@ -25,7 +26,10 @@ const LISTS = ['source_files', 'exclude_files', 'resources', 'preserve_paths', '
 const PATHS = ['prefix_header_file', 'module_map']
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-const isText = (value) => typeof value === 'string' && value.isWellFormed() && !UNSAFE.test(value)
+// Text a pattern or a path can be: not what reads otherwise than it is
+// written, nor what CocoaPods compares by a case Ruby maps otherwise in one
+// release than another.
+const isText = (value) => typeof value === 'string' && value.isWellFormed() && !UNSAFE.test(value) && !CASE_UNSTABLE.test(value)
 
 function readJson(bytes, where) {
   let json
