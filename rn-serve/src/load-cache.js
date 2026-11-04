@@ -1,29 +1,33 @@
 // rn-serve's on-disk cache of each file as loadFile() (load.js) loads it, keyed by all its output
-// depends on: the file, rn's own code, esbuild and flow-remove-types, the project's Babel config and
+// depends on: the file, rn-serve's and rn's code, esbuild and flow-remove-types, the project's Babel config and
 // what it loads or reads (fingerprint.js), and the loadFile() options that change it (--esm's among them).
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { configKeyOf, digest, envOf, fileDigest, fingerprintOf, memo, signatureOf, withDependencies } from './fingerprint.js'
 import { createPack, pause, readEntry, touch, writeEntry } from './load-pack.js'
 
-// rn's modules whose code shapes the cached output: loadFile(), Babel's worker, dev module builds, this file.
-const CHAIN = ['../src/load.js', '../src/babel-worker.js', 'modules.js', 'load-cache.js']
-const RELATIVE = /^(?:import|export)\b[^'"]*['"](\.{1,2}\/[^'"]+)['"]/gmu
+// @preventive/rn's src/, of the modules rn-serve imports of it (its exports).
+const RN = '@preventive/rn/src/'
+const RN_SRC = dirname(fileURLToPath(import.meta.resolve(`${RN}bundle.js`)))
+// The modules whose code shapes the cached output: rn's loadFile() and Babel's worker, dev module builds, this file.
+const CHAIN = [join(RN_SRC, 'load.js'), join(RN_SRC, 'babel-worker.js'), join(import.meta.dirname, 'modules.js'), join(import.meta.dirname, 'load-cache.js')]
+const IMPORTED = new RegExp(String.raw`^(?:import|export)\b[^'"]*['"]((?:\.{1,2}/|${RN})[^'"]+)['"]`, 'gmu')
 
-// The CHAIN modules and every rn module they import, transitively, as those shape the output too
-// (worklets.js's Reanimated gate shapes Babel's, for one).
+// The CHAIN modules and every module of rn-serve's or rn's they import, transitively, as those shape the
+// output too (worklets.js's Reanimated gate shapes Babel's, for one).
 export function ownModules() {
-  const paths = new Set(CHAIN.map((name) => join(import.meta.dirname, name)))
-  for (const path of paths) for (const [, specifier] of readFileSync(path, 'utf8').matchAll(RELATIVE)) paths.add(join(dirname(path), specifier))
+  const paths = new Set(CHAIN)
+  for (const path of paths) for (const [, specifier] of readFileSync(path, 'utf8').matchAll(IMPORTED)) paths.add(specifier.startsWith(RN) ? join(RN_SRC, specifier.slice(RN.length)) : join(dirname(path), specifier))
   return [...paths].toSorted()
 }
 
 // The cache in `dir`: (target) => its store, plus settled() for pending pack writes. Keys are salted
-// with rn's code, esbuild's version and flow-remove-types'; a target's fingerprint is kept with its
+// with rn-serve's and rn's code, esbuild's version and flow-remove-types'; a target's fingerprint is kept with its
 // stats, so a later run reuses it without starting a worker for it.
 export function createLoadCache(dir, { esbuild, flow = null }) {
   const salt = digest(JSON.stringify([ownModules().map(fileDigest), esbuild.version, flow === null ? null : withDependencies([flow]).map((path) => [path, fileDigest(path)])]))

@@ -1,6 +1,6 @@
 // A bundle's source map as Metro gives it (MIT, Copyright (c) Meta Platforms, Inc. and affiliates):
 // absolute source paths and node_modules on the ignore list (serializer.isThirdPartyModule), as
-// `react-native bundle --sourcemap-output` writes it; as the dev server serves it, serve/source-map.js.
+// `react-native bundle --sourcemap-output` writes it; as the dev server serves it, rn-serve's source-map.js.
 
 import { relative, resolve } from 'node:path'
 

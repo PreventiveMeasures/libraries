@@ -2,7 +2,7 @@
 // metro-runtime): bundle.js's build on one esbuild context, whose builds a watcher causes take each file
 // unchanged from memory and keep the resolutions their changes leave.
 
-import { buildOptions, linking, lowersLetOf, metroGraph, withDefaults } from '../src/bundle.js'
+import { buildOptions, linking, lowersLetOf, metroGraph, withDefaults } from '@preventive/rn/src/bundle.js'
 import { resolutionOf } from './resolution.js'
 
 // bundle() on one esbuild context: each full rebuild resolves and reads every file anew, but `cache`'s; a

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { chooseSimulator, launchIos, simulatorsOf } from '../serve/launch-ios.js'
+import { chooseSimulator, launchIos, simulatorsOf } from '../src/launch-ios.js'
 
 // `xcrun simctl list devices available --json`, as Xcode 26 lists them: of
 // two iOS runtimes, a watchOS one, and a simulator no longer available.

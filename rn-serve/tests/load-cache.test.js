@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { loadCached, lowersLetOf } from '../src/bundle.js'
-import { peers, projectBabel } from '../src/cli.js'
-import { configKeyOf, fingerprintOf, withDependencies } from '../serve/fingerprint.js'
-import { createLoadCache, ownModules } from '../serve/load-cache.js'
+import { loadCached, lowersLetOf } from '@preventive/rn/src/bundle.js'
+import { peers, projectBabel } from '@preventive/rn/src/cli.js'
+import { configKeyOf, fingerprintOf, withDependencies } from '../src/fingerprint.js'
+import { createLoadCache, ownModules } from '../src/load-cache.js'
 import { packedRecords, writeTree } from './fixtures.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
 const babelCore = createRequire(import.meta.url)('@babel/core')
-const FINGERPRINTER = fileURLToPath(new URL('../serve/fingerprint.js', import.meta.url))
+const FINGERPRINTER = fileURLToPath(new URL('../src/fingerprint.js', import.meta.url))
 const modules = createRequire(import.meta.url).cache
 const BABEL_CORE = `${sep}@babel${sep}core${sep}`
 const fail = (message) => assert.fail(message)
@@ -461,10 +461,11 @@ describe('configKeyOf', () => {
 })
 
 describe('ownModules', () => {
-  it("has rn's code each kept file is of: the chain's, and each of rn's modules it imports", () => {
-    const at = (dir) => (name) => join(fileURLToPath(new URL(`../${dir}/`, import.meta.url)), name)
-    const serve = ['bundler.js', 'fingerprint.js', 'load-cache.js', 'load-pack.js', 'mappings.js', 'modules.js', 'resolution.js'].map(at('serve'))
-    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'jsval.js', 'load.js', 'module-resolver.js', 'resolve.js', 'serializer.js', 'worklets.js'].map(at('src'))
+  it("has the code each kept file is of: the chain's, and each module of rn-serve's or rn's it imports", () => {
+    const at = (dir) => (name) => join(dir, name)
+    const serve = ['bundler.js', 'fingerprint.js', 'load-cache.js', 'load-pack.js', 'mappings.js', 'modules.js', 'resolution.js'].map(at(fileURLToPath(new URL('../src/', import.meta.url))))
+    // rn's, as rn-serve imports it: @preventive/rn's src/.
+    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'jsval.js', 'load.js', 'module-resolver.js', 'resolve.js', 'serializer.js', 'worklets.js'].map(at(dirname(fileURLToPath(import.meta.resolve('@preventive/rn/src/bundle.js')))))
     assert.deepEqual(ownModules(), [...serve, ...src])
   })
 })

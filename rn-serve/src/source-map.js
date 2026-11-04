@@ -1,10 +1,10 @@
 // A bundle's source map as Metro's dev server serves it (MIT, Copyright (c) Meta Platforms, Inc. and
 // affiliates): absolute source paths, or with sourcePaths=url-server, each at a path the server serves it
-// at; node_modules on the ignore list (src/source-map.js's remapped()).
+// at; node_modules on the ignore list (rn's src/source-map.js's remapped()).
 
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
-import { remapped } from '../src/source-map.js'
+import { remapped } from '@preventive/rn/src/source-map.js'
 
 // Where the dev server serves sources with sourcePaths=url-server, as Metro's does: [prefix, dir][]
 // for the project root, then each watch folder by index (Metro's has the project root first).

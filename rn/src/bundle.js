@@ -76,8 +76,8 @@ export function withDefaults(options) {
     sourcemap: false,
     prelude: null,
     // Map<path, { contents, result, at }>: each file as last loaded (by the build `at`), reused while its
-    // contents are the same; a store of loaded files (serve/load-cache.js's, on disk across runs); and
-    // kept(path), a file to take as loaded, unread, else undefined (serve/bundler.js's, of a watcher's build).
+    // contents are the same; a store of loaded files (rn-serve's load-cache.js's, on disk across runs); and
+    // kept(path), a file to take as loaded, unread, else undefined (rn-serve's bundler.js's, of a watcher's build).
     cache: null,
     store: null,
     kept: null,
@@ -296,7 +296,7 @@ export function assetLoaded(projectRoot, path, assetSource) {
 }
 
 // Loads a file of these bytes with loadFile(): from options.cache while its contents are the same, else from
-// options.store (serve/load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
+// options.store (rn-serve's load-cache.js's) by the options that shape it, kept there unless it failed or Babel said
 // `uncacheable`. A file that isn't UTF-8 fails to load.
 export async function loadCached(options, path, bytes) {
   const contents = utf8(bytes)

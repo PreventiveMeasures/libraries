@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { describe, it } from 'node:test'
 
-import { concatMaps, concatMapsJson, pieceOf } from '../serve/mappings.js'
+import { concatMaps, concatMapsJson, pieceOf } from '../src/mappings.js'
 
 const esbuild = createRequire(import.meta.url)('esbuild')
 

@@ -4,7 +4,6 @@ import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'node:util'
 import { runInNewContext } from 'node:vm'
-import { zstdDecompressSync } from 'node:zlib'
 
 import { createVfs } from '@preventive/vfs'
 
@@ -107,15 +106,4 @@ export const METRO_0_81 = {
     'module.exports = { ...real, getDefaultConfig }',
     '',
   ].join('\n'),
-}
-
-// The records of a pack's segment (load-pack.js's), its frames unpacked,
-// each [key, its JSON], of those whole.
-export function packedRecords(buffer) {
-  const records = []
-  for (let at = 0; at + 8 <= buffer.length; at += 8 + buffer.readUInt32LE(at)) {
-    const frame = zstdDecompressSync(buffer.subarray(at + 8, at + 8 + buffer.readUInt32LE(at)))
-    for (let start = 0; start + 68 <= frame.length; start += 68 + frame.readUInt32LE(start + 64)) records.push([frame.toString('latin1', start, start + 64), frame.toString('utf8', start + 68, start + 68 + frame.readUInt32LE(start + 64))])
-  }
-  return records
 }
