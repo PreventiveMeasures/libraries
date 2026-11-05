@@ -1,8 +1,9 @@
 // Records what SwiftPM writes for the packages below into
-// tests/swiftpm/fixtures/, each Package.resolved as <name>.resolved and the
-// root's manifest as <name>.swift. Downloads Swift's release for Ubuntu
-// 24.04 on this machine's CPU from swift.org, or runs the swift that SWIFT
-// names, and needs git and network access to github.com:
+// tests/swiftpm/fixtures.json.br: JSON, brotli-compressed, of each run by
+// name, the Package.resolved as `resolved` and the root's manifest it was
+// written for as `manifest`, each as its text. Downloads Swift's release
+// for Ubuntu 24.04 on this machine's CPU from swift.org, or runs the swift
+// that SWIFT names, and needs git and network access to github.com:
 //
 //     node lockfile/scripts/record-swiftpm.js [name...]
 //
@@ -27,13 +28,14 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { arch, platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync } from 'node:zlib'
 
-const OUT = fileURLToPath(new URL('../tests/swiftpm/fixtures/', import.meta.url))
+const ARCHIVE = fileURLToPath(new URL('../tests/swiftpm/fixtures.json.br', import.meta.url))
 const VERSION = '6.4.2'
 
 const stdio = ['ignore', process.env.VERBOSE ? 'inherit' : 'ignore', process.env.VERBOSE ? 'inherit' : 'ignore']
@@ -177,11 +179,12 @@ const RUNS = {
 const names = process.argv.length > 2 ? process.argv.slice(2) : Object.keys(RUNS)
 const unknown = names.find((name) => !(name in RUNS))
 if (unknown !== undefined) throw new Error(`no run named ${unknown}, of ${Object.keys(RUNS).join(', ')}`)
-mkdirSync(OUT, { recursive: true })
+const recorded = existsSync(ARCHIVE) ? JSON.parse(brotliDecompressSync(readFileSync(ARCHIVE))) : {}
 for (const name of names) {
   const dir = await RUNS[name]()
-  copyFileSync(join(dir, 'Package.resolved'), join(OUT, `${name}.resolved`))
-  copyFileSync(join(dir, 'Package.swift'), join(OUT, `${name}.swift`))
+  recorded[name] = { resolved: readFileSync(join(dir, 'Package.resolved'), 'utf8'), manifest: readFileSync(join(dir, 'Package.swift'), 'utf8') }
   console.log(`recorded ${name}`)
 }
 registry?.close()
+const runs = Object.fromEntries(Object.keys(RUNS).filter((name) => name in recorded).map((name) => [name, recorded[name]]))
+writeFileSync(ARCHIVE, brotliCompressSync(`${JSON.stringify(runs, null, 2)}\n`))

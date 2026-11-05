@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
+import { FIXTURES } from './fixtures.js'
 
 // The baseline: real lockfiles, each with the manifest of its root package,
 // written by `swift package resolve` of SwiftPM 6.4.2: a package of each
@@ -9,12 +9,12 @@ import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
 // 6.0, which write versions 1, 2 and 3, the last with a short hash SwiftPM
 // keeps as a branch and a dependency with one of its own; and of a
 // registry's package, by its identity and by a repository's URL SwiftPM
-// looked up in the registry. scripts/record-swiftpm.js builds them; its
-// header says what is in them.
+// looked up in the registry. scripts/record-swiftpm.js records them, and
+// the manifest of each, into fixtures.json.br; its header says what is in
+// them.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const lockfile = (name) => readFileSync(new URL(`swiftpm-6.4.2-${name}.resolved`, FIXTURES), 'utf8')
-const manifest = (name) => readFileSync(new URL(`swiftpm-6.4.2-${name}.swift`, FIXTURES))
+const lockfile = (name) => FIXTURES[`swiftpm-6.4.2-${name}`].resolved
+const manifest = (name) => FIXTURES[`swiftpm-6.4.2-${name}`].manifest
 
 const plain = (value) => structuredClone(value)
 
@@ -63,8 +63,10 @@ describe('a package of each kind of pin a repository has, as SwiftPM 6.4.2 write
   })
 
   it('the manifest held to originHash, as text or bytes, and refused of another', () => {
-    const text = manifest('v3').toString('utf8')
-    assert.equal(parsePackageResolved(lockfile('v3'), { manifest: text }).originHash, '4ffabeebe8cdee650c1e0e1a411d5028faea4f8bd469d7423d075cb869659778')
+    const text = manifest('v3')
+    for (const given of [text, new TextEncoder().encode(text)]) {
+      assert.equal(parsePackageResolved(lockfile('v3'), { manifest: given }).originHash, '4ffabeebe8cdee650c1e0e1a411d5028faea4f8bd469d7423d075cb869659778')
+    }
     assert.throws(() => parsePackageResolved(lockfile('v3'), { manifest: `${text} ` }), (error) => error instanceof LockfileError && error.where === 'originHash'
       && error.message.startsWith('originHash: not the sha256 of the manifest given, '))
     assert.throws(() => parsePackageResolved(lockfile('v3'), { manifest: manifest('v2') }), (error) => error instanceof LockfileError && error.where === 'originHash')

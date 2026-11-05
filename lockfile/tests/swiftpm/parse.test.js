@@ -55,7 +55,7 @@ describe('the layout SwiftPM writes', () => {
     refuses('', undefined, 'expected "{" alone on the first line, found nothing at line 1')
     refuses(JSON.stringify({ pins: [pin()], version: 2 }), undefined, /^expected "\{" alone on the first line/u)
     refuses(JSON.stringify({ pins: [pin()], version: 2 }, null, 4), undefined, 'expected 2 spaces of indentation and a key at line 2')
-    refuses(`﻿${v2([pin()])}`, undefined, 'U+FEFF is not allowed at line 1')
+    refuses(`\uFEFF${v2([pin()])}`, undefined, 'U+FEFF is not allowed at line 1')
     refuses(v2([pin()]).replace('  "pins"', '\t"pins"'), undefined, 'U+0009 is not allowed at line 2')
     refuses(v2([pin()]).replace('"version" : 2', '"version" : 2,'), undefined, 'expected a key after "," at line 14')
     refuses(`${v2([pin()]).trimEnd()},\n`, undefined, 'a comma after the last "}" at line 14')
@@ -147,7 +147,7 @@ describe('a repository\'s pin', () => {
     for (const version of ['0.0.0', '1.2.3-beta.1', '1.2.3-beta.01', '1.2.3+build.5', '1.2.3-', '1.2.3-a-b+c-d', '9007199254740991.0.0']) {
       assert.equal(read(v2([pin({ revision: REV, version })])).pins['swift-log'].version, version)
     }
-    for (const version of ['1.2', 'v1.2.3', '01.2.3', '1.2.3-be_ta', '1.2.3+a+b', ' 1.2.3', '1.2.3.4', '9007199254740992.0.0', '1.2.٣']) {
+    for (const version of ['1.2', 'v1.2.3', '01.2.3', '1.2.3-be_ta', '1.2.3+a+b', ' 1.2.3', '1.2.3.4', '9007199254740992.0.0', '1.2.\u0663']) {
       refuses(v2([pin({ revision: REV, version })]), 'pins[0].state.version', /is not a version as SwiftPM writes one$/u)
     }
   })
@@ -193,7 +193,7 @@ describe('a repository\'s location and identity', () => {
   it('refuses what is not a URL of a host, ASCII and of no backslash', () => {
     const refused = [
       ['github.com/apple/swift-log', /is not a URL of a host that git fetches from/u],
-      ['https://github.com/apple/swift-loǵ', /is not ASCII/u],
+      ['https://github.com/apple/swift-log\u0301', /is not ASCII/u],
       ['https://github.com\\apple\\swift-log', /has a backslash/u],
       ['c:swift-log', /is a path on a drive to SwiftPM on Windows/u],
       ['https://github.com/apple/swift log', /is not a repository URL/u],
@@ -224,7 +224,7 @@ describe('a registry\'s pin', () => {
 
   it('holds the identity to a registry\'s scope and name', () => {
     for (const identity of ['a.b', 'mona.Linked_List', 'm-o-n-a.a-b_c', `${'s'.repeat(39)}.${'n'.repeat(100)}`]) assert.ok(read(v2([registry({ identity })])).pins[identity])
-    for (const identity of ['mona', 'mona.', '.x', '-mona.x', 'mona-.x', 'mo--na.x', 'mona.x_', 'mona.a__b', 'mona.a.b', 'mo_na.x', `${'s'.repeat(40)}.x`, `s.${'n'.repeat(101)}`, 'möna.x']) {
+    for (const identity of ['mona', 'mona.', '.x', '-mona.x', 'mona-.x', 'mo--na.x', 'mona.x_', 'mona.a__b', 'mona.a.b', 'mo_na.x', `${'s'.repeat(40)}.x`, `s.${'n'.repeat(101)}`, 'm\u00F6na.x']) {
       refuses(v2([registry({ identity })]), 'pins[0].identity', /is not a registry's package, scope\.name$/u)
     }
   })
@@ -273,11 +273,11 @@ describe('version 1', () => {
   })
 
   it('refuses a name that would hide or reorder what is shown of it', () => {
-    for (const name of ['Logging', 'Café', 'swift log', 'A+B']) assert.equal(read(v1([legacy({}, { package: name })])).pins['swift-log'].name, name)
-    for (const name of ['Log‮ging', 'Log​ging', 'Log ging']) {
+    for (const name of ['Logging', 'Caf\u00E9', 'swift log', 'A+B']) assert.equal(read(v1([legacy({}, { package: name })])).pins['swift-log'].name, name)
+    for (const name of ['Log\u202Eging', 'Log\u200Bging', 'Log\u2028ging']) {
       refuses(v1([legacy({}, { package: name })]), 'object.pins[0].package', /is not a package's name, of no control, format or line separator character$/u)
     }
-    refuses(v1([legacy({}, { package: 'Log﻿ging' })]), undefined, 'U+FEFF is not allowed at line 5')
+    refuses(v1([legacy({}, { package: 'Log\uFEFFging' })]), undefined, 'U+FEFF is not allowed at line 5')
     refuses(v1([legacy({}, { package: 'Log\u0085ging' })]), undefined, 'U+0085 is not allowed at line 5')
   })
 })
@@ -292,11 +292,11 @@ describe('the options', () => {
 
   it('hashes the manifest\'s bytes as SwiftPM decodes them: a BOM kept, a byte of no character as U+FFFD', () => {
     const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
-    const bom = Buffer.from('﻿// swift-tools-version:6.0\n')
+    const bom = Buffer.from('\uFEFF// swift-tools-version:6.0\n')
     assert.equal(read(v3([pin()], sha256(bom)), { manifest: bom }).version, 3)
     assert.equal(read(v3([pin()], sha256(bom)), { manifest: bom.toString('utf8') }).version, 3)
     const broken = Buffer.from([0x2F, 0x2F, 0xFF, 0xC3, 0x0A])
-    assert.equal(read(v3([pin()], sha256(Buffer.from('//��\n'))), { manifest: broken }).version, 3)
+    assert.equal(read(v3([pin()], sha256(Buffer.from('//\uFFFD\uFFFD\n'))), { manifest: broken }).version, 3)
     refuses(v3([pin()], sha256(broken)), 'originHash', /not the sha256 of the manifest given/u, { manifest: broken })
   })
 })

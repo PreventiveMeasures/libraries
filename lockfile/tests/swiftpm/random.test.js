@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
 import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
 import { random } from '../random.js'
+import { FIXTURES } from './fixtures.js'
 import { write } from './write.js'
 
 // The fixtures with edits at random: a piece put in, characters taken out
@@ -13,13 +13,12 @@ import { write } from './write.js'
 // ends. The seed is fixed, so a failure names its document and comes back
 // on a rerun.
 
-const FIXTURES = new URL('fixtures/', import.meta.url)
-const BASES = readdirSync(FIXTURES).filter((name) => name.endsWith('.resolved')).sort().map((name) => readFileSync(new URL(name, FIXTURES), 'utf8'))
+const BASES = Object.values(FIXTURES).map((run) => run.resolved)
 
 const PIECES = [
   ' ', '  ', '\n', '\r\n', '"', '\\', ',', ':', ' : ', ': ', '{', '}', '[', ']', 'null', '0', '1', '3', 'a', 'A', '.', '/', '-', '_', '~',
-  '@', '.git', 'é', '́', '‮', 'version', 'branch', 'revision', 'identity', 'registry', 'localSourceControl', '\\u0041', '\\/',
-  '\\n', '\\"', '\t', '﻿', 'https://', 'file://', 'git@x:', '__proto__', '10', 'Z',
+  '@', '.git', '\u00E9', '\u0301', '\u202E', 'version', 'branch', 'revision', 'identity', 'registry', 'localSourceControl', '\\u0041', '\\/',
+  '\\n', '\\"', '\t', '\uFEFF', 'https://', 'file://', 'git@x:', '__proto__', '10', 'Z',
 ]
 
 function edit({ next, pick }, text) {
