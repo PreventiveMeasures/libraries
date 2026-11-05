@@ -25,6 +25,10 @@ const FILE_COST = 1024
 const IN_BAND = 16
 // A worker's first message: its config is loaded.
 const READY = 'ready'
+// Each worker's young generation, in MB: 16 MB semi-spaces. Node's default with 16 GB of RAM, 192 MB
+// (64 MB semi-spaces), let 3 workers hold ~400 MB more for no faster a build: Babel's garbage is a
+// file's, and dies with its transform. A --max-semi-space-size given to Node still takes precedence.
+const YOUNG_MB = 48
 
 // esbuild's inline map can be larger than the code it maps, but adds no nodes for Babel to transform.
 const sourceSize = (source = '') => {
@@ -42,7 +46,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
   const bySize = options.oneBuild && !options.sourceMaps
   const workers = []
   const made = () => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } })
+    const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } }, resourceLimits: { maxYoungGenerationSizeMb: YOUNG_MB } })
     // The answers it owes, which it gives in turn.
     const info = { worker, asked: [], ready: false, load: 0 }
     worker.on('message', (answer) => {
