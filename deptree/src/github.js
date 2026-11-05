@@ -75,12 +75,15 @@ export async function checkCloned(github, repo, commit, where) {
   }
 }
 
-// GitHub's tarball, which upstream holds to the tree GitHub names for the
-// commit, files, symlinks and the submodules it shows as empty directories
-// alike. Unpacked as a checkout with umask 0o022 writes it: directories
-// 0o755, files 0o644 or 0o755 by the bit git keeps, symlinks as symlinks.
+// GitHub's tarball of the commit's tree: the tree read off the commit's own
+// object, which upstream's getCommitTree fetches as git does and holds to
+// the commit's id, so that it is the commit's whatever GitHub's API says;
+// and the tarball held to that tree, files, symlinks and the submodules it
+// shows as empty directories alike. Unpacked as a checkout with umask
+// 0o022 writes it: directories 0o755, files 0o644 or 0o755 by the bit git
+// keeps, symlinks as symlinks.
 export async function checkoutOf(github, repo, rev, where) {
-  const bytes = await followingMoves(github, repo, (name) => github.getRepoTarball({ repo: name, sha: rev }))
+  const bytes = await followingMoves(github, repo, async (name) => github.getRepoTreeTarball({ repo: name, tree: await github.getCommitTree({ repo: name, sha: rev }) }))
   let entries
   try {
     entries = unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES }))

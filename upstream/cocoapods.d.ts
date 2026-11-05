@@ -39,11 +39,12 @@ export function getPodspec(name: string, version: string, checksum: string): Pro
 // or a release's asset, `releases/download/<tag>/<file>`, as written, with
 // no query, fragment, credentials or port, and each segment of the path
 // letters, digits, `_`, `.`, `~`, `@`, `-` or a %-escape in capitals. The
-// hash is the podspec's, as cocoapods-downloader checks it: `algorithm`
-// `sha256` or `sha1`, and `digest` its lowercase hex. GitHub answers with a
+// hash is the podspec's :sha256, in lowercase hex, as cocoapods-downloader
+// checks it; a sha1, which two archives made to collide share, is not
+// taken. GitHub answers with a
 // redirect, to codeload.github.com or to where it keeps a release's files,
 // which is followed, as the bytes are held to the hash whoever answers,
 // downloaded (before they are cached) or read from setCacheDir's cache. They
 // are cached by the hash alone; one in the cache that does not match throws.
 // Each argument is asserted before any request.
-export function getPodArchive(url: string, algorithm: 'sha256' | 'sha1', digest: string): Promise<Uint8Array>
+export function getPodArchive(url: string, sha256: string): Promise<Uint8Array>

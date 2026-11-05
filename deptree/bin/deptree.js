@@ -2,6 +2,7 @@
 // The deptree command: `compare` sets what a package manager installed
 // beside the tree deptree builds; see USAGE.
 
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { parseArgs, styleText } from 'node:util'
@@ -40,7 +41,9 @@ nothing else. Exits 0 where the two are the same, 1 where they differ, 2
 on trouble.
 
 A pod by :podspec is built by its podspec in Pods/Local Podspecs, which
-SPEC CHECKSUMS holds, and an archive by :http by the podspec's hash of it.
+SPEC CHECKSUMS holds, and an archive by :http by the podspec's sha256 of
+it. A pod by a git tag is built by the commit --pins pins it to, as the
+lockfile holds none for a tag.
 
 Tarballs, zips, crates, podspecs and archives are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
@@ -56,6 +59,10 @@ pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
   --platform <name>  a platform the Podfile's targets are for, ios, osx,
                      tvos, visionos or watchos, once for each; needed
                      where a pod names other files on another
+  --pins <file>      the commits the pods by a git tag are pinned to, as
+                     JSON: {"<pod>": {"tag": "<tag>", "commit": "<sha>"}};
+                     without one for each, deptree lists those it lacks,
+                     with the commit each tag names on GitHub now
   --partial          compare the pods deptree downloads alone, leaving
                      out each it does not for where it is from -- a spec
                      repo but trunk, an external source but :path and
@@ -81,6 +88,7 @@ const OPTIONS = {
   cocoapods: { type: 'string' },
   platform: { type: 'string', multiple: true },
   partial: { type: 'boolean' },
+  pins: { type: 'string' },
   node: { type: 'string' },
   metadata: { type: 'boolean', default: false },
   production: { type: 'boolean', default: false },
@@ -133,7 +141,8 @@ async function main(argv) {
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
   if (values.production && manager.development) fail(`deptree: ${manager.lockfile}: --production is not taken: ${DEVELOPMENT[name]}\n`)
-  for (const flag of ['platform', 'partial']) if (values[flag] !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --${flag} is taken for CocoaPods alone\n`)
+  for (const flag of ['platform', 'partial', 'pins']) if (values[flag] !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --${flag} is taken for CocoaPods alone\n`)
+  const pins = values.pins === undefined ? undefined : pinsIn(values.pins)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
@@ -146,7 +155,7 @@ async function main(argv) {
   const disk = readSide(project, dirs)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
   note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
-  const tree = await manager.build({ project, host, metadata: values.metadata, platforms: values.platform, partial: values.partial, ...values.production ? { production: true } : {} })
+  const tree = await manager.build({ project, host, metadata: values.metadata, platforms: values.platform, partial: values.partial, pins, ...values.production ? { production: true } : {} })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
   // A pod --partial skips is CocoaPods' to download: its directory on disk
   // is not compared. The reason quotes what it names, as a refusal does.
@@ -166,6 +175,16 @@ async function main(argv) {
   note(summary(listed, left.size))
   if (name === 'pnpm') pruneHint(listed)
   return listed.length === 0 ? 0 : 1
+}
+
+// The pins in --pins' file, JSON as buildCocoaPodsTree takes them, which it
+// holds to their shape.
+function pinsIn(file) {
+  try {
+    return JSON.parse(readFileSync(resolve(file), 'utf8'))
+  } catch (error) {
+    return fail(`deptree: ${file}: --pins has to be a file of JSON: ${error.message}\n`)
+  }
 }
 
 // Why --production means nothing to each manager that installs everything.

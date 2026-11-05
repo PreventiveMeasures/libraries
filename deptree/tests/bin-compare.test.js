@@ -15,8 +15,8 @@ import { buildCargoTree } from '../cargo.js'
 import { buildCocoaPodsTree } from '../cocoapods.js'
 import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
-import { podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, url } from './registry.js'
+import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PINS, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
+import { commitOf, packOf, podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, uploadPackAnswer, url } from './registry.js'
 
 // The deptree command: its modules, and the command as it is run, on
 // projects whose tarball, zip or .crate a cache holds.
@@ -426,11 +426,13 @@ describe('deptree compare, with Soldeer', () => {
       const r = cli(home, ['compare', join(home, 'git')], { node: ['--import', pathToFileURL(join(home, 'spy.mjs')).href], env })
       assert.equal(r.status, 2, r.stderr)
       assert.doesNotMatch(r.stderr, /\n\s+at /u, 'a refusal, not a bug')
-      return r.stderr.match(/^asked https:\/\/api\.github\.com\/repos\/acme\/lib\/git\/commits\/a{40} (.*)$/mu)?.[1]
+      return r.stderr.match(/^asked https:\/\/github\.com\/acme\/lib\.git\/git-upload-pack (.*)$/mu)?.[1]
     }
+    // The commit is fetched as git fetches it, the token sent as git sends one.
+    const basic = (token) => `Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
     assert.equal(ask({}), 'anonymously')
-    assert.equal(ask({ GH_TOKEN: 'gho_gh' }), 'Bearer gho_gh')
-    assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), 'Bearer ghp_github')
+    assert.equal(ask({ GH_TOKEN: 'gho_gh' }), basic('gho_gh'))
+    assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), basic('ghp_github'))
   })
 })
 
@@ -464,7 +466,7 @@ describe('deptree compare, with Cargo', async () => {
     const production = cli(home, ['compare', '--cargo', '1.97.0', '--production', project])
     assert.match(production.stderr, /^deptree: Cargo\.lock: --production is not taken: cargo vendor vendors dev-dependencies too$/mu)
     assert.equal(production.status, 2)
-    for (const flag of [['--platform', 'ios'], ['--partial']]) {
+    for (const flag of [['--platform', 'ios'], ['--partial'], ['--pins', 'pins.json']]) {
       const cocoapods = cli(home, ['compare', '--cargo', '1.97.0', ...flag, project])
       assert.match(cocoapods.stderr, new RegExp(`^deptree: Cargo\\.lock: ${flag[0]} is taken for CocoaPods alone$`, 'mu'))
       assert.equal(cocoapods.status, 2)
@@ -483,12 +485,13 @@ describe('deptree compare, with CocoaPods', async () => {
     'stub.mjs': file(`const podspec = Buffer.from('${podspec.toString('base64')}', 'base64')
 const tarball = Buffer.from('${ACME.tarball.toString('base64')}', 'base64')
 const other = Buffer.from('${OTHER.toString('base64')}', 'base64')
+const commit = Buffer.from('${uploadPackAnswer(packOf([{ type: 'commit', data: commitOf(ACME.tree).object }]), ACME.commit).toString('base64')}', 'base64')
 const answers = {
+  'https://github.com/acme/acme.git/git-upload-pack': () => new Response(commit),
   '${ACME_ARCHIVE}': () => new Response(tarball),
   '${trunk}': () => new Response(podspec),
   '${podspecUrl('Other', '1.0.0')}': () => new Response(other),
   '${repo}git/ref/tags/v1.2.0': () => Response.json({ ref: 'refs/tags/v1.2.0', object: { type: 'commit', sha: '${ACME.commit}' } }),
-  '${repo}git/commits/${ACME.commit}': () => Response.json({ sha: '${ACME.commit}', tree: { sha: '${ACME.tree}' } }),
   '${repo}tarball/${ACME.tree}': () => new Response(tarball),
 }
 globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Response.json({ message: 'Not Found' }, { status: 404 }))
@@ -499,7 +502,7 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
   // and beside it what CocoaPods generates there.
   stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags: { 'v1.2.0': ACME.commit } } })
   stubTrunk({ 'Acme@1.2.0': podspec })
-  const { vfs } = await buildCocoaPodsTree({ lockfile: coreLock(), host: { cocoapods: '1.16.2', os: 'linux' }, github: createClient({ token: null }) })
+  const { vfs } = await buildCocoaPodsTree({ lockfile: coreLock(), host: { cocoapods: '1.16.2', os: 'linux' }, github: createClient({ token: null }), pins: PINS })
   writeDisk(project, readSide(vfs, ['Pods']))
   chmodSync(join(project, 'Pods/Acme/README.md'), 0o644)
   writeDisk(project, side({
@@ -535,7 +538,9 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     'Pods/Manifest.lock': file(httpLock),
     'Pods/Local Podspecs/Acme.podspec.json': file(httpPodspec),
   }))
-  const run = (args, at = project) => cli(home, ['compare', ...args, at], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
+  // Acme's tag, pinned to the commit it names, as --pins takes it.
+  writeDisk(home, side({ 'pins.json': file(JSON.stringify(PINS)), 'bad.json': file('{') }))
+  const run = (args, at = project, pins = ['--pins', join(home, 'pins.json')]) => cli(home, ['compare', ...pins, ...args, at], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
 
   it('lists what differs in the pods\' directories Podfile.lock installs, with the CocoaPods it names', () => {
     const r = run([])
@@ -549,6 +554,18 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     const production = run(['--production'])
     assert.match(production.stderr, /^deptree: Podfile\.lock: --production is not taken: CocoaPods installs every pod the Podfile asks for$/mu)
     assert.equal(production.status, 2)
+  })
+
+  it('takes a pod by a git tag to the commit --pins pins it to, and lists the pins it lacks without them', () => {
+    const unpinned = run([], project, [])
+    assert.equal(unpinned.status, 2)
+    const [detail, json] = unpinned.stderr.split(/:\n(?=\{)/u)
+    assert.match(detail, /deptree: a pod by a git tag is pinned to no commit, as the lockfile holds none for a tag and GitHub could move one: pin each to the commit its tag names on GitHub now, once that is checked, as pins takes them$/u)
+    assert.deepEqual(JSON.parse(json), PINS)
+    const bad = run([], project, ['--pins', join(home, 'bad.json')])
+    assert.match(bad.stderr, /^deptree: .*bad\.json: --pins has to be a file of JSON: /mu)
+    assert.equal(bad.status, 2)
+    assert.equal(run([], project, ['--pins', join(home, 'nowhere.json')]).status, 2)
   })
 
   it("builds a pod by :podspec by its podspec in Pods/Local Podspecs, and an :http archive from GitHub", () => {

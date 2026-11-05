@@ -33,6 +33,19 @@ export function flagsOf({ manifest = false, partial = false }) {
   return { manifest, partial }
 }
 
+// The commits the pods by a git tag are pinned to, by name: each the tag it
+// is pinned for and the full commit, as the lockfile holds no commit for a
+// tag. None where left out.
+const PIN_KEYS = ['commit', 'tag']
+const PINS = 'pins must be an object of pins by name, each { tag, commit }, a tag and a full commit in lowercase hex, or left out'
+const isPin = (pin) => pin !== null && typeof pin === 'object' && !Array.isArray(pin) && Object.keys(pin).sort().join() === PIN_KEYS.join()
+  && typeof pin.tag === 'string' && pin.tag !== '' && typeof pin.commit === 'string' && /^[\da-f]{40}$/u.test(pin.commit)
+export function pinsOf(pins) {
+  if (pins === undefined) return new Map()
+  if (pins === null || typeof pins !== 'object' || Array.isArray(pins) || !Object.values(pins).every(isPin)) throw new TypeError(PINS)
+  return new Map(Object.entries(pins).map(([name, { tag, commit }]) => [name, { tag, commit }]))
+}
+
 // The names CocoaPods reads a Podfile under, the first one there taken.
 const PODFILES = ['CocoaPods.podfile.yaml', 'CocoaPods.podfile', 'Podfile', 'Podfile.rb']
 

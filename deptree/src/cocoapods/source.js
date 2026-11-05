@@ -12,9 +12,10 @@ const COMMIT = /^[\da-f]{40}$/u
 // What its Http, a RemoteFile, takes beside the URL; anything else it
 // refuses.
 const HTTP_OPTIONS = new Set(['http', 'type', 'flatten', 'sha1', 'sha256', 'headers'])
-// The hashes RemoteFile checks a download against, sha256 before sha1, by
-// the lowercase hex Ruby's hexdigest writes, which it compares as text.
-const HASHES = [['sha256', /^[\da-f]{64}$/u], ['sha1', /^[\da-f]{40}$/u]]
+// The hash RemoteFile checks a download against, :sha256 before :sha1, by
+// the lowercase hex Ruby's hexdigest writes, which it compares as text: a
+// sha256 alone is taken, as two archives can be made to share a sha1.
+const SHA256 = /^[\da-f]{64}$/u
 // RemoteFile's types, as its :type names one, and else by the end of the
 // URL's path, type_with_url: those it extracts with `tar xf`, which reads
 // an archive by what it is rather than by its name, and flattens by
@@ -71,9 +72,9 @@ export function sourceOf(podspec, where) {
 // An :http source: its URL, on GitHub over https; what RemoteFile takes it
 // to be, and so the name it downloads it under, `file.<type>`, in the
 // directory it extracts it into; whether it flattens it, by :flatten where
-// that is given, as Ruby reads a value, and else by its type; and the hash
-// it checks it against. A download held to no hash is refused, as is one
-// with :headers, which curl would send.
+// that is given, as Ruby reads a value, and else by its type; and the
+// sha256 it checks it against. A download held to no hash, or to a sha1
+// alone, is refused, as is one with :headers, which curl would send.
 function httpSourceOf(source, where) {
   const other = Object.keys(source).find((key) => !HTTP_OPTIONS.has(key))
   if (other !== undefined) throw new SourceRefusal(`its source has :${other}, which cocoapods-downloader refuses of :http`, where)
@@ -83,10 +84,8 @@ function httpSourceOf(source, where) {
   const type = given(named) ? named : URL_TYPES.find(([pattern]) => pattern.test(URL.parse(url).pathname))?.[1]
   if (typeof type !== 'string' || !TYPES.has(type)) throw new SourceRefusal(`${given(named) ? `its :type ${quote(String(named))}` : 'its URL'} names no type of archive cocoapods-downloader extracts`, where)
   if (!TARS.has(type)) throw new SourceRefusal(`an :http source of a ${type} is not supported: only those \`tar xf\` extracts, tgz, tar, tbz and txz, are`, where)
-  const hashed = HASHES.find(([algorithm]) => given(source[algorithm]))
-  if (hashed === undefined) throw new SourceRefusal('an :http source with no :sha256 or :sha1 to hold the download to is not supported', where)
-  const [algorithm, pattern] = hashed
-  const digest = source[algorithm]
-  if (!(typeof digest === 'string' && pattern.test(digest))) throw new SourceRefusal(`its :${algorithm} is not one in lowercase hex, which no download matches`, where)
-  return { type: 'http', url, archive: type, file: `file.${type}`, flatten: Object.hasOwn(source, 'flatten') ? given(flatten) : true, algorithm, digest }
+  if (!given(source.sha256)) throw new SourceRefusal(given(source.sha1) ? 'an :http source held to a :sha1 alone, which two archives can be made to share, is not supported: only one held to a :sha256 is' : 'an :http source with no :sha256 to hold the download to is not supported', where)
+  const { sha256 } = source
+  if (!(typeof sha256 === 'string' && SHA256.test(sha256))) throw new SourceRefusal('its :sha256 is not one in lowercase hex, which no download matches', where)
+  return { type: 'http', url, archive: type, file: `file.${type}`, flatten: Object.hasOwn(source, 'flatten') ? given(flatten) : true, sha256 }
 }
