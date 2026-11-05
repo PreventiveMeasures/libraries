@@ -2,7 +2,7 @@
 // take, each rule checked on its own, a file breaking any of them an error. A path is a file's real path from
 // the project root, a module the name of the package it is of (packagesOf()), each as globs match it
 // (globRegExp()): a path glob each file in a directory it matches too. With allowedModules, a file of no
-// package is of none it allows.
+// package is of none it allows. Those of development or production add to the top level's (restrictionsOf()).
 
 import { dirname, isAbsolute, join, relative } from 'node:path'
 
@@ -86,39 +86,50 @@ function manifestName(host, path) {
 }
 
 // (path, module) => the error of each rule the file at `path`, of the package `module` (packagesOf()'s), breaks;
-// null where the config sets none.
-export function restrictionsOf(config, projectRoot) {
-  const globs = (key) => config[key].map((glob) => ({ glob, test: globRegExp(glob, key.endsWith('Paths')) }))
-  const matching = (list, value) => list.find(({ test }) => test.test(value))
-  const rules = []
-  if (config.allowedPaths !== undefined) {
-    const allowed = globs('allowedPaths')
-    rules.push((name) => (matching(allowed, name) ? null : `${name} matches none of ${RN_CONFIG}'s allowedPaths`))
-  }
-  if (config.disallowedPaths !== undefined) {
-    const disallowed = globs('disallowedPaths')
-    rules.push((name) => {
-      const found = matching(disallowed, name)
-      return found === undefined ? null : `${name} matches ${JSON.stringify(found.glob)} of ${RN_CONFIG}'s disallowedPaths`
-    })
-  }
-  if (config.allowedModules !== undefined) {
-    const allowed = globs('allowedModules')
-    rules.push((name, module) => {
-      if (module === null) return `${name} is of no package (no package.json above it has a name), which ${RN_CONFIG}'s allowedModules allows none of`
-      return matching(allowed, module) ? null : `${name} is of ${module}, which matches none of ${RN_CONFIG}'s allowedModules`
-    })
-  }
-  if (config.disallowedModules !== undefined) {
-    const disallowed = globs('disallowedModules')
-    rules.push((name, module) => {
-      const found = module === null ? undefined : matching(disallowed, module)
-      return found === undefined ? null : `${name} is of ${module}, which matches ${JSON.stringify(found.glob)} of ${RN_CONFIG}'s disallowedModules`
-    })
-  }
+// null where the config sets none. The rules are the top level's and those of the section of the build, a dev
+// one's (`dev`) development's, a release one's production's: a section's add to the top level's, each checked
+// on its own, as every rule is.
+export function restrictionsOf(config, projectRoot, dev) {
+  const mode = dev ? 'development' : 'production'
+  const rules = [...rulesOf(config, ''), ...rulesOf(config[mode] ?? {}, `${mode}.`)]
   if (rules.length === 0) return null
   return (path, module) => {
     const name = relative(projectRoot, path).replaceAll('\\', '/')
     return rules.map((rule) => rule(name, module)).filter((error) => error !== null)
   }
+}
+
+// The rules of the restrictions `options` sets (the top level's, or a section's, its keys named after `prefix`),
+// each (name, module) => its error, or null.
+function rulesOf(options, prefix) {
+  const globs = (key) => options[key].map((glob) => ({ glob, test: globRegExp(glob, key.endsWith('Paths')) }))
+  const matching = (list, value) => list.find(({ test }) => test.test(value))
+  const named = (key) => `${RN_CONFIG}'s ${prefix}${key}`
+  const rules = []
+  if (options.allowedPaths !== undefined) {
+    const allowed = globs('allowedPaths')
+    rules.push((name) => (matching(allowed, name) ? null : `${name} matches none of ${named('allowedPaths')}`))
+  }
+  if (options.disallowedPaths !== undefined) {
+    const disallowed = globs('disallowedPaths')
+    rules.push((name) => {
+      const found = matching(disallowed, name)
+      return found === undefined ? null : `${name} matches ${JSON.stringify(found.glob)} of ${named('disallowedPaths')}`
+    })
+  }
+  if (options.allowedModules !== undefined) {
+    const allowed = globs('allowedModules')
+    rules.push((name, module) => {
+      if (module === null) return `${name} is of no package (no package.json above it has a name), which ${named('allowedModules')} allows none of`
+      return matching(allowed, module) ? null : `${name} is of ${module}, which matches none of ${named('allowedModules')}`
+    })
+  }
+  if (options.disallowedModules !== undefined) {
+    const disallowed = globs('disallowedModules')
+    rules.push((name, module) => {
+      const found = module === null ? undefined : matching(disallowed, module)
+      return found === undefined ? null : `${name} is of ${module}, which matches ${JSON.stringify(found.glob)} of ${named('disallowedModules')}`
+    })
+  }
+  return rules
 }

@@ -6,7 +6,8 @@
 // link ES modules, each run as imported, so it can't go with inline requires. `development` and
 // `production` set babel, esm and inlineRequires for dev and release builds: an option is set there
 // or at the top level, never both. allowedPaths, disallowedPaths, allowedModules and disallowedModules
-// restrict the files each build takes (restrictions.js).
+// restrict the files each build takes (restrictions.js), at the top level and in development and
+// production alike: a section's add to the top level's, each checked on its own.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -30,8 +31,9 @@ const switches = [(value) => isObject(value) && Object.entries(value).every(([na
 // Globs of files' paths and of packages' names (restrictions.js).
 const globs = [listOf((value) => typeof value === 'string' && isPathGlob(value)), 'a list of globs of paths from the project root, each a directory\'s files too ("src", "src/**/*.js", "node_modules")']
 const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/]+\/[^/]+|[^@/.][^/]*)$/u.test(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of packages\' names ("react-native", "@react-native/*")']
-// What `development` and `production` may set.
-const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
+// What `development` and `production` may set; the first three in place of the top level's (OVERRIDDEN).
+const MODE = { babel: switches, esm: boolean, inlineRequires: boolean, allowedPaths: globs, disallowedPaths: globs, allowedModules: packages, disallowedModules: packages }
+const OVERRIDDEN = ['babel', 'esm', 'inlineRequires']
 // Each option's [validator, description]; a section is an object of its own options.
 const OPTIONS = {
   metroConfig: [(value) => typeof value === 'boolean' || (typeof value === 'string' && value !== ''), 'true, false or the path of a Metro config'],
@@ -86,7 +88,7 @@ export function readRnConfig(projectRoot, fail) {
   if (!isObject(config)) return fail(`${RN_CONFIG}: not an object of options`)
   const error = errorIn(OPTIONS, config, '')
   if (error !== null) return fail(`${RN_CONFIG}: ${error}`)
-  for (const key of Object.keys(MODE)) {
+  for (const key of OVERRIDDEN) {
     const modes = MODES.filter((mode) => config[mode]?.[key] !== undefined)
     if (config[key] !== undefined && modes.length > 0) return fail(`${RN_CONFIG}: ${key} is set at the top level and in ${modes.join(' and ')}: set it at the top level, for both, or in development and production`)
   }

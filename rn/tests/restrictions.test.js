@@ -157,6 +157,36 @@ describe('restrictionsOf', () => {
     assert.deepEqual(Object.keys(allowed).filter((name) => allowed[name].length > 0), ['../ws/ui/index.js', '../loose/x.js'])
   })
 
+  it("has a dev build's development's rules, and a release build's production's, besides the top level's", () => {
+    const config = { disallowedPaths: ['src/legacy'], development: { disallowedPaths: ['src/a.js'] }, production: { disallowedModules: ['react'] } }
+    const failing = (dev) => {
+      const restrict = restrictionsOf(config, root, dev)
+      return FILES.flatMap((name) => restrict(join(root, name), packageOf(join(root, name))))
+    }
+    assert.deepEqual(failing(true), [`src/a.js matches "src/a.js" of rn.config.json's development.disallowedPaths`, `src/legacy/b.js matches "src/legacy" of rn.config.json's disallowedPaths`])
+    assert.deepEqual(failing(false), [`src/legacy/b.js matches "src/legacy" of rn.config.json's disallowedPaths`, `node_modules/react/index.js is of react, which matches "react" of rn.config.json's production.disallowedModules`])
+    // A section's alone.
+    assert.equal(restrictionsOf({ production: { allowedPaths: ['src'] } }, root, true), null)
+    assert.equal(restrictionsOf({ production: { allowedPaths: ['src'] } }, root, false)(join(root, 'index.js'), 'app')[0], "index.js matches none of rn.config.json's production.allowedPaths")
+  })
+
+  it("checks a section's rules and the top level's each on its own: 8 rules forbid what each forbids alone, and only that", () => {
+    const SECTION = { allowedPaths: ['src', 'node_modules', '../ws'], disallowedPaths: ['src/a.js'], allowedModules: ['app', 'react*', '@org/*', 'moment'], disallowedModules: ['@scope/*'] }
+    const errorsIn = (config, dev) => {
+      const restrict = restrictionsOf(config, root, dev)
+      return Object.fromEntries(FILES.map((name) => [name, restrict(join(root, name), packageOf(join(root, name)))]))
+    }
+    const config = { ...RULES, production: SECTION }
+    const together = errorsIn(config, false)
+    const alone = [...Object.entries(RULES).map(([key, list]) => errorsIn({ [key]: list }, false)), ...Object.entries(SECTION).map(([key, list]) => errorsIn({ production: { [key]: list } }, false))]
+    assert.equal(alone.length, 8)
+    for (const name of FILES) assert.deepEqual(together[name], alone.flatMap((errors) => errors[name]), name)
+    // What each set of 4 allows, less what the other forbids: neither overrides the other.
+    assert.deepEqual(Object.keys(together).filter((name) => together[name].length === 0), ['node_modules/react/index.js'])
+    // In development, the top level's alone.
+    assert.deepEqual(errorsIn(config, true), errorsIn(RULES, true))
+  })
+
   it('checks each rule on its own: rules together forbid what each forbids alone, and only that', () => {
     const together = errorsOf(RULES)
     const alone = Object.entries(RULES).map(([key, list]) => errorsOf({ [key]: list }))
