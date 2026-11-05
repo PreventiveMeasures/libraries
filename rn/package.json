@@ -62,6 +62,9 @@
     "./src/rn-config.js": {
       "default": "./src/rn-config.js"
     },
+    "./src/restrictions.js": {
+      "default": "./src/restrictions.js"
+    },
     "./src/serializer.js": {
       "default": "./src/serializer.js"
     },
@@ -115,6 +118,7 @@
     "src/metro-options.js",
     "src/module-resolver.js",
     "src/resolve.js",
+    "src/restrictions.js",
     "src/rn-bundle.js",
     "src/rn-config.js",
     "src/self-test.js",

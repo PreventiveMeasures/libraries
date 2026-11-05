@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { SourceMap, createRequire } from 'node:module'
 import { dirname, join, sep } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -438,9 +438,27 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: sourceExts adds svg, which assetExts has: Metro takes a file of it for an asset, and rn.config.json removes none\n'])
   })
 
+  it('fails on each file its restrictions forbid, at the import, each rule on its own', async () => {
+    const r = await bundleWith({ metroConfig: false, disallowedPaths: ['img/*@3x.png'], disallowedModules: ['dual'] })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /img\/logo@3x\.png matches "img\/\*@3x\.png" of rn\.config\.json's disallowedPaths \[plugin metro-graph\]\n\n {4}index\.js:12:36:/u)
+    assert.match(r.stderr, /node_modules\/dual\/rn\.js is of dual, which matches "dual" of rn\.config\.json's disallowedModules \[plugin metro-graph\]\n\n {4}index\.js:6:17:/u)
+    assert.match(r.stderr, /esbuild reported 2 error\(s\)\n$/u)
+    // The project's files of its package.json's name.
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app' }))
+    try {
+      const allowed = await bundleWith({ metroConfig: false, allowedPaths: ['*.js', '{lib,img,fonts}/**', 'node_modules/**'], allowedModules: ['app', 'dual', 'react-native', '@react-native/*'] })
+      assert.equal(allowed.status, 0, allowed.stderr)
+      const own = await bundleWith({ metroConfig: false, allowedModules: ['dual', 'react-native', '@react-native/*'] })
+      assert.match(own.stderr, /index\.js is of app, which matches none of rn\.config\.json's allowedModules/u)
+    } finally {
+      rmSync(join(root, 'package.json'))
+    }
+  })
+
   it('refuses an option it does not know, and takes devtools, which is of rn-serve', async () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, android, development, production\n'])
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, allowedPaths, disallowedPaths, allowedModules, disallowedModules, ios, android, development, production\n'])
     assert.equal((await bundleWith({ metroConfig: false, devtools: true })).status, 0)
   })
 })

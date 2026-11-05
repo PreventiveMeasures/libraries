@@ -1,6 +1,8 @@
 // Metro's resolution and transformation of each module, for an esbuild build of another tool's (a test
 // runner's): metroGraph()'s onResolve and onLoad (bundle.js), without its module graph, its polyfills, the
-// modules run before the entry or the prelude, which are the build's own.
+// modules run before the entry or the prelude, which are the build's own. It reads no rn.config.json: its
+// restrictions (allowedPaths and the rest, restrictions.js) are of the app's bundles, not of another tool's
+// build, which takes files the app doesn't (tests, and what they import).
 
 import { isAbsolute, join, resolve } from 'node:path'
 

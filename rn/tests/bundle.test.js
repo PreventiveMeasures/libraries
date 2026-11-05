@@ -7,7 +7,8 @@ import { runInNewContext } from 'node:vm'
 import { buildHost, newState } from '../src/build-host.js'
 import { bundle } from '../src/bundle.js'
 import { diskHost } from '../src/defaults.js'
-import { vfsOf, writeTree } from './fixtures.js'
+import { restrictionsOf } from '../src/restrictions.js'
+import { png, vfsOf, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
 const esbuild = require('esbuild')
@@ -120,5 +121,88 @@ describe("buildHost, of a host that lists directories", () => {
     const state = newState({ host: vfs, assetExts: [], projectRoot: '/', entry: 'index.js', platform: 'ios' })
     assert.deepEqual(state.resolveImport('/index.js', './lib/a', 'import-statement'), { kind: 'file', key: '/lib/a.js' })
     assert.deepEqual(state.graph.get('/index.js').get('./lib/a'), { type: 'sourceFile', filePath: '/lib/a.js' })
+  })
+})
+
+describe("bundle, of rn.config.json's restrictions", () => {
+  const { root, cleanup } = writeTree({ ...APP, 'polyfill.js': 'globalThis.polyfilled = true\n', 'linked.js': { link: 'private/polyfill.js' }, 'private/polyfill.js': 'globalThis.polyfilled = true\n', 'custom.js': "import { hidden } from 'hidden'\nglobalThis.result = hidden\n", 'linked-hidden.js': { link: 'private/hidden.js' }, 'private/hidden.js': 'export const hidden = 1\n' })
+  after(cleanup)
+  const options = { entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root, polyfills: [join(root, 'polyfill.js')] }
+  const errorsOf = async (config, more = {}) => {
+    const failure = await bundle({ ...options, restrict: restrictionsOf(config, root), ...more }).then(() => null, (error) => error)
+    return failure?.errors?.map(({ text, location }) => [text, location === null ? null : `${location.file}:${location.line}`]) ?? []
+  }
+
+  it('builds what they allow', async () => {
+    const result = await bundle({ ...options, restrict: restrictionsOf({ allowedPaths: ['*.js', 'lib/*.{js,ts}', 'node_modules/**'], allowedModules: ['app', 'dep'], disallowedModules: ['other'] }, root) })
+    assert.deepEqual(run(js(result)), [1, 2, 'dep'])
+  })
+
+  it('fails on each file of each import they forbid, at the import', async () => {
+    assert.deepEqual(await errorsOf({ disallowedModules: ['dep'] }), [[`node_modules/dep/lib/main.js is of dep, which matches "dep" of rn.config.json's disallowedModules`, 'index.js:3']])
+    // A directory: each file in it.
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['lib'] }), [
+      [`lib/value.js matches "lib" of rn.config.json's disallowedPaths`, 'index.js:1'],
+      [`lib/typed.ts matches "lib" of rn.config.json's disallowedPaths`, 'index.js:2'],
+    ])
+    // The project's own files, of its package.json's name; esbuild goes no further than an entry it fails on.
+    assert.deepEqual(await errorsOf({ allowedModules: ['dep'] }), [["index.js is of app, which matches none of rn.config.json's allowedModules", null]])
+    assert.deepEqual(await errorsOf({ allowedPaths: ['*.js', 'node_modules/**'], disallowedPaths: ['**/main.js'] }), [
+      ["lib/value.js matches none of rn.config.json's allowedPaths", 'index.js:1'],
+      ["lib/typed.ts matches none of rn.config.json's allowedPaths", 'index.js:2'],
+      [`node_modules/dep/lib/main.js matches "**/main.js" of rn.config.json's disallowedPaths`, 'index.js:3'],
+    ])
+  })
+
+  it('fails on the entry, and on a polyfill', async () => {
+    assert.deepEqual((await errorsOf({ disallowedPaths: ['index.js'] }))[0], ["index.js matches \"index.js\" of rn.config.json's disallowedPaths", null])
+    assert.deepEqual((await errorsOf({ allowedPaths: ['index.js', 'lib/**', 'node_modules/**'] }))[0][0], "polyfill.js matches none of rn.config.json's allowedPaths")
+  })
+
+  it("checks a file a Metro config's resolveRequest gives by its real path", async () => {
+    // As the Metro config's resolver.resolveRequest, it gives `hidden` as a link.
+    const resolveRequest = (context, name, platform) => (name === 'hidden' ? { type: 'sourceFile', filePath: join(root, 'linked-hidden.js') } : context.resolveRequest(context, name, platform))
+    const more = { entry: 'custom.js', resolver: { metroResolver: require('metro-resolver'), resolveRequest } }
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['private/**'] }, more), [[`private/hidden.js matches "private/**" of rn.config.json's disallowedPaths`, 'custom.js:1']])
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['linked-hidden.js'] }, more), [])
+  })
+
+  it("checks a polyfill by its real path, from the project root where it isn't absolute", async () => {
+    for (const polyfill of [join(root, 'linked.js'), 'linked.js']) {
+      assert.deepEqual(await errorsOf({ disallowedPaths: ['private/**'] }, { polyfills: [polyfill] }), [[`private/polyfill.js matches "private/**" of rn.config.json's disallowedPaths`, 'metro-main:index.js:1']], polyfill)
+    }
+  })
+})
+
+describe("bundle, of rn.config.json's restrictions of an asset", () => {
+  // The files Metro builds of logo.png: logo.ios.png alone for ios; for android, logo.png, logo@3x.png (a link to
+  // private/hidden.png) and logo@5x.png, a scale its import doesn't resolve to.
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    'index.js': "globalThis.result = require('./logo.png')\n",
+    'logo.png': png(2, 2),
+    'logo.ios.png': png(2, 2),
+    'logo@3x.png': { link: 'private/hidden.png' },
+    'private/hidden.png': png(6, 6),
+    'logo@5x.png': png(10, 10),
+    'registry.js': 'module.exports = { registerAsset: () => 1 }\n',
+  })
+  after(cleanup)
+  const errorsOf = async (platform, disallowedPaths) => {
+    const options = { entry: 'index.js', platform, outfile: 'out.js', esbuild, projectRoot: root, assetRegistryPath: './registry.js', restrict: restrictionsOf({ disallowedPaths }, root) }
+    const failure = await bundle(options).then(() => null, (error) => error)
+    return failure?.errors?.map(({ text, location }) => [text, `${location.file}:${location.line}`]) ?? []
+  }
+
+  it('checks each file the build takes of it for the platform, not those its import resolves to', async () => {
+    assert.deepEqual(await errorsOf('ios', ['logo.ios.png']), [[`logo.ios.png matches "logo.ios.png" of rn.config.json's disallowedPaths`, 'index.js:1']])
+    assert.deepEqual(await errorsOf('ios', ['logo.png', 'logo@5x.png']), [])
+    assert.deepEqual(await errorsOf('android', ['logo.ios.png']), [])
+    assert.deepEqual(await errorsOf('android', ['*@5x.png']), [[`logo@5x.png matches "*@5x.png" of rn.config.json's disallowedPaths`, 'index.js:1']])
+  })
+
+  it('checks the real path of a file of it that is a link', async () => {
+    assert.deepEqual(await errorsOf('android', ['private/**']), [[`private/hidden.png matches "private/**" of rn.config.json's disallowedPaths`, 'index.js:1']])
+    assert.deepEqual(await errorsOf('android', ['logo@3x.png']), [])
   })
 })

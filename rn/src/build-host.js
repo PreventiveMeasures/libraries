@@ -3,9 +3,10 @@
 
 import { basename, dirname, relative, resolve } from 'node:path'
 
-import { assetData, assetModule } from './assets.js'
+import { assetData, assetModule, assetRecord } from './assets.js'
 import { aliasing } from './babel-aliases.js'
 import { createMetroResolver } from './resolve.js'
+import { packagesOf } from './restrictions.js'
 import { reactNativeOf } from './serializer.js'
 
 // The key of the empty module, which Metro resolves some imports to, and the namespace of assets' modules.
@@ -18,13 +19,14 @@ export const posixRelative = (from, to) => relative(from, to).replaceAll('\\', '
 // `read`) or run.resolution (rn-serve's resolution.js). made(state) gets it before react-native's modules are
 // found, which may fail (a package.json of no JSON): the build goes on with it, as with no react-native.
 export function newState(run, read = new Set(), made = () => {}) {
-  const { projectRoot, entry, platform } = run
+  const { projectRoot, entry, platform, restrict = null } = run
   const host = buildHost(run.host, read)
   const resolveModule = run.resolution?.(run.changes ?? null, read) ?? metroResolverOf({ ...run, host })
   const resolution = importResolution(resolveModule, run)
   const graph = new Map()
   const assets = new Map()
   let registry = run.assetRegistryPath
+  let packageOf = null
   const state = {
     read,
     graph,
@@ -43,6 +45,17 @@ export function newState(run, read = new Set(), made = () => {}) {
       return assetModule(data, registry)
     },
     assets: () => [...assets.keys()].toSorted().map((path) => assets.get(path)),
+    // A file given by its path from the project root (a polyfill), as resolvedModule() has one.
+    fileOf: (path) => ({ kind: 'file', key: resolve(projectRoot, path) }),
+    // The errors of rn.config.json's restrictions (run.restrict, restrictions.js) of each file of a module,
+    // resolvedModule()'s or fileOf()'s, by its real path and package: of an asset, each the build takes for the
+    // platform (assetRecord()). A file a custom resolveRequest gives, or a polyfill, may be a link.
+    forbidden(found) {
+      if (restrict === null || found === null || found.kind === 'empty') return []
+      packageOf ??= packagesOf(host)
+      const files = found.kind === 'asset' ? assetFilesOf(found.key, platform, host) : [found.key]
+      return files.map((path) => realOf(host, path)).flatMap((path) => restrict(path, packageOf(path)))
+    },
   }
   made(state)
   const reactNative = reactNativeOf(resolveModule, run.host, resolve(projectRoot, entry), platform)
@@ -69,6 +82,24 @@ export function resolvedModule(resolution) {
   if (resolution.type === 'empty') return { kind: 'empty', key: EMPTY }
   if (resolution.type === 'assetFiles') return { kind: 'asset', key: resolution.filePaths.toSorted()[0] }
   return { kind: 'file', key: resolution.filePath }
+}
+
+// The files of the asset at `path` a build takes, or `path` alone where it has none (assetSource() then fails).
+function assetFilesOf(path, platform, host) {
+  try {
+    return assetRecord(path, { platform, host }).files
+  } catch {
+    return [path]
+  }
+}
+
+// The real path of a file, or its path where it has none (its load then fails).
+function realOf(host, path) {
+  try {
+    return host.realpath(path)
+  } catch {
+    return path
+  }
 }
 
 // Metro's AssetData of an asset of the project, its URL its path from the project root.
@@ -120,7 +151,13 @@ export function lookups(host, read) {
     if (listed === undefined || listed.isSymbolicLink() || !(listed.isFile() || listed.isDirectory())) return host[name](path)
     return listed[name]()
   }
-  const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath: once((path) => host.realpath(path)) }
+  // A real path is its own, known so: the restrictions check each file the resolver gives again (newState()).
+  const realpath = once((path) => {
+    const real = host.realpath(path)
+    if (real !== path) realpath.known.set(real, real)
+    return real
+  })
+  const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath }
   return {
     host: {
       ...looked,

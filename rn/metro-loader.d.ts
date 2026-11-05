@@ -58,7 +58,10 @@ export interface MetroLoaderOptions {
 // Babel runs in worker threads until close(). Each file is loaded again only
 // when its contents change; resolutions, as Babel's config, are kept while
 // it lives, so a build that follows which files exist (a watcher's) makes a
-// new one.
+// new one. It reads no rn.config.json: its allowedPaths, disallowedPaths,
+// allowedModules and disallowedModules restrict the app's bundles (rn-bundle,
+// rn-serve), not another tool's build, which takes files the app doesn't
+// (tests, and what they import).
 export interface MetroLoader {
   // __DEV__ and process.env.NODE_ENV, as Metro's prelude sets them.
   define: Record<string, string>
