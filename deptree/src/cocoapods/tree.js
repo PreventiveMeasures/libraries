@@ -6,7 +6,7 @@ import { getPodArchive, getPodspec } from '@preventive/upstream/cocoapods.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkCloned, checkoutOf, tagCommit } from '../github.js'
+import { checkCloned, checkoutOf } from '../github.js'
 import { sha1Hex } from '../hash.js'
 import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { archiveOf } from './archive.js'
@@ -16,7 +16,7 @@ import { readPodspec, specNamed } from './podspec.js'
 import { SourceRefusal, sourceOf } from './source.js'
 
 const GITHUB = 'github must be a GitHub client from createClient, which each pod is fetched through'
-const GITHUB_METHODS = ['getRepo', 'getRepoHead', 'getRepoTag', 'compareCommits', 'getRepoTarball']
+const GITHUB_METHODS = ['getRepo', 'compareCommits', 'getCommitTree', 'getRepoTreeTarball']
 
 // Trunk, as SPEC REPOS names it from CocoaPods 1.8, or the git repository
 // trunk's podspecs are kept in, as it named it before; trunk's CDN serves
@@ -84,20 +84,12 @@ async function localPodspec(root, podspecs, where) {
   return bytes
 }
 
-// Each root's podspec, its source and the commit of that, and what of its
-// download it keeps, planPod's, all before any download, so that a pod
-// refused fails the call before any tarball or archive is fetched. A tag is
-// asked of GitHub once, as the pods of one repository often share one. A
-// pod skipped for its source has no plan, its podspec held to the lockfile
-// all the same.
+// Each root's podspec, its source, and what of its download it keeps,
+// planPod's, all before any download, so that a pod refused fails the call
+// before any tarball or archive is fetched. A pod skipped for its source
+// has no plan, its podspec held to the lockfile all the same.
 async function planAll(roots, { github, podspecs, platforms }, skipped) {
   const plans = new Map()
-  const tags = new Map()
-  const commitOf = ({ repo, tag }, where) => {
-    const key = `${repo}@${tag}`
-    if (!tags.has(key)) tags.set(key, tagCommit(github, repo, tag, where))
-    return tags.get(key)
-  }
   await eachConcurrently(roots, async (root) => {
     const where = about(root.name)
     const bytes = root.external === undefined ? await getPodspec(root.name, root.version, root.checksum) : await unlessSkipped(() => localPodspec(root, podspecs, where), root, skipped)
@@ -107,9 +99,8 @@ async function planAll(roots, { github, podspecs, platforms }, skipped) {
     if (source === undefined) return
     const specs = root.pods.map((name) => specNamed(podspec, name) ?? refuse(`its podspec has no ${quote(name)}, which the lockfile installs`, where))
     const files = planPod(podspec, specs, platforms, where)
-    if (source.type === 'git' && source.commit !== undefined) await checkCloned(github, source.repo, source.commit, where)
-    const commit = source.type === 'git' ? source.commit ?? await commitOf(source, where) : undefined
-    plans.set(root.name, { root, files, source, commit })
+    if (source.type === 'git') await checkCloned(github, source.repo, source.commit, where)
+    plans.set(root.name, { root, files, source })
   }, (root) => about(root.name))
   return plans
 }
@@ -117,11 +108,11 @@ async function planAll(roots, { github, podspecs, platforms }, skipped) {
 // What a download comes to, each fetched once, for every pod of it: a
 // checkout, by its repository and commit; an archive, by its hash and what
 // RemoteFile makes of it.
-const downloadOf = ({ source, commit }) => (source.type === 'git' ? `git ${source.repo}@${commit}` : `http ${source.algorithm}-${source.digest} ${source.file} ${source.flatten}`)
-async function contentsOf({ root, source, commit }, github) {
+const downloadOf = ({ source }) => (source.type === 'git' ? `git ${source.repo}@${source.commit}` : `http ${source.sha256} ${source.file} ${source.flatten}`)
+async function contentsOf({ root, source }, github) {
   const where = about(root.name)
-  if (source.type === 'git') return await checkoutOf(github, source.repo, commit, where)
-  return await archiveOf(await getPodArchive(source.url, source.algorithm, source.digest), source, where)
+  if (source.type === 'git') return await checkoutOf(github, source.repo, source.commit, where)
+  return await archiveOf(await getPodArchive(source.url, source.sha256), source, where)
 }
 
 // What CocoaPods keeps of each pod's download, held only while the pods of
@@ -139,11 +130,11 @@ async function installAll(plans, github, options) {
 }
 
 // A pod written, as CocoaPodsInstalled has it: from git, by the commit
-// checked out; by :http, by the URL and the hash it is held to.
-function installedOf({ name, version, checksum, pods }, { source, commit }) {
+// checked out; by :http, by the URL and the sha256 it is held to.
+function installedOf({ name, version, checksum, pods }, { source }) {
   const pod = { path: `Pods/${name}`, name, version, checksum, pods: [...pods] }
-  if (source.type === 'git') return { ...pod, git: source.url, tag: source.tag, commit }
-  return { ...pod, http: source.url, sha256: source.algorithm === 'sha256' ? source.digest : undefined, sha1: source.algorithm === 'sha1' ? source.digest : undefined }
+  if (source.type === 'git') return { ...pod, git: source.url, commit: source.commit }
+  return { ...pod, http: source.url, sha256: source.sha256 }
 }
 
 // Pods/Manifest.lock, which CocoaPods writes as it writes Podfile.lock;

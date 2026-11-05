@@ -16,7 +16,7 @@ import { buildCocoaPodsTree } from '../cocoapods.js'
 import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
 import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
-import { podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, url } from './registry.js'
+import { commitOf, packOf, podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, uploadPackAnswer, url } from './registry.js'
 
 // The deptree command: its modules, and the command as it is run, on
 // projects whose tarball, zip or .crate a cache holds.
@@ -426,11 +426,13 @@ describe('deptree compare, with Soldeer', () => {
       const r = cli(home, ['compare', join(home, 'git')], { node: ['--import', pathToFileURL(join(home, 'spy.mjs')).href], env })
       assert.equal(r.status, 2, r.stderr)
       assert.doesNotMatch(r.stderr, /\n\s+at /u, 'a refusal, not a bug')
-      return r.stderr.match(/^asked https:\/\/api\.github\.com\/repos\/acme\/lib\/git\/commits\/a{40} (.*)$/mu)?.[1]
+      return r.stderr.match(/^asked https:\/\/github\.com\/acme\/lib\.git\/git-upload-pack (.*)$/mu)?.[1]
     }
+    // The commit is fetched as git fetches it, the token sent as git sends one.
+    const basic = (token) => `Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
     assert.equal(ask({}), 'anonymously')
-    assert.equal(ask({ GH_TOKEN: 'gho_gh' }), 'Bearer gho_gh')
-    assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), 'Bearer ghp_github')
+    assert.equal(ask({ GH_TOKEN: 'gho_gh' }), basic('gho_gh'))
+    assert.equal(ask({ GITHUB_TOKEN: 'ghp_github', GH_TOKEN: 'gho_gh' }), basic('ghp_github'))
   })
 })
 
@@ -483,12 +485,14 @@ describe('deptree compare, with CocoaPods', async () => {
     'stub.mjs': file(`const podspec = Buffer.from('${podspec.toString('base64')}', 'base64')
 const tarball = Buffer.from('${ACME.tarball.toString('base64')}', 'base64')
 const other = Buffer.from('${OTHER.toString('base64')}', 'base64')
+const commit = Buffer.from('${uploadPackAnswer(packOf([{ type: 'commit', data: commitOf(ACME.tree).object }]), ACME.commit).toString('base64')}', 'base64')
 const answers = {
+  '${repo.slice(0, -1)}': () => Response.json({ id: 1, full_name: 'acme/acme', default_branch: 'main' }),
+  '${repo}compare/${ACME.commit}...main?per_page=1': () => Response.json({ status: 'identical', ahead_by: 0, behind_by: 0, base_commit: { sha: '${ACME.commit}' }, merge_base_commit: { sha: '${ACME.commit}' } }),
+  'https://github.com/acme/acme.git/git-upload-pack': () => new Response(commit),
   '${ACME_ARCHIVE}': () => new Response(tarball),
   '${trunk}': () => new Response(podspec),
   '${podspecUrl('Other', '1.0.0')}': () => new Response(other),
-  '${repo}git/ref/tags/v1.2.0': () => Response.json({ ref: 'refs/tags/v1.2.0', object: { type: 'commit', sha: '${ACME.commit}' } }),
-  '${repo}git/commits/${ACME.commit}': () => Response.json({ sha: '${ACME.commit}', tree: { sha: '${ACME.tree}' } }),
   '${repo}tarball/${ACME.tree}': () => new Response(tarball),
 }
 globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Response.json({ message: 'Not Found' }, { status: 404 }))
@@ -497,7 +501,7 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
   // Pods/ as deptree builds it, which tests/cocoapods.test.js holds to
   // CocoaPods', but for one file changed and a pod the lockfile has not;
   // and beside it what CocoaPods generates there.
-  stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags: { 'v1.2.0': ACME.commit } } })
+  stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, history: [ACME.commit] } })
   stubTrunk({ 'Acme@1.2.0': podspec })
   const { vfs } = await buildCocoaPodsTree({ lockfile: coreLock(), host: { cocoapods: '1.16.2', os: 'linux' }, github: createClient({ token: null }) })
   writeDisk(project, readSide(vfs, ['Pods']))

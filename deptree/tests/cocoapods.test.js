@@ -74,9 +74,10 @@ describe('buildCocoaPodsTree', () => {
     const { vfs, stats, installed } = await buildCocoaPodsTree({ lockfile: coreLock(), podfile: PODFILE, host: HOST, github: client() })
     assert.deepEqual(listing(vfs), CORE)
     assert.deepEqual(stats, { pods: 1, downloaded: 1, files: 9, bytes: 147, links: 0 })
-    assert.deepEqual(installed, [{ path: 'Pods/Acme', name: 'Acme', version: '1.2.0', checksum: sha1(PODSPEC), pods: ['Acme/Core'], git: 'https://github.com/acme/acme.git', tag: 'v1.2.0', commit: ACME.commit }])
+    assert.deepEqual(installed, [{ path: 'Pods/Acme', name: 'Acme', version: '1.2.0', checksum: sha1(PODSPEC), pods: ['Acme/Core'], git: 'https://github.com/acme/acme.git', commit: ACME.commit }])
     assert.deepEqual(calls.trunk, ['https://cdn.cocoapods.org/Specs/7/9/d/Acme/1.2.0/Acme.podspec.json'])
-    assert.deepEqual(calls.github, ['acme/acme/git/ref/heads/v1.2.0', 'acme/acme/git/ref/tags/v1.2.0', `acme/acme/git/commits/${ACME.commit}`, `acme/acme/tarball/${ACME.tree}`])
+    // The tree read off the commit's own object, then its tarball.
+    assert.deepEqual(calls.github, ['acme/acme', `acme/acme/compare/${ACME.commit}...main?per_page=1`, 'acme/acme.git/git-upload-pack', `acme/acme/tarball/${ACME.tree}`])
   })
 
   it('keeps what each spec installed uses, and writes nothing for a pod by :path', async () => {
@@ -135,7 +136,7 @@ describe('buildCocoaPodsTree', () => {
   it('holds a pod partial skips to the lockfile all the same, and refuses with it all but where a pod is from', async () => {
     stubPods({ others: { 'Other@1.0.0': Buffer.from(`${OTHER}\n`) } })
     await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), partial: true }), /integrity mismatch for Other@1\.0\.0/u)
-    await assert.rejects(build({ branches: { 'v1.2.0': 'a'.repeat(40) }, partial: true }), /has a branch named "v1\.2\.0" as well as the tag/u)
+    await assert.rejects(build({ history: [], partial: true }), /is not in the history of the repository's default branch/u)
     const podspec = podspecOf({ platforms: { ios: '13.0', osx: '10.15' }, subspecs: [{ name: 'Core', source_files: 'Sources/Core', osx: { exclude_files: 'Sources/Core/Exec.c' } }] })
     await assert.rejects(build({ lockfile: coreLock(podspec), podspec, partial: true }), /names other files on osx than on ios/u)
     stubPods({ podspec: podspecOf({ summary: 'changed' }) })
@@ -168,7 +169,25 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(listing(vfs), CORE)
     assert.equal(installed[0].tag, undefined)
     assert.equal(installed[0].commit, ACME.commit)
-    assert.deepEqual(calls.github, ['acme/acme', `acme/acme/compare/${ACME.commit}...main?per_page=1`, `acme/acme/git/commits/${ACME.commit}`, `acme/acme/tarball/${ACME.tree}`])
+    assert.deepEqual(calls.github, ['acme/acme', `acme/acme/compare/${ACME.commit}...main?per_page=1`, 'acme/acme.git/git-upload-pack', `acme/acme/tarball/${ACME.tree}`])
+  })
+
+  it('refuses a tag, which the lockfile holds no commit for, and with partial skips the pod, asking GitHub nothing of it', async () => {
+    const podspec = podspecOf({ source: { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0' } })
+    const message = /pods\["Acme"\]: a git source by a tag, for which neither the lockfile nor the podspec holds a commit, is not supported: only one by a full commit is/u
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec }), message)
+    const calls = stubPods({ podspec })
+    const { vfs, skipped } = await buildCocoaPodsTree({ lockfile: coreLock(podspec), host: HOST, github: client(), partial: true })
+    assert.deepEqual(listing(vfs), {})
+    assert.match(skipped[0].reason, message)
+    assert.deepEqual(calls.github, [])
+    const both = podspecOf({ source: { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0', commit: ACME.commit } })
+    await assert.rejects(build({ lockfile: coreLock(both), podspec: both }), message)
+  })
+
+  it("reads a commit's tree off its own object, and refuses one GitHub has no such object for", async () => {
+    const podspec = podspecOf({ source: { git: 'https://github.com/acme/acme.git', commit: 'b'.repeat(40) } })
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, history: ['b'.repeat(40)] }), /pods\["Acme"\]: getCommitTree: GitHub refused the fetch: upload-pack: not our ref b{40}/u)
   })
 
   it('refuses a commit the default branch does not have, as a clone may not', async () => {
@@ -191,25 +210,22 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(calls.github.filter((call) => /\/(?:git\/commits|tarball)\//u.test(call)), [])
   })
 
-  it("refuses a tag a branch is named as too, as git's clone takes the branch", async () => {
-    await assert.rejects(build({ branches: { 'v1.2.0': 'a'.repeat(40) } }), /has a branch named "v1\.2\.0" as well as the tag/u)
-  })
-
   it('refuses a podspec that is not the one the lockfile has the checksum of', async () => {
     stubPods({ podspec: podspecOf({ summary: 'changed' }) })
     await assert.rejects(buildCocoaPodsTree({ lockfile: coreLock(), host: HOST, github: client() }), (error) => error instanceof DeptreeError && /integrity mismatch for Acme@1\.2\.0/u.test(error.message))
   })
 
-  it('refuses a source but git from GitHub by a tag or a commit, and a prepare_command', async () => {
+  it('refuses a source but git from GitHub by a commit, or :http, and a prepare_command', async () => {
     for (const [extra, message] of [
       [{ source: { http: 'https://example.com/acme.zip' } }, /an :http source from "https:\/\/example\.com\/acme\.zip", not https:\/\/github\.com/u],
       [{ source: { svn: 'https://example.com/acme' } }, /a source by :svn is not supported: only git from GitHub, and :http from GitHub, are/u],
-      [{ source: { git: 'https://gitlab.com/acme/acme.git', tag: 'v1.2.0' } }, /not a GitHub repository over https or ssh/u],
-      [{ source: { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0', submodules: true } }, /with its submodules is not supported/u],
+      [{ source: { git: 'https://gitlab.com/acme/acme.git', commit: ACME.commit } }, /not a GitHub repository over https or ssh/u],
+      [{ source: { git: 'https://github.com/acme/acme.git', commit: ACME.commit, submodules: true } }, /with its submodules is not supported/u],
       [{ source: { git: 'https://github.com/acme/acme.git', branch: 'main' } }, /by a branch, which locks no commit/u],
-      [{ source: { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0', commit: ACME.commit } }, /names both or neither/u],
+      [{ source: { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0' } }, /by a tag, for which neither the lockfile nor the podspec holds a commit/u],
+      [{ source: { git: 'https://github.com/acme/acme.git' } }, /a git source by no commit is not supported/u],
       [{ source: { git: 'https://github.com/acme/acme.git', commit: ACME.commit.slice(0, 8) } }, /is not a full commit/u],
-      [{ source: { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0', shallow: true } }, /has :shallow, which cocoapods-downloader refuses/u],
+      [{ source: { git: 'https://github.com/acme/acme.git', commit: ACME.commit, shallow: true } }, /has :shallow, which cocoapods-downloader refuses/u],
       [{ prepare_command: 'make' }, /a prepare_command, a script CocoaPods runs in the download, is not supported/u],
     ]) {
       const podspec = podspecOf(extra)
@@ -259,7 +275,7 @@ describe('buildCocoaPodsTree', () => {
     const calls = { trunk: stubTrunk({}), archives: stubArchives({ [ACME_ARCHIVE]: ACME.tarball }) }
     const { vfs, installed } = await buildCocoaPodsTree({ lockfile: podspecLock(podspec), host: HOST, github: client(), podspecs: { Acme: podspec } })
     assert.deepEqual(listing(vfs), CORE)
-    assert.deepEqual(installed, [{ path: 'Pods/Acme', name: 'Acme', version: '1.2.0', checksum: sha1(podspec), pods: ['Acme/Core'], http: ACME_ARCHIVE, sha256: sha256(ACME.tarball), sha1: undefined }])
+    assert.deepEqual(installed, [{ path: 'Pods/Acme', name: 'Acme', version: '1.2.0', checksum: sha1(podspec), pods: ['Acme/Core'], http: ACME_ARCHIVE, sha256: sha256(ACME.tarball) }])
     assert.deepEqual(calls.trunk, [])
     assert.deepEqual(calls.archives, [ACME_ARCHIVE])
     // One of git from GitHub, given as text.
@@ -303,9 +319,7 @@ describe('buildCocoaPodsTree', () => {
     const { vfs: kept } = await fromTrunk(httpPodspecOf({ flatten: false }, { subspecs: [{ name: 'Core', source_files: `${top}/Sources/Core` }] }))
     assert.equal(listing(kept)[`Pods/Acme/${top}/Sources/Core/Acme.h`], '444 #import <Foundation/Foundation.h>\n')
     const { installed: both } = await fromTrunk(httpPodspecOf({ sha1: sha1(ACME.tarball) }))
-    assert.deepEqual([both[0].sha256 !== undefined, both[0].sha1], [true, undefined], 'sha256 before sha1, as RemoteFile checks one')
-    const { installed: one } = await fromTrunk(httpPodspecOf({ sha256: null, sha1: sha1(ACME.tarball) }))
-    assert.equal(one[0].sha1, sha1(ACME.tarball))
+    assert.equal(both[0].sha256, sha256(ACME.tarball), 'sha256 before sha1, as RemoteFile checks one')
     const { vfs: tar } = await fromTrunk(httpPodspecOf({ type: 'tar' }))
     assert.deepEqual(listing(tar), CORE, '`tar xf` reads a gzipped tar whatever its type says')
   })
@@ -326,7 +340,8 @@ describe('buildCocoaPodsTree', () => {
       [{ http: `${ACME_ARCHIVE}?x=1` }, /not https:\/\/github\.com/u],
       [{ http: 'https://github.com/acme/acme' }, /not https:\/\/github\.com/u],
       [{ http: 'https://github.com/acme/acme/archive/v1+2.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ sha256: null }, /with no :sha256 or :sha1 to hold the download to is not supported/u],
+      [{ sha256: null }, /with no :sha256 to hold the download to is not supported/u],
+      [{ sha256: null, sha1: sha1(ACME.tarball) }, /held to a :sha1 alone, which two archives can be made to share, is not supported: only one held to a :sha256 is/u],
       [{ sha256: 'A'.repeat(64) }, /its :sha256 is not one in lowercase hex/u],
       [{ headers: ['Authorization: x'] }, /with :headers, which curl sends with the request, is not supported/u],
       [{ type: 'zip' }, /an :http source of a zip is not supported/u],

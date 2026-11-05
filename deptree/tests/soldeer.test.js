@@ -7,7 +7,7 @@ import { createVfs } from '@preventive/vfs'
 import { DeptreeError, LockfileError, buildSoldeerTree } from '../soldeer.js'
 import { githubRepoOf } from '../src/github.js'
 import { extractZip } from '../src/soldeer/zip.js'
-import { gathered, rawZip, sha256, slowed, stubGitHub, stubSoldeer } from './registry.js'
+import { commitOf, gathered, rawZip, sha256, slowed, stubGitHub, stubSoldeer } from './registry.js'
 
 const HOST = Object.freeze({ soldeer: '0.12.0', os: 'linux' })
 const ZERO = '0'.repeat(64)
@@ -19,7 +19,7 @@ const dependency = (name, version, entries) => ({ name, version, bytes: rawZip(e
 // and a submodule at lib/sub, which the tarball shows as an empty directory
 // and GitHub's listings of the tree and its `lib` name.
 const LIB = {
-  commit: 'f29158afd351a4b3303825173a1c92009b0d9c85',
+  commit: commitOf('9d9c4527d22ae8801778f9b63350c15bda4a2ac7').id,
   tree: '9d9c4527d22ae8801778f9b63350c15bda4a2ac7',
   tarball: Buffer.from('H4sIAAAAAAACA+3XzY6CMBQF4K59Cieuhf43LknG5Wx8A6yTQBRIWlgZ392OS0g0Gigz4/k2bYCEkNPeXnJbfa9P5X69OWysVDwl46OBMeo2Bv3xNmeKa2qoYUKG60wooYgiEXS+zV14pWua9t5zj+73P+6PyPv577bZ59c2qQ7j5q+1vJO/6OevKA3rBflPrigXBN7XYP+H+dhnwAv1X4pQE1D/Z8rfd6OugRfyV9RI5D9P/vVxkv1vnspfa0P4BL0I8n+Qv+vqxBdx6z/jg/qvDUP/F8HqI92XdeoLtIHo/372v3f2V/R/HOf/bPlniW9OEf//mR6c/5xT1P8IbFO3LrftMlueLzgDAAAAAAAAAAAA/pUrriSacQAoAAA=', 'base64'),
   listings: {
@@ -224,7 +224,7 @@ describe('buildSoldeerTree', () => {
       { path: 'dependencies/acme-lib-1.0.0', name: 'acme-lib', version: '1.0.0', git, rev: LIB.commit, commit: LIB.commit },
       { path: 'dependencies/forge-std-1.9.4', name: 'forge-std', version: '1.9.4', checksum: sha256(zip.bytes) },
     ])
-    assert.equal(calls[0], `acme/lib/git/commits/${LIB.commit}`)
+    assert.deepEqual(calls.slice(0, 2), ['acme/lib.git/git-upload-pack', `acme/lib/tarball/${LIB.tree}`], 'the tree read off the commit\'s own object')
   })
 
   it('checks a git dependency out from a repository renamed or transferred since, by the name GitHub gives it now, as git\'s clone follows it', async () => {
@@ -234,7 +234,7 @@ describe('buildSoldeerTree', () => {
     const { vfs, installed } = await buildSoldeerTree({ ...withGit([], 'acme-lib', '1.0.0', git), host: HOST, github: createClient({ token: null }) })
     assert.equal(listing(vfs)['dependencies/acme-lib-1.0.0/src/A.sol'], '644 contract A {}\n')
     assert.deepEqual(installed, [{ path: 'dependencies/acme-lib-1.0.0', name: 'acme-lib', version: '1.0.0', git, rev: LIB.commit, commit: LIB.commit }])
-    assert.deepEqual(calls.slice(0, 5), [`old/lib/git/commits/${LIB.commit}`, 'old/lib', 'repositories/7', `acme/lib/git/commits/${LIB.commit}`, `acme/lib/tarball/${LIB.tree}`])
+    assert.deepEqual(calls.slice(0, 5), ['old/lib.git/git-upload-pack', 'old/lib', 'repositories/7', 'acme/lib.git/git-upload-pack', `acme/lib/tarball/${LIB.tree}`])
     assert.ok(calls.slice(5).every((call) => call.startsWith('acme/lib/git/trees/')), 'and the listings of its trees under that name')
   })
 
@@ -244,7 +244,7 @@ describe('buildSoldeerTree', () => {
       stubSoldeer([])
       const calls = stubGitHub({ 'old/lib': { location }, 'acme/lib': { ...LIB, id: 7 } })
       await assert.rejects(buildSoldeerTree({ ...options, host: HOST, github: createClient({ token: null }) }), /^DeptreeError: dependencies\["acme-lib"\]: GET https:\/\/api\.github\.com\/repos\/old\/lib 301: /u, location)
-      assert.deepEqual(calls, [`old/lib/git/commits/${LIB.commit}`, 'old/lib'], location)
+      assert.deepEqual(calls, ['old/lib.git/git-upload-pack', 'old/lib'], location)
     }
   })
 
@@ -266,7 +266,7 @@ describe('buildSoldeerTree', () => {
     const calls = stubGitHub({})
     await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST }), { name: 'TypeError', message: 'github must be a GitHub client from createClient, which a git dependency is fetched through' })
     await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST, github: 't0ken' }), TypeError)
-    await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST, github: { getRepoTarball: () => Promise.resolve(new Uint8Array()) } }), TypeError)
+    await assert.rejects(buildSoldeerTree({ ...options('1.0.0'), host: HOST, github: { getRepoTreeTarball: () => Promise.resolve(new Uint8Array()) } }), TypeError)
     await assert.rejects(buildSoldeerTree({ ...options('release/1'), host: HOST }), /^DeptreeError: dependencies\["acme-lib"\]: its folder, "acme-lib-release\/1", is one Soldeer names otherwise, which is not supported$/u)
     assert.deepEqual(calls, [])
     // A registry dependency's build asks for no client.
@@ -277,9 +277,9 @@ describe('buildSoldeerTree', () => {
   it('refuses a git dependency GitHub does not answer for, a tarball that cannot be read, and a .git in one', async () => {
     const git = 'git@github.com:acme/lib.git'
     const options = withGit([], 'acme-lib', '1.0.0', git)
-    await assert.rejects(build([], { ...options, github: createClient({ token: null }) }), new RegExp(`^DeptreeError: dependencies\\["acme-lib"\\]: GET https://api\\.github\\.com/repos/acme/lib/git/commits/${LIB.commit} 404: `, 'u'))
+    await assert.rejects(build([], { ...options, github: createClient({ token: null }) }), /^DeptreeError: dependencies\["acme-lib"\]: POST https:\/\/github\.com\/acme\/lib\.git\/git-upload-pack 404: /u)
     // A client that answers whatever it is given, which upstream's would not.
-    const answering = (bytes) => ({ getRepo: () => Promise.reject(new Error('unreachable')), getRepoTarball: () => Promise.resolve(bytes) })
+    const answering = (bytes) => ({ getRepo: () => Promise.reject(new Error('unreachable')), getCommitTree: () => Promise.resolve(LIB.tree), getRepoTreeTarball: () => Promise.resolve(bytes) })
     await assert.rejects(build([], { ...options, github: answering(new Uint8Array([1, 2, 3])) }), /^DeptreeError: dependencies\["acme-lib"\]: its tarball from GitHub cannot be read: /u)
     for (const name of ['top/.git/config', 'top/sub/.GIT./config', 'top/GIT~1/config', 'top/.git:x/config']) {
       const tarball = await compress(pack([{ name: 'top/', type: 'directory' }, { name, data: new TextEncoder().encode('x') }]), 'gzip')

@@ -84,7 +84,8 @@ export async function send(url, { method = 'GET', headers = {}, body, redirect =
   assert.ok(['manual', 'follow'].includes(redirect), `Unexpected redirect mode: ${redirect}`)
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
   assert.ok(Object.entries(headers).every(isHeader), 'Unexpected header')
-  const json = body === undefined ? {} : { headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  // Bytes as they are, under the type `headers` give; anything else as JSON.
+  const json = body === undefined ? {} : body instanceof Uint8Array ? { body } : { headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   return await fetch(url, { method, headers, redirect, signal: AbortSignal.timeout(LIMITS[as].ms), ...json })
 }
 

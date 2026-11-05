@@ -250,48 +250,46 @@ describe('getPodArchive', () => {
 
   it("fetches a GitHub archive a podspec names, following GitHub's redirect, and holds it to the podspec's sha256", async () => {
     const calls = stubGitHub()
-    assert.deepEqual(new Uint8Array(await getPodArchive(ARCHIVE, 'sha256', sha256(BYTES))), BYTES)
+    assert.deepEqual(new Uint8Array(await getPodArchive(ARCHIVE, sha256(BYTES))), BYTES)
     assert.deepEqual(calls, [[ARCHIVE, 'follow']])
   })
 
-  it('holds it to a sha1 as well, and to nothing else', async () => {
-    stubGitHub()
-    assert.deepEqual(new Uint8Array(await getPodArchive(ARCHIVE, 'sha1', sha1(BYTES))), BYTES)
+  it('refuses bytes that are not of the sha256, and caches nothing', async () => {
     stubGitHub({ served: new Uint8Array([...BYTES, 0]) })
-    await assert.rejects(getPodArchive(ARCHIVE, 'sha256', sha256(BYTES)), /getPodArchive: integrity mismatch for https:\/\/github\.com\/ekscrypto\/Base64\/archive\/refs\/tags\/1\.1\.2\.tar\.gz from https:/u)
-    assert.deepEqual(await readdir(ARCHIVES), [`sha1-${sha1(BYTES)}.archive`], 'nothing kept of what did not match')
+    await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), /getPodArchive: integrity mismatch for https:\/\/github\.com\/ekscrypto\/Base64\/archive\/refs\/tags\/1\.1\.2\.tar\.gz from https:/u)
+    assert.deepEqual(await readdir(ARCHIVES).catch(() => []), [])
   })
 
   it('caches it by its hash alone, and serves it again with no request', async () => {
     stubGitHub()
-    await getPodArchive(ARCHIVE, 'sha256', sha256(BYTES))
+    await getPodArchive(ARCHIVE, sha256(BYTES))
     assert.deepEqual(await readdir(ARCHIVES), [`sha256-${sha256(BYTES)}.archive`])
     const calls = stubGitHub({ url: 'nowhere' })
-    assert.deepEqual(new Uint8Array(await getPodArchive('https://github.com/acme/other/releases/download/v1/Other.tar.gz', 'sha256', sha256(BYTES))), BYTES)
+    assert.deepEqual(new Uint8Array(await getPodArchive('https://github.com/acme/other/releases/download/v1/Other.tar.gz', sha256(BYTES))), BYTES)
     assert.deepEqual(calls, [])
     await writeFile(join(ARCHIVES, `sha256-${sha256(BYTES)}.archive`), new Uint8Array([0]))
-    await assert.rejects(getPodArchive(ARCHIVE, 'sha256', sha256(BYTES)), /getPodArchive: integrity mismatch for .* from the cache/u)
+    await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), /getPodArchive: integrity mismatch for .* from the cache/u)
   })
 
   it('throws on an archive GitHub does not have', async () => {
     stubGitHub({ url: 'nowhere' })
-    await assert.rejects(getPodArchive(ARCHIVE, 'sha256', sha256(BYTES)), (error) => error instanceof HttpError && error.status === 404)
+    await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), (error) => error instanceof HttpError && error.status === 404)
   })
 
-  it('refuses a URL but an https one of a GitHub repository, or a malformed hash, before any request', async () => {
+  it('refuses a URL but an https one of a GitHub repository, or a hash but a sha256, before any request', async () => {
     const hash = sha256(BYTES)
     for (const args of [
-      ['http://github.com/ekscrypto/Base64/archive/refs/tags/1.1.2.tar.gz', 'sha256', hash], ['https://gitlab.com/ekscrypto/Base64/archive/1.1.2.tar.gz', 'sha256', hash],
-      ['https://codeload.github.com/ekscrypto/Base64/tar.gz/refs/tags/1.1.2', 'sha256', hash], ['https://GitHub.com/ekscrypto/Base64/archive/1.1.2.tar.gz', 'sha256', hash],
-      ['https://github.com/ekscrypto/Base64', 'sha256', hash], ['https://github.com/ekscrypto/Base64/', 'sha256', hash], ['https://github.com/ekscrypto', 'sha256', hash],
-      [`${ARCHIVE}?x=1`, 'sha256', hash], [`${ARCHIVE}#x`, 'sha256', hash], ['https://user@github.com/ekscrypto/Base64/archive/1.1.2.tar.gz', 'sha256', hash],
-      ['https://github.com:443/ekscrypto/Base64/archive/1.1.2.tar.gz', 'sha256', hash], ['https://github.com/ekscrypto/Base64/../x/archive/1.tar.gz', 'sha256', hash],
-      ['https://github.com/ekscrypto/Base64/archive//1.tar.gz', 'sha256', hash], ['https://github.com/ekscrypto/Base64/archive/a%2fb.tar.gz', 'sha256', hash],
-      ['https://github.com/ekscrypto/Base64/archive/v1+2.tar.gz', 'sha256', hash], ['https://github.com/-acme/Base64/archive/1.tar.gz', 'sha256', hash], [undefined, 'sha256', hash],
-      [ARCHIVE, 'md5', hash], [ARCHIVE, undefined, hash], [ARCHIVE, 'sha256', hash.toUpperCase()], [ARCHIVE, 'sha256', sha1(BYTES)], [ARCHIVE, 'sha1', hash], [ARCHIVE, 'sha256'],
+      ['http://github.com/ekscrypto/Base64/archive/refs/tags/1.1.2.tar.gz', hash], ['https://gitlab.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
+      ['https://codeload.github.com/ekscrypto/Base64/tar.gz/refs/tags/1.1.2', hash], ['https://GitHub.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
+      ['https://github.com/ekscrypto/Base64', hash], ['https://github.com/ekscrypto/Base64/', hash], ['https://github.com/ekscrypto', hash],
+      [`${ARCHIVE}?x=1`, hash], [`${ARCHIVE}#x`, hash], ['https://user@github.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
+      ['https://github.com:443/ekscrypto/Base64/archive/1.1.2.tar.gz', hash], ['https://github.com/ekscrypto/Base64/../x/archive/1.tar.gz', hash],
+      ['https://github.com/ekscrypto/Base64/archive//1.tar.gz', hash], ['https://github.com/ekscrypto/Base64/archive/a%2fb.tar.gz', hash],
+      ['https://github.com/ekscrypto/Base64/archive/v1+2.tar.gz', hash], ['https://github.com/-acme/Base64/archive/1.tar.gz', hash], [undefined, hash],
+      [ARCHIVE, hash.toUpperCase()], [ARCHIVE, sha1(BYTES)], [ARCHIVE, `sha256-${hash}`], [ARCHIVE],
     ]) {
       const calls = stubGitHub()
-      await assert.rejects(getPodArchive(...args), /getPodArchive: (?:url|algorithm|digest) must be/u, JSON.stringify(args))
+      await assert.rejects(getPodArchive(...args), /getPodArchive: (?:url|sha256) must be/u, JSON.stringify(args))
       assert.deepEqual(calls, [])
     }
   })

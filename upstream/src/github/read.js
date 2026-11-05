@@ -8,6 +8,7 @@ import { FORMATS, lockfileOf, projectFormats } from '../lockfiles.js'
 import { pool } from '../pool.js'
 import { gitTreeOfListing, objectId } from '../tree.js'
 import { api, bindMethods, call, clientHeaders, isGone, repoApi } from './client.js'
+import { getCommitTree } from './commit.js'
 
 const PER_PAGE = 100
 const MAX_PAGES = 100
@@ -385,5 +386,5 @@ async function listRepoAdvisories(headers, options) {
   return (await Array.fromAsync(cursorPages('listRepoAdvisories', headers, pageUrl))).flat()
 }
 
-export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, listRepoBranches, compareCommits, getRepoFile, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, listRepoTree, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
+export const readMethods = { getCurrentUser, listUserRepos, getRepo, getRepoHead, getRepoTag, listRepoTags, listRepoBranches, compareCommits, getRepoFile, getCommitTree, getRepoTarball, getRepoTreeTarball, getRepoTreeId, listRepoDir, listRepoTree, findRepoLockfiles, getPullRequest, getCollaboratorPermission, getAdvisory, listRepoAdvisories }
 export const createClient = (options) => bindMethods(clientHeaders('createClient', options, true), readMethods)

@@ -12,9 +12,10 @@ const COMMIT = /^[\da-f]{40}$/u
 // What its Http, a RemoteFile, takes beside the URL; anything else it
 // refuses.
 const HTTP_OPTIONS = new Set(['http', 'type', 'flatten', 'sha1', 'sha256', 'headers'])
-// The hashes RemoteFile checks a download against, sha256 before sha1, by
-// the lowercase hex Ruby's hexdigest writes, which it compares as text.
-const HASHES = [['sha256', /^[\da-f]{64}$/u], ['sha1', /^[\da-f]{40}$/u]]
+// The hash RemoteFile checks a download against, :sha256 before :sha1, by
+// the lowercase hex Ruby's hexdigest writes, which it compares as text: a
+// sha256 alone is taken, as two archives can be made to share a sha1.
+const SHA256 = /^[\da-f]{64}$/u
 // RemoteFile's types, as its :type names one, and else by the end of the
 // URL's path, type_with_url: those it extracts with `tar xf`, which reads
 // an archive by what it is rather than by its name, and flattens by
@@ -42,9 +43,10 @@ const given = (value) => value !== undefined && value !== null && value !== fals
 // `partial` leaves the pod to CocoaPods for; a DeptreeError otherwise.
 export class SourceRefusal extends DeptreeError {}
 
-// The podspec's source: git, a GitHub repository by its URL and the tag or
-// the full commit to check out of it; or :http, an archive on GitHub over
-// https, `tar xf` extracts, and the hash the podspec holds it to. A
+// The podspec's source: git, a GitHub repository by its URL and the full
+// commit to check out of it; or :http, an archive on GitHub over https,
+// `tar xf` extracts, and the hash the podspec holds it to. A tag is
+// refused, as the lockfile holds no commit for one and GitHub can move it. A
 // prepare_command, a script CocoaPods runs in the download, is refused, as
 // is any other source, each with a SourceRefusal.
 export function sourceOf(podspec, where) {
@@ -62,18 +64,18 @@ export function sourceOf(podspec, where) {
   if (repo === undefined) throw new SourceRefusal(`a git source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not a GitHub repository over https or ssh, is not supported`, where)
   if (given(submodules)) throw new SourceRefusal('a git source with its submodules is not supported: GitHub\'s tarball leaves each empty', where)
   if (given(branch)) throw new SourceRefusal('a git source by a branch, which locks no commit, is not supported', where)
-  if (given(tag) === given(commit)) throw new SourceRefusal('a git source by a tag or a commit alone is supported, and this one names both or neither', where)
-  if (given(commit) && !(typeof commit === 'string' && COMMIT.test(commit))) throw new SourceRefusal(`${quote(String(commit))} is not a full commit, as is supported`, where)
-  if (given(tag) && !(typeof tag === 'string' && tag !== '' && !tag.startsWith('--') && !tag.includes(' --'))) throw new SourceRefusal('its tag is not one cocoapods-downloader takes', where)
-  return { type: 'git', url, repo, tag: given(tag) ? tag : undefined, commit: given(commit) ? commit : undefined }
+  // CocoaPods records no commit for a tag, which GitHub can move.
+  if (given(tag)) throw new SourceRefusal('a git source by a tag, for which neither the lockfile nor the podspec holds a commit, is not supported: only one by a full commit is', where)
+  if (!(typeof commit === 'string' && COMMIT.test(commit))) throw new SourceRefusal(given(commit) ? `${quote(String(commit))} is not a full commit, as is supported` : 'a git source by no commit is not supported', where)
+  return { type: 'git', url, repo, commit }
 }
 
 // An :http source: its URL, on GitHub over https; what RemoteFile takes it
 // to be, and so the name it downloads it under, `file.<type>`, in the
 // directory it extracts it into; whether it flattens it, by :flatten where
-// that is given, as Ruby reads a value, and else by its type; and the hash
-// it checks it against. A download held to no hash is refused, as is one
-// with :headers, which curl would send.
+// that is given, as Ruby reads a value, and else by its type; and the
+// sha256 it checks it against. A download held to no hash, or to a sha1
+// alone, is refused, as is one with :headers, which curl would send.
 function httpSourceOf(source, where) {
   const other = Object.keys(source).find((key) => !HTTP_OPTIONS.has(key))
   if (other !== undefined) throw new SourceRefusal(`its source has :${other}, which cocoapods-downloader refuses of :http`, where)
@@ -83,10 +85,8 @@ function httpSourceOf(source, where) {
   const type = given(named) ? named : URL_TYPES.find(([pattern]) => pattern.test(URL.parse(url).pathname))?.[1]
   if (typeof type !== 'string' || !TYPES.has(type)) throw new SourceRefusal(`${given(named) ? `its :type ${quote(String(named))}` : 'its URL'} names no type of archive cocoapods-downloader extracts`, where)
   if (!TARS.has(type)) throw new SourceRefusal(`an :http source of a ${type} is not supported: only those \`tar xf\` extracts, tgz, tar, tbz and txz, are`, where)
-  const hashed = HASHES.find(([algorithm]) => given(source[algorithm]))
-  if (hashed === undefined) throw new SourceRefusal('an :http source with no :sha256 or :sha1 to hold the download to is not supported', where)
-  const [algorithm, pattern] = hashed
-  const digest = source[algorithm]
-  if (!(typeof digest === 'string' && pattern.test(digest))) throw new SourceRefusal(`its :${algorithm} is not one in lowercase hex, which no download matches`, where)
-  return { type: 'http', url, archive: type, file: `file.${type}`, flatten: Object.hasOwn(source, 'flatten') ? given(flatten) : true, algorithm, digest }
+  if (!given(source.sha256)) throw new SourceRefusal(given(source.sha1) ? 'an :http source held to a :sha1 alone, which two archives can be made to share, is not supported: only one held to a :sha256 is' : 'an :http source with no :sha256 to hold the download to is not supported', where)
+  const { sha256 } = source
+  if (!(typeof sha256 === 'string' && SHA256.test(sha256))) throw new SourceRefusal('its :sha256 is not one in lowercase hex, which no download matches', where)
+  return { type: 'http', url, archive: type, file: `file.${type}`, flatten: Object.hasOwn(source, 'flatten') ? given(flatten) : true, sha256 }
 }

@@ -89,6 +89,7 @@
     "src/download.js",
     "src/git.js",
     "src/github/client.js",
+    "src/github/commit.js",
     "src/github/read.js",
     "src/github/write.js",
     "src/http.js",

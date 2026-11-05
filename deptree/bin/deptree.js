@@ -40,7 +40,9 @@ nothing else. Exits 0 where the two are the same, 1 where they differ, 2
 on trouble.
 
 A pod by :podspec is built by its podspec in Pods/Local Podspecs, which
-SPEC CHECKSUMS holds, and an archive by :http by the podspec's hash of it.
+SPEC CHECKSUMS holds, and an archive by :http by the podspec's sha256 of
+it. A pod by a git tag, which the lockfile holds no commit for, is not
+built.
 
 Tarballs, zips, crates, podspecs and archives are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
@@ -59,8 +61,8 @@ pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
   --partial          compare the pods deptree downloads alone, leaving
                      out each it does not for where it is from -- a spec
                      repo but trunk, an external source but :path and
-                     :podspec, a source but git and :http from GitHub, a
-                     prepare_command -- and saying why
+                     :podspec, a source but git by a commit and :http
+                     from GitHub, a prepare_command -- and saying why
   --node <version>   the Node it installed with; by default this one
   --production       devDependencies were left out, as by pnpm install
                      --prod, npm ci --omit=dev or yarn install --production

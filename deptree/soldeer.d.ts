@@ -186,7 +186,9 @@ export interface SoldeerTree {
 // A git dependency Soldeer clones, `git clone` of the lockfile's `git`,
 // then `git checkout` of its `rev`; here it is fetched from a GitHub
 // repository alone, by `github`, as GitHub's tarball of the tree of that
-// commit, which upstream holds to the tree GitHub names for the commit. A
+// commit: the tree read off the commit's own object, which upstream's
+// getCommitTree fetches from github.com as git fetches it and holds to the
+// commit's id, and the tarball, which getRepoTreeTarball holds to it. A
 // repository renamed or transferred since, which GitHub answers with a
 // redirect that git's clone follows, is fetched by the name GitHub gives
 // it now, as upstream's getRepo follows that redirect with
