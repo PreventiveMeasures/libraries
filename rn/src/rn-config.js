@@ -5,13 +5,15 @@
 // first used); a Metro config's own getTransformOptions that disagrees is an error. `esm` has esbuild
 // link ES modules, each run as imported, so it can't go with inline requires. `development` and
 // `production` set babel, esm and inlineRequires for dev and release builds: an option is set there
-// or at the top level, never both.
+// or at the top level, never both. allowedPaths, disallowedPaths, allowedModules and disallowedModules
+// restrict the files each build takes (restrictions.js).
 
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { defaults } from './defaults.js'
+import { globRegExp } from './restrictions.js'
 
 const RN_CONFIG = 'rn.config.json'
 
@@ -25,6 +27,9 @@ const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== ''
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 // Babel plugins by name, each on or off, in order.
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
+// Globs of files' paths (restrictions.js), and packages' names.
+const globs = [listOf((value) => typeof value === 'string' && value !== '' && !isAbsolute(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of paths from the project root ("src/**", "node_modules/**")']
+const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/@]+\/)?[^/@]+$/u.test(value)), 'a list of packages\' names ("react-native", "@react-native/js-polyfills")']
 // What `development` and `production` may set.
 const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
 // Each option's [validator, description]; a section is an object of its own options.
@@ -40,6 +45,10 @@ const OPTIONS = {
   devtools: boolean,
   port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
   launch: [(value) => value === false || value === 'ios' || value === 'android', '"ios", "android", or false'],
+  allowedPaths: globs,
+  disallowedPaths: globs,
+  allowedModules: packages,
+  disallowedModules: packages,
   ios: {
     simulator: nonEmpty("a simulator's name, or its UDID"),
     binaryPath: nonEmpty("the path of a simulator's build of the app, an .app"),

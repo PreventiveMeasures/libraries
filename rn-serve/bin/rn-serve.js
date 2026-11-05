@@ -31,6 +31,7 @@ import { prune } from '../src/load-prune.js'
 import { maxWorkersOf, metroOptions } from '@preventive/rn/src/metro-options.js'
 import { REPORTER } from '../src/network.js'
 import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from '@preventive/rn/src/rn-config.js'
+import { restrictionsOf } from '@preventive/rn/src/restrictions.js'
 import { bundlingError, createDevServer } from '../src/serve.js'
 import { bundleName, cacheDirOf, lastBuilds, usersOwn } from '../src/serve-cache.js'
 import { printable } from '../src/terminal.js'
@@ -108,6 +109,7 @@ if (babelFor !== null && values['babel-aliases'] !== undefined) fail("--babel-al
 const stripFlow = flowStripper(project, babelFor !== null)
 const loadCache = cacheDir === null ? null : createLoadCache(cacheDir, { esbuild, flow: stripFlow === null ? null : project.locate('flow-remove-types') })
 const aliases = values['babel-aliases'] === undefined ? null : babelAliases(projectRoot, values['babel-aliases'], fail)
+const restrict = restrictionsOf(rnConfig, projectRoot)
 const devMiddleware = locateThrough(project, '@react-native/dev-middleware', ['react-native', '@react-native/community-cli-plugin'])
 
 // The dev bundler, its server, and the watch that rebuilds on a change.
@@ -122,7 +124,7 @@ const devBundler = createDevBundler({
     const babel = babelFor?.(target) ?? null
     // Its imports checked with inline requires (esm off: transformRefusal), and with esm.
     const esm = esmOf(target.dev).on
-    return { stripFlow, ...babel, aliases, esm, checkImports: esm || target.inlineRequires !== null, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
+    return { stripFlow, ...babel, aliases, esm, checkImports: esm || target.inlineRequires !== null, restrict, define: defines(target.dev, values.define, fail), store: loadCache?.(babel) ?? null }
   },
   onBuild: built,
 })

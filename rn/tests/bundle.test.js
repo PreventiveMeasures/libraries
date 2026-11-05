@@ -7,6 +7,7 @@ import { runInNewContext } from 'node:vm'
 import { buildHost, newState } from '../src/build-host.js'
 import { bundle } from '../src/bundle.js'
 import { diskHost } from '../src/defaults.js'
+import { restrictionsOf } from '../src/restrictions.js'
 import { vfsOf, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
@@ -120,5 +121,34 @@ describe("buildHost, of a host that lists directories", () => {
     const state = newState({ host: vfs, assetExts: [], projectRoot: '/', entry: 'index.js', platform: 'ios' })
     assert.deepEqual(state.resolveImport('/index.js', './lib/a', 'import-statement'), { kind: 'file', key: '/lib/a.js' })
     assert.deepEqual(state.graph.get('/index.js').get('./lib/a'), { type: 'sourceFile', filePath: '/lib/a.js' })
+  })
+})
+
+describe("bundle, of rn.config.json's restrictions", () => {
+  const { root, cleanup } = writeTree({ ...APP, 'polyfill.js': 'globalThis.polyfilled = true\n' })
+  after(cleanup)
+  const options = { entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root, polyfills: [join(root, 'polyfill.js')] }
+  const errorsOf = async (config) => {
+    const failure = await bundle({ ...options, restrict: restrictionsOf(config, root) }).then(() => null, (error) => error)
+    return failure?.errors?.map(({ text, location }) => [text, location === null ? null : `${location.file}:${location.line}`]) ?? []
+  }
+
+  it('builds what they allow', async () => {
+    const result = await bundle({ ...options, restrict: restrictionsOf({ allowedPaths: ['*.js', 'lib/*.{js,ts}', 'node_modules/**'], allowedModules: ['dep'], disallowedModules: ['other'] }, root) })
+    assert.deepEqual(run(js(result)), [1, 2, 'dep'])
+  })
+
+  it('fails on each file of each import they forbid, at the import', async () => {
+    assert.deepEqual(await errorsOf({ disallowedModules: ['dep'] }), [["node_modules/dep/lib/main.js is of dep, which rn.config.json's disallowedModules has", 'index.js:3']])
+    assert.deepEqual(await errorsOf({ allowedPaths: ['*.js', 'node_modules/**'], disallowedPaths: ['**/main.js'] }), [
+      ["lib/value.js matches none of rn.config.json's allowedPaths", 'index.js:1'],
+      ["lib/typed.ts matches none of rn.config.json's allowedPaths", 'index.js:2'],
+      [`node_modules/dep/lib/main.js matches "**/main.js" of rn.config.json's disallowedPaths`, 'index.js:3'],
+    ])
+  })
+
+  it('fails on the entry, and on a polyfill', async () => {
+    assert.deepEqual((await errorsOf({ disallowedPaths: ['index.js'] }))[0], ["index.js matches \"index.js\" of rn.config.json's disallowedPaths", null])
+    assert.deepEqual((await errorsOf({ allowedPaths: ['index.js', 'lib/**', 'node_modules/**'] }))[0][0], "polyfill.js matches none of rn.config.json's allowedPaths")
   })
 })

@@ -7,6 +7,7 @@ import { dirname, relative, resolve } from 'node:path'
 import { EMPTY, newState, posixRelative } from '@preventive/rn/src/build-host.js'
 import { ANY, importWarnings, loadCached, loweredOf, supportedOf, withDefaults } from '@preventive/rn/src/bundle.js'
 import { jsval } from '@preventive/rn/src/jsval.js'
+import { forbidden } from '@preventive/rn/src/restrictions.js'
 import { GLOBAL } from '@preventive/rn/src/serializer.js'
 import { keptOf } from './bundler.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
@@ -83,8 +84,12 @@ async function graphOf(run, state, scripts) {
   visit({ key: entryKey, kind: 'file' })
   // Those to run before the entry, then rn's own, whose imports resolve as the entry's.
   const fromEntry = (specifiers) => specifiers.map((specifier) => state.resolveImport(entryKey, specifier, 'import-statement')).filter((found) => found !== null)
-  const before = [...fromEntry(state.before), ...fromEntry(run.injected).map((found) => ({ ...found, importer: entryKey }))]
+  const runFirst = fromEntry(state.before)
+  const before = [...runFirst, ...fromEntry(run.injected).map((found) => ({ ...found, importer: entryKey }))]
   for (const found of before) visit(found)
+  // rn.config.json's restrictions of the entry, those run before it and the polyfills; not of rn's own (runtime, injected).
+  const taken = [{ kind: 'file', key: entryKey }, ...runFirst, ...run.polyfills.map((key) => ({ kind: 'file', key }))]
+  errors.push(...taken.flatMap((found) => forbidden(run.restrict, found)).map((text) => ({ text, location: null })))
   const scriptsBuilt = Promise.all(scripts.map((path) => scriptOf(run, state, path).catch(fail(path))))
   // Await each newly found module once, not the entire graph again at each depth.
   while (queued.length > 0) {
@@ -126,6 +131,8 @@ async function moduleOf(run, state, { key, kind, importer = key }, visit) {
     built = await buildOf(run, key, source, new Set(resolved.filter(({ found }) => found !== null).map(({ specifier }) => specifier)))
     resolved = resolveAll(built)
   }
+  const restricted = resolved.flatMap(({ found }) => forbidden(run.restrict, found))
+  if (restricted.length > 0) throw Object.assign(new Error('restricted'), { errors: restricted.map((text) => ({ text })) })
   const deps = []
   // By specifier, in a Map: a specifier `__proto__` set on an object would set its prototype.
   const indices = new Map()

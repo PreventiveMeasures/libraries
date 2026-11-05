@@ -63,11 +63,14 @@ export function importResolution(resolveModule, { platform, aliases = null }) {
 }
 
 // A resolution as the bundle takes it: the module, { kind, key }, or null where nothing. Metro builds an
-// asset into the module of its lowest path.
+// asset into the module of its lowest path; its `files` are those of each scale.
 export function resolvedModule(resolution) {
   if (resolution === null) return null
   if (resolution.type === 'empty') return { kind: 'empty', key: EMPTY }
-  if (resolution.type === 'assetFiles') return { kind: 'asset', key: resolution.filePaths.toSorted()[0] }
+  if (resolution.type === 'assetFiles') {
+    const files = resolution.filePaths.toSorted()
+    return { kind: 'asset', key: files[0], files }
+  }
   return { kind: 'file', key: resolution.filePath }
 }
 

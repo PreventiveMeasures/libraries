@@ -8,6 +8,7 @@ import { defaults, diskHost } from './defaults.js'
 import { unmatchedImports } from './esm-imports.js'
 import { jsval } from './jsval.js'
 import { loadFile } from './load.js'
+import { forbidden } from './restrictions.js'
 import { GLOBAL } from './serializer.js'
 
 // Syntax Babel leaves, for esbuild to lower.
@@ -92,6 +93,8 @@ export function withDefaults(options) {
     store: null,
     kept: null,
     checkImports: false,
+    // (path) => the errors of rn.config.json's restrictions of a file the build takes (restrictions.js), or null.
+    restrict: null,
     ...given,
     esm: given.esm === true ? (given.commonJs ?? new Set()) : false,
   }
@@ -229,12 +232,17 @@ export function metroGraph(run, first = null) {
         // Noted before it is found, so that a watcher sees a missing (deleted) entry made.
         const path = resolve(projectRoot, entry)
         read.add(path)
-        return specifier === MAIN ? named(projectRoot, host.realpath(path), MAIN) : file(host.realpath(path))
+        const real = host.realpath(path)
+        return taken(run.restrict, { kind: 'file', key: real }, () => (specifier === MAIN ? named(projectRoot, real, MAIN) : file(real)))
       }
       const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
-      if (namespace === MAIN && specifier.startsWith(POLYFILL)) return named(projectRoot, specifier.slice(POLYFILL.length), 'metro-polyfill')
+      if (namespace === MAIN && specifier.startsWith(POLYFILL)) {
+        const polyfill = specifier.slice(POLYFILL.length)
+        return taken(run.restrict, { kind: 'file', key: polyfill }, () => named(projectRoot, polyfill, 'metro-polyfill'))
+      }
       if (namespace === MAIN && specifier === ENTRY) return file(importer)
-      return resolvedAs(projectRoot, state.resolveImport(importer, specifier, kind, pluginData), file)
+      const found = state.resolveImport(importer, specifier, kind, pluginData)
+      return taken(run.restrict, found, () => resolvedAs(projectRoot, found, file))
     })
     build.onLoad({ filter: ANY, namespace: 'file' }, async ({ path: esbuilt }) => {
       const path = realPath(esbuilt)
@@ -296,6 +304,12 @@ export function resolvedAs(projectRoot, found, file) {
   if (found === null) return undefined
   if (found.kind === 'empty') return { path: 'empty', namespace: EMPTY }
   return found.kind === 'asset' ? named(projectRoot, found.key, ASSET) : file(found.key)
+}
+
+// onResolve's `as()` of a module, but where rn.config.json forbids any of its files (restrictions.js): their errors.
+function taken(restrict, found, as) {
+  const errors = forbidden(restrict, found)
+  return errors.length === 0 ? as() : { errors: errors.map((text) => ({ text })) }
 }
 
 // The onLoad of a file esbuild resolved where Metro resolves nothing (resolvedAs() left it to esbuild).

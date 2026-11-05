@@ -465,7 +465,7 @@ describe('ownModules', () => {
     const at = (dir) => (name) => join(dir, name)
     const serve = ['bundler.js', 'fingerprint.js', 'load-cache.js', 'load-pack.js', 'mappings.js', 'modules.js', 'resolution.js'].map(at(fileURLToPath(new URL('../src/', import.meta.url))))
     // rn's, as rn-serve imports it: @preventive/rn's src/.
-    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'jsval.js', 'load.js', 'module-resolver.js', 'resolve.js', 'serializer.js', 'worklets.js'].map(at(dirname(fileURLToPath(import.meta.resolve('@preventive/rn/src/bundle.js')))))
+    const src = ['assets.js', 'babel-aliases.js', 'babel-switches.js', 'babel-transformer.js', 'babel-worker.js', 'babelrc.js', 'build-host.js', 'bundle.js', 'defaults.js', 'es-module.js', 'esm-imports.js', 'exports.js', 'image-size.js', 'jsval.js', 'load.js', 'module-resolver.js', 'resolve.js', 'restrictions.js', 'serializer.js', 'worklets.js'].map(at(dirname(fileURLToPath(import.meta.resolve('@preventive/rn/src/bundle.js')))))
     assert.deepEqual(ownModules(), [...serve, ...src])
   })
 })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { SourceMap, createRequire } from 'node:module'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { after, describe, it } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,7 @@ import { bundleRequest } from '../src/bundle-url.js'
 import { hotUpdate, moduleName, moduleUrls } from '../src/hot.js'
 import { createLoadCache } from '../src/load-cache.js'
 import { createModuleBundler } from '../src/modules.js'
+import { restrictionsOf } from '@preventive/rn/src/restrictions.js'
 import { prelude } from '@preventive/rn/src/serializer.js'
 import { png, writeTree } from './fixtures.js'
 
@@ -425,6 +426,36 @@ describe("the module format, of babel-plugin-module-resolver's aliases", () => {
     assert.deepEqual(value(run(js).context, 'app'), { a: 'a', b: 'b' })
     // Its require calls of the specifiers as written: Babel left them.
     assert.match(js, /"#lib\/a":0/u)
+  })
+})
+
+describe("the module format, of rn.config.json's restrictions", () => {
+  const { root, cleanup } = writeTree(APP)
+  after(cleanup)
+  const rebuild = (config) => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, restrict: restrictionsOf(config, root) }).rebuild()
+  const errorsOf = async (config) => {
+    const failure = await rebuild(config).then(() => null, (error) => error)
+    return failure?.errors.map(({ text, location }) => [text, location?.file ?? null]) ?? []
+  }
+
+  it("builds what they allow, rn's own runtime not restricted", async () => {
+    // metro-runtime's require.js, of rn-serve's node_modules, is of a package allowedModules lacks.
+    const { js } = await rebuild({ allowedPaths: ['*.js', 'img/**', 'node_modules/**', '../**'], allowedModules: ['react-native', 'react-refresh'] })
+    const { context } = run(js)
+    assert.deepEqual(value(context, 'globalThis.app.logo.id'), 1)
+  })
+
+  it('fails on each file of each import they forbid, in the module that imports it', async () => {
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['img/*.png'] }), [[`img/logo.png matches "img/*.png" of rn.config.json's disallowedPaths`, 'Logo.js']])
+    assert.deepEqual(await errorsOf({ disallowedModules: ['react-refresh'] }), [[`${relative(root, require.resolve('react-refresh/runtime')).replaceAll('\\', '/')} is of react-refresh, which rn.config.json's disallowedModules has`, 'node_modules/react-native/Libraries/Core/InitializeCore.js']])
+  })
+
+  it('fails on the entry, a module run before it, and a polyfill', async () => {
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['{index,polyfill}.js', '**/InitializeCore.js'] }), [
+      [`index.js matches "{index,polyfill}.js" of rn.config.json's disallowedPaths`, null],
+      [`node_modules/react-native/Libraries/Core/InitializeCore.js matches "**/InitializeCore.js" of rn.config.json's disallowedPaths`, null],
+      [`polyfill.js matches "{index,polyfill}.js" of rn.config.json's disallowedPaths`, null],
+    ])
   })
 })
 

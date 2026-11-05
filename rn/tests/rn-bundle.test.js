@@ -438,9 +438,19 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: sourceExts adds svg, which assetExts has: Metro takes a file of it for an asset, and rn.config.json removes none\n'])
   })
 
+  it('fails on each file its restrictions forbid, at the import, each rule on its own', async () => {
+    const r = await bundleWith({ metroConfig: false, disallowedPaths: ['img/*@3x.png'], disallowedModules: ['dual'] })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /img\/logo@3x\.png matches "img\/\*@3x\.png" of rn\.config\.json's disallowedPaths \[plugin metro-graph\]\n\n {4}index\.js:12:36:/u)
+    assert.match(r.stderr, /node_modules\/dual\/rn\.js is of dual, which rn\.config\.json's disallowedModules has \[plugin metro-graph\]\n\n {4}index\.js:6:17:/u)
+    assert.match(r.stderr, /esbuild reported 2 error\(s\)\n$/u)
+    const allowed = await bundleWith({ metroConfig: false, allowedPaths: ['*.js', '{lib,img,fonts}/**', 'node_modules/**'], allowedModules: ['dual', 'react-native', '@react-native/assets-registry'] })
+    assert.equal(allowed.status, 0, allowed.stderr)
+  })
+
   it('refuses an option it does not know, and takes devtools, which is of rn-serve', async () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
-    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, android, development, production\n'])
+    assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, allowedPaths, disallowedPaths, allowedModules, disallowedModules, ios, android, development, production\n'])
     assert.equal((await bundleWith({ metroConfig: false, devtools: true })).status, 0)
   })
 })
