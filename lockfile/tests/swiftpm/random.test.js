@@ -4,7 +4,7 @@ import { describe, it } from 'node:test'
 import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
 import { random } from '../random.js'
 import { FIXTURES } from './fixtures.js'
-import { write } from './write.js'
+import { readPin, write } from './write.js'
 
 // The fixtures with edits at random: a piece put in, characters taken out
 // or swapped for a piece, or two lines swapped. Whatever is refused is
@@ -65,14 +65,11 @@ describe('the fixtures edited at random', () => {
 
 // Milliseconds of CPU spent since `start`: what the work cost, which a
 // machine busy with other tests stretches on the clock and not here.
-const cpuMs = (start) => {
-  const { user, system } = cpuUsage(start)
-  return (user + system) / 1000
-}
+const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
 describe('the work, bound by the file', () => {
   const REV = 'e3da04078777e6a1b72ce19981fbd6539b0847d8'
-  const pin = (identity, state) => ({ identity, kind: 'remoteSourceControl', location: `https://x.org/${identity}`, name: undefined, originalLocation: undefined, version: undefined, branch: undefined, revision: REV, ...state })
+  const pin = (identity, state) => readPin({ identity, location: `https://x.org/${identity}`, revision: REV, ...state })
   const v2 = (pins) => `${write({ version: 2, originHash: undefined, pins })}\n`
   const LONG = 2 ** 20 - 64
 

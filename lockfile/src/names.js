@@ -182,12 +182,19 @@ export function readIntegrities(value, where) {
 const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
 const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[^@/:\\[\]]+):(?!:|\/\/)/u
 
-export const isHostUrl = (url) => (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\'))
+const isHostUrl = (url) => (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\'))
 
-// git on Windows reads one character and a colon, `x:path`, as a path on
-// the drive x:, and elsewhere as the host x; `user@x:path` is the host to
-// both, and so is `[` and a colon, which the path after makes no path.
-export const isDrivePath = (url) => /^[^[]:(?!:)/u.test(url)
+// git on Windows, and `tool` there, read one character and a colon,
+// `x:path`, as a path on the drive x:, and elsewhere as the host x;
+// `user@x:path` is the host to both, and so is `[` and a colon, which the
+// path after makes no path.
+const DRIVE = /^[^[]:(?!:)/u
+
+export function checkHostUrl(url, where, tool) {
+  if (DRIVE.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to ${tool} on Windows, and a host's to git elsewhere`, where)
+  if (!isHostUrl(url)) throw new LockfileError(`${quote(url)} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`, where)
+  return url
+}
 
 // An http(s) URL that is the URL fetched as it is written: no space or
 // control, which the URL parser drops, or trims, where a reader of the

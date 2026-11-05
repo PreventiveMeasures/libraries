@@ -1,132 +1,79 @@
 // Package.resolved exactly as SwiftPM writes it: version 1 with TSCBasic's
 // JSON, `"key": value`, and 2 and 3 with Foundation's JSONEncoder, `"key" :
-// value`, each pretty-printed, two spaces a level and the keys of each
-// object sorted. The file is ended at the last `}`, where SwiftPM adds a line
-// end from 5.6, but on Windows, and an editor may add more. JSON.parse takes
-// more, and reads a key given twice as the last, as SwiftPM's JSONDecoder
-// does on one platform and not on another.
+// value`, each pretty-printed, two spaces a level, the keys of each object
+// sorted, and a string as JSON.stringify writes it. The file is ended at the
+// last `}`, where SwiftPM adds a line end from 5.6, but on Windows, and an
+// editor may add more. A file read here is the one SwiftPM writes again of
+// what JSON.parse reads of it; JSON.parse alone takes more, and reads a key
+// given twice as the last, as SwiftPM's JSONDecoder does on one platform and
+// not on another.
 
-import { quote } from '../error.js'
-import { advance, fail, lines, readJsonString, rest } from '../lines.js'
+import { LockfileError, at, attempt, quote, raise } from '../error.js'
+import { advance, fail, lines } from '../lines.js'
 
 // Never in a Package.resolved: a control, which both writers escape and no
 // field may have; a lone surrogate, which no Swift string holds; and a byte
 // order mark, which neither writes.
 const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF]/u
 
-// The deepest a container is in one, in spaces: a pin's state, of version 1.
-const DEEPEST = 8
+// The levels of containers a Package.resolved nests, a pin's state of
+// version 1 the deepest: a bound on the walk below, past which nothing is
+// one SwiftPM writes.
+const DEPTH = 5
 
-// A string as both write it, which JSON.stringify does too: the escapes of
-// `"`, `\` and controls, and no others, `/` among them.
-function readString(line, pos, number) {
-  const [value, end] = readJsonString(line, pos, number)
-  if (!value.isWellFormed()) throw fail(`${quote(line.slice(pos, end))} escapes a lone surrogate, which no Swift string has`, number)
-  if (/\p{Cc}/u.test(value)) throw fail(`${quote(line.slice(pos, end))} escapes a control, which no field SwiftPM writes has`, number)
-  return [value, end]
-}
-
-// Whether a comma ends the line, as one does an entry but the last.
-function readEnd(line, pos, number) {
-  if (pos === line.length || (line[pos] === ',' && pos + 1 === line.length)) return pos < line.length
-  throw fail(`expected "," or the end of the line, found ${rest(line, pos)}`, number)
-}
-
-// A value at `pos` of a line `indent` spaces in, and whether a comma
-// follows it.
-function readValue(src, pos, indent) {
-  const { line, number } = src
-  if (line[pos] === '"') {
-    const [value, end] = readString(line, pos, number)
-    return [value, readEnd(line, end, number)]
+// Objects as mappings with a null prototype, so a key is only ever a key;
+// and each string one SwiftPM writes, as JSON.stringify writes an escaped
+// control and lone surrogate back as they are.
+function toRecords(value, where, depth) {
+  if (typeof value === 'string') {
+    if (!value.isWellFormed()) throw new LockfileError('a lone surrogate, escaped, which no Swift string has', where)
+    if (/\p{Cc}/u.test(value)) throw new LockfileError(`${quote(value)} has a control, escaped, which no field SwiftPM writes has`, where)
   }
-  if (line.startsWith('null', pos)) return [null, readEnd(line, pos + 4, number)]
-  const digits = /^(?:0|[1-9]\d*)/u.exec(line.slice(pos, pos + 20))?.[0]
-  if (digits !== undefined) {
-    if (!Number.isSafeInteger(Number(digits))) throw fail(`${digits} is past 2^53, of no number SwiftPM writes`, number)
-    return [Number(digits), readEnd(line, pos + digits.length, number)]
+  if (typeof value !== 'object' || value === null) return value
+  if (depth === DEPTH) throw new LockfileError(`nested more than ${DEPTH} deep, as no Package.resolved is`, where)
+  if (Array.isArray(value)) return value.map((item, index) => toRecords(item, `${where ?? ''}[${index}]`, depth + 1))
+  const record = Object.create(null)
+  for (const [key, item] of Object.entries(value)) record[key] = toRecords(item, at(where ?? '', key), depth + 1)
+  return record
+}
+
+// The lines SwiftPM writes of a value `indent` spaces in, with `colon` after
+// a key, into `out`: the first after `head`, the last before `tail`. An empty
+// container is its brackets a blank line apart, as TSCBasic writes one, and
+// SwiftPM writes none. Each line once, as a file of many pins has millions.
+function write(value, colon, head, indent, tail, out) {
+  if (typeof value !== 'object' || value === null) {
+    out.push(`${head}${JSON.stringify(value)}${tail}`)
+    return
   }
-  if ((line[pos] === '{' || line[pos] === '[') && pos + 1 === line.length) {
-    if (indent > DEEPEST) throw fail('a container deeper than any SwiftPM writes', number)
-    return line[pos] === '{' ? readObject(src, indent) : readArray(src, indent)
-  }
-  throw fail(`expected a string, a number, null, or "{" or "[" ending the line, found ${rest(line, pos)}`, number)
+  const inner = `${indent}  `
+  const array = Array.isArray(value)
+  const items = array ? value.map((item) => [inner, item]) : Object.keys(value).sort().map((key) => [`${inner}${JSON.stringify(key)}${colon}`, value[key]])
+  out.push(`${head}${array ? '[' : '{'}`)
+  if (items.length === 0) out.push('')
+  for (const [index, [prefix, item]] of items.entries()) write(item, colon, prefix, inner, index < items.length - 1 ? ',' : '', out)
+  out.push(`${indent}${array ? ']' : '}'}${tail}`)
 }
 
-// What closes a container `indent` spaces in, and whether a comma follows.
-function readClose(src, indent, bracket, what) {
-  advance(src)
-  const { line, number } = src
-  const close = `${' '.repeat(indent)}${bracket}`
-  if (line === undefined) throw fail(`expected ${quote(close)}, closing the ${what}, found the end of the file`, number + 1)
-  if (line !== close && line !== `${close},`) throw fail(`expected ${quote(close)}, closing the ${what}, found ${quote(line)}`, number)
-  return line !== close
-}
-
-// The next line, which has to be `inner` spaces in and no more, and not the
-// end of a container with nothing in it: `empty` says why there is none,
-// whichever way it is written, as `]` or `}` at once or after a blank line,
-// as TSCBasic writes one.
-function advanceTo(src, inner, expected, empty) {
-  advance(src)
-  const { line, number } = src
-  if (line === undefined) throw fail(`expected ${expected}, found the end of the file`, number + 1)
-  if (/^ *(?:[\]}],?)?$/u.test(line)) throw fail(empty, number)
-  if (!line.startsWith(' '.repeat(inner)) || line[inner] === ' ') throw fail(`expected ${inner} spaces of indentation and ${expected}`, number)
-  return line
-}
-
-// The separator after a key: `": "` of TSCBasic, `" : "` of JSONEncoder,
-// whichever the file's first key has, and the same after every other.
-function readColon(src, line, end, key) {
-  src.colon ??= [' : ', ': '].find((colon) => line.startsWith(colon, end))
-  if (src.colon === undefined) throw fail(`expected ": " or " : " after ${quote(key)}, found ${rest(line, end)}`, src.number)
-  if (!line.startsWith(src.colon, end)) throw fail(`expected ${quote(src.colon)} after ${quote(key)}, as after the file's first key, found ${rest(line, end)}`, src.number)
-  return end + src.colon.length
-}
-
-// An object whose `{` ends a line `indent` spaces in, its keys sorted as
-// both writers sort them, each once; and whether a comma follows its `}`.
-function readObject(src, indent) {
-  const object = Object.create(null)
-  let previous
-  for (let more = true; more;) {
-    const line = advanceTo(src, indent + 2, 'a key', previous === undefined ? 'an empty object, which SwiftPM writes none of' : 'expected a key after ","')
-    if (line[indent + 2] !== '"') throw fail(`expected a key, found ${rest(line, indent + 2)}`, src.number)
-    const [key, end] = readString(line, indent + 2, src.number)
-    if (previous !== undefined && key <= previous) {
-      throw fail(key === previous ? `${quote(key)} is the key before too` : `${quote(key)} after ${quote(previous)}, where SwiftPM sorts an object's keys`, src.number)
-    }
-    previous = key
-    ;[object[key], more] = readValue(src, readColon(src, line, end, key), indent + 2)
-  }
-  return [object, readClose(src, indent, '}', 'object')]
-}
-
-// An array whose `[` ends a line `indent` spaces in. The one array of a
-// Package.resolved is its pins, which SwiftPM writes none of empty: it
-// removes the file instead.
-function readArray(src, indent) {
-  const array = []
-  for (let more = true; more;) {
-    advanceTo(src, indent + 2, 'a value', array.length === 0 ? 'an empty array, of no pins, where SwiftPM removes the file instead' : 'expected a value after ","')
-    let item
-    ;[item, more] = readValue(src, indent + 2, indent + 2)
-    array.push(item)
-  }
-  return [array, readClose(src, indent, ']', 'array')]
-}
-
-// The file's top object, and the separator its keys have.
+// Every line held to what no line SwiftPM writes has, line ends of one kind,
+// as lines.js reads them; and the value JSON.parse reads.
 export function readJson(text) {
   const src = lines(text, FORBIDDEN)
-  src.colon = undefined
-  advance(src)
-  if (src.line !== '{') throw fail(`expected "{" alone on the first line, found ${src.line === undefined ? 'nothing' : quote(src.line)}`, src.number)
-  const [root, comma] = readObject(src, 0)
-  if (comma) throw fail('a comma after the last "}"', src.number)
-  for (advance(src); src.line !== undefined; advance(src)) {
-    if (src.line !== '') throw fail(`expected the end of the file after the last "}", found ${quote(src.line)}`, src.number)
-  }
-  return { root, colon: src.colon }
+  do advance(src)
+  while (src.line !== undefined)
+  return { value: toRecords(attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`)), undefined, 0), crlf: src.crlf === true }
+}
+
+// The text held to what the writer of `version` writes of `value`, line by
+// line, to the last `}` and any line ends after.
+export function checkLayout(text, { value, crlf }, version) {
+  const written = []
+  write(value, version === 1 ? ': ' : ' : ', '', '', '', written)
+  const found = text.split(crlf ? '\r\n' : '\n')
+  let line = 0
+  while (line < written.length && found[line] === written[line]) line++
+  if (line === written.length && found.slice(line).every((rest) => rest === '')) return
+  const writer = version === 1 ? 'TSCBasic\'s JSON' : 'JSONEncoder'
+  const expected = line < written.length ? quote(written[line]) : 'the end of the file'
+  throw fail(`expected ${expected}, as SwiftPM writes version ${version} with ${writer}, found ${line < found.length ? quote(found[line]) : 'the end of the file'}`, line)
 }

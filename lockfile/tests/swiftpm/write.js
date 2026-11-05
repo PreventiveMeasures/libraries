@@ -29,3 +29,9 @@ export function write({ version, originHash, pins }) {
   }))
   return encode({ originHash, pins: list, version }, ' : ')
 }
+
+// A pin as parsePackageResolved reads it: a repository's, each field
+// undefined but those given.
+export const readPin = (fields) => ({
+  identity: undefined, kind: 'remoteSourceControl', location: undefined, name: undefined, originalLocation: undefined, version: undefined, branch: undefined, revision: undefined, ...fields,
+})

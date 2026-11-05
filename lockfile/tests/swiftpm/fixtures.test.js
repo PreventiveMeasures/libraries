@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
 import { FIXTURES } from './fixtures.js'
+import { readPin } from './write.js'
 
 // The baseline: real lockfiles, each with the manifest of its root package,
 // written by `swift package resolve` of SwiftPM 6.4.2: a package of each
@@ -18,13 +19,13 @@ const manifest = (name) => FIXTURES[`swiftpm-6.4.2-${name}`].manifest
 
 const plain = (value) => structuredClone(value)
 
-const repository = (identity, location, state, name) => ({ identity, kind: 'remoteSourceControl', location, name, originalLocation: undefined, version: undefined, branch: undefined, ...state })
+const repository = (identity, location, state, name) => readPin({ identity, location, name, ...state })
 
 const ATOMICS = (name) => repository('swift-atomics', 'https://github.com/Apple/Swift-Atomics.git', { branch: 'main', revision: 'bc30c67cf0c4479633621ad7950d71494a07390f' }, name)
 const LOG = (name) => repository('swift-log', 'https://github.com/apple/swift-log.git', { version: '1.6.1', revision: '9cb486020ebf03bfa5b5df985387a14a98744537' }, name)
 const NUMERICS = (name) => repository('swift-numerics', 'https://github.com/apple/swift-numerics', { revision: '0a5bc04095a675662cf24757cc0640aa2204253b' }, name)
 
-const LINKED_LIST = { identity: 'mona.LinkedList', kind: 'registry', location: undefined, name: undefined, originalLocation: undefined, version: '1.2.0', branch: undefined, revision: undefined }
+const LINKED_LIST = readPin({ identity: 'mona.LinkedList', kind: 'registry', version: '1.2.0' })
 
 describe('a package of each kind of pin a repository has, as SwiftPM 6.4.2 writes it', () => {
   it('version 1, of tools version 5.5: each by its location, with the name its manifest gives the package', () => {

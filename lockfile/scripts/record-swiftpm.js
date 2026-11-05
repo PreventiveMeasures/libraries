@@ -168,13 +168,15 @@ const KINDS = [LOG, ATOMICS, NUMERICS]
 const LINKED_LIST = '.package(id: "mona.LinkedList", exact: "1.2.0")'
 const LINKED_LIST_SCM = '.package(url: "https://github.com/mona/LinkedList", exact: "1.2.0")'
 
-const RUNS = {
-  [`swiftpm-${VERSION}-v1`]: () => resolve('v1', '5.5', KINDS),
-  [`swiftpm-${VERSION}-v2`]: () => resolve('v2', '5.9', KINDS),
-  [`swiftpm-${VERSION}-v3`]: () => resolve('v3', '6.0', [...KINDS, COLLECTIONS, TRACING]),
-  [`swiftpm-${VERSION}-registry`]: () => resolve('registry', '6.0', [LINKED_LIST, LOG], { registry: true }),
-  [`swiftpm-${VERSION}-scm-registry`]: () => resolve('scm-registry', '6.0', [LINKED_LIST_SCM, LOG], { registry: true, flags: ['--replace-scm-with-registry'] }),
-}
+// By the run's name, its root's tools version, what it depends on, and how
+// it is resolved.
+const RUNS = Object.fromEntries(Object.entries({
+  v1: ['5.5', KINDS],
+  v2: ['5.9', KINDS],
+  v3: ['6.0', [...KINDS, COLLECTIONS, TRACING]],
+  registry: ['6.0', [LINKED_LIST, LOG], { registry: true }],
+  'scm-registry': ['6.0', [LINKED_LIST_SCM, LOG], { registry: true, flags: ['--replace-scm-with-registry'] }],
+}).map(([name, args]) => [`swiftpm-${VERSION}-${name}`, () => resolve(name, ...args)]))
 
 const names = process.argv.length > 2 ? process.argv.slice(2) : Object.keys(RUNS)
 const unknown = names.find((name) => !(name in RUNS))

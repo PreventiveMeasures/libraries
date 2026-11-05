@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { describe, it } from 'node:test'
-import { sha256Hex } from '../../src/sha256.js'
+import { sha256Hex } from '../../src/sha.js'
 import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
-import { encode } from './write.js'
+import { encode, readPin } from './write.js'
 
 const HASH = 'a83bcc1eb645238502fa7c4471445697b0bf0c316057bdde9bfb30d907d2232c'
 const REV = 'e3da04078777e6a1b72ce19981fbd6539b0847d8'
@@ -41,59 +41,67 @@ describe('the layout SwiftPM writes', () => {
     assert.deepEqual(plain(read(v3([pin()]))), {
       version: 3,
       originHash: HASH,
-      pins: { 'swift-log': { identity: 'swift-log', kind: 'remoteSourceControl', location: LOG_URL, name: undefined, originalLocation: undefined, version: '1.6.1', branch: undefined, revision: REV } },
+      pins: { 'swift-log': readPin({ identity: 'swift-log', location: LOG_URL, version: '1.6.1', revision: REV }) },
     })
   })
 
-  it('refuses the separator of the other writer', () => {
-    refuses(`${encode({ object: { pins: [legacy()] }, version: 1 }, ' : ')}\n`, 'version', 'version: version 1 is written by TSCBasic\'s JSON, with ": " after a key, not " : "')
-    refuses(`${encode({ pins: [pin()], version: 2 }, ': ')}\n`, 'version', 'version: version 2 is written by JSONEncoder, with " : " after a key, not ": "')
-    refuses(v2([pin()]).replace('"kind" : ', '"kind": '), undefined, /^expected " : " after "kind", as after the file's first key, found .* at line 5$/u)
+  // The first line the file has otherwise, and what SwiftPM writes there.
+  const otherwise = (version, line, expected, found) => {
+    const writer = version === 1 ? 'TSCBasic\'s JSON' : 'JSONEncoder'
+    return `expected ${JSON.stringify(expected)}, as SwiftPM writes version ${version} with ${writer}, found ${JSON.stringify(found)} at line ${line}`
+  }
+
+  it('refuses the separator of the other writer, of the version the file says', () => {
+    refuses(`${encode({ object: { pins: [legacy()] }, version: 1 }, ' : ')}\n`, undefined, otherwise(1, 2, '  "object": {', '  "object" : {'))
+    refuses(`${encode({ pins: [pin()], version: 2 }, ': ')}\n`, undefined, otherwise(2, 2, '  "pins" : [', '  "pins": ['))
+    refuses(v2([pin()]).replace('"kind" : ', '"kind": '), undefined, otherwise(2, 5, '      "kind" : "remoteSourceControl",', '      "kind": "remoteSourceControl",'))
   })
 
-  it('refuses JSON laid out otherwise', () => {
-    refuses('', undefined, 'expected "{" alone on the first line, found nothing at line 1')
-    refuses(JSON.stringify({ pins: [pin()], version: 2 }), undefined, /^expected "\{" alone on the first line/u)
-    refuses(JSON.stringify({ pins: [pin()], version: 2 }, null, 4), undefined, 'expected 2 spaces of indentation and a key at line 2')
+  it('refuses what is not JSON, and JSON laid out otherwise', () => {
+    for (const text of ['', v2([pin()]).replace('"version" : 2', '"version" : 2,'), `${v2([pin()]).trimEnd()},\n`, `${v2([pin()])}{}\n`, v2([pin()]).replace('"version" : 2', '"version" : 02')]) {
+      refuses(text, undefined, /^not JSON: /u)
+    }
+    refuses(JSON.stringify({ pins: [pin()], version: 2 }), undefined, /^expected "\{", as SwiftPM writes version 2 with JSONEncoder, found .* at line 1$/u)
+    refuses(JSON.stringify({ pins: [pin()], version: 2 }, null, 4), undefined, otherwise(2, 2, '  "pins" : [', '    "pins": ['))
+    refuses(v2([pin()]).replace('"version" : 2', '"version" : 2.0'), undefined, otherwise(2, 13, '  "version" : 2', '  "version" : 2.0'))
+    refuses('[\n  1\n]\n', undefined, 'expected a mapping, found a sequence')
+  })
+
+  it('refuses a character no line SwiftPM writes has, and line ends of two kinds', () => {
     refuses(`\uFEFF${v2([pin()])}`, undefined, 'U+FEFF is not allowed at line 1')
     refuses(v2([pin()]).replace('  "pins"', '\t"pins"'), undefined, 'U+0009 is not allowed at line 2')
-    refuses(v2([pin()]).replace('"version" : 2', '"version" : 2,'), undefined, 'expected a key after "," at line 14')
-    refuses(`${v2([pin()]).trimEnd()},\n`, undefined, 'a comma after the last "}" at line 14')
-    refuses(`${v2([pin()])}{}\n`, undefined, 'expected the end of the file after the last "}", found "{}" at line 15')
-    refuses(v2([pin()]).replace('"version" : 2', '"version" : 02'), undefined, 'expected "," or the end of the line, found "2" at line 13')
-    refuses(v2([pin()]).replace('"version" : 2', '"version" : 2.0'), undefined, /^expected "," or the end of the line/u)
-  })
-
-  it('takes line ends after the last "}", and refuses line ends of two kinds', () => {
-    assert.equal(read(`${v2([pin()])}\n\n`).version, 2)
     refuses(v2([pin()]).replace('\n', '\r\n'), undefined, 'a LF line end, after CRLF ones at line 2')
   })
 
+  it('takes the end of the file at the last "}", or line ends after it', () => {
+    for (const end of ['', '\n', '\n\n']) assert.equal(read(`${v2([pin()]).trimEnd()}${end}`).version, 2)
+    refuses(`${v2([pin()]).trimEnd()}\n \n`, undefined, otherwise(2, 15, '', ' ').replace('expected ""', 'expected the end of the file'))
+  })
+
   it('refuses keys out of order or twice', () => {
-    refuses(v2([pin()]).replace('"identity" : "swift-log",\n      "kind" : "remoteSourceControl"', '"kind" : "remoteSourceControl",\n      "identity" : "swift-log"'), undefined,
-      '"identity" after "kind", where SwiftPM sorts an object\'s keys at line 5')
-    refuses(v2([pin()]).replace('"kind" : "remoteSourceControl"', '"identity" : "swift-log"'), undefined, '"identity" is the key before too at line 5')
+    const swapped = v2([pin()]).replace('"identity" : "swift-log",\n      "kind" : "remoteSourceControl"', '"kind" : "remoteSourceControl",\n      "identity" : "swift-log"')
+    refuses(swapped, undefined, otherwise(2, 4, '      "identity" : "swift-log",', '      "kind" : "remoteSourceControl",'))
+    const twice = v2([pin()]).replace('"kind" : "remoteSourceControl"', '"identity" : "swift-log"')
+    refuses(twice, undefined, otherwise(2, 5, `      "location" : "${LOG_URL}",`, '      "identity" : "swift-log",'))
   })
 
   it('refuses escapes but of " and \\, and what JSON.stringify would not write', () => {
-    refuses(v2([pin()]).replace('https://github.com/', 'https:\\/\\/github.com\\/'), undefined, /is not written as JSON writes/u)
+    refuses(v2([pin()]).replace('https://github.com/', 'https:\\/\\/github.com\\/'), undefined, otherwise(2, 6, `      "location" : "${LOG_URL}",`, '      "location" : "https:\\/\\/github.com\\/apple/swift-log.git",'))
     const branch = (raw) => v2([pin({ branch: 'main', revision: REV })]).replace('"main"', raw)
     assert.equal(read(branch(String.raw`"a\"b"`)).pins['swift-log'].branch, 'a"b')
-    refuses(branch(String.raw`"a\nb"`), undefined, /escapes a control, which no field SwiftPM writes has at line 8$/u)
-    refuses(branch(String.raw`"\ud800"`), undefined, /escapes a lone surrogate/u)
-    refuses(branch('"\\u0061"'), undefined, /is not written as JSON writes "a"/u)
+    refuses(branch(String.raw`"a\nb"`), 'pins[0].state.branch', 'pins[0].state.branch: "a\\nb" has a control, escaped, which no field SwiftPM writes has')
+    refuses(branch(String.raw`"\ud800"`), 'pins[0].state.branch', 'pins[0].state.branch: a lone surrogate, escaped, which no Swift string has')
+    refuses(branch('"\\u0061"'), undefined, otherwise(2, 8, '        "branch" : "a",', '        "branch" : "\\u0061",'))
   })
 
-  it('refuses no pins, as SwiftPM removes the file instead', () => {
-    const message = /^an empty array, of no pins, where SwiftPM removes the file instead at line [23]$/u
-    refuses('{\n  "pins" : [\n\n  ],\n  "version" : 2\n}\n', undefined, message)
-    refuses('{\n  "pins" : [\n  ],\n  "version" : 2\n}\n', undefined, message)
-    refuses('{\n  "object": {\n    "pins": [\n\n    ]\n  },\n  "version": 1\n}\n', undefined, /^an empty array/u)
+  it('refuses no pins, written as TSCBasic writes an empty array, as SwiftPM removes the file instead', () => {
+    refuses('{\n  "pins" : [\n\n  ],\n  "version" : 2\n}\n', 'pins', 'pins: no pins, where SwiftPM removes the file instead')
+    refuses('{\n  "object": {\n    "pins": [\n\n    ]\n  },\n  "version": 1\n}\n', 'object.pins', 'object.pins: no pins, where SwiftPM removes the file instead')
+    refuses('{\n  "pins" : [],\n  "version" : 2\n}\n', undefined, otherwise(2, 2, '  "pins" : [', '  "pins" : [],'))
   })
 
   it('refuses a container deeper than any SwiftPM writes', () => {
-    const deep = v2([pin({ revision: REV, version: { a: { b: {} } } })])
-    refuses(deep, undefined, /^a container deeper than any SwiftPM writes at line 10$/u)
+    refuses(v2([pin({ revision: REV, version: { a: { b: {} } } })]), 'pins[0].state.version.a', 'pins[0].state.version.a: nested more than 5 deep, as no Package.resolved is')
   })
 })
 
@@ -208,16 +216,15 @@ describe('a repository\'s location and identity', () => {
 
 describe('a registry\'s pin', () => {
   it('by its identity, at a version, and where it was looked up from', () => {
-    assert.deepEqual(plain(read(v2([registry({ originalLocation: 'https://github.com/mona/LinkedList' })])).pins['mona.LinkedList']), {
-      identity: 'mona.LinkedList', kind: 'registry', location: undefined, name: undefined, originalLocation: 'https://github.com/mona/LinkedList', version: '1.2.0', branch: undefined, revision: undefined,
-    })
+    assert.deepEqual(plain(read(v2([registry({ originalLocation: 'https://github.com/mona/LinkedList' })])).pins['mona.LinkedList']),
+      readPin({ identity: 'mona.LinkedList', kind: 'registry', originalLocation: 'https://github.com/mona/LinkedList', version: '1.2.0' }))
   })
 
   it('refuses a location, a branch, a revision, and no version', () => {
     refuses(v2([registry({ location: 'https://x.org/a' })]), 'pins[0].location', 'pins[0].location: "https://x.org/a" where SwiftPM writes "", the location of no registry\'s package')
     refuses(v2([registry({}, { revision: REV, version: '1.2.0' })]), 'pins[0].state.revision', /SwiftPM writes no revision of a registry's package/u)
     refuses(v2([registry({}, { branch: 'main', version: '1.2.0' })]), 'pins[0].state.branch', /SwiftPM writes no branch/u)
-    refuses(v2([registry({}, {})]), undefined, /^an empty object/u)
+    refuses(v2([registry({}, {})]), 'pins[0].state', 'pins[0].state: expected version, which SwiftPM writes of every registry\'s package')
     refuses(v2([registry({}, { version: '1.2' })]), 'pins[0].state.version')
     refuses(v2([registry({ originalLocation: '/src/LinkedList' })]), 'pins[0].originalLocation', /on the machine that wrote the lockfile/u)
   })
@@ -258,7 +265,7 @@ describe('the pins together', () => {
 describe('version 1', () => {
   it('a name, and each field of the state, null where none', () => {
     const resolved = read(v1([legacy({ branch: 'main', version: null }, { package: 'Logging' })]))
-    assert.deepEqual(plain(resolved.pins['swift-log']), { identity: 'swift-log', kind: 'remoteSourceControl', location: LOG_URL, name: 'Logging', originalLocation: undefined, version: undefined, branch: 'main', revision: REV })
+    assert.deepEqual(plain(resolved.pins['swift-log']), readPin({ identity: 'swift-log', location: LOG_URL, name: 'Logging', branch: 'main', revision: REV }))
   })
 
   it('refuses a field left out, and a name of null, which SwiftPM writes of none', () => {

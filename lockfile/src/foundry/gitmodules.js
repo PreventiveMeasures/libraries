@@ -3,7 +3,7 @@
 // read alike, and what they do not ignore with a warning.
 
 import { LockfileError, at, quote } from '../error.js'
-import { checkRefName, checkRelative, checkRepo, isDrivePath, isHostUrl } from '../names.js'
+import { checkHostUrl, checkRefName, checkRelative, checkRepo } from '../names.js'
 import { checkOptions, field, record } from '../shape.js'
 import { readConfig } from './config.js'
 
@@ -73,12 +73,10 @@ function readUrl(value, where) {
 
 function checkUrl(value, where) {
   const url = readUrl(value, where)
-  if (isDrivePath(url)) throw new LockfileError(`${quote(url)} is a path on a drive to git on Windows, and a host's to git elsewhere`, where)
-  if (isHostUrl(url)) return url
-  // Not a path on the machine that clones, or one relative to the
-  // superproject's remote, which only its clone knows.
+  // Not one relative to the superproject's remote, which only its clone
+  // knows, nor a path on the machine that clones.
   if (/^\.\.?\//u.test(url)) throw new LockfileError(`${quote(url)} is relative to the superproject's remote, which only a clone of it knows`, where)
-  throw new LockfileError(`${quote(url)} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`, where)
+  return checkHostUrl(url, where, 'git')
 }
 
 // One header for each submodule, and a key once in it: git's submodule

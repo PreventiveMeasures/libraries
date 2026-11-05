@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { cpuUsage } from 'node:process'
 import { describe, it } from 'node:test'
 import { LockfileError, parsePodfileLock } from '../../cocoapods.js'
-import { sha1Hex } from '../../src/cocoapods/sha1.js'
+import { sha1Hex } from '../../src/sha.js'
 import { random } from '../random.js'
 
 // Milliseconds of CPU spent since `start`: what the work cost, which a
