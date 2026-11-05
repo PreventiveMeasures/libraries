@@ -237,7 +237,7 @@ export function metroGraph(run, first = null) {
       const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
       if (namespace === MAIN && specifier.startsWith(POLYFILL)) {
         const polyfill = specifier.slice(POLYFILL.length)
-        return taken(state, { kind: 'file', key: polyfill }, () => named(projectRoot, polyfill, 'metro-polyfill'))
+        return taken(state, state.fileOf(polyfill), () => named(projectRoot, polyfill, 'metro-polyfill'))
       }
       if (namespace === MAIN && specifier === ENTRY) return file(importer)
       const found = state.resolveImport(importer, specifier, kind, pluginData)

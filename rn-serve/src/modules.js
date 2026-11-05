@@ -87,7 +87,7 @@ async function graphOf(run, state, scripts) {
   const before = [...runFirst, ...fromEntry(run.injected).map((found) => ({ ...found, importer: entryKey }))]
   for (const found of before) visit(found)
   // rn.config.json's restrictions of the entry, those run before it and the polyfills; not of rn's own (runtime, injected).
-  const taken = [{ kind: 'file', key: entryKey }, ...runFirst, ...run.polyfills.map((key) => ({ kind: 'file', key }))]
+  const taken = [{ kind: 'file', key: entryKey }, ...runFirst, ...run.polyfills.map((path) => state.fileOf(path))]
   errors.push(...taken.flatMap((found) => state.forbidden(found)).map((text) => ({ text, location: null })))
   const scriptsBuilt = Promise.all(scripts.map((path) => scriptOf(run, state, path).catch(fail(path))))
   // Await each newly found module once, not the entire graph again at each depth.

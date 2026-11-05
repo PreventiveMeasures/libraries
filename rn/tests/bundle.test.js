@@ -125,11 +125,11 @@ describe("buildHost, of a host that lists directories", () => {
 })
 
 describe("bundle, of rn.config.json's restrictions", () => {
-  const { root, cleanup } = writeTree({ ...APP, 'polyfill.js': 'globalThis.polyfilled = true\n' })
+  const { root, cleanup } = writeTree({ ...APP, 'polyfill.js': 'globalThis.polyfilled = true\n', 'linked.js': { link: 'private/polyfill.js' }, 'private/polyfill.js': 'globalThis.polyfilled = true\n' })
   after(cleanup)
   const options = { entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root, polyfills: [join(root, 'polyfill.js')] }
-  const errorsOf = async (config) => {
-    const failure = await bundle({ ...options, restrict: restrictionsOf(config, root) }).then(() => null, (error) => error)
+  const errorsOf = async (config, more = {}) => {
+    const failure = await bundle({ ...options, restrict: restrictionsOf(config, root), ...more }).then(() => null, (error) => error)
     return failure?.errors?.map(({ text, location }) => [text, location === null ? null : `${location.file}:${location.line}`]) ?? []
   }
 
@@ -152,6 +152,12 @@ describe("bundle, of rn.config.json's restrictions", () => {
   it('fails on the entry, and on a polyfill', async () => {
     assert.deepEqual((await errorsOf({ disallowedPaths: ['index.js'] }))[0], ["index.js matches \"index.js\" of rn.config.json's disallowedPaths", null])
     assert.deepEqual((await errorsOf({ allowedPaths: ['index.js', 'lib/**', 'node_modules/**'] }))[0][0], "polyfill.js matches none of rn.config.json's allowedPaths")
+  })
+
+  it("checks a polyfill by its real path, from the project root where it isn't absolute", async () => {
+    for (const polyfill of [join(root, 'linked.js'), 'linked.js']) {
+      assert.deepEqual(await errorsOf({ disallowedPaths: ['private/**'] }, { polyfills: [polyfill] }), [[`private/polyfill.js matches "private/**" of rn.config.json's disallowedPaths`, 'metro-main:index.js:1']], polyfill)
+    }
   })
 })
 

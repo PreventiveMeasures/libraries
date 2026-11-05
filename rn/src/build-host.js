@@ -45,8 +45,19 @@ export function newState(run, read = new Set(), made = () => {}) {
       return assetModule(data, registry)
     },
     assets: () => [...assets.keys()].toSorted().map((path) => assets.get(path)),
+    // A file given by its path from the project root (a polyfill) as resolvedModule() has one: by its real path,
+    // or the path where there is none (its load then fails).
+    fileOf(path) {
+      const given = resolve(projectRoot, path)
+      try {
+        return { kind: 'file', key: host.realpath(given) }
+      } catch {
+        return { kind: 'file', key: given }
+      }
+    },
     // The errors of rn.config.json's restrictions (run.restrict, restrictions.js) of each file of a module,
-    // resolvedModule()'s, by its package: of an asset, each the build takes for the platform (assetRecord()).
+    // resolvedModule()'s (or fileOf()'s), by its package: of an asset, each the build takes for the platform
+    // (assetRecord()), by its real path.
     forbidden(found) {
       if (restrict === null || found === null || found.kind === 'empty') return []
       packageOf ??= packagesOf(host)

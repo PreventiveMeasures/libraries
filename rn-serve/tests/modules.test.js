@@ -430,11 +430,11 @@ describe("the module format, of babel-plugin-module-resolver's aliases", () => {
 })
 
 describe("the module format, of rn.config.json's restrictions", () => {
-  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...APP })
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...APP, 'linked.js': { link: 'private/polyfill.js' }, 'private/polyfill.js': APP['polyfill.js'] })
   after(cleanup)
-  const rebuild = (config) => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, restrict: restrictionsOf(config, root) }).rebuild()
-  const errorsOf = async (config) => {
-    const failure = await rebuild(config).then(() => null, (error) => error)
+  const rebuild = (config, polyfills = [join(root, 'polyfill.js')]) => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills, prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, restrict: restrictionsOf(config, root) }).rebuild()
+  const errorsOf = async (config, polyfills) => {
+    const failure = await rebuild(config, polyfills).then(() => null, (error) => error)
     return failure?.errors.map(({ text, location }) => [text, location?.file ?? null]) ?? []
   }
 
@@ -456,6 +456,10 @@ describe("the module format, of rn.config.json's restrictions", () => {
       [`node_modules/react-native/Libraries/Core/InitializeCore.js matches "**/InitializeCore.js" of rn.config.json's disallowedPaths`, null],
       [`polyfill.js matches "{index,polyfill}.js" of rn.config.json's disallowedPaths`, null],
     ])
+  })
+
+  it('checks a polyfill by its real path', async () => {
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['private/**'] }, [join(root, 'linked.js')]), [[`private/polyfill.js matches "private/**" of rn.config.json's disallowedPaths`, null]])
   })
 })
 
