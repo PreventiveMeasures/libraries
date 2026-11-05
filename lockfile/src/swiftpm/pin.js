@@ -31,8 +31,11 @@ const checkRevision = checker(isCommit, 'a full commit hash, as SwiftPM writes t
 // as a branch's name, as `HEAD~1` is, which names no branch.
 const checkBranch = checkRefName
 
-// A package's name as its manifest gives it, which version 1 keeps.
-const checkName = checker((name) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(name), 'a package\'s name')
+// A package's name as its manifest gives it, which version 1 keeps, and the
+// one field of a pin of any text: none of a control, a line separator, or a
+// format character, a bidi control or one of no width among them, which
+// would hide or reorder what is shown of it.
+const checkName = checker((name) => !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(name), 'a package\'s name, of no control, format or line separator character')
 
 function required(holder, names, where, why) {
   const missing = names.find((name) => holder[name] === undefined)

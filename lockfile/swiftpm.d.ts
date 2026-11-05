@@ -56,7 +56,9 @@ export interface PackageResolved {
   originHash: string | undefined
   // By identity, in the file's order, SwiftPM's: every package SwiftPM
   // resolved the root's dependencies to, those of the packages it depends on
-  // too. A Record with a null prototype.
+  // too. A Record with a null prototype; an identity of digits alone, of a
+  // repository named `2048`, comes first, in numeric order, as JavaScript
+  // orders such a key of any object.
   pins: Record<string, Pin>
 }
 
@@ -74,8 +76,9 @@ export interface RepositoryPin {
   kind: 'remoteSourceControl'
   // The repository, as the manifest gives it, not a mirror's.
   location: string
-  // Of version 1, the package's name, as its own manifest gives it; of 2
-  // and 3, which write none, undefined.
+  // Of version 1, the package's name, as its own manifest gives it, with no
+  // control, format or line separator character, which would hide or
+  // reorder what is shown of it; of 2 and 3, which write none, undefined.
   name: string | undefined
   originalLocation: undefined
   // As TSCUtility.Version describes the one it read of a tag, `v1.2` as

@@ -3,17 +3,7 @@ import { createHash } from 'node:crypto'
 import { describe, it } from 'node:test'
 import { sha256Hex } from '../../src/sha256.js'
 import { LockfileError, parsePackageResolved } from '../../swiftpm.js'
-
-// Package.resolved of each version, written as SwiftPM writes them: keys
-// sorted, two spaces a level, `": "` of version 1 and `" : "` of 2 and 3. A
-// field given undefined is left out.
-function encode(value, colon, indent = '') {
-  const inner = `${indent}  `
-  if (Array.isArray(value)) return `[\n${value.map((item) => `${inner}${encode(item, colon, inner)}`).join(',\n')}\n${indent}]`
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  const entries = Object.entries(value).filter(([, item]) => item !== undefined).sort(([a], [b]) => (a < b ? -1 : 1))
-  return `{\n${entries.map(([key, item]) => `${inner}${JSON.stringify(key)}${colon}${encode(item, colon, inner)}`).join(',\n')}\n${indent}}`
-}
+import { encode } from './write.js'
 
 const HASH = 'a83bcc1eb645238502fa7c4471445697b0bf0c316057bdde9bfb30d907d2232c'
 const REV = 'e3da04078777e6a1b72ce19981fbd6539b0847d8'
@@ -254,6 +244,15 @@ describe('the pins together', () => {
     refuses(v2([named('mona.LinkedList'), named('mona.linkedlist')]), 'pins[1]', 'pins[1]: "mona.linkedlist" is the identity of pins[0] too, as SwiftPM compares identities, without case')
     refuses(v1([legacy(), legacy({}, { repositoryURL: 'https://gitlab.com/mirror/swift-log' })]), 'object.pins[1]', /is the identity of object\.pins\[0\] too/u)
   })
+
+  it('by identity, an own key of a Record of no prototype, those of digits alone first, as JavaScript orders them', () => {
+    const repository = (identity) => pin(undefined, { identity, location: `https://x.org/${identity}` })
+    const { pins } = read(v2(['10', '9', '__proto__', 'constructor'].map(repository)))
+    assert.equal(Object.getPrototypeOf(pins), null)
+    assert.deepEqual(Object.keys(pins), ['9', '10', '__proto__', 'constructor'])
+    assert.ok(Object.hasOwn(pins, '__proto__'))
+    assert.equal(pins.__proto__.location, 'https://x.org/__proto__')
+  })
 })
 
 describe('version 1', () => {
@@ -271,6 +270,15 @@ describe('version 1', () => {
 
   it('refuses the fields of version 2', () => {
     refuses(v1([pin()]), 'object.pins[0]', 'object.pins[0]: unsupported field "identity"')
+  })
+
+  it('refuses a name that would hide or reorder what is shown of it', () => {
+    for (const name of ['Logging', 'Café', 'swift log', 'A+B']) assert.equal(read(v1([legacy({}, { package: name })])).pins['swift-log'].name, name)
+    for (const name of ['Log‮ging', 'Log​ging', 'Log ging']) {
+      refuses(v1([legacy({}, { package: name })]), 'object.pins[0].package', /is not a package's name, of no control, format or line separator character$/u)
+    }
+    refuses(v1([legacy({}, { package: 'Log﻿ging' })]), undefined, 'U+FEFF is not allowed at line 5')
+    refuses(v1([legacy({}, { package: 'Log\u0085ging' })]), undefined, 'U+0085 is not allowed at line 5')
   })
 })
 
