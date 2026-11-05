@@ -5,7 +5,7 @@
 import { dirname, relative, resolve } from 'node:path'
 
 import { EMPTY, newState, posixRelative } from '@preventive/rn/src/build-host.js'
-import { ANY, importWarnings, loadCached, lowersLetOf, supportedOf, withDefaults } from '@preventive/rn/src/bundle.js'
+import { ANY, importWarnings, loadCached, loweredOf, supportedOf, withDefaults } from '@preventive/rn/src/bundle.js'
 import { jsval } from '@preventive/rn/src/jsval.js'
 import { GLOBAL } from '@preventive/rn/src/serializer.js'
 import { keptOf } from './bundler.js'
@@ -34,7 +34,7 @@ export function createModuleBundler(options) {
   const run = { ...withDefaults(options), injected, builds, idOf, scriptBuilds: new Map() }
   // Its resolver, kept in memory across its watcher-caused builds (resolution.js's resolutionOf()).
   run.resolution = resolutionOf(run)
-  const supported = lowersLetOf(run).catch(() => false).then((lowersLet) => ({ ...supportedOf(run.babel, lowersLet), 'dynamic-import': false }))
+  const supported = loweredOf(run).catch(() => ({})).then((lowered) => ({ ...supportedOf(run.babel, lowered), 'dynamic-import': false }))
   return {
     // `changes`, a watcher's since the build before ({ path, event }); null, a full build, which resolves and
     // reads anew what a watcher-caused one keeps of the build before. `at`, a dev bundler's version of it.

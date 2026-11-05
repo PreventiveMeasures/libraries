@@ -45,8 +45,18 @@ export function utf8(bytes) {
   }
 }
 
-// esbuild's `supported`: where Babel lowers let and const (lowersLetOf()), esbuild must add none.
-export const supportedOf = (babel, lowersLet) => (babel === null ? {} : { ...LOWERED, ...(lowersLet && { 'const-and-let': false }) })
+// The syntax the Babel config's plugin lowers, which esbuild then must neither add nor leave: let and const,
+// as @react-native/babel-preset lowers them for Hermes (whose don't bind per loop iteration), esbuild's
+// helpers having closures in `for (let ...)` loops and failing on any left; and async functions, async
+// generators and for await, of which a plugin run after the config's may add some, esbuild lowering them.
+const BABEL_LOWERS = {
+  'transform-block-scoping': { 'const-and-let': false },
+  'transform-async-to-generator': { 'async-await': false },
+  'transform-async-generator-functions': { 'async-generator': false, 'for-await': false },
+}
+
+// esbuild's `supported`: LOWERED, and what the entry's Babel config lowers (loweredOf()).
+export const supportedOf = (babel, lowered) => (babel === null ? {} : { ...LOWERED, ...lowered })
 
 // The options of bundle() and serve/'s bundlers, with their defaults. `esm`: false, or the Set of files left
 // CommonJS (`commonJs`, kept across builds). `checkImports`: check ES imports esbuild doesn't link (esm-imports.js).
@@ -92,13 +102,13 @@ export async function bundle(options) {
   const run = withDefaults(options)
   // With `esm`, files loaded are kept for linking()'s builds again.
   if (run.esm !== false) run.cache ??= new Map()
-  const lowersLet = await lowersLetOf(run)
+  const lowered = await loweredOf(run)
   return linking(run, async () => {
     // Its state made first, to know what runs before the entry: through a main module only where something does.
     const state = newState(run)
     const graph = metroGraph(run, state)
     const main = run.polyfills.length > 0 || state.before.length > 0
-    return graph.result(await run.esbuild.build(buildOptions(run, graph.plugin, main, lowersLet)))
+    return graph.result(await run.esbuild.build(buildOptions(run, graph.plugin, main, lowered)))
   })
 }
 
@@ -139,22 +149,24 @@ const realSources = (file) => {
   return { path: file.path, text, contents: encoder.encode(text) }
 }
 
-// Whether the entry's Babel config lowers let and const, as @react-native/babel-preset does for Hermes
-// (whose don't bind per loop iteration). esbuild then adds none, its helpers having closures in
-// `for (let ...)` loops, and fails on any left. Kept in `store` where given, sparing a later run the config.
-export async function lowersLetOf({ babel, babelPlugins, host = diskHost, projectRoot, entry, store }) {
-  if (babel === null) return false
+// The `supported` of what the entry's Babel config lowers (BABEL_LOWERS). Kept in `store` where given,
+// sparing a later run the config.
+export async function loweredOf({ babel, babelPlugins, host = diskHost, projectRoot, entry, store }) {
+  if (babel === null) return {}
   const path = host.realpath(resolve(projectRoot, entry))
-  const lowers = () => lowersLetAt(babelPlugins, path)
-  return await (store === null ? lowers() : store.keep('lowers-let', path, lowers))
+  const lowered = () => loweredAt(babelPlugins, path)
+  return await (store === null ? lowered() : store.keep('lowered', path, lowered))
 }
 
-// Whether the Babel config of the file at `path` lowers let and const.
-export const lowersLetAt = async (babelPlugins, path) => (await babelPlugins?.(path))?.has('transform-block-scoping') === true
+// The `supported` of what the Babel config of the file at `path` lowers.
+export async function loweredAt(babelPlugins, path) {
+  const plugins = (await babelPlugins?.(path)) ?? new Map()
+  return Object.assign({}, ...Object.entries(BABEL_LOWERS).flatMap(([key, features]) => (plugins.has(key) ? [features] : [])))
+}
 
 // keepNames: with `esm`, esbuild joins the ES modules in one scope, renaming clashes (`Text3`) and so
 // their functions' `name`, which React shows; Babel's CommonJS keeps it. Not when minifying, as in Metro.
-export function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prelude, sourcemap, esm }, plugin, main, lowersLet) {
+export function buildOptions({ entry, outfile, projectRoot, define, minify, babel, prelude, sourcemap, esm }, plugin, main, lowered) {
   return {
     entryPoints: [main ? MAIN : entry],
     absWorkingDir: projectRoot,
@@ -167,7 +179,7 @@ export function buildOptions({ entry, outfile, projectRoot, define, minify, babe
     define,
     minify,
     ...(esm !== false && !minify && { keepNames: true }),
-    supported: supportedOf(babel, lowersLet),
+    supported: supportedOf(babel, lowered),
     plugins: [plugin],
     ...(babel !== null && { tsconfigRaw: TS_AS_JS }),
     ...(prelude !== null && { banner: { js: prelude } }),
