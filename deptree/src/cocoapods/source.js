@@ -43,9 +43,10 @@ const given = (value) => value !== undefined && value !== null && value !== fals
 // `partial` leaves the pod to CocoaPods for; a DeptreeError otherwise.
 export class SourceRefusal extends DeptreeError {}
 
-// The podspec's source: git, a GitHub repository by its URL and the tag or
-// the full commit to check out of it; or :http, an archive on GitHub over
-// https, `tar xf` extracts, and the hash the podspec holds it to. A
+// The podspec's source: git, a GitHub repository by its URL and the full
+// commit to check out of it; or :http, an archive on GitHub over https,
+// `tar xf` extracts, and the hash the podspec holds it to. A tag is
+// refused, as the lockfile holds no commit for one and GitHub can move it. A
 // prepare_command, a script CocoaPods runs in the download, is refused, as
 // is any other source, each with a SourceRefusal.
 export function sourceOf(podspec, where) {
@@ -63,10 +64,10 @@ export function sourceOf(podspec, where) {
   if (repo === undefined) throw new SourceRefusal(`a git source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not a GitHub repository over https or ssh, is not supported`, where)
   if (given(submodules)) throw new SourceRefusal('a git source with its submodules is not supported: GitHub\'s tarball leaves each empty', where)
   if (given(branch)) throw new SourceRefusal('a git source by a branch, which locks no commit, is not supported', where)
-  if (given(tag) === given(commit)) throw new SourceRefusal('a git source by a tag or a commit alone is supported, and this one names both or neither', where)
-  if (given(commit) && !(typeof commit === 'string' && COMMIT.test(commit))) throw new SourceRefusal(`${quote(String(commit))} is not a full commit, as is supported`, where)
-  if (given(tag) && !(typeof tag === 'string' && tag !== '' && !tag.startsWith('--') && !tag.includes(' --'))) throw new SourceRefusal('its tag is not one cocoapods-downloader takes', where)
-  return { type: 'git', url, repo, tag: given(tag) ? tag : undefined, commit: given(commit) ? commit : undefined }
+  // CocoaPods records no commit for a tag, which GitHub can move.
+  if (given(tag)) throw new SourceRefusal('a git source by a tag, for which neither the lockfile nor the podspec holds a commit, is not supported: only one by a full commit is', where)
+  if (!(typeof commit === 'string' && COMMIT.test(commit))) throw new SourceRefusal(given(commit) ? `${quote(String(commit))} is not a full commit, as is supported` : 'a git source by no commit is not supported', where)
+  return { type: 'git', url, repo, commit }
 }
 
 // An :http source: its URL, on GitHub over https; what RemoteFile takes it

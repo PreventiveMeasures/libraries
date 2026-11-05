@@ -6,17 +6,17 @@ import { getPodArchive, getPodspec } from '@preventive/upstream/cocoapods.js'
 import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
-import { checkCloned, checkoutOf, tagCommit } from '../github.js'
+import { checkCloned, checkoutOf } from '../github.js'
 import { sha1Hex } from '../hash.js'
 import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { archiveOf } from './archive.js'
-import { checkHost, flagsOf, inputsOf, pinsOf, platformsOf } from './inputs.js'
+import { checkHost, flagsOf, inputsOf, platformsOf } from './inputs.js'
 import { installPod, planPod } from './install.js'
 import { readPodspec, specNamed } from './podspec.js'
 import { SourceRefusal, sourceOf } from './source.js'
 
 const GITHUB = 'github must be a GitHub client from createClient, which each pod is fetched through'
-const GITHUB_METHODS = ['getRepo', 'getRepoHead', 'getRepoTag', 'compareCommits', 'getCommitTree', 'getRepoTreeTarball']
+const GITHUB_METHODS = ['getRepo', 'compareCommits', 'getCommitTree', 'getRepoTreeTarball']
 
 // Trunk, as SPEC REPOS names it from CocoaPods 1.8, or the git repository
 // trunk's podspecs are kept in, as it named it before; trunk's CDN serves
@@ -84,43 +84,12 @@ async function localPodspec(root, podspecs, where) {
   return bytes
 }
 
-// The commit a pod by a git tag is taken to: its pin's, as the lockfile
-// holds no commit for a tag, and GitHub could move one; undefined where it
-// has none. The pin has to be for the tag its podspec names, and the tag has
-// to name that commit on GitHub still, as CocoaPods' clone would take what
-// it names now.
-function pinnedCommit(pin, tag, named, where) {
-  if (pin === undefined) return undefined
-  if (pin.tag !== tag) throw new DeptreeError(`it is pinned for the tag ${quote(pin.tag)}, where its podspec names ${quote(tag)}: pin it anew, once checked`, where)
-  if (pin.commit !== named) throw new DeptreeError(`its tag ${quote(tag)} names ${named} on GitHub now, not ${pin.commit}, which it is pinned to`, where)
-  return pin.commit
-}
-
-// The pods by a git tag that have no pin, in the lockfile's order, each
-// with the commit its tag names on GitHub now, for pins to take once that
-// is checked.
-function unpinnedRefusal(roots, unpinned) {
-  const pins = Object.fromEntries(roots.filter(({ name }) => unpinned.has(name)).map(({ name }) => [name, unpinned.get(name)]))
-  const which = unpinned.size === 1 ? 'a pod by a git tag is' : `${unpinned.size} pods by a git tag are`
-  return new DeptreeError(`${which} pinned to no commit, as the lockfile holds none for a tag and GitHub could move one: pin each to the commit its tag names on GitHub now, once that is checked, as pins takes them:\n${JSON.stringify(pins, null, 2)}`)
-}
-
-// Each root's podspec, its source and the commit of that, and what of its
-// download it keeps, planPod's, all before any download, so that a pod
-// refused fails the call before any tarball or archive is fetched. A tag is
-// asked of GitHub once, as the pods of one repository often share one. A
-// pod skipped for its source has no plan, its podspec held to the lockfile
-// all the same; one by a tag without a pin has none either, and is refused
-// with the others once all are planned.
-async function planAll(roots, { github, podspecs, platforms, pins }, skipped) {
+// Each root's podspec, its source, and what of its download it keeps,
+// planPod's, all before any download, so that a pod refused fails the call
+// before any tarball or archive is fetched. A pod skipped for its source
+// has no plan, its podspec held to the lockfile all the same.
+async function planAll(roots, { github, podspecs, platforms }, skipped) {
   const plans = new Map()
-  const unpinned = new Map()
-  const tags = new Map()
-  const commitOf = ({ repo, tag }, where) => {
-    const key = `${repo}@${tag}`
-    if (!tags.has(key)) tags.set(key, tagCommit(github, repo, tag, where))
-    return tags.get(key)
-  }
   await eachConcurrently(roots, async (root) => {
     const where = about(root.name)
     const bytes = root.external === undefined ? await getPodspec(root.name, root.version, root.checksum) : await unlessSkipped(() => localPodspec(root, podspecs, where), root, skipped)
@@ -130,31 +99,19 @@ async function planAll(roots, { github, podspecs, platforms, pins }, skipped) {
     if (source === undefined) return
     const specs = root.pods.map((name) => specNamed(podspec, name) ?? refuse(`its podspec has no ${quote(name)}, which the lockfile installs`, where))
     const files = planPod(podspec, specs, platforms, where)
-    let commit
-    if (source.type === 'git' && source.commit !== undefined) {
-      await checkCloned(github, source.repo, source.commit, where)
-      commit = source.commit
-    } else if (source.type === 'git') {
-      const named = await commitOf(source, where)
-      commit = pinnedCommit(pins.get(root.name), source.tag, named, where)
-      if (commit === undefined) {
-        unpinned.set(root.name, { tag: source.tag, commit: named })
-        return
-      }
-    }
-    plans.set(root.name, { root, files, source, commit })
+    if (source.type === 'git') await checkCloned(github, source.repo, source.commit, where)
+    plans.set(root.name, { root, files, source })
   }, (root) => about(root.name))
-  if (unpinned.size > 0) throw unpinnedRefusal(roots, unpinned)
   return plans
 }
 
 // What a download comes to, each fetched once, for every pod of it: a
 // checkout, by its repository and commit; an archive, by its hash and what
 // RemoteFile makes of it.
-const downloadOf = ({ source, commit }) => (source.type === 'git' ? `git ${source.repo}@${commit}` : `http ${source.sha256} ${source.file} ${source.flatten}`)
-async function contentsOf({ root, source, commit }, github) {
+const downloadOf = ({ source }) => (source.type === 'git' ? `git ${source.repo}@${source.commit}` : `http ${source.sha256} ${source.file} ${source.flatten}`)
+async function contentsOf({ root, source }, github) {
   const where = about(root.name)
-  if (source.type === 'git') return await checkoutOf(github, source.repo, commit, where)
+  if (source.type === 'git') return await checkoutOf(github, source.repo, source.commit, where)
   return await archiveOf(await getPodArchive(source.url, source.sha256), source, where)
 }
 
@@ -174,9 +131,9 @@ async function installAll(plans, github, options) {
 
 // A pod written, as CocoaPodsInstalled has it: from git, by the commit
 // checked out; by :http, by the URL and the sha256 it is held to.
-function installedOf({ name, version, checksum, pods }, { source, commit }) {
+function installedOf({ name, version, checksum, pods }, { source }) {
   const pod = { path: `Pods/${name}`, name, version, checksum, pods: [...pods] }
-  if (source.type === 'git') return { ...pod, git: source.url, tag: source.tag, commit }
+  if (source.type === 'git') return { ...pod, git: source.url, commit: source.commit }
   return { ...pod, http: source.url, sha256: source.sha256 }
 }
 
@@ -198,7 +155,6 @@ export async function buildCocoaPodsTree(options) {
   if (github !== undefined && GITHUB_METHODS.some((name) => typeof github?.[name] !== 'function')) throw new TypeError(GITHUB)
   const inputs = inputsOf(options ?? {})
   const platforms = platformsOf(givenPlatforms)
-  const pins = pinsOf(options?.pins)
   const { manifest, partial } = flagsOf(options ?? {})
   const host = checkHost(given)
   const folded = host.os === 'darwin'
@@ -212,7 +168,7 @@ export async function buildCocoaPodsTree(options) {
   const skipped = partial ? new Map() : undefined
   const fetched = roots.filter((root) => unlessSkipped(() => isDownloaded(root, folded), root, skipped))
   if (github === undefined && fetched.length > 0) throw new TypeError(GITHUB)
-  const plans = await planAll(fetched, { github, podspecs: inputs.podspecs, platforms, pins }, skipped)
+  const plans = await planAll(fetched, { github, podspecs: inputs.podspecs, platforms }, skipped)
   const contents = await installAll(plans, github, { folded, keepsGit })
   // In the lockfile's order, whatever order the fetches finished in.
   const downloaded = fetched.filter(({ name }) => plans.has(name))

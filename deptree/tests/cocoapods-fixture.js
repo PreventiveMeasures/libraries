@@ -18,8 +18,8 @@ export const ACME = {
 }
 
 // The podspec of that repo, as trunk would serve it: Core and UI, Core by
-// default, and a test spec; the source by `tag` unless `source` says.
-export function podspecOf({ source = { git: 'https://github.com/acme/acme.git', tag: 'v1.2.0' }, ...rest } = {}) {
+// default, and a test spec; the source by the commit unless `source` says.
+export function podspecOf({ source = { git: 'https://github.com/acme/acme.git', commit: ACME.commit }, ...rest } = {}) {
   return Buffer.from(`${JSON.stringify({
     name: 'Acme',
     version: '1.2.0',
@@ -39,9 +39,6 @@ export function podspecOf({ source = { git: 'https://github.com/acme/acme.git', 
 }
 
 export const PODSPEC = podspecOf()
-// What the tag the podspec names is pinned to, as the lockfile holds no
-// commit for a tag: the commit GitHub names for it.
-export const PINS = Object.freeze({ Acme: Object.freeze({ tag: 'v1.2.0', commit: ACME.commit }) })
 export const PODFILE = "platform :ios, '13.0'\ntarget 'App' do\n  pod 'Acme/Core'\nend\n"
 
 // As CocoaPods writes the lockfile of PODFILE.

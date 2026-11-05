@@ -15,7 +15,7 @@ import { buildCargoTree } from '../cargo.js'
 import { buildCocoaPodsTree } from '../cocoapods.js'
 import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
-import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PINS, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
+import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
 import { commitOf, packOf, podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, uploadPackAnswer, url } from './registry.js'
 
 // The deptree command: its modules, and the command as it is run, on
@@ -466,7 +466,7 @@ describe('deptree compare, with Cargo', async () => {
     const production = cli(home, ['compare', '--cargo', '1.97.0', '--production', project])
     assert.match(production.stderr, /^deptree: Cargo\.lock: --production is not taken: cargo vendor vendors dev-dependencies too$/mu)
     assert.equal(production.status, 2)
-    for (const flag of [['--platform', 'ios'], ['--partial'], ['--pins', 'pins.json']]) {
+    for (const flag of [['--platform', 'ios'], ['--partial']]) {
       const cocoapods = cli(home, ['compare', '--cargo', '1.97.0', ...flag, project])
       assert.match(cocoapods.stderr, new RegExp(`^deptree: Cargo\\.lock: ${flag[0]} is taken for CocoaPods alone$`, 'mu'))
       assert.equal(cocoapods.status, 2)
@@ -487,11 +487,12 @@ const tarball = Buffer.from('${ACME.tarball.toString('base64')}', 'base64')
 const other = Buffer.from('${OTHER.toString('base64')}', 'base64')
 const commit = Buffer.from('${uploadPackAnswer(packOf([{ type: 'commit', data: commitOf(ACME.tree).object }]), ACME.commit).toString('base64')}', 'base64')
 const answers = {
+  '${repo.slice(0, -1)}': () => Response.json({ id: 1, full_name: 'acme/acme', default_branch: 'main' }),
+  '${repo}compare/${ACME.commit}...main?per_page=1': () => Response.json({ status: 'identical', ahead_by: 0, behind_by: 0, base_commit: { sha: '${ACME.commit}' }, merge_base_commit: { sha: '${ACME.commit}' } }),
   'https://github.com/acme/acme.git/git-upload-pack': () => new Response(commit),
   '${ACME_ARCHIVE}': () => new Response(tarball),
   '${trunk}': () => new Response(podspec),
   '${podspecUrl('Other', '1.0.0')}': () => new Response(other),
-  '${repo}git/ref/tags/v1.2.0': () => Response.json({ ref: 'refs/tags/v1.2.0', object: { type: 'commit', sha: '${ACME.commit}' } }),
   '${repo}tarball/${ACME.tree}': () => new Response(tarball),
 }
 globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Response.json({ message: 'Not Found' }, { status: 404 }))
@@ -500,9 +501,9 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
   // Pods/ as deptree builds it, which tests/cocoapods.test.js holds to
   // CocoaPods', but for one file changed and a pod the lockfile has not;
   // and beside it what CocoaPods generates there.
-  stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, tags: { 'v1.2.0': ACME.commit } } })
+  stubGitHub({ 'acme/acme': { id: 1, commit: ACME.commit, tree: ACME.tree, tarball: ACME.tarball, listings: {}, history: [ACME.commit] } })
   stubTrunk({ 'Acme@1.2.0': podspec })
-  const { vfs } = await buildCocoaPodsTree({ lockfile: coreLock(), host: { cocoapods: '1.16.2', os: 'linux' }, github: createClient({ token: null }), pins: PINS })
+  const { vfs } = await buildCocoaPodsTree({ lockfile: coreLock(), host: { cocoapods: '1.16.2', os: 'linux' }, github: createClient({ token: null }) })
   writeDisk(project, readSide(vfs, ['Pods']))
   chmodSync(join(project, 'Pods/Acme/README.md'), 0o644)
   writeDisk(project, side({
@@ -538,9 +539,7 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     'Pods/Manifest.lock': file(httpLock),
     'Pods/Local Podspecs/Acme.podspec.json': file(httpPodspec),
   }))
-  // Acme's tag, pinned to the commit it names, as --pins takes it.
-  writeDisk(home, side({ 'pins.json': file(JSON.stringify(PINS)), 'bad.json': file('{') }))
-  const run = (args, at = project, pins = ['--pins', join(home, 'pins.json')]) => cli(home, ['compare', ...pins, ...args, at], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
+  const run = (args, at = project) => cli(home, ['compare', ...args, at], { node: ['--import', pathToFileURL(join(home, 'stub.mjs')).href] })
 
   it('lists what differs in the pods\' directories Podfile.lock installs, with the CocoaPods it names', () => {
     const r = run([])
@@ -554,18 +553,6 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     const production = run(['--production'])
     assert.match(production.stderr, /^deptree: Podfile\.lock: --production is not taken: CocoaPods installs every pod the Podfile asks for$/mu)
     assert.equal(production.status, 2)
-  })
-
-  it('takes a pod by a git tag to the commit --pins pins it to, and lists the pins it lacks without them', () => {
-    const unpinned = run([], project, [])
-    assert.equal(unpinned.status, 2)
-    const [detail, json] = unpinned.stderr.split(/:\n(?=\{)/u)
-    assert.match(detail, /deptree: a pod by a git tag is pinned to no commit, as the lockfile holds none for a tag and GitHub could move one: pin each to the commit its tag names on GitHub now, once that is checked, as pins takes them$/u)
-    assert.deepEqual(JSON.parse(json), PINS)
-    const bad = run([], project, ['--pins', join(home, 'bad.json')])
-    assert.match(bad.stderr, /^deptree: .*bad\.json: --pins has to be a file of JSON: /mu)
-    assert.equal(bad.status, 2)
-    assert.equal(run([], project, ['--pins', join(home, 'nowhere.json')]).status, 2)
   })
 
   it("builds a pod by :podspec by its podspec in Pods/Local Podspecs, and an :http archive from GitHub", () => {

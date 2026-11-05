@@ -61,12 +61,6 @@ export interface CocoaPodsProject {
 // platforms, it is installed for; one that names other files on another is
 // refused. A spec for none of them is refused too.
 //
-// `pins` are the commits the pods by a git tag are pinned to, by name, each
-// { tag, commit }: the tag it is pinned for, as its podspec names it, and
-// the full commit in lowercase hex. The lockfile holds no commit for a tag,
-// which GitHub could move, so each pod by one needs a pin; see below. A pin
-// for a pod by no tag is not read.
-//
 // `podspecs` are the podspecs of the pods by :podspec, by name, each as
 // text or bytes: the JSON CocoaPods writes of one as Pods/Local
 // Podspecs/<name>.podspec.json, which is what SPEC CHECKSUMS has the sha1
@@ -91,13 +85,14 @@ export interface CocoaPodsProject {
 // lockfile or its podspec says, rather than refusing the call: one from a
 // spec repo but trunk, or an external source but :path and :podspec; one by
 // :podspec without its podspec, or with CHECKOUT OPTIONS; one with a
-// prepare_command; and one whose source is neither git from GitHub by a tag
-// or a full commit, without its submodules, nor :http as below. Nothing is
-// written for it, and it is listed in `skipped`, for CocoaPods to download:
-// with `manifest`, it downloads those and no other. A podspec is held to
-// the lockfile's checksum all the same, and an archive to its hash. Every
-// other refusal stands, a tag without a pin and one that a branch is named
-// as too, which GitHub is asked of, among them.
+// prepare_command; and one whose source is neither git from GitHub by a
+// full commit, without its submodules, nor :http as below: one by a tag
+// among them. Nothing is written for it, and it is listed in `skipped`, for
+// CocoaPods to download: with `manifest`, it downloads those and no other.
+// A podspec is held to the lockfile's checksum all the same, and an archive
+// to its hash. Every other refusal stands. So everything written is held to
+// a hash the lockfile holds, or that a podspec it holds does, whether
+// `partial` is given or not.
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to be
 // the project's -- it may be `project` too; without one, a new Vfs holds
@@ -122,17 +117,11 @@ export interface CocoaPodsTreeGiven {
   project?: undefined
   host: CocoaPodsHost
   platforms?: CocoaPodsPlatform[]
-  pins?: Record<string, CocoaPodsPin>
   podspecs?: Record<string, string | Uint8Array>
   manifest?: boolean
   partial?: boolean
   vfs?: Vfs
   github?: Client
-}
-
-export interface CocoaPodsPin {
-  tag: string
-  commit: string
 }
 
 export interface CocoaPodsTreeRead {
@@ -141,7 +130,6 @@ export interface CocoaPodsTreeRead {
   project: CocoaPodsProject
   host: CocoaPodsHost
   platforms?: CocoaPodsPlatform[]
-  pins?: Record<string, CocoaPodsPin>
   podspecs?: Record<string, string | Uint8Array>
   manifest?: boolean
   partial?: boolean
@@ -179,11 +167,9 @@ export interface CocoaPodsInstalledPod {
 }
 
 // From git: `git` is the repository's URL as the podspec gives it, and
-// `tag` the tag it names, or undefined where it names a commit; `commit`
-// the commit checked out, the podspec's, or for a tag its pin's.
+// `commit` the commit the podspec names, which is checked out.
 export interface CocoaPodsInstalledGit extends CocoaPodsInstalledPod {
   git: string
-  tag: string | undefined
   commit: string
 }
 
@@ -237,38 +223,31 @@ export interface CocoaPodsTree {
 // Each root's podspec is fetched from trunk and held to the lockfile's
 // checksum, its sha1, with @preventive/upstream/cocoapods.js's getPodspec;
 // that of a pod by :podspec is `podspecs`', held to it alike. Its `source`
-// has to be a git repository on GitHub, by a tag or a full commit, or an
-// archive on GitHub by :http, as below. Of git, CocoaPods clones it, `git
-// clone --branch <tag> --depth 1` or a clone and a checkout of the commit,
-// and here GitHub's tarball of the commit's tree is fetched instead, by
-// `github`: the tree read off the commit's own object, which upstream's
-// getCommitTree fetches from github.com as git fetches it and holds to the
-// commit's id, so that it is the commit's whatever GitHub's API says; and
-// the tarball, which getRepoTreeTarball holds to that tree. A tag is taken
-// to the commit `pins` pins it to, as the lockfile holds no commit for a
-// tag and GitHub could move one: the pin has to be for the tag the podspec
-// names, and the tag has to name that commit on GitHub still, through an
-// annotated one, as CocoaPods' clone takes what it names now. A pod by a
-// tag without a pin is refused, `partial` or not, with every other one
-// without a pin, before anything is downloaded, and the refusal lists the
-// pins each lacks, with the commit its tag names on GitHub now, as `pins`
-// takes them, for the caller to check before taking them. A tag of the name
-// of a branch, which git's clone takes before it, is refused. A repository
-// renamed or transferred since is fetched by the name GitHub gives it now,
-// as upstream's getRepo follows that redirect with `followRedirect`. The
-// checkout is as git writes one with no git config and a umask of 0o022:
-// each directory 0o755, each file 0o644, or 0o755 where git has it
-// executable; each symlink a symlink to its target; a submodule an empty
-// directory; a file the tree's .gitattributes mark `eol=crlf` with CRLF, as
-// upstream reads them. What git config on the machine would change --
-// `core.autocrlf`, a filter such as Git LFS's -- is not followed. GitHub's
-// tarball is refused where upstream refuses it, and where the tar reader of
-// @preventive/archive/tar.js does, and so is a path git refuses to check
-// out: one with a `.git` in it, or its short name `git~1`, in any case,
-// dots and spaces after it, or a `:` after that. A commit the podspec names
-// has to be in the history of the repository's default branch, as GitHub
-// answers for a commit of any fork, and for one no branch or tag reaches,
-// which a clone does not have; one on another branch alone is refused too.
+// has to be a git repository on GitHub, by a full commit, or an archive on
+// GitHub by :http, as below. A git source by a tag is refused: CocoaPods
+// records no commit for one, and GitHub can move it, so nothing would hold
+// what is downloaded to a hash. Of git, CocoaPods clones the repository and
+// checks the commit out, and here GitHub's tarball of the commit's tree is
+// fetched instead, by `github`: the tree read off the commit's own object,
+// which upstream's getCommitTree fetches from github.com as git fetches it
+// and holds to the commit's id, so that it is the commit's whatever
+// GitHub's API says; and the tarball, which getRepoTreeTarball holds to
+// that tree. A repository renamed or transferred since is fetched by the
+// name GitHub gives it now, as upstream's getRepo follows that redirect
+// with `followRedirect`. The checkout is as git writes one with no git
+// config and a umask of 0o022: each directory 0o755, each file 0o644, or
+// 0o755 where git has it executable; each symlink a symlink to its target;
+// a submodule an empty directory; a file the tree's .gitattributes mark
+// `eol=crlf` with CRLF, as upstream reads them. What git config on the
+// machine would change -- `core.autocrlf`, a filter such as Git LFS's -- is
+// not followed. GitHub's tarball is refused where upstream refuses it, and
+// where the tar reader of @preventive/archive/tar.js does, and so is a path
+// git refuses to check out: one with a `.git` in it, or its short name
+// `git~1`, in any case, dots and spaces after it, or a `:` after that. A
+// commit the podspec names has to be in the history of the repository's
+// default branch, as GitHub answers for a commit of any fork, and for one
+// no branch or tag reaches, which a clone does not have; one on another
+// branch alone is refused too.
 //
 // An archive by :http has to be on GitHub, over https: its URL
 // https://github.com/<owner>/<repo>/ and a path under it, such as GitHub's
@@ -302,10 +281,9 @@ export interface CocoaPodsTree {
 // zip and a dmg.
 //
 // Every podspec is fetched and held to all that it says, below as here,
-// and every tag taken to its commit, before any tarball or archive is
-// fetched, so that a pod refused costs no download; a tag is asked of
-// GitHub once, and a tarball or an archive fetched once, for all the pods
-// of it.
+// before any tarball or archive is fetched, so that a pod refused costs no
+// download; a tarball or an archive is fetched once, for all the pods of
+// it.
 //
 // What CocoaPods then keeps of the download is what it keeps: it cleans
 // the download in its cache, by the file patterns of every spec of the
@@ -356,9 +334,9 @@ export interface CocoaPodsTree {
 // spec repo, one from any other external source, one by :podspec that
 // CHECKOUT OPTIONS has, which CocoaPods downloads by those, one with a
 // prepare_command, which CocoaPods runs as a script in the download, and
-// one whose source is neither git from GitHub, by a tag or a commit and
+// one whose source is neither git from GitHub, by a full commit and
 // without its submodules, nor :http as above, is refused, or with `partial`
-// skipped.
+// skipped: one by a tag or a branch among them.
 //
 // Nothing is left to a guess: a lockfile the lockfile reader refuses, a pod
 // from anywhere but trunk and :podspec, a check above that fails -- each is

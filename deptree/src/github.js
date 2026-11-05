@@ -43,23 +43,6 @@ async function followingMoves(github, repo, ask) {
   }
 }
 
-// The commit that `git clone --branch <tag>` checks out: a branch of that
-// name before a tag, which is refused, as the branch can move; else the
-// commit the tag names, through an annotated one. GitHub answers for the
-// repository as it is now: the tag is held to no hash.
-export async function tagCommit(github, repo, tag, where) {
-  // `@`, and a name that starts with `-`, no branch can have.
-  const branchName = !/^(?:@$|-)/u.test(tag)
-  return await followingMoves(github, repo, async (name) => {
-    const branch = branchName && await github.getRepoHead({ repo: name, branch: tag }).catch((error) => {
-      if (error instanceof HttpError && error.status === 404) return undefined
-      throw error
-    })
-    if (branch) throw new DeptreeError(`${quote(name)} has a branch named ${quote(tag)} as well as the tag, which git's clone takes before the tag`, where)
-    return (await github.getRepoTag({ repo: name, tag })).oid
-  })
-}
-
 // That `commit` is one a clone of the repository has, which GitHub's API
 // does not tell: it answers for a commit of any fork through the
 // repository's name, and for one no branch or tag reaches any longer. Of
