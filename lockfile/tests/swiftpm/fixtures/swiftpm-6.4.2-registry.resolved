@@ -1,0 +1,23 @@
+{
+  "originHash" : "22be882cf465774aea3d763d5c8f6e526ca1f85cb448a11b3898b45304f6a9be",
+  "pins" : [
+    {
+      "identity" : "mona.LinkedList",
+      "kind" : "registry",
+      "location" : "",
+      "state" : {
+        "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "swift-log",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-log.git",
+      "state" : {
+        "revision" : "9cb486020ebf03bfa5b5df985387a14a98744537",
+        "version" : "1.6.1"
+      }
+    }
+  ],
+  "version" : 3
+}

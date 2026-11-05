@@ -44,6 +44,8 @@ const files = [
   new URL('rust-semver.d.ts', PKG_DIR),
   new URL('soldeer.js', PKG_DIR),
   new URL('soldeer.d.ts', PKG_DIR),
+  new URL('swiftpm.js', PKG_DIR),
+  new URL('swiftpm.d.ts', PKG_DIR),
   new URL('toml.js', PKG_DIR),
   new URL('toml.d.ts', PKG_DIR),
   new URL('uv.js', PKG_DIR),

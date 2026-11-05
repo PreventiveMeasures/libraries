@@ -175,6 +175,20 @@ export function readIntegrities(value, where) {
   return hashes
 }
 
+// Where git fetches from: a URL of a host, or scp's `user@host:path`, which
+// git tells from a path by a colon before any slash, the host anything up to
+// it, an ssh config's alias too, or in brackets where it has a colon, as an
+// IPv6 address does.
+const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
+const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[^@/:\\[\]]+):(?!:|\/\/)/u
+
+export const isHostUrl = (url) => (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\'))
+
+// git on Windows reads one character and a colon, `x:path`, as a path on
+// the drive x:, and elsewhere as the host x; `user@x:path` is the host to
+// both, and so is `[` and a colon, which the path after makes no path.
+export const isDrivePath = (url) => /^[^[]:(?!:)/u.test(url)
+
 // An http(s) URL that is the URL fetched as it is written: no space or
 // control, which the URL parser drops, or trims, where a reader of the
 // text would not.
