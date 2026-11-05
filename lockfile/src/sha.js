@@ -1,10 +1,7 @@
-// SHA-1 and SHA-256, FIPS 180-4, of bytes, in lowercase hex: what CocoaPods
-// checksums a Podfile with, and what SwiftPM keeps of a root manifest as a
-// Package.resolved's originHash. Here rather than on Web Crypto, whose
-// digests are all asynchronous, where the readers are not.
+// SHA-1 and SHA-256, FIPS 180-4, in lowercase hex: of a Podfile and of a
+// Package.swift. Not Web Crypto's, which are asynchronous, as no reader is.
 
-// The message padded to whole blocks, as big-endian words, its length in
-// bits last, as both pad it.
+// Whole blocks of big-endian words, the length in bits last.
 function pad(bytes) {
   const words = new Uint32Array((((bytes.length + 8) >>> 6) + 1) * 16)
   for (let index = 0; index < bytes.length; index++) words[index >>> 2] |= bytes[index] << (24 - (index % 4) * 8)
@@ -59,21 +56,13 @@ const K = new Uint32Array([
   0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208, 0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2,
 ])
 
-function schedule256(words, block, w) {
-  w.set(words.subarray(block, block + 16))
-  for (let t = 16; t < 64; t++) {
-    const s0 = right(w[t - 15], 7) ^ right(w[t - 15], 18) ^ (w[t - 15] >>> 3)
-    const s1 = right(w[t - 2], 17) ^ right(w[t - 2], 19) ^ (w[t - 2] >>> 10)
-    w[t] = w[t - 16] + s0 + w[t - 7] + s1
-  }
-}
-
 export function sha256Hex(bytes) {
   const words = pad(bytes)
   const state = new Uint32Array([0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19])
   const w = new Uint32Array(64)
   for (let block = 0; block < words.length; block += 16) {
-    schedule256(words, block, w)
+    w.set(words.subarray(block, block + 16))
+    for (let t = 16; t < 64; t++) w[t] = w[t - 16] + (right(w[t - 15], 7) ^ right(w[t - 15], 18) ^ (w[t - 15] >>> 3)) + w[t - 7] + (right(w[t - 2], 17) ^ right(w[t - 2], 19) ^ (w[t - 2] >>> 10))
     let [a, b, c, d, e, f, g, h] = state
     for (let t = 0; t < 64; t++) {
       const t1 = h + (right(e, 6) ^ right(e, 11) ^ right(e, 25)) + ((e & f) ^ (~e & g)) + K[t] + w[t]

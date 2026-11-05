@@ -73,8 +73,6 @@ function readUrl(value, where) {
 
 function checkUrl(value, where) {
   const url = readUrl(value, where)
-  // Not one relative to the superproject's remote, which only its clone
-  // knows, nor a path on the machine that clones.
   if (/^\.\.?\//u.test(url)) throw new LockfileError(`${quote(url)} is relative to the superproject's remote, which only a clone of it knows`, where)
   return checkHostUrl(url, where, 'git')
 }

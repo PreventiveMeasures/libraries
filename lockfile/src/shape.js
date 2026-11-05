@@ -62,13 +62,6 @@ export const optional = (read) => (value, where) => (value === undefined ? undef
 // A field of `holder` that may be left out, so read.
 export const field = (holder, key, where, read) => (holder[key] === undefined ? undefined : read(holder[key], at(where, key)))
 
-// Each of the fields `names` of `holder`, which a tool writes always: the
-// first left out refused, `why` saying why it is expected.
-export function required(holder, names, where, why) {
-  const missing = names.find((name) => holder[name] === undefined)
-  if (missing !== undefined) throw new LockfileError(`expected ${missing}, ${why}`, where)
-}
-
 export function text(value, where) {
   if (string(value, where) === '') throw new LockfileError('expected a non-empty string', where)
   return value

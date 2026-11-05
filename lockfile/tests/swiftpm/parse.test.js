@@ -89,8 +89,8 @@ describe('the layout SwiftPM writes', () => {
     refuses(v2([pin()]).replace('https://github.com/', 'https:\\/\\/github.com\\/'), undefined, otherwise(2, 6, `      "location" : "${LOG_URL}",`, '      "location" : "https:\\/\\/github.com\\/apple/swift-log.git",'))
     const branch = (raw) => v2([pin({ branch: 'main', revision: REV })]).replace('"main"', raw)
     assert.equal(read(branch(String.raw`"a\"b"`)).pins['swift-log'].branch, 'a"b')
-    refuses(branch(String.raw`"a\nb"`), 'pins[0].state.branch', 'pins[0].state.branch: "a\\nb" has a control, escaped, which no field SwiftPM writes has')
-    refuses(branch(String.raw`"\ud800"`), 'pins[0].state.branch', 'pins[0].state.branch: a lone surrogate, escaped, which no Swift string has')
+    refuses(branch(String.raw`"a\nb"`), 'pins[0].state.branch', 'pins[0].state.branch: "a\\nb" escapes a control or a lone surrogate, which SwiftPM writes in no field')
+    refuses(branch(String.raw`"\ud800"`), 'pins[0].state.branch', 'pins[0].state.branch: "\\ud800" escapes a control or a lone surrogate, which SwiftPM writes in no field')
     refuses(branch('"\\u0061"'), undefined, otherwise(2, 8, '        "branch" : "a",', '        "branch" : "\\u0061",'))
   })
 
@@ -109,7 +109,7 @@ describe('the top of the file', () => {
   it('refuses a version this reader does not read', () => {
     refuses(`${encode({ pins: [pin()], version: 4 }, ' : ')}\n`, 'version', 'version: expected 1, 2 or 3, found the number 4')
     refuses(`${encode({ pins: [pin()], version: '2' }, ' : ')}\n`, 'version', 'version: expected 1, 2 or 3, found the string "2"')
-    refuses(`${encode({ pins: [pin()] }, ' : ')}\n`, undefined, 'expected version, which SwiftPM writes in every Package.resolved')
+    refuses(`${encode({ pins: [pin()] }, ' : ')}\n`, 'version', 'version: expected 1, 2 or 3, found nothing')
   })
 
   it('refuses a field of another version, or none SwiftPM writes', () => {
@@ -120,7 +120,7 @@ describe('the top of the file', () => {
 
   it('holds originHash of version 3 to a sha256 in lowercase hex, which SwiftPM always writes', () => {
     refuses(v3([pin()], HASH.toUpperCase()), 'originHash', /is not a sha256 in lowercase hex/u)
-    refuses(`${encode({ pins: [pin()], version: 3 }, ' : ')}\n`, undefined, 'expected originHash, which SwiftPM writes in every version 3')
+    refuses(`${encode({ pins: [pin()], version: 3 }, ' : ')}\n`, 'originHash', 'originHash: expected a string, found nothing')
   })
 })
 
@@ -132,7 +132,7 @@ describe('a repository\'s pin', () => {
 
   it('refuses a branch and a version both, and no revision', () => {
     refuses(v2([pin({ branch: 'main', revision: REV, version: '1.6.1' })]), 'pins[0].state', 'pins[0].state: a branch and a version both, where SwiftPM writes one or neither')
-    refuses(v2([pin({ version: '1.6.1' })]), 'pins[0].state', /^pins\[0\]\.state: expected revision/u)
+    refuses(v2([pin({ version: '1.6.1' })]), 'pins[0].state.revision', 'pins[0].state.revision: expected a string, found nothing')
     refuses(v1([legacy({ branch: 'main' })]), 'object.pins[0].state', /a branch and a version both/u)
   })
 
@@ -201,8 +201,8 @@ describe('a repository\'s location and identity', () => {
   it('refuses what is not a URL of a host, ASCII and of no backslash', () => {
     const refused = [
       ['github.com/apple/swift-log', /is not a URL of a host that git fetches from/u],
-      ['https://github.com/apple/swift-log\u0301', /is not ASCII/u],
-      ['https://github.com\\apple\\swift-log', /has a backslash/u],
+      ['https://github.com/apple/swift-log\u0301', /is not printable ASCII but "\\"/u],
+      ['https://github.com\\apple\\swift-log', /is not printable ASCII but "\\"/u],
       ['c:swift-log', /is a path on a drive to SwiftPM on Windows/u],
       ['https://github.com/apple/swift log', /is not a repository URL/u],
       ['ssh://-oProxyCommand=x/swift-log', /would read an option/u],
@@ -222,9 +222,9 @@ describe('a registry\'s pin', () => {
 
   it('refuses a location, a branch, a revision, and no version', () => {
     refuses(v2([registry({ location: 'https://x.org/a' })]), 'pins[0].location', 'pins[0].location: "https://x.org/a" where SwiftPM writes "", the location of no registry\'s package')
-    refuses(v2([registry({}, { revision: REV, version: '1.2.0' })]), 'pins[0].state.revision', /SwiftPM writes no revision of a registry's package/u)
-    refuses(v2([registry({}, { branch: 'main', version: '1.2.0' })]), 'pins[0].state.branch', /SwiftPM writes no branch/u)
-    refuses(v2([registry({}, {})]), 'pins[0].state', 'pins[0].state: expected version, which SwiftPM writes of every registry\'s package')
+    refuses(v2([registry({}, { revision: REV, version: '1.2.0' })]), 'pins[0].state.revision', 'pins[0].state.revision: SwiftPM writes none of a registry\'s package, which it downloads by its version')
+    refuses(v2([registry({}, { branch: 'main', version: '1.2.0' })]), 'pins[0].state.branch', /^pins\[0\]\.state\.branch: SwiftPM writes none of a registry's package/u)
+    refuses(v2([registry({}, {})]), 'pins[0].state.version', 'pins[0].state.version: expected a string, found nothing')
     refuses(v2([registry({}, { version: '1.2' })]), 'pins[0].state.version')
     refuses(v2([registry({ originalLocation: '/src/LinkedList' })]), 'pins[0].originalLocation', /on the machine that wrote the lockfile/u)
   })
@@ -269,9 +269,9 @@ describe('version 1', () => {
   })
 
   it('refuses a field left out, and a name of null, which SwiftPM writes of none', () => {
-    refuses(v1([legacy({ branch: undefined })]), 'object.pins[0].state', 'object.pins[0].state: expected branch, which SwiftPM writes of every pin, null where it has none')
+    refuses(v1([legacy({ branch: undefined })]), 'object.pins[0].state.branch', 'object.pins[0].state.branch: expected a string, found nothing')
     refuses(v1([legacy({}, { package: null })]), 'object.pins[0].package', 'object.pins[0].package: expected a string, found null')
-    refuses(v1([{ ...legacy(), package: undefined }]), 'object.pins[0]', 'object.pins[0]: expected package, which SwiftPM writes of every pin')
+    refuses(v1([{ ...legacy(), package: undefined }]), 'object.pins[0].package', 'object.pins[0].package: expected a string, found nothing')
     refuses(v1([legacy({ revision: null })]), 'object.pins[0].state.revision', /expected a string, found null/u)
   })
 

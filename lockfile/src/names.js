@@ -175,24 +175,16 @@ export function readIntegrities(value, where) {
   return hashes
 }
 
-// Where git fetches from: a URL of a host, or scp's `user@host:path`, which
-// git tells from a path by a colon before any slash, the host anything up to
-// it, an ssh config's alias too, or in brackets where it has a colon, as an
-// IPv6 address does.
+// A URL of a host git fetches from, or scp's `user@host:path`: a colon
+// before any slash, the host up to it, or in brackets with a colon in it.
 const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
 const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[^@/:\\[\]]+):(?!:|\/\/)/u
 
-const isHostUrl = (url) => (SCHEME.test(url) ? URL.canParse(url) : SCP.test(url) && !url.includes('\\'))
-
-// git on Windows, and `tool` there, read one character and a colon,
-// `x:path`, as a path on the drive x:, and elsewhere as the host x;
-// `user@x:path` is the host to both, and so is `[` and a colon, which the
-// path after makes no path.
-const DRIVE = /^[^[]:(?!:)/u
-
+// `x:path` is a path on the drive x: to git and `tool` on Windows, and the
+// host x elsewhere; `user@x:path` and `[` with a colon are hosts to both.
 export function checkHostUrl(url, where, tool) {
-  if (DRIVE.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to ${tool} on Windows, and a host's to git elsewhere`, where)
-  if (!isHostUrl(url)) throw new LockfileError(`${quote(url)} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`, where)
+  if (/^[^[]:(?!:)/u.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to ${tool} on Windows, and a host's to git elsewhere`, where)
+  if (SCHEME.test(url) ? !URL.canParse(url) : !SCP.test(url) || url.includes('\\')) throw new LockfileError(`${quote(url)} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`, where)
   return url
 }
 
