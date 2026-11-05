@@ -1,9 +1,9 @@
 // Package.resolved: SwiftPM writes version 1 of a root package of tools
 // version below 5.6, 2 below 5.10, and 3, with originHash, of the rest.
 
+import { toHex } from '@exodus/bytes/hex.js'
 import { LockfileError, quote } from '../error.js'
 import { isHexSha256 } from '../names.js'
-import { sha256Hex } from '../sha.js'
 import { checkOptions, checkerOf, kind, record, sequence, text } from '../shape.js'
 import { checkLayout, readJson } from './json.js'
 import { readLegacyPin, readPin } from './pin.js'
@@ -38,7 +38,7 @@ function manifestBytes(manifest) {
   return new TextEncoder().encode(manifest)
 }
 
-export function parsePackageResolved(source, options = {}) {
+export async function parsePackageResolved(source, options = {}) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
   const manifest = manifestBytes(checkOptions(options, ['manifest']).manifest)
   const json = readJson(source)
@@ -50,7 +50,7 @@ export function parsePackageResolved(source, options = {}) {
   const originHash = version === 3 ? checkOriginHash(root.originHash, 'originHash') : undefined
   if (manifest !== undefined) {
     if (originHash === undefined) throw new LockfileError('no originHash to hold the manifest to, which SwiftPM writes in version 3 alone')
-    const digest = sha256Hex(manifest)
+    const digest = toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', manifest)))
     if (digest !== originHash) throw new LockfileError(`not the sha256 of the manifest given, ${digest}: the lockfile was written for another manifest, or of more than one`, 'originHash')
   }
   return { version, originHash, pins }

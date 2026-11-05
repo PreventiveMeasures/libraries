@@ -20,8 +20,9 @@
 // lists what it depends on on every platform, and installs it on fewer.
 // Requirements are read, not held to the versions they ask for.
 //
-// Throws a LockfileError for anything CocoaPods would not write, or would
-// read otherwise, and a TypeError for bad arguments. CocoaPods writes an
+// Async, as the Podfile's sha1 is Web Crypto's. Rejects with a
+// LockfileError for anything CocoaPods would not write, or would read
+// otherwise, and with a TypeError for bad arguments. CocoaPods writes an
 // absolute path and one from a home directory, `~/MyPod`, as a Podfile
 // gives either for `:path` or `:podspec`; each is refused, as a lockfile
 // with one reads on the machine that wrote it alone. So is a repository in
@@ -29,7 +30,7 @@
 // spec repo's among them, and a revision, tag, branch or folder of hg or
 // svn that starts with `-` or has ` --` in it, which hg or svn would read
 // as an option, and cocoapods-downloader refuses of hg.
-export function parsePodfileLock(text: string, options?: PodfileLockOptions): PodfileLock
+export function parsePodfileLock(text: string, options?: PodfileLockOptions): Promise<PodfileLock>
 
 export interface PodfileLockOptions {
   // The Podfile the lockfile was written for, its text or its bytes, which

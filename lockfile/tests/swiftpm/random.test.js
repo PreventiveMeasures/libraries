@@ -40,14 +40,14 @@ function edit({ next, pick }, text) {
 }
 
 describe('the fixtures edited at random', () => {
-  it('refused with a LockfileError, or read as JSON.parse reads them and as SwiftPM writes them', () => {
+  it('refused with a LockfileError, or read as JSON.parse reads them and as SwiftPM writes them', async () => {
     const rng = random(0x5_3D)
     let read = 0
     for (let index = 0; index < 20000; index++) {
       const doc = edit(rng, rng.pick(BASES))
       let resolved
       try {
-        resolved = parsePackageResolved(doc)
+        resolved = await parsePackageResolved(doc)
       } catch (error) {
         if (!(error instanceof LockfileError)) assert.fail(`${JSON.stringify(doc)} threw ${error}`)
         continue
@@ -73,16 +73,16 @@ describe('the work, bound by the file', () => {
   const v2 = (pins) => `${write({ version: 2, originHash: undefined, pins })}\n`
   const LONG = 2 ** 20 - 64
 
-  it('of many pins: linear', () => {
+  it('of many pins: linear', async () => {
     const pins = Object.fromEntries(Array.from({ length: 50000 }, (_, index) => `p${String(index).padStart(5, '0')}`).map((identity) => [identity, pin(identity, { version: '1.0.0' })]))
     const text = v2(pins)
     const start = cpuUsage()
-    assert.equal(Object.keys(parsePackageResolved(text).pins).length, 50000)
+    assert.equal(Object.keys((await parsePackageResolved(text)).pins).length, 50000)
     const took = cpuMs(start)
     assert.ok(took < 2000, `${Math.round(took)} ms`)
   })
 
-  it('of lines a megabyte long, read or refused at once', () => {
+  it('of lines a megabyte long, read or refused at once', async () => {
     const docs = [
       v2({ a: pin('a', { version: `1.0.0-${'a'.repeat(LONG)}` }) }),
       v2({ a: pin('a', { version: `1.0.0-${'a'.repeat(LONG)}!` }) }),
@@ -95,7 +95,7 @@ describe('the work, bound by the file', () => {
     const start = cpuUsage()
     for (const doc of docs) {
       try {
-        parsePackageResolved(doc)
+        await parsePackageResolved(doc)
       } catch (error) {
         assert.ok(error instanceof LockfileError, error)
       }

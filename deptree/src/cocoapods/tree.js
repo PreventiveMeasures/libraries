@@ -172,7 +172,7 @@ export async function buildCocoaPodsTree(options) {
   const keepsGit = Number(host.cocoapods.split('.')[1]) < 16
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoPods(into, folded)
-  const lock = parsePodfileLock(inputs.lockfile, inputs.podfile === undefined ? {} : { podfile: inputs.podfile })
+  const lock = await parsePodfileLock(inputs.lockfile, inputs.podfile === undefined ? {} : { podfile: inputs.podfile })
   const roots = Object.values(lock.roots)
   const skipped = partial ? new Map() : undefined
   const fetched = roots.filter((root) => unlessSkipped(() => isDownloaded(root, folded), root, skipped))

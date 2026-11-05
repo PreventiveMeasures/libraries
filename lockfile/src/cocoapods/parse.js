@@ -13,6 +13,7 @@
 // - SPEC CHECKSUMS: by root, the sha1 of the podspec it read.
 // - PODFILE CHECKSUM: the sha1 of the Podfile; COCOAPODS: its version.
 
+import { toHex } from '@exodus/bytes/hex.js'
 import { LockfileError, at, quote } from '../error.js'
 import { fail } from '../lines.js'
 import { checkRepo } from '../names.js'
@@ -20,7 +21,6 @@ import { checkOptions, field } from '../shape.js'
 import { checkCheckout, checkDescription } from './external.js'
 import { SECTIONS, checkLayout, rulesOf } from './layout.js'
 import { checkRootName, readDependency, readPodString, readPodfileDependency, rootOf } from './pods.js'
-import { sha1Hex } from '../sha.js'
 import { checker, entriesOf, itemsOf, scalarOf, textOf } from './shape.js'
 import { readCheckout, readExternalSource, readSha1 } from './sources.js'
 import { parseCocoaYaml } from './yaml.js'
@@ -183,15 +183,15 @@ function podfileBytes(podfile) {
   return new TextEncoder().encode(podfile)
 }
 
-function checkPodfile(bytes, checksum) {
+async function checkPodfile(bytes, checksum) {
   if (checksum === undefined) throw new LockfileError('no PODFILE CHECKSUM to hold the Podfile to, which CocoaPods writes of a Podfile it reads from a file')
-  const digest = sha1Hex(bytes)
+  const digest = toHex(new Uint8Array(await crypto.subtle.digest('SHA-1', bytes)))
   if (digest !== checksum) throw new LockfileError(`not the sha1 of the Podfile given, ${digest}: the lockfile was written for another Podfile`, where('PODFILE CHECKSUM'))
 }
 
 // Each section read first, then the file held to its layout, then the
 // sections to each other.
-export function parsePodfileLock(text, options = {}) {
+export async function parsePodfileLock(text, options = {}) {
   if (typeof text !== 'string') throw new TypeError('expected a string')
   const podfile = podfileBytes(checkOptions(options, ['podfile']).podfile)
   const { root, crlf } = parseCocoaYaml(text)
@@ -215,6 +215,6 @@ export function parsePodfileLock(text, options = {}) {
   checkPodfileDependencies(read, pods, roots, byRoots.externals)
   const dependencies = read.map(({ name, requirements, description }) => ({ name, requirements, external: description !== undefined }))
   checkReached(dependencies, pods, placeOf)
-  if (podfile !== undefined) checkPodfile(podfile, podfileChecksum)
+  if (podfile !== undefined) await checkPodfile(podfile, podfileChecksum)
   return { cocoapods: version, podfileChecksum, pods, roots, dependencies }
 }

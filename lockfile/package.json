@@ -165,7 +165,6 @@
     "src/python/pep508.js",
     "src/rubygems/gem.js",
     "src/rubygems/version.js",
-    "src/sha.js",
     "src/shape.js",
     "src/soldeer/config.js",
     "src/soldeer/parse.js",
