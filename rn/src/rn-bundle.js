@@ -124,7 +124,7 @@ async function run(args, { cwd, stderr, closing }) {
     // Imports are checked with esm, and with inline requires (never both: transformRefusal).
     esm: esm.on,
     checkImports: esm.on || inlineRequires !== null,
-    restrict: restrictionsOf(rnConfig, cwd),
+    restrict: restrictionsOf(rnConfig, cwd, dev),
     assetExts: metro.assetExts,
     resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,

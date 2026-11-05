@@ -456,6 +456,20 @@ describe("rn-bundle, of a project's rn.config.json", () => {
     }
   })
 
+  it("fails on what production's restrictions forbid in a release build, development's in a dev build, besides the top level's", async () => {
+    const config = { metroConfig: false, disallowedModules: ['dual'], production: { disallowedPaths: ['img'] }, development: { disallowedPaths: ['fonts'] } }
+    const release = await bundleWith(config)
+    assert.equal(release.status, 1)
+    assert.match(release.stderr, /node_modules\/dual\/rn\.js is of dual, which matches "dual" of rn\.config\.json's disallowedModules/u)
+    assert.match(release.stderr, /img\/logo\.png matches "img" of rn\.config\.json's production\.disallowedPaths/u)
+    assert.doesNotMatch(release.stderr, /development\./u)
+    const dev = await bundleWith(config, ['--dev'])
+    assert.equal(dev.status, 1)
+    assert.match(dev.stderr, /node_modules\/dual\/rn\.js is of dual, which matches "dual" of rn\.config\.json's disallowedModules/u)
+    assert.match(dev.stderr, /fonts\/Inter\.ttf matches "fonts" of rn\.config\.json's development\.disallowedPaths/u)
+    assert.doesNotMatch(dev.stderr, /production\./u)
+  })
+
   it('refuses an option it does not know, and takes devtools, which is of rn-serve', async () => {
     const r = await bundleWith({ metroConfig: false, esModules: true })
     assert.deepEqual([r.status, r.stderr], [1, 'rn-bundle: rn.config.json: no such option esModules: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, allowedPaths, disallowedPaths, allowedModules, disallowedModules, ios, android, development, production\n'])

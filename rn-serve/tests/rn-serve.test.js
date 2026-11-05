@@ -724,6 +724,40 @@ describe("rn-serve, of rn.config.json's assetExts and sourceExts", () => {
   })
 })
 
+describe("rn-serve, of rn.config.json's restrictions at the top level and in development and production", () => {
+  const { root, cleanup } = writeTree({
+    ...APP,
+    'rn.config.json': { disallowedPaths: ['lib/both.js'], development: { disallowedPaths: ['lib/dev.js'] }, production: { disallowedPaths: ['lib/release.js'] } },
+    'both.js': "globalThis.result = require('./lib/both')\n",
+    'dev.js': "globalThis.result = require('./lib/dev')\n",
+    'release.js': "globalThis.result = require('./lib/release')\n",
+    'lib/both.js': 'module.exports = 1\n',
+    'lib/dev.js': 'module.exports = 2\n',
+    'lib/release.js': 'module.exports = 3\n',
+  })
+  let server
+  before(async () => {
+    server = await serve(root)
+  })
+  after(async () => {
+    await server?.stop()
+    cleanup()
+  })
+
+  it("fails a dev bundle on what development's forbid, a release bundle on what production's do, each on what the top level's do", async () => {
+    const built = async (entry, dev) => {
+      const r = await fetchRaw(`${server.url}/${entry}.bundle?platform=ios&dev=${dev}`)
+      return r.status === 200 ? 'built' : JSON.parse(String(r.body)).errors.map(({ description }) => description)
+    }
+    assert.deepEqual(await built('both', true), [`lib/both.js matches "lib/both.js" of rn.config.json's disallowedPaths`])
+    assert.deepEqual(await built('both', false), [`lib/both.js matches "lib/both.js" of rn.config.json's disallowedPaths`])
+    assert.deepEqual(await built('dev', true), [`lib/dev.js matches "lib/dev.js" of rn.config.json's development.disallowedPaths`])
+    assert.deepEqual(await built('dev', false), 'built')
+    assert.deepEqual(await built('release', true), 'built')
+    assert.deepEqual(await built('release', false), [`lib/release.js matches "lib/release.js" of rn.config.json's production.disallowedPaths`])
+  })
+})
+
 describe("rn-serve, of rn.config.json's development and production", () => {
   // A plugin that adds `name` to the string 'MARKS', on the program's exit.
   const marking = (name) => `module.exports = () => ({ name: ${JSON.stringify(name)}, visitor: { Program: { exit(path) { path.traverse({ StringLiteral(literal) { if (literal.node.value === 'MARKS') literal.node.value += ${JSON.stringify(name)} } }) } } } })\n`
