@@ -156,12 +156,15 @@ describe("bundle, of rn.config.json's restrictions", () => {
 })
 
 describe("bundle, of rn.config.json's restrictions of an asset", () => {
-  // The files Metro builds of logo.png: logo.ios.png alone for ios; logo.png and logo@5x.png, a scale its import doesn't resolve to, for android.
+  // The files Metro builds of logo.png: logo.ios.png alone for ios; for android, logo.png, logo@3x.png (a link to
+  // private/hidden.png) and logo@5x.png, a scale its import doesn't resolve to.
   const { root, cleanup } = writeTree({
     'package.json': { name: 'app' },
     'index.js': "globalThis.result = require('./logo.png')\n",
     'logo.png': png(2, 2),
     'logo.ios.png': png(2, 2),
+    'logo@3x.png': { link: 'private/hidden.png' },
+    'private/hidden.png': png(6, 6),
     'logo@5x.png': png(10, 10),
     'registry.js': 'module.exports = { registerAsset: () => 1 }\n',
   })
@@ -177,5 +180,10 @@ describe("bundle, of rn.config.json's restrictions of an asset", () => {
     assert.deepEqual(await errorsOf('ios', ['logo.png', 'logo@5x.png']), [])
     assert.deepEqual(await errorsOf('android', ['logo.ios.png']), [])
     assert.deepEqual(await errorsOf('android', ['*@5x.png']), [[`logo@5x.png matches "*@5x.png" of rn.config.json's disallowedPaths`, 'index.js:1']])
+  })
+
+  it('checks the real path of a file of it that is a link', async () => {
+    assert.deepEqual(await errorsOf('android', ['private/**']), [[`private/hidden.png matches "private/**" of rn.config.json's disallowedPaths`, 'index.js:1']])
+    assert.deepEqual(await errorsOf('android', ['logo@3x.png']), [])
   })
 })

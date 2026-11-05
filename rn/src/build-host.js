@@ -80,10 +80,11 @@ export function resolvedModule(resolution) {
   return { kind: 'file', key: resolution.filePath }
 }
 
-// The files of the asset at `path` a build takes, or `path` alone where it has none (assetSource() then fails).
+// The real paths of the files of the asset at `path` a build takes, or `path` alone where it has none (assetSource()
+// then fails).
 function assetFilesOf(path, platform, host) {
   try {
-    return assetRecord(path, { platform, host }).files
+    return assetRecord(path, { platform, host }).files.map((file) => host.realpath(file))
   } catch {
     return [path]
   }
