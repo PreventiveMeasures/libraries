@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { globRegExp, moduleOf, packagesOf, restrictionsOf } from '../src/restrictions.js'
+import { globRegExp, installedOf, isPathGlob, packagesOf, restrictionsOf } from '../src/restrictions.js'
 
 describe('globRegExp', () => {
   const matches = (glob, path) => globRegExp(glob).test(path)
@@ -28,24 +28,43 @@ describe('globRegExp', () => {
     assert.ok(matches('a,b.js', 'a,b.js'))
   })
 
-  it('takes a leading ./ for the project root, and is null of braces that do not pair', () => {
+  it('takes a leading ./ for the project root, drops a trailing /, and is null of braces that do not pair', () => {
     assert.ok(matches('./src/**', 'src/a.js'))
+    assert.ok(matches('src/', 'src'))
     for (const glob of ['src/{a,b', 'src/a}', '}{']) assert.equal(globRegExp(glob), null, glob)
+  })
+
+  it('has, `within`, each path in a directory it matches too', () => {
+    const within = (glob, path) => globRegExp(glob, true).test(path)
+    for (const glob of ['secrets', 'secrets/', './secrets', 'secret?', '{secrets,keys}']) assert.ok(within(glob, 'secrets/deep/key.js'), glob)
+    assert.ok(within('secrets', 'secrets'))
+    assert.ok(!within('secrets', 'secrets.js'))
+    assert.ok(!within('secrets', 'src/secrets/key.js'))
+    assert.ok(within('src/*', 'src/a/b.js'))
+    assert.ok(!within('src/*.js', 'src/a/b.js'))
+    assert.ok(within('..', '../shared/a.js'))
+    assert.ok(!globRegExp('secrets').test('secrets/key.js'))
   })
 })
 
-describe('moduleOf', () => {
-  it('is the package of the innermost node_modules directory of a path', () => {
-    assert.equal(moduleOf('node_modules/react/index.js'), 'react')
-    assert.equal(moduleOf('node_modules/@react-native/js-polyfills/console.js'), '@react-native/js-polyfills')
-    assert.equal(moduleOf('node_modules/a/node_modules/b/index.js'), 'b')
-    assert.equal(moduleOf('node_modules/.pnpm/@scope+a@1.0.0/node_modules/@scope/a/index.js'), '@scope/a')
-    assert.equal(moduleOf('../../node_modules/react/index.js'), 'react')
-    assert.equal(moduleOf('node_modules/loose.js'), 'loose.js')
+describe('isPathGlob', () => {
+  it('is whether a path from the project root may match it: relative, with no ., .. but leading ones, or empty name', () => {
+    for (const glob of ['secrets', 'secrets/', './src/**', '..', '../shared/**', '{src,lib}/**', '**']) assert.ok(isPathGlob(glob), glob)
+    for (const glob of ['', '.', '/app/src', 'src\\x', 'src/../secrets/**', 'src/./x', 'a//b', 'src/{a']) assert.ok(!isPathGlob(glob), glob)
+  })
+})
+
+describe('installedOf', () => {
+  it('is the package of the innermost node_modules directory of a path: its directory, and the name it is installed under', () => {
+    assert.deepEqual(installedOf('/app/node_modules/react/index.js'), { dir: '/app/node_modules/react', name: 'react' })
+    assert.deepEqual(installedOf('/app/node_modules/@react-native/js-polyfills/console.js'), { dir: '/app/node_modules/@react-native/js-polyfills', name: '@react-native/js-polyfills' })
+    assert.equal(installedOf('node_modules/a/node_modules/b/index.js').name, 'b')
+    assert.equal(installedOf('node_modules/.pnpm/@scope+a@1.0.0/node_modules/@scope/a/index.js').name, '@scope/a')
+    assert.equal(installedOf('node_modules/loose.js').name, 'loose.js')
   })
 
   it('is null of a path in none: the project, a workspace package', () => {
-    for (const path of ['index.js', 'src/node_modules.js', '../packages/ui/index.js']) assert.equal(moduleOf(path), null, path)
+    for (const path of ['index.js', 'src/node_modules.js', '../packages/ui/index.js']) assert.equal(installedOf(path), null, path)
   })
 })
 
@@ -58,18 +77,25 @@ const MANIFESTS = {
   '/app/src/broken/package.json': '{',
   '/ws/ui/package.json': JSON.stringify({ name: '@org/ui' }),
   '/app/node_modules/rxjs/operators/package.json': JSON.stringify({ name: 'rxjs/operators' }),
+  // Installed under an npm alias: "time": "npm:moment@2".
+  '/app/node_modules/time/package.json': JSON.stringify({ name: 'moment' }),
 }
 
 describe('packagesOf', () => {
   const packageOf = packagesOf(hostOf(MANIFESTS))
 
-  it('is the package of the nearest package.json that names one, but in node_modules, where it is that directory\'s', () => {
+  it('is the package of the nearest package.json that names one', () => {
     assert.equal(packageOf('/app/index.js'), 'app')
     assert.equal(packageOf('/app/src/legacy/old.js'), 'app')
     assert.equal(packageOf('/app/src/broken/x.js'), 'app')
     assert.equal(packageOf('/ws/ui/src/Button.js'), '@org/ui')
-    assert.equal(packageOf('/app/node_modules/rxjs/operators/index.js'), 'rxjs')
     assert.equal(packageOf('/loose/x.js'), null)
+  })
+
+  it("is an installed package's by its package.json's name, else the name it is installed under, not a package.json within it", () => {
+    assert.equal(packageOf('/app/node_modules/time/moment.js'), 'moment')
+    assert.equal(packageOf('/app/node_modules/rxjs/operators/index.js'), 'rxjs')
+    assert.equal(packageOf('/app/node_modules/@scope/ui/index.js'), '@scope/ui')
   })
 
   it('reads each package.json once', () => {
@@ -123,6 +149,12 @@ describe('restrictionsOf', () => {
     assert.deepEqual(errors['../loose/x.js'], ["../loose/x.js is of no package (no package.json above it has a name), which rn.config.json's allowedModules allows none of"])
     assert.deepEqual(errorsOf({ disallowedModules: ['app'] })['src/a.js'], [`src/a.js is of app, which matches "app" of rn.config.json's disallowedModules`])
     assert.deepEqual(errorsOf({ disallowedModules: ['*'] })['../loose/x.js'], [])
+  })
+
+  it('has a path glob forbid, or allow, each file in a directory it matches', () => {
+    assert.deepEqual(errorsOf({ disallowedPaths: ['src/legacy'] })['src/legacy/b.js'], [`src/legacy/b.js matches "src/legacy" of rn.config.json's disallowedPaths`])
+    const allowed = errorsOf({ allowedPaths: ['index.js', 'src', 'node_modules'] })
+    assert.deepEqual(Object.keys(allowed).filter((name) => allowed[name].length > 0), ['../ws/ui/index.js', '../loose/x.js'])
   })
 
   it('checks each rule on its own: rules together forbid what each forbids alone, and only that', () => {

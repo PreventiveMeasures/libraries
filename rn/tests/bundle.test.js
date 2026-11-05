@@ -140,6 +140,11 @@ describe("bundle, of rn.config.json's restrictions", () => {
 
   it('fails on each file of each import they forbid, at the import', async () => {
     assert.deepEqual(await errorsOf({ disallowedModules: ['dep'] }), [[`node_modules/dep/lib/main.js is of dep, which matches "dep" of rn.config.json's disallowedModules`, 'index.js:3']])
+    // A directory: each file in it.
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['lib'] }), [
+      [`lib/value.js matches "lib" of rn.config.json's disallowedPaths`, 'index.js:1'],
+      [`lib/typed.ts matches "lib" of rn.config.json's disallowedPaths`, 'index.js:2'],
+    ])
     // The project's own files, of its package.json's name; esbuild goes no further than an entry it fails on.
     assert.deepEqual(await errorsOf({ allowedModules: ['dep'] }), [["index.js is of app, which matches none of rn.config.json's allowedModules", null]])
     assert.deepEqual(await errorsOf({ allowedPaths: ['*.js', 'node_modules/**'], disallowedPaths: ['**/main.js'] }), [

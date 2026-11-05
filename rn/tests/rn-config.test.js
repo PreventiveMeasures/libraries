@@ -60,8 +60,8 @@ describe('readRnConfig', () => {
     for (const workers of [0, 1.5, '2', null]) {
       assert.throws(() => read(JSON.stringify({ maxWorkers: workers })), { message: `rn.config.json: maxWorkers is a number of workers, 1 or more, not ${JSON.stringify(workers)}` })
     }
-    for (const globs of [['/app/src/**'], ['src\\**'], [''], ['src/{a,b'], 'src/**', [1]]) {
-      assert.throws(() => read(JSON.stringify({ disallowedPaths: globs })), { message: `rn.config.json: disallowedPaths is a list of globs of paths from the project root ("src/**", "node_modules/**"), not ${JSON.stringify(globs)}` })
+    for (const globs of [['/app/src/**'], ['src\\**'], [''], ['src/{a,b'], ['src/../secrets'], ['src//x'], ['.'], 'src/**', [1]]) {
+      assert.throws(() => read(JSON.stringify({ disallowedPaths: globs })), { message: `rn.config.json: disallowedPaths is a list of globs of paths from the project root, each a directory's files too ("src", "src/**/*.js", "node_modules"), not ${JSON.stringify(globs)}` })
     }
     for (const names of [['react-native/Libraries'], ['@scope'], ['@scope/a/b'], ['./x'], ['{react,'], [''], 'react']) {
       assert.throws(() => read(JSON.stringify({ allowedModules: names })), { message: `rn.config.json: allowedModules is a list of globs of packages' names ("react-native", "@react-native/*"), not ${JSON.stringify(names)}` })

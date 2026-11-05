@@ -9,11 +9,11 @@
 // restrict the files each build takes (restrictions.js).
 
 import { readFileSync } from 'node:fs'
-import { isAbsolute, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { defaults } from './defaults.js'
-import { globRegExp } from './restrictions.js'
+import { globRegExp, isPathGlob } from './restrictions.js'
 
 const RN_CONFIG = 'rn.config.json'
 
@@ -28,7 +28,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 // Babel plugins by name, each on or off, in order.
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
 // Globs of files' paths and of packages' names (restrictions.js).
-const globs = [listOf((value) => typeof value === 'string' && value !== '' && !isAbsolute(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of paths from the project root ("src/**", "node_modules/**")']
+const globs = [listOf((value) => typeof value === 'string' && isPathGlob(value)), 'a list of globs of paths from the project root, each a directory\'s files too ("src", "src/**/*.js", "node_modules")']
 const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/]+\/[^/]+|[^@/.][^/]*)$/u.test(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of packages\' names ("react-native", "@react-native/*")']
 // What `development` and `production` may set.
 const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
