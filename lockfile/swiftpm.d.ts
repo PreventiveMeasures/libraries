@@ -24,9 +24,10 @@
 // on the machine that wrote it alone; and a location in which git or ssh
 // would read an option, or that names a remote helper.
 //
-// Throws a LockfileError for anything SwiftPM would not write, or would
-// read otherwise, and a TypeError for bad arguments.
-export function parsePackageResolved(text: string, options?: PackageResolvedOptions): PackageResolved
+// Async, as the manifest's sha256 is Web Crypto's. Rejects with a
+// LockfileError for anything SwiftPM would not write, or would read
+// otherwise, and with a TypeError for bad arguments.
+export function parsePackageResolved(text: string, options?: PackageResolvedOptions): Promise<PackageResolved>
 
 export interface PackageResolvedOptions {
   // The root package's manifest SwiftPM read, Package.swift or the

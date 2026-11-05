@@ -17,8 +17,8 @@ const plain = (value) => structuredClone(value)
 
 const COMMIT = '529bfcb6a47276296d202b94a9c49ad6a10b6da2'
 
-describe('every version reads to the same lockfile', () => {
-  const locks = Object.fromEntries(VERSIONS.map((version) => [version, read(`cocoapods-${version}`)]))
+describe('every version reads to the same lockfile', async () => {
+  const locks = Object.fromEntries(await Promise.all(VERSIONS.map(async (version) => [version, await read(`cocoapods-${version}`)])))
 
   it('but for the version that wrote it', () => {
     for (const version of VERSIONS) {
@@ -30,8 +30,8 @@ describe('every version reads to the same lockfile', () => {
   })
 })
 
-describe('CocoaPods 1.17', () => {
-  const lock = read('cocoapods-1.17.0')
+describe('CocoaPods 1.17', async () => {
+  const lock = await read('cocoapods-1.17.0')
 
   it('every pod, roots and subspecs, with what each podspec depends on', () => {
     assert.equal(Object.keys(lock.pods).length, 17)
@@ -79,22 +79,22 @@ describe('CocoaPods 1.17', () => {
     assert.equal(lock.roots.Alamofire.checksum, '3ca42e259043ee0dc5c0cdd76c4bc568b8e42af7')
   })
 
-  it('a description of a file by Hash#inspect, of Ruby 3.4 too', () => {
+  it('a description of a file by Hash#inspect, of Ruby 3.4 too', async () => {
     const ruby34 = text('cocoapods-1.17.0').replace(/\{:http=>\\"(.*?)\\", :type=>\\"tgz\\", :sha256=>\\"(.*?)\\"\}/u, '{sha256: \\"$2\\", http: \\"$1\\", type: \\"tgz\\"}')
     assert.notEqual(ruby34, text('cocoapods-1.17.0'))
-    assert.deepEqual(plain(parsePodfileLock(ruby34)), plain(lock))
+    assert.deepEqual(plain(await parsePodfileLock(ruby34)), plain(lock))
   })
 
-  it('the Podfile it was written for, and no other', () => {
+  it('the Podfile it was written for, and no other', async () => {
     assert.match(lock.podfileChecksum, /^[\da-f]{40}$/u)
-    assert.throws(() => parsePodfileLock(text('cocoapods-1.17.0'), { podfile: podfile('cocoapods-1.17.0-empty') }), /the lockfile was written for another Podfile/u)
-    assert.equal(parsePodfileLock(text('cocoapods-1.17.0'), { podfile: new TextEncoder().encode(podfile('cocoapods-1.17.0')) }).podfileChecksum, lock.podfileChecksum)
+    await assert.rejects(() => parsePodfileLock(text('cocoapods-1.17.0'), { podfile: podfile('cocoapods-1.17.0-empty') }), /the lockfile was written for another Podfile/u)
+    assert.equal((await parsePodfileLock(text('cocoapods-1.17.0'), { podfile: new TextEncoder().encode(podfile('cocoapods-1.17.0')) })).podfileChecksum, lock.podfileChecksum)
   })
 })
 
 describe('CocoaPods 1.17, of no pods', () => {
-  it('the Podfile\'s checksum and the version alone', () => {
-    const lock = read('cocoapods-1.17.0-empty')
+  it('the Podfile\'s checksum and the version alone', async () => {
+    const lock = await read('cocoapods-1.17.0-empty')
     assert.deepEqual([lock.cocoapods, Object.keys(lock.pods), Object.keys(lock.roots), lock.dependencies], ['1.17.0', [], [], []])
     assert.match(lock.podfileChecksum, /^[\da-f]{40}$/u)
   })

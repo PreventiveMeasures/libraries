@@ -28,8 +28,8 @@ const NUMERICS = (name) => repository('swift-numerics', 'https://github.com/appl
 const LINKED_LIST = readPin({ identity: 'mona.LinkedList', kind: 'registry', version: '1.2.0' })
 
 describe('a package of each kind of pin a repository has, as SwiftPM 6.4.2 writes it', () => {
-  it('version 1, of tools version 5.5: each by its location, with the name its manifest gives the package', () => {
-    const resolved = parsePackageResolved(lockfile('v1'))
+  it('version 1, of tools version 5.5: each by its location, with the name its manifest gives the package', async () => {
+    const resolved = await parsePackageResolved(lockfile('v1'))
     assert.equal(Object.getPrototypeOf(resolved.pins), null)
     assert.deepEqual(plain(resolved), {
       version: 1,
@@ -38,16 +38,16 @@ describe('a package of each kind of pin a repository has, as SwiftPM 6.4.2 write
     })
   })
 
-  it('version 2, of 5.9: the same, by identity and kind, and no name', () => {
-    assert.deepEqual(plain(parsePackageResolved(lockfile('v2'))), {
+  it('version 2, of 5.9: the same, by identity and kind, and no name', async () => {
+    assert.deepEqual(plain(await parsePackageResolved(lockfile('v2'))), {
       version: 2,
       originHash: undefined,
       pins: { 'swift-atomics': ATOMICS(), 'swift-log': LOG(), 'swift-numerics': NUMERICS() },
     })
   })
 
-  it('version 3, of 6.0: with originHash, a short hash as a branch, and what a dependency depends on', () => {
-    const resolved = parsePackageResolved(lockfile('v3'), { manifest: manifest('v3') })
+  it('version 3, of 6.0: with originHash, a short hash as a branch, and what a dependency depends on', async () => {
+    const resolved = await parsePackageResolved(lockfile('v3'), { manifest: manifest('v3') })
     assert.deepEqual(Object.keys(resolved.pins), ['swift-atomics', 'swift-collections', 'swift-distributed-tracing', 'swift-log', 'swift-numerics', 'swift-service-context'])
     assert.deepEqual(plain(resolved), {
       version: 3,
@@ -63,35 +63,35 @@ describe('a package of each kind of pin a repository has, as SwiftPM 6.4.2 write
     })
   })
 
-  it('the manifest held to originHash, as text or bytes, and refused of another', () => {
+  it('the manifest held to originHash, as text or bytes, and refused of another', async () => {
     const text = manifest('v3')
     for (const given of [text, new TextEncoder().encode(text)]) {
-      assert.equal(parsePackageResolved(lockfile('v3'), { manifest: given }).originHash, '4ffabeebe8cdee650c1e0e1a411d5028faea4f8bd469d7423d075cb869659778')
+      assert.equal((await parsePackageResolved(lockfile('v3'), { manifest: given })).originHash, '4ffabeebe8cdee650c1e0e1a411d5028faea4f8bd469d7423d075cb869659778')
     }
-    assert.throws(() => parsePackageResolved(lockfile('v3'), { manifest: `${text} ` }), (error) => error instanceof LockfileError && error.where === 'originHash'
+    await assert.rejects(() => parsePackageResolved(lockfile('v3'), { manifest: `${text} ` }), (error) => error instanceof LockfileError && error.where === 'originHash'
       && error.message.startsWith('originHash: not the sha256 of the manifest given, '))
-    assert.throws(() => parsePackageResolved(lockfile('v3'), { manifest: manifest('v2') }), (error) => error instanceof LockfileError && error.where === 'originHash')
+    await assert.rejects(() => parsePackageResolved(lockfile('v3'), { manifest: manifest('v2') }), (error) => error instanceof LockfileError && error.where === 'originHash')
   })
 
-  it('a manifest refused of versions 1 and 2, which have no originHash', () => {
+  it('a manifest refused of versions 1 and 2, which have no originHash', async () => {
     for (const name of ['v1', 'v2']) {
-      assert.throws(() => parsePackageResolved(lockfile(name), { manifest: manifest(name) }), (error) => error instanceof LockfileError
+      await assert.rejects(() => parsePackageResolved(lockfile(name), { manifest: manifest(name) }), (error) => error instanceof LockfileError
         && error.message === 'no originHash to hold the manifest to, which SwiftPM writes in version 3 alone')
     }
   })
 })
 
 describe('a registry\'s package, as SwiftPM 6.4.2 writes it', () => {
-  it('by its identity, in the case the manifest gives it, and no location', () => {
-    assert.deepEqual(plain(parsePackageResolved(lockfile('registry'), { manifest: manifest('registry') })), {
+  it('by its identity, in the case the manifest gives it, and no location', async () => {
+    assert.deepEqual(plain(await parsePackageResolved(lockfile('registry'), { manifest: manifest('registry') })), {
       version: 3,
       originHash: '22be882cf465774aea3d763d5c8f6e526ca1f85cb448a11b3898b45304f6a9be',
       pins: { 'mona.LinkedList': LINKED_LIST, 'swift-log': LOG() },
     })
   })
 
-  it('looked up by a repository\'s URL: that URL as originalLocation', () => {
-    assert.deepEqual(plain(parsePackageResolved(lockfile('scm-registry'), { manifest: manifest('scm-registry') }).pins), {
+  it('looked up by a repository\'s URL: that URL as originalLocation', async () => {
+    assert.deepEqual(plain((await parsePackageResolved(lockfile('scm-registry'), { manifest: manifest('scm-registry') })).pins), {
       'mona.LinkedList': { ...LINKED_LIST, originalLocation: 'https://github.com/mona/LinkedList' },
       'swift-log': LOG(),
     })
@@ -99,15 +99,15 @@ describe('a registry\'s package, as SwiftPM 6.4.2 writes it', () => {
 })
 
 describe('the fixtures as git and Windows leave them', () => {
-  it('checked out with CRLF throughout: the same', () => {
+  it('checked out with CRLF throughout: the same', async () => {
     for (const name of ['v1', 'v2', 'v3']) {
-      assert.deepEqual(plain(parsePackageResolved(lockfile(name).replaceAll('\n', '\r\n'))), plain(parsePackageResolved(lockfile(name))))
+      assert.deepEqual(plain(await parsePackageResolved(lockfile(name).replaceAll('\n', '\r\n'))), plain(await parsePackageResolved(lockfile(name))))
     }
   })
 
-  it('without the line end at the end, as SwiftPM writes on Windows, and before 5.6', () => {
+  it('without the line end at the end, as SwiftPM writes on Windows, and before 5.6', async () => {
     for (const name of ['v1', 'v2', 'v3']) {
-      assert.deepEqual(plain(parsePackageResolved(lockfile(name).trimEnd())), plain(parsePackageResolved(lockfile(name))))
+      assert.deepEqual(plain(await parsePackageResolved(lockfile(name).trimEnd())), plain(await parsePackageResolved(lockfile(name))))
     }
   })
 })

@@ -145,11 +145,11 @@ describe('against cocoapods-core', { skip: SKIP }, () => {
     }
   })
 
-  it('the fixtures read as Pod::Lockfile reads them', () => {
+  it('the fixtures read as Pod::Lockfile reads them', async () => {
     const texts = Object.values(FIXTURES).map((fixture) => fixture.lock)
     const results = cocoapods(texts.map((text) => ['lockfile', text]))
     for (const [index, text] of texts.entries()) {
-      const lock = parsePodfileLock(text)
+      const lock = await parsePodfileLock(text)
       const expected = results[index].value
       const roots = Object.values(lock.roots)
       const option = (key) => (key === 'fileType' ? 'type' : key)
