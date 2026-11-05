@@ -175,6 +175,19 @@ export function readIntegrities(value, where) {
   return hashes
 }
 
+// A URL of a host git fetches from, or scp's `user@host:path`: a colon
+// before any slash, the host up to it, or in brackets with a colon in it.
+const SCHEME = /^(?:https?|ssh|git|git\+ssh|ssh\+git):\/\/[^/]/u
+const SCP = /^(?:[^@/:\\]+@)?(?:\[[^\]/\\]+\]|[^@/:\\[\]]+):(?!:|\/\/)/u
+
+// `x:path` is a path on the drive x: to git and `tool` on Windows, and the
+// host x elsewhere; `user@x:path` and `[` with a colon are hosts to both.
+export function checkHostUrl(url, where, tool) {
+  if (/^[^[]:(?!:)/u.test(url)) throw new LockfileError(`${quote(url)} is a path on a drive to ${tool} on Windows, and a host's to git elsewhere`, where)
+  if (SCHEME.test(url) ? !URL.canParse(url) : !SCP.test(url) || url.includes('\\')) throw new LockfileError(`${quote(url)} is not a URL of a host that git fetches from: http(s), ssh, git, or user@host:path`, where)
+  return url
+}
+
 // An http(s) URL that is the URL fetched as it is written: no space or
 // control, which the URL parser drops, or trims, where a reader of the
 // text would not.
