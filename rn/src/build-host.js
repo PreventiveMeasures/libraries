@@ -45,23 +45,16 @@ export function newState(run, read = new Set(), made = () => {}) {
       return assetModule(data, registry)
     },
     assets: () => [...assets.keys()].toSorted().map((path) => assets.get(path)),
-    // A file given by its path from the project root (a polyfill) as resolvedModule() has one: by its real path,
-    // or the path where there is none (its load then fails).
-    fileOf(path) {
-      const given = resolve(projectRoot, path)
-      try {
-        return { kind: 'file', key: host.realpath(given) }
-      } catch {
-        return { kind: 'file', key: given }
-      }
-    },
+    // A file given by its path from the project root (a polyfill), as resolvedModule() has one.
+    fileOf: (path) => ({ kind: 'file', key: resolve(projectRoot, path) }),
     // The errors of rn.config.json's restrictions (run.restrict, restrictions.js) of each file of a module,
-    // resolvedModule()'s (or fileOf()'s), by its package: of an asset, each the build takes for the platform
-    // (assetRecord()), by its real path.
+    // resolvedModule()'s or fileOf()'s, by its real path and package: of an asset, each the build takes for the
+    // platform (assetRecord()). A file a custom resolveRequest gives, or a polyfill, may be a link.
     forbidden(found) {
       if (restrict === null || found === null || found.kind === 'empty') return []
       packageOf ??= packagesOf(host)
-      return (found.kind === 'asset' ? assetFilesOf(found.key, platform, host) : [found.key]).flatMap((path) => restrict(path, packageOf(path)))
+      const files = found.kind === 'asset' ? assetFilesOf(found.key, platform, host) : [found.key]
+      return files.map((path) => realOf(host, path)).flatMap((path) => restrict(path, packageOf(path)))
     },
   }
   made(state)
@@ -91,13 +84,21 @@ export function resolvedModule(resolution) {
   return { kind: 'file', key: resolution.filePath }
 }
 
-// The real paths of the files of the asset at `path` a build takes, or `path` alone where it has none (assetSource()
-// then fails).
+// The files of the asset at `path` a build takes, or `path` alone where it has none (assetSource() then fails).
 function assetFilesOf(path, platform, host) {
   try {
-    return assetRecord(path, { platform, host }).files.map((file) => host.realpath(file))
+    return assetRecord(path, { platform, host }).files
   } catch {
     return [path]
+  }
+}
+
+// The real path of a file, or its path where it has none (its load then fails).
+function realOf(host, path) {
+  try {
+    return host.realpath(path)
+  } catch {
+    return path
   }
 }
 
@@ -150,7 +151,13 @@ export function lookups(host, read) {
     if (listed === undefined || listed.isSymbolicLink() || !(listed.isFile() || listed.isDirectory())) return host[name](path)
     return listed[name]()
   }
-  const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath: once((path) => host.realpath(path)) }
+  // A real path is its own, known so: the restrictions check each file the resolver gives again (newState()).
+  const realpath = once((path) => {
+    const real = host.realpath(path)
+    if (real !== path) realpath.known.set(real, real)
+    return real
+  })
+  const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath }
   return {
     host: {
       ...looked,

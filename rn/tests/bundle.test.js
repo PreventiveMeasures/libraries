@@ -125,7 +125,7 @@ describe("buildHost, of a host that lists directories", () => {
 })
 
 describe("bundle, of rn.config.json's restrictions", () => {
-  const { root, cleanup } = writeTree({ ...APP, 'polyfill.js': 'globalThis.polyfilled = true\n', 'linked.js': { link: 'private/polyfill.js' }, 'private/polyfill.js': 'globalThis.polyfilled = true\n' })
+  const { root, cleanup } = writeTree({ ...APP, 'polyfill.js': 'globalThis.polyfilled = true\n', 'linked.js': { link: 'private/polyfill.js' }, 'private/polyfill.js': 'globalThis.polyfilled = true\n', 'custom.js': "import { hidden } from 'hidden'\nglobalThis.result = hidden\n", 'linked-hidden.js': { link: 'private/hidden.js' }, 'private/hidden.js': 'export const hidden = 1\n' })
   after(cleanup)
   const options = { entry: 'index.js', platform: 'ios', outfile: 'out.js', esbuild, projectRoot: root, polyfills: [join(root, 'polyfill.js')] }
   const errorsOf = async (config, more = {}) => {
@@ -152,6 +152,14 @@ describe("bundle, of rn.config.json's restrictions", () => {
   it('fails on the entry, and on a polyfill', async () => {
     assert.deepEqual((await errorsOf({ disallowedPaths: ['index.js'] }))[0], ["index.js matches \"index.js\" of rn.config.json's disallowedPaths", null])
     assert.deepEqual((await errorsOf({ allowedPaths: ['index.js', 'lib/**', 'node_modules/**'] }))[0][0], "polyfill.js matches none of rn.config.json's allowedPaths")
+  })
+
+  it("checks a file a Metro config's resolveRequest gives by its real path", async () => {
+    // As the Metro config's resolver.resolveRequest, it gives `hidden` as a link.
+    const resolveRequest = (context, name, platform) => (name === 'hidden' ? { type: 'sourceFile', filePath: join(root, 'linked-hidden.js') } : context.resolveRequest(context, name, platform))
+    const more = { entry: 'custom.js', resolver: { metroResolver: require('metro-resolver'), resolveRequest } }
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['private/**'] }, more), [[`private/hidden.js matches "private/**" of rn.config.json's disallowedPaths`, 'custom.js:1']])
+    assert.deepEqual(await errorsOf({ disallowedPaths: ['linked-hidden.js'] }, more), [])
   })
 
   it("checks a polyfill by its real path, from the project root where it isn't absolute", async () => {
