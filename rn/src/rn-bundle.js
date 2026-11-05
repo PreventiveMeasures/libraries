@@ -140,6 +140,9 @@ async function run(args, { cwd, stderr, closing }) {
   // Each module as this build loaded it, for --self-test to compare.
   const ours = args['self-test'] ? new Map() : null
   const result = await built(stderr, { ...options, cache: ours })
+  // Its workers stopped once it's built: V8 keeps their heaps' pages for the process's other isolates,
+  // so --self-test's build, which has workers of its own, reuses them instead of taking as much again.
+  babel?.babel.close()
   for (const line of await esbuild.formatMessages(result.warnings, { kind: 'warning' })) stderr.write(line)
   writeOutputs(cwd, args, result)
   stderr.write(`rn-bundle: ${entry} for ${platform}${args.output === undefined ? '' : ` to ${args.output}`} (esbuild ${esbuild.version}), ${result.graph.size} modules, ${result.assets.length} assets\n`)
