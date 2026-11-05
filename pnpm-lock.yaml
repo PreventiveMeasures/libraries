@@ -155,7 +155,7 @@ importers:
   rn-serve:
     dependencies:
       '@preventive/rn':
-        specifier: workspace:*
+        specifier: 1.0.0-alpha.5
         version: link:../rn
     devDependencies:
       '@babel/core':

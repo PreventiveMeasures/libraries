@@ -1,6 +1,6 @@
 {
   "name": "@preventive/rn-serve",
-  "version": "1.0.0-alpha.4",
+  "version": "1.0.0-alpha.5",
   "description": "A Metro-compatible React Native dev server: bundles as @preventive/rn builds them, Fast Refresh, symbolication, the debugger, and the app launched on a simulator or an Android device",
   "type": "module",
   "bin": {
@@ -60,7 +60,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@preventive/rn": "workspace:*"
+    "@preventive/rn": "1.0.0-alpha.5"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
