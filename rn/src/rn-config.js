@@ -27,9 +27,9 @@ const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== ''
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 // Babel plugins by name, each on or off, in order.
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
-// Globs of files' paths (restrictions.js), and packages' names.
+// Globs of files' paths and of packages' names (restrictions.js).
 const globs = [listOf((value) => typeof value === 'string' && value !== '' && !isAbsolute(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of paths from the project root ("src/**", "node_modules/**")']
-const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/@]+\/)?[^/@]+$/u.test(value)), 'a list of packages\' names ("react-native", "@react-native/js-polyfills")']
+const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/]+\/[^/]+|[^@/.][^/]*)$/u.test(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of packages\' names ("react-native", "@react-native/*")']
 // What `development` and `production` may set.
 const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
 // Each option's [validator, description]; a section is an object of its own options.

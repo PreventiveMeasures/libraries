@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { forbidden, globRegExp, moduleOf, restrictionsOf } from '../src/restrictions.js'
+import { globRegExp, moduleOf, packagesOf, restrictionsOf } from '../src/restrictions.js'
 
 describe('globRegExp', () => {
   const matches = (glob, path) => globRegExp(glob).test(path)
@@ -49,18 +49,50 @@ describe('moduleOf', () => {
   })
 })
 
+// package.json files, by path, as a host has them.
+const hostOf = (manifests) => ({ isFile: (path) => Object.hasOwn(manifests, path), readFile: (path) => manifests[path] })
+const MANIFESTS = {
+  '/app/package.json': JSON.stringify({ name: 'app' }),
+  // A package.json of no name, as one setting `type` for a directory: not a package's.
+  '/app/src/legacy/package.json': JSON.stringify({ type: 'module' }),
+  '/app/src/broken/package.json': '{',
+  '/ws/ui/package.json': JSON.stringify({ name: '@org/ui' }),
+  '/app/node_modules/rxjs/operators/package.json': JSON.stringify({ name: 'rxjs/operators' }),
+}
+
+describe('packagesOf', () => {
+  const packageOf = packagesOf(hostOf(MANIFESTS))
+
+  it('is the package of the nearest package.json that names one, but in node_modules, where it is that directory\'s', () => {
+    assert.equal(packageOf('/app/index.js'), 'app')
+    assert.equal(packageOf('/app/src/legacy/old.js'), 'app')
+    assert.equal(packageOf('/app/src/broken/x.js'), 'app')
+    assert.equal(packageOf('/ws/ui/src/Button.js'), '@org/ui')
+    assert.equal(packageOf('/app/node_modules/rxjs/operators/index.js'), 'rxjs')
+    assert.equal(packageOf('/loose/x.js'), null)
+  })
+
+  it('reads each package.json once', () => {
+    const read = []
+    const counting = packagesOf({ ...hostOf(MANIFESTS), readFile: (path) => (read.push(path), MANIFESTS[path]) })
+    for (const path of ['/app/a.js', '/app/src/b.js', '/app/src/legacy/c.js', '/app/src/legacy/d.js']) counting(path)
+    assert.deepEqual(read, ['/app/package.json', '/app/src/legacy/package.json'])
+  })
+})
+
 describe('restrictionsOf', () => {
   const root = '/app'
-  const FILES = ['index.js', 'src/a.js', 'src/legacy/b.js', 'node_modules/react/index.js', 'node_modules/moment/moment.js', 'node_modules/@scope/ui/index.js', 'node_modules/.pnpm/lodash@4/node_modules/lodash/lodash.js']
+  const FILES = ['index.js', 'src/a.js', 'src/legacy/b.js', '../ws/ui/index.js', '../loose/x.js', 'node_modules/react/index.js', 'node_modules/moment/moment.js', 'node_modules/@scope/ui/index.js', 'node_modules/@react-native/js-polyfills/console.js', 'node_modules/.pnpm/lodash@4/node_modules/lodash/lodash.js']
   const RULES = {
     allowedPaths: ['index.js', 'src/**', 'node_modules/**'],
     disallowedPaths: ['src/legacy/**', '**/moment.js'],
-    allowedModules: ['react', '@scope/ui', 'moment'],
-    disallowedModules: ['moment', 'lodash'],
+    allowedModules: ['app', 'react', '@scope/*', '@react-native/*', 'moment'],
+    disallowedModules: ['moment', 'lodash', '@scope/{ui,x}'],
   }
+  const packageOf = packagesOf(hostOf(MANIFESTS))
   const errorsOf = (config) => {
     const restrict = restrictionsOf(config, root)
-    return Object.fromEntries(FILES.map((name) => [name, restrict(join(root, name))]))
+    return Object.fromEntries(FILES.map((name) => [name, restrict(join(root, name), packageOf(join(root, name)))]))
   }
 
   it('is null where the config sets none', () => {
@@ -71,35 +103,32 @@ describe('restrictionsOf', () => {
   it('has an error of each rule a file breaks', () => {
     assert.deepEqual(errorsOf({ allowedPaths: ['src/*.js'] })['src/legacy/b.js'], ["src/legacy/b.js matches none of rn.config.json's allowedPaths"])
     assert.deepEqual(errorsOf({ disallowedPaths: ['src/legacy/**'] })['src/legacy/b.js'], [`src/legacy/b.js matches "src/legacy/**" of rn.config.json's disallowedPaths`])
-    assert.deepEqual(errorsOf({ allowedModules: ['react'] })['node_modules/@scope/ui/index.js'], ["node_modules/@scope/ui/index.js is of @scope/ui, which rn.config.json's allowedModules lacks"])
-    assert.deepEqual(errorsOf({ disallowedModules: ['lodash'] })['node_modules/.pnpm/lodash@4/node_modules/lodash/lodash.js'], ["node_modules/.pnpm/lodash@4/node_modules/lodash/lodash.js is of lodash, which rn.config.json's disallowedModules has"])
+    assert.deepEqual(errorsOf({ allowedModules: ['react'] })['node_modules/@scope/ui/index.js'], ["node_modules/@scope/ui/index.js is of @scope/ui, which matches none of rn.config.json's allowedModules"])
+    assert.deepEqual(errorsOf({ disallowedModules: ['lodash'] })['node_modules/.pnpm/lodash@4/node_modules/lodash/lodash.js'], [`node_modules/.pnpm/lodash@4/node_modules/lodash/lodash.js is of lodash, which matches "lodash" of rn.config.json's disallowedModules`])
     assert.deepEqual(errorsOf(RULES)['node_modules/moment/moment.js'], [
       `node_modules/moment/moment.js matches "**/moment.js" of rn.config.json's disallowedPaths`,
-      "node_modules/moment/moment.js is of moment, which rn.config.json's disallowedModules has",
+      `node_modules/moment/moment.js is of moment, which matches "moment" of rn.config.json's disallowedModules`,
     ])
   })
 
-  it("restricts the project's files by paths alone", () => {
-    assert.deepEqual(errorsOf({ allowedModules: [], disallowedModules: ['app'] })['src/a.js'], [])
+  it("takes globs of packages' names: * any of a scope's", () => {
+    const errors = errorsOf({ allowedModules: ['app', '@react-native/*', 'react*'] })
+    assert.deepEqual(Object.keys(errors).filter((name) => errors[name].length === 0), ['index.js', 'src/a.js', 'src/legacy/b.js', 'node_modules/react/index.js', 'node_modules/@react-native/js-polyfills/console.js'])
+  })
+
+  it("has allowedModules forbid any package it doesn't match, the project's and a workspace package's too, and a file of none", () => {
+    const errors = errorsOf({ allowedModules: ['react'] })
+    assert.deepEqual(errors['src/a.js'], ["src/a.js is of app, which matches none of rn.config.json's allowedModules"])
+    assert.deepEqual(errors['../ws/ui/index.js'], ["../ws/ui/index.js is of @org/ui, which matches none of rn.config.json's allowedModules"])
+    assert.deepEqual(errors['../loose/x.js'], ["../loose/x.js is of no package (no package.json above it has a name), which rn.config.json's allowedModules allows none of"])
+    assert.deepEqual(errorsOf({ disallowedModules: ['app'] })['src/a.js'], [`src/a.js is of app, which matches "app" of rn.config.json's disallowedModules`])
+    assert.deepEqual(errorsOf({ disallowedModules: ['*'] })['../loose/x.js'], [])
   })
 
   it('checks each rule on its own: rules together forbid what each forbids alone, and only that', () => {
     const together = errorsOf(RULES)
     const alone = Object.entries(RULES).map(([key, list]) => errorsOf({ [key]: list }))
     for (const name of FILES) assert.deepEqual(together[name], alone.flatMap((errors) => errors[name]), name)
-    assert.deepEqual(Object.keys(together).filter((name) => together[name].length === 0), ['index.js', 'src/a.js', 'node_modules/react/index.js', 'node_modules/@scope/ui/index.js'])
-  })
-})
-
-describe('forbidden', () => {
-  const restrict = restrictionsOf({ disallowedPaths: ['**/*@3x.png'] }, '/app')
-
-  it("has the errors of each of an asset's files, and none of the empty module or of no restrictions", () => {
-    const asset = { kind: 'asset', key: '/app/logo.png', files: ['/app/logo.png', '/app/logo@2x.png', '/app/logo@3x.png'] }
-    assert.deepEqual(forbidden(restrict, asset), [`logo@3x.png matches "**/*@3x.png" of rn.config.json's disallowedPaths`])
-    assert.deepEqual(forbidden(restrict, { kind: 'file', key: '/app/logo@3x.png' }).length, 1)
-    assert.deepEqual(forbidden(restrict, { kind: 'empty', key: 'metro-empty' }), [])
-    assert.deepEqual(forbidden(restrict, null), [])
-    assert.deepEqual(forbidden(null, asset), [])
+    assert.deepEqual(Object.keys(together).filter((name) => together[name].length === 0), ['index.js', 'src/a.js', 'node_modules/react/index.js', 'node_modules/@react-native/js-polyfills/console.js'])
   })
 })

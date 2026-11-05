@@ -8,7 +8,6 @@ import { defaults, diskHost } from './defaults.js'
 import { unmatchedImports } from './esm-imports.js'
 import { jsval } from './jsval.js'
 import { loadFile } from './load.js'
-import { forbidden } from './restrictions.js'
 import { GLOBAL } from './serializer.js'
 
 // Syntax Babel leaves, for esbuild to lower.
@@ -233,16 +232,16 @@ export function metroGraph(run, first = null) {
         const path = resolve(projectRoot, entry)
         read.add(path)
         const real = host.realpath(path)
-        return taken(run.restrict, { kind: 'file', key: real }, () => (specifier === MAIN ? named(projectRoot, real, MAIN) : file(real)))
+        return taken(state, { kind: 'file', key: real }, () => (specifier === MAIN ? named(projectRoot, real, MAIN) : file(real)))
       }
       const importer = namespace === 'file' ? realPath(from) : resolve(projectRoot, from)
       if (namespace === MAIN && specifier.startsWith(POLYFILL)) {
         const polyfill = specifier.slice(POLYFILL.length)
-        return taken(run.restrict, { kind: 'file', key: polyfill }, () => named(projectRoot, polyfill, 'metro-polyfill'))
+        return taken(state, { kind: 'file', key: polyfill }, () => named(projectRoot, polyfill, 'metro-polyfill'))
       }
       if (namespace === MAIN && specifier === ENTRY) return file(importer)
       const found = state.resolveImport(importer, specifier, kind, pluginData)
-      return taken(run.restrict, found, () => resolvedAs(projectRoot, found, file))
+      return taken(state, found, () => resolvedAs(projectRoot, found, file))
     })
     build.onLoad({ filter: ANY, namespace: 'file' }, async ({ path: esbuilt }) => {
       const path = realPath(esbuilt)
@@ -307,8 +306,8 @@ export function resolvedAs(projectRoot, found, file) {
 }
 
 // onResolve's `as()` of a module, but where rn.config.json forbids any of its files (restrictions.js): their errors.
-function taken(restrict, found, as) {
-  const errors = forbidden(restrict, found)
+function taken(state, found, as) {
+  const errors = state.forbidden(found)
   return errors.length === 0 ? as() : { errors: errors.map((text) => ({ text })) }
 }
 

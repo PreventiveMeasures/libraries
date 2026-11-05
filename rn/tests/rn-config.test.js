@@ -30,7 +30,7 @@ describe('readRnConfig', () => {
   })
 
   it('takes each of its options, as they are', () => {
-    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, port: 8082, launch: 'ios', allowedPaths: ['./index.js', 'src/**', 'node_modules/**'], disallowedPaths: ['src/{legacy,old}/**'], allowedModules: ['react', '@react-native/js-polyfills'], disallowedModules: ['moment'], ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' }, android: { device: 'Pixel_8', variant: 'freeDebug', binaryPath: 'app.apk' } }
+    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, port: 8082, launch: 'ios', allowedPaths: ['./index.js', 'src/**', 'node_modules/**'], disallowedPaths: ['src/{legacy,old}/**'], allowedModules: ['app', 'react*', '@react-native/*'], disallowedModules: ['moment'], ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' }, android: { device: 'Pixel_8', variant: 'freeDebug', binaryPath: 'app.apk' } }
     assert.deepEqual(read('{ "launch": false, "ios": {} }'), { launch: false, ios: {} })
     assert.deepEqual(read('{ "launch": "android" }'), { launch: 'android' })
     assert.deepEqual(read(JSON.stringify(options)), options)
@@ -63,8 +63,8 @@ describe('readRnConfig', () => {
     for (const globs of [['/app/src/**'], ['src\\**'], [''], ['src/{a,b'], 'src/**', [1]]) {
       assert.throws(() => read(JSON.stringify({ disallowedPaths: globs })), { message: `rn.config.json: disallowedPaths is a list of globs of paths from the project root ("src/**", "node_modules/**"), not ${JSON.stringify(globs)}` })
     }
-    for (const names of [['react-native/Libraries'], ['@scope'], ['@scope/a/b'], [''], 'react']) {
-      assert.throws(() => read(JSON.stringify({ allowedModules: names })), { message: `rn.config.json: allowedModules is a list of packages' names ("react-native", "@react-native/js-polyfills"), not ${JSON.stringify(names)}` })
+    for (const names of [['react-native/Libraries'], ['@scope'], ['@scope/a/b'], ['./x'], ['{react,'], [''], 'react']) {
+      assert.throws(() => read(JSON.stringify({ allowedModules: names })), { message: `rn.config.json: allowedModules is a list of globs of packages' names ("react-native", "@react-native/*"), not ${JSON.stringify(names)}` })
     }
     assert.throws(() => read('{ "development": { "allowedPaths": [] } }'), { message: 'rn.config.json: no such option development.allowedPaths: it has babel, esm, inlineRequires' })
     assert.throws(() => read('{ "esm": "yes" }'), { message: 'rn.config.json: esm is true or false, not "yes"' })

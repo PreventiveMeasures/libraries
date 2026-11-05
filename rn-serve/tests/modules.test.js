@@ -430,7 +430,7 @@ describe("the module format, of babel-plugin-module-resolver's aliases", () => {
 })
 
 describe("the module format, of rn.config.json's restrictions", () => {
-  const { root, cleanup } = writeTree(APP)
+  const { root, cleanup } = writeTree({ 'package.json': { name: 'app' }, ...APP })
   after(cleanup)
   const rebuild = (config) => createModuleBundler({ entry: 'index.js', platform: 'ios', esbuild, projectRoot: root, runtime: RUNTIME, polyfills: [join(root, 'polyfill.js')], prelude: prelude('true', 'development'), define: { __DEV__: 'true' }, restrict: restrictionsOf(config, root) }).rebuild()
   const errorsOf = async (config) => {
@@ -440,14 +440,14 @@ describe("the module format, of rn.config.json's restrictions", () => {
 
   it("builds what they allow, rn's own runtime not restricted", async () => {
     // metro-runtime's require.js, of rn-serve's node_modules, is of a package allowedModules lacks.
-    const { js } = await rebuild({ allowedPaths: ['*.js', 'img/**', 'node_modules/**', '../**'], allowedModules: ['react-native', 'react-refresh'] })
+    const { js } = await rebuild({ allowedPaths: ['*.js', 'img/**', 'node_modules/**', '../**'], allowedModules: ['app', 'react-native', 'react-refresh'] })
     const { context } = run(js)
     assert.deepEqual(value(context, 'globalThis.app.logo.id'), 1)
   })
 
   it('fails on each file of each import they forbid, in the module that imports it', async () => {
     assert.deepEqual(await errorsOf({ disallowedPaths: ['img/*.png'] }), [[`img/logo.png matches "img/*.png" of rn.config.json's disallowedPaths`, 'Logo.js']])
-    assert.deepEqual(await errorsOf({ disallowedModules: ['react-refresh'] }), [[`${relative(root, require.resolve('react-refresh/runtime')).replaceAll('\\', '/')} is of react-refresh, which rn.config.json's disallowedModules has`, 'node_modules/react-native/Libraries/Core/InitializeCore.js']])
+    assert.deepEqual(await errorsOf({ disallowedModules: ['react-refresh'] }), [[`${relative(root, require.resolve('react-refresh/runtime')).replaceAll('\\', '/')} is of react-refresh, which matches "react-refresh" of rn.config.json's disallowedModules`, 'node_modules/react-native/Libraries/Core/InitializeCore.js']])
   })
 
   it('fails on the entry, a module run before it, and a polyfill', async () => {

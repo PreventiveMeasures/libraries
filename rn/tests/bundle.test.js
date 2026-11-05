@@ -8,7 +8,7 @@ import { buildHost, newState } from '../src/build-host.js'
 import { bundle } from '../src/bundle.js'
 import { diskHost } from '../src/defaults.js'
 import { restrictionsOf } from '../src/restrictions.js'
-import { vfsOf, writeTree } from './fixtures.js'
+import { png, vfsOf, writeTree } from './fixtures.js'
 
 const require = createRequire(import.meta.url)
 const esbuild = require('esbuild')
@@ -134,12 +134,14 @@ describe("bundle, of rn.config.json's restrictions", () => {
   }
 
   it('builds what they allow', async () => {
-    const result = await bundle({ ...options, restrict: restrictionsOf({ allowedPaths: ['*.js', 'lib/*.{js,ts}', 'node_modules/**'], allowedModules: ['dep'], disallowedModules: ['other'] }, root) })
+    const result = await bundle({ ...options, restrict: restrictionsOf({ allowedPaths: ['*.js', 'lib/*.{js,ts}', 'node_modules/**'], allowedModules: ['app', 'dep'], disallowedModules: ['other'] }, root) })
     assert.deepEqual(run(js(result)), [1, 2, 'dep'])
   })
 
   it('fails on each file of each import they forbid, at the import', async () => {
-    assert.deepEqual(await errorsOf({ disallowedModules: ['dep'] }), [["node_modules/dep/lib/main.js is of dep, which rn.config.json's disallowedModules has", 'index.js:3']])
+    assert.deepEqual(await errorsOf({ disallowedModules: ['dep'] }), [[`node_modules/dep/lib/main.js is of dep, which matches "dep" of rn.config.json's disallowedModules`, 'index.js:3']])
+    // The project's own files, of its package.json's name; esbuild goes no further than an entry it fails on.
+    assert.deepEqual(await errorsOf({ allowedModules: ['dep'] }), [["index.js is of app, which matches none of rn.config.json's allowedModules", null]])
     assert.deepEqual(await errorsOf({ allowedPaths: ['*.js', 'node_modules/**'], disallowedPaths: ['**/main.js'] }), [
       ["lib/value.js matches none of rn.config.json's allowedPaths", 'index.js:1'],
       ["lib/typed.ts matches none of rn.config.json's allowedPaths", 'index.js:2'],
@@ -150,5 +152,30 @@ describe("bundle, of rn.config.json's restrictions", () => {
   it('fails on the entry, and on a polyfill', async () => {
     assert.deepEqual((await errorsOf({ disallowedPaths: ['index.js'] }))[0], ["index.js matches \"index.js\" of rn.config.json's disallowedPaths", null])
     assert.deepEqual((await errorsOf({ allowedPaths: ['index.js', 'lib/**', 'node_modules/**'] }))[0][0], "polyfill.js matches none of rn.config.json's allowedPaths")
+  })
+})
+
+describe("bundle, of rn.config.json's restrictions of an asset", () => {
+  // The files Metro builds of logo.png: logo.ios.png alone for ios; logo.png and logo@5x.png, a scale its import doesn't resolve to, for android.
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    'index.js': "globalThis.result = require('./logo.png')\n",
+    'logo.png': png(2, 2),
+    'logo.ios.png': png(2, 2),
+    'logo@5x.png': png(10, 10),
+    'registry.js': 'module.exports = { registerAsset: () => 1 }\n',
+  })
+  after(cleanup)
+  const errorsOf = async (platform, disallowedPaths) => {
+    const options = { entry: 'index.js', platform, outfile: 'out.js', esbuild, projectRoot: root, assetRegistryPath: './registry.js', restrict: restrictionsOf({ disallowedPaths }, root) }
+    const failure = await bundle(options).then(() => null, (error) => error)
+    return failure?.errors?.map(({ text, location }) => [text, `${location.file}:${location.line}`]) ?? []
+  }
+
+  it('checks each file the build takes of it for the platform, not those its import resolves to', async () => {
+    assert.deepEqual(await errorsOf('ios', ['logo.ios.png']), [[`logo.ios.png matches "logo.ios.png" of rn.config.json's disallowedPaths`, 'index.js:1']])
+    assert.deepEqual(await errorsOf('ios', ['logo.png', 'logo@5x.png']), [])
+    assert.deepEqual(await errorsOf('android', ['logo.ios.png']), [])
+    assert.deepEqual(await errorsOf('android', ['*@5x.png']), [[`logo@5x.png matches "*@5x.png" of rn.config.json's disallowedPaths`, 'index.js:1']])
   })
 })
