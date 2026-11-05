@@ -21,38 +21,84 @@ const FORBIDDEN = /[\p{Cc}\p{Cs}\uFEFF]/u
 // one SwiftPM writes.
 const DEPTH = 5
 
-// Objects as mappings with a null prototype, so a key is only ever a key;
-// and each string one SwiftPM writes, as JSON.stringify writes an escaped
-// control and lone surrogate back as they are.
+// Where `key` of what is at `where` is: `[2]` of an index, and of a key as
+// at() writes one.
+const place = (where, key) => (typeof key === 'number' ? `${where ?? ''}[${key}]` : at(where ?? '', key))
+
+// A container at `depth` with its objects as mappings with a null
+// prototype, so a key is only ever a key.
 function toRecords(value, where, depth) {
-  if (typeof value === 'string') {
-    if (!value.isWellFormed()) throw new LockfileError('a lone surrogate, escaped, which no Swift string has', where)
-    if (/\p{Cc}/u.test(value)) throw new LockfileError(`${quote(value)} has a control, escaped, which no field SwiftPM writes has`, where)
-  }
-  if (typeof value !== 'object' || value === null) return value
-  if (depth === DEPTH) throw new LockfileError(`nested more than ${DEPTH} deep, as no Package.resolved is`, where)
-  if (Array.isArray(value)) return value.map((item, index) => toRecords(item, `${where ?? ''}[${index}]`, depth + 1))
+  if (Array.isArray(value)) return value.map((item, index) => toRecord(item, where, index, depth))
   const record = Object.create(null)
-  for (const [key, item] of Object.entries(value)) record[key] = toRecords(item, at(where ?? '', key), depth + 1)
+  for (const name of Object.keys(value)) record[name] = toRecord(value[name], where, name, depth)
   return record
 }
 
+// The value at `key` of the container at `where`, `depth` deep: a string
+// one SwiftPM writes, as JSON.stringify writes an escaped control and lone
+// surrogate back as they are. Where it is is made only of a container, or
+// of a string refused, as a file of many pins has millions of values.
+function toRecord(value, parent, key, depth) {
+  if (typeof value === 'string') {
+    if (!value.isWellFormed()) throw new LockfileError('a lone surrogate, escaped, which no Swift string has', place(parent, key))
+    if (/\p{Cc}/u.test(value)) throw new LockfileError(`${quote(value)} has a control, escaped, which no field SwiftPM writes has`, place(parent, key))
+    return value
+  }
+  if (typeof value !== 'object' || value === null) return value
+  const where = place(parent, key)
+  if (depth + 1 === DEPTH) throw new LockfileError(`nested more than ${DEPTH} deep, as no Package.resolved is`, where)
+  return toRecords(value, where, depth + 1)
+}
+
+// The lines of a text, from the first, each held to the one SwiftPM writes
+// there, without a copy of either: `line` takes the next, `end` the rest,
+// which may be line ends alone.
+class Lines {
+  constructor(text, crlf, version) {
+    Object.assign(this, { text, version, eol: crlf ? '\r\n' : '\n', pos: 0, number: 0 })
+  }
+
+  line(expected) {
+    const { text, pos, eol } = this
+    const end = pos + expected.length
+    if (pos > text.length || !text.startsWith(expected, pos) || (end < text.length && !text.startsWith(eol, end))) this.refuse(quote(expected))
+    this.pos = end + eol.length
+    this.number++
+  }
+
+  end() {
+    if (this.text.slice(this.pos).split(this.eol).some((rest) => rest !== '')) this.refuse('the end of the file')
+  }
+
+  refuse(expected) {
+    const { text, pos, eol, version } = this
+    const end = text.indexOf(eol, pos)
+    const found = pos > text.length ? 'the end of the file' : quote(text.slice(pos, end === -1 ? undefined : end))
+    throw fail(`expected ${expected}, as SwiftPM writes version ${version} with ${version === 1 ? 'TSCBasic\'s JSON' : 'JSONEncoder'}, found ${found}`, this.number)
+  }
+}
+
 // The lines SwiftPM writes of a value `indent` spaces in, with `colon` after
-// a key, into `out`: the first after `head`, the last before `tail`. An empty
-// container is its brackets a blank line apart, as TSCBasic writes one, and
-// SwiftPM writes none. Each line once, as a file of many pins has millions.
-function write(value, colon, head, indent, tail, out) {
+// a key, each held to the text's: the first after `head`, the last before
+// `tail`. An empty container is its brackets a blank line apart, as
+// TSCBasic writes one, and SwiftPM writes none.
+function write(value, colon, head, indent, tail, held) {
   if (typeof value !== 'object' || value === null) {
-    out.push(`${head}${JSON.stringify(value)}${tail}`)
+    held.line(`${head}${JSON.stringify(value)}${tail}`)
     return
   }
   const inner = `${indent}  `
   const array = Array.isArray(value)
-  const items = array ? value.map((item) => [inner, item]) : Object.keys(value).sort().map((key) => [`${inner}${JSON.stringify(key)}${colon}`, value[key]])
-  out.push(`${head}${array ? '[' : '{'}`)
-  if (items.length === 0) out.push('')
-  for (const [index, [prefix, item]] of items.entries()) write(item, colon, prefix, inner, index < items.length - 1 ? ',' : '', out)
-  out.push(`${indent}${array ? ']' : '}'}${tail}`)
+  const keys = array ? undefined : Object.keys(value).sort()
+  const count = array ? value.length : keys.length
+  held.line(`${head}${array ? '[' : '{'}`)
+  if (count === 0) held.line('')
+  for (let index = 0; index < count; index++) {
+    const comma = index < count - 1 ? ',' : ''
+    if (array) write(value[index], colon, inner, inner, comma, held)
+    else write(value[keys[index]], colon, `${inner}${JSON.stringify(keys[index])}${colon}`, inner, comma, held)
+  }
+  held.line(`${indent}${array ? ']' : '}'}${tail}`)
 }
 
 // Every line held to what no line SwiftPM writes has, line ends of one kind,
@@ -61,19 +107,14 @@ export function readJson(text) {
   const src = lines(text, FORBIDDEN)
   do advance(src)
   while (src.line !== undefined)
-  return { value: toRecords(attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`)), undefined, 0), crlf: src.crlf === true }
+  const value = attempt(() => JSON.parse(text), (error) => raise(`not JSON: ${error.message}`))
+  return { value: typeof value === 'object' && value !== null ? toRecords(value, undefined, 0) : value, crlf: src.crlf === true }
 }
 
 // The text held to what the writer of `version` writes of `value`, line by
 // line, to the last `}` and any line ends after.
 export function checkLayout(text, { value, crlf }, version) {
-  const written = []
-  write(value, version === 1 ? ': ' : ' : ', '', '', '', written)
-  const found = text.split(crlf ? '\r\n' : '\n')
-  let line = 0
-  while (line < written.length && found[line] === written[line]) line++
-  if (line === written.length && found.slice(line).every((rest) => rest === '')) return
-  const writer = version === 1 ? 'TSCBasic\'s JSON' : 'JSONEncoder'
-  const expected = line < written.length ? quote(written[line]) : 'the end of the file'
-  throw fail(`expected ${expected}, as SwiftPM writes version ${version} with ${writer}, found ${line < found.length ? quote(found[line]) : 'the end of the file'}`, line)
+  const held = new Lines(text, crlf, version)
+  write(value, version === 1 ? ': ' : ' : ', '', '', '', held)
+  held.end()
 }
