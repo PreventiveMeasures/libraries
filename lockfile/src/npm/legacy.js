@@ -149,7 +149,7 @@ function checkTree(written, node, where, above, context) {
     if (!kids.has(kid)) throw new LockfileError(`${quote(location)} links to ${quote(directoryOf(packageOf(kid)))}, which this is under already, and npm leaves it out`, at(where, name))
     checkEntry(entry, kid, at(where, name), path, context)
   }
-  const missing = [...kids].find((kid) => !Object.hasOwn(entries, kid.folder))
+  const missing = kids.values().find((kid) => !Object.hasOwn(entries, kid.folder))
   if (missing !== undefined) throw new LockfileError(`expected ${quote(missing.folder)}, as npm writes ${quote(missing.location)} of packages`, where)
 }
 

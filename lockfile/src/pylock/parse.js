@@ -31,9 +31,9 @@ function readOrigin(value, where, pkg) {
   const direct = ['vcs', 'directory', 'archive'].filter((key) => value[key] !== undefined)
   const sdist = readSdist(value.sdist, at(where, 'sdist'), pkg)
   const wheels = readWheels(value.wheels, at(where, 'wheels'), pkg)
-  const distributions = (sdist === undefined ? 0 : 1) + wheels.length
-  if (distributions > 0 && direct.length > 0) throw new LockfileError(`${direct.join(' and ')} beside an sdist or wheels, which the spec forbids`, where)
-  if (distributions === 0 && direct.length !== 1) throw new LockfileError(`expected one of vcs, directory and archive, or an sdist or wheels, found ${direct.length === 0 ? 'none' : direct.join(' and ')}`, where)
+  const distributed = sdist !== undefined || wheels.length > 0
+  if (distributed && direct.length > 0) throw new LockfileError(`${direct.join(' and ')} beside an sdist or wheels, which the spec forbids`, where)
+  if (!distributed && direct.length !== 1) throw new LockfileError(`expected one of vcs, directory and archive, or an sdist or wheels, found ${direct.length === 0 ? 'none' : direct.join(' and ')}`, where)
   return {
     vcs: field(value, 'vcs', where, readVcs),
     directory: field(value, 'directory', where, readDirectory),
@@ -76,8 +76,8 @@ function resolveDependencies(value, where, raw, byName) {
   if (value === undefined) return []
   return arrayOf((item, here) => {
     if (table(item, here).name === undefined) throw new LockfileError('expected a name', here)
-    const keys = Object.entries(item)
-    const found = (byName.get(item.name) ?? []).filter((i) => keys.every(([key, part]) => same(part, raw[i][key])))
+    const given = Object.entries(item)
+    const found = (byName.get(item.name) ?? []).filter((i) => given.every(([key, part]) => same(part, raw[i][key])))
     if (found.length !== 1) throw new LockfileError(found.length === 0 ? 'names no entry of packages' : `could be any of ${found.length} entries of packages`, here)
     return found[0]
   })(value, where)

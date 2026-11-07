@@ -60,9 +60,8 @@ function readTop(doc) {
 // Composer 2.9 and later, `{}`; of 2.6.0, 2.6 to 2.8, either; of those
 // before, `[]`.
 function checkEmpties(doc, pluginApiVersion) {
-  const empty = EMPTIES.filter((key) => (Array.isArray(doc[key]) ? doc[key].length === 0 : isEmptyObject(doc[key])))
-  const object = empty.find((key) => isEmptyObject(doc[key]))
-  const list = empty.find((key) => !isEmptyObject(doc[key]))
+  const object = EMPTIES.find((key) => isEmptyObject(doc[key]))
+  const list = EMPTIES.find((key) => Array.isArray(doc[key]) && doc[key].length === 0)
   const writes = pluginApiVersion === '2.9.0' ? '{}' : pluginApiVersion === '2.6.0' ? undefined : '[]'
   const unlike = writes === '{}' ? list : writes === '[]' ? object : undefined
   if (unlike !== undefined) throw new LockfileError(`"${writes === '{}' ? '[]' : '{}'}", which Composer of plugin-api-version ${pluginApiVersion} writes as "${writes}"`, unlike)
@@ -83,7 +82,7 @@ function readStabilityFlags(value, sorted) {
   return mapping(given, where, (number, here, name) => {
     if (lower(name) !== name) throw new LockfileError(`${quote(name)}, which Composer writes in lowercase`, here)
     const stability = names.find(([, each]) => each === number)
-    if (stability === undefined) throw refuse(`one of ${names.map(([, each]) => each).join(', ')}`, number, here)
+    if (stability === undefined) throw refuse(`one of ${Object.values(STABILITIES).join(', ')}`, number, here)
     return stability[0]
   }, entriesOf)
 }
@@ -110,11 +109,12 @@ function readOverrides(value) {
   const named = new Map()
   return mapping(value, where, (version, here, name) => {
     if (!isPlatform(name)) throw new LockfileError(`${quote(name)} is not a platform package's name`, here)
-    const other = named.get(lower(name))
+    const lowered = lower(name)
+    const other = named.get(lowered)
     if (other !== undefined) throw new LockfileError(`${quote(other)} too, of which Composer takes the last, as it takes a name in any case`, here)
-    named.set(lower(name), name)
+    named.set(lowered, name)
     if (version !== false && (typeof version !== 'string' || normalize(plain(version, here)) === undefined)) throw refuse('a version, or false', version, here)
-    if (lower(name) === 'php' && version === false) throw new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
+    if (lowered === 'php' && version === false) throw new LockfileError('false, which Composer refuses of php, as it cannot be missing', here)
     return version
   }, entriesOf)
 }
@@ -128,10 +128,9 @@ function readList(doc, key) {
 // Locker::lockPackages sorts by name, then version, as strcmp does.
 function checkSorted(items) {
   for (let i = 1; i < items.length; i++) {
-    const [a, b] = [items[i - 1].pkg, items[i].pkg]
-    if (a.dev !== b.dev) continue
-    const order = compareBytes(a.name, b.name) || compareBytes(a.version, b.version)
-    if (order > 0) throw new LockfileError(`out of the order Composer sorts packages in, by name then version, after ${quote(a.name)}`, items[i].where)
+    const a = items[i - 1].pkg
+    const b = items[i].pkg
+    if (a.dev === b.dev && (compareBytes(a.name, b.name) || compareBytes(a.version, b.version)) > 0) throw new LockfileError(`out of the order Composer sorts packages in, by name then version, after ${quote(a.name)}`, items[i].where)
   }
 }
 

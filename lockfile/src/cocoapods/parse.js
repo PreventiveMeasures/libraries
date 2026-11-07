@@ -71,7 +71,7 @@ function readPods(node) {
   for (const [index, item] of itemsOf(node, 'PODS').entries()) {
     const here = `PODS[${index}]`
     if (item.kind === 'seq' || (item.kind === 'map' && item.entries.length !== 1)) throw new LockfileError('expected a pod, or one pod and what it depends on', here)
-    const [key, list] = item.kind === 'map' ? [item.entries[0].key, item.entries[0].value] : [item, undefined]
+    const { key, value: list } = item.kind === 'map' ? item.entries[0] : { key: item }
     const there = at(here, String(key.value))
     if (isEmpty(list)) throw new LockfileError('none it depends on, where CocoaPods writes the pod alone', there)
     const dependencies = readDependencies(list, there)

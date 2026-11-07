@@ -157,7 +157,7 @@ function readCarried(node, where) {
 export function readExternalSource(node, where) {
   const options = readOptions(node, where)
   const { symbols } = options
-  const type = 'podspec' in symbols ? 'podspec' : 'path' in symbols ? 'path' : undefined
+  const type = ['podspec', 'path'].find((name) => name in symbols)
   if (type === undefined) return readDownload(options, where)
   const carried = Object.create(null)
   for (const { name, string, node: value, where: here } of options.list) {

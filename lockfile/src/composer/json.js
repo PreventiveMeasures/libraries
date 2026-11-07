@@ -27,6 +27,9 @@ export const keysOf = (record) => ORDER.get(record) ?? Object.keys(record)
 // has a key.
 export const isEmptyObject = (value) => isMapping(value) && keysOf(value).length === 0
 
+// The keys 0 to n, in order, which PHP writes as a list.
+const isList = (keys) => keys.every((key, index) => key === String(index))
+
 const lineOf = (text, pos) => {
   let line = 1
   for (let end = text.indexOf('\n'); end !== -1 && end < pos; end = text.indexOf('\n', end + 1)) line++
@@ -168,7 +171,7 @@ function readObject(src, depth) {
   newline(src, depth)
   expect(src, '}', () => '"}"')
   const keys = [...lines.keys()]
-  if (keys.every((key, index) => key === String(index))) throw fail(src, `an object of the keys 0 to ${keys.length - 1}, which Composer writes as a list`, start)
+  if (isList(keys)) throw fail(src, `an object of the keys 0 to ${keys.length - 1}, which Composer writes as a list`, start)
   ORDER.set(record, keys)
   return record
 }
@@ -317,6 +320,6 @@ export function encodeJson(value) {
   if (typeof value === 'string') return escapeUnicode(JSON.stringify(value).replaceAll('/', '\\/'))
   if (Array.isArray(value)) return `[${value.map(encodeJson).join(',')}]`
   const keys = [...value.keys()]
-  if (keys.every((key, index) => key === String(index))) return `[${[...value.values()].map(encodeJson).join(',')}]`
+  if (isList(keys)) return `[${[...value.values()].map(encodeJson).join(',')}]`
   return `{${keys.map((key) => `${encodeJson(key)}:${encodeJson(value.get(key))}`).join(',')}}`
 }
