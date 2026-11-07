@@ -183,7 +183,8 @@ function acceptedNames(baseModel) {
 export function identifiesAs(dir, baseModel) {
   const declared = declaredSpec(dir)
   if (!declared) return false
-  return acceptedNames(baseModel).some((name) => normalizeSpec(name) === normalizeSpec(declared))
+  const wanted = normalizeSpec(declared)
+  return acceptedNames(baseModel).some((name) => normalizeSpec(name) === wanted)
 }
 
 // Weights for a base model spec, or the newest installed when none is named. A named spec that
@@ -201,8 +202,8 @@ export function findModelDir(baseModel) {
   all.sort((a, b) => compareVersions(a.version, b.version))
   // The unnamed call is an "is there anything at all" probe, so it answers rather than throws.
   if (!baseModel) return all.at(-1)?.dir
-  const matches = all.filter(({ dir }) => identifiesAs(dir, baseModel))
-  if (matches.length > 0) return matches.at(-1).dir
+  const match = all.findLast(({ dir }) => identifiesAs(dir, baseModel))
+  if (match) return match.dir
   throw new Error(missingModelMessage(baseModel, all))
 }
 

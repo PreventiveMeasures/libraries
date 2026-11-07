@@ -9,10 +9,9 @@ import { canAdaptive } from './models.js'
 // cache.js, which owns the entry layout and the read/write paths, because these read the STORED
 // REQUEST back -- a different problem, with the provider shapes in it.
 
-// The inverse, for the one caller that walks a model's cache instead of addressing an entry:
-// recover the request type from a subdirectory name. The prompt hash is a fixed 8 hex chars, so the
-// type is everything before the last dash -- dashes inside a type (`null-low`) survive. Returns null
-// for a name modelSubdir didn't write, which a caller leaves alone rather than guessing about.
+// The request type back out of a subdirectory name. The prompt hash is a fixed 8 hex chars, so the
+// type is everything before the last dash -- dashes inside a type (`null-low`) survive. A name
+// modelSubdir didn't write matches nothing, and is left alone rather than guessed about.
 const SUBDIR_RE = /^(?<type>.+)-[0-9a-f]{8}$/u
 
 function flattenContent(content) {
@@ -55,11 +54,8 @@ function anthropicRequestKey(req, model) {
 function requestUserContent(req) {
   // Chrome's Prompt API body: history in `initialPrompts`, the asked turn here.
   if (typeof req?.prompt === 'string') return req.prompt
-  const list = Array.isArray(req?.messages) ? req.messages : (Array.isArray(req?.input) ? req.input : null)
-  if (!list) return null
-  const user = list.find((m) => m && m.role === 'user')
-  if (!user) return null
-  return flattenContent(user.content)
+  const user = [req?.messages, req?.input].find(Array.isArray)?.find((m) => m?.role === 'user')
+  return user ? flattenContent(user.content) : null
 }
 
 // The request a cache entry was keyed from. Cache JSON is either a single { request, response } or
@@ -121,15 +117,14 @@ export async function listCacheEntries(type, model, systemPrompt, { think = fals
 // holds entries this can't rehash -- anything keyed on a bundleId, whose key cannot be recomputed
 // from the stored request -- has to say so.
 export async function rehashCache(model, { skipType = () => false } = {}) {
-  const safeModel = modelDirName(model)
-  const modelDir = join(cacheDir(), safeModel)
+  const modelDir = join(cacheDir(), modelDirName(model))
 
   const result = { scanned: 0, renamed: 0, unchanged: 0, skipped: 0, errors: 0 }
   const subdirs = await readDirOrEmpty(modelDir)
   for (const entry of subdirs) {
     if (!entry.isDirectory()) continue
-    const entryType = SUBDIR_RE.exec(entry.name)?.groups.type ?? null
-    if (entryType !== null && skipType(entryType)) continue
+    const entryType = SUBDIR_RE.exec(entry.name)?.groups.type
+    if (entryType !== undefined && skipType(entryType)) continue
     const dir = join(modelDir, entry.name)
     const files = await readDirOrEmpty(dir)
     for (const file of files) {
@@ -154,9 +149,7 @@ export async function rehashCache(model, { skipType = () => false } = {}) {
         continue
       }
 
-      const newKey = await cacheKey(keyInput.systemPrompt, keyInput.userContent, {
-        think: keyInput.think, effort: keyInput.effort,
-      })
+      const newKey = await cacheKey(keyInput.systemPrompt, keyInput.userContent, keyInput)
       if (newKey === oldKey) {
         result.unchanged += 1
         continue
