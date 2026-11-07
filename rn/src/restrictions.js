@@ -8,6 +8,9 @@ import { dirname, isAbsolute, join, relative } from 'node:path'
 
 const RN_CONFIG = 'rn.config.json'
 
+// A glob less a leading `./` and a trailing `/`.
+const trimmed = (glob) => glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '')
+
 // A glob of a path from the project root as a RegExp, or null where its braces don't pair: `**` any path, dot
 // files' too (unlike Node's path.matchesGlob, which pnpm's node_modules/.pnpm would fail), `*` any characters
 // of a name, `?` any one, `{a,b}` either; a leading `./` is the project root, a trailing `/` dropped. `within`:
@@ -32,7 +35,7 @@ export function globRegExp(glob, within = false) {
     }
     return RegExp.escape(part)
   }
-  const source = glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '').replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, token)
+  const source = trimmed(glob).replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, token)
   if (!paired || depth !== 0) return null
   return new RegExp(within ? `^(?:${source})(?:/.*)?$` : `^${source}$`, 'u')
 }
@@ -41,7 +44,7 @@ export function globRegExp(glob, within = false) {
 // `..` (but leading ones, out of the project) or empty name, which no such path has.
 export function isPathGlob(glob) {
   if (glob === '' || isAbsolute(glob) || glob.includes('\\') || globRegExp(glob) === null) return false
-  const names = glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '').split('/')
+  const names = trimmed(glob).split('/')
   const inside = names.slice(names.findLastIndex((name) => name === '..') + 1)
   return names.slice(0, names.length - inside.length).every((name) => name === '..') && inside.every((name) => name !== '' && name !== '.' && name !== '..')
 }
