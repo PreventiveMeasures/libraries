@@ -73,9 +73,13 @@ function regexEnd(text, at) {
   let i = at + 1
   let inClass = false
   while (i < text.length && !LINE_ENDS.includes(text[i]) && (inClass || text[i] !== '/')) {
-    if (text[i] === '\\') i++
-    else if (text[i] === '[') inClass = true
-    else if (text[i] === ']') inClass = false
+    if (text[i] === '\\') {
+      i++
+    } else if (text[i] === '[') {
+      inClass = true
+    } else if (text[i] === ']') {
+      inClass = false
+    }
     i++
   }
   WORD.lastIndex = i + 1

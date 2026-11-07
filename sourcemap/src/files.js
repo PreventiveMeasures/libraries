@@ -30,9 +30,13 @@ function normalize(path) {
   const out = []
   for (const part of path.slice(root.length).split('/')) {
     if (part === '' || part === '.') continue
-    if (part !== '..') out.push(part)
-    else if (out.length > 0 && out.at(-1) !== '..') out.pop()
-    else if (!root) out.push('..')
+    if (part !== '..') {
+      out.push(part)
+    } else if (out.length > 0 && out.at(-1) !== '..') {
+      out.pop()
+    } else if (!root) {
+      out.push('..')
+    }
   }
   // A drive's letter and a UNC server's name in one case, as Windows takes
   // them.
@@ -195,8 +199,9 @@ export function indexFiles(files) {
   for (const file of files) {
     if (file.path !== null) byPath.set(file.path, file)
     if (!file.package) continue
-    roots.set(file.package.name, (roots.get(file.package.name) ?? new Set()).add(file.package.root))
-    const inRoot = byRoot.get(file.package.root) ?? byRoot.set(file.package.root, []).get(file.package.root)
+    const { name, root } = file.package
+    roots.set(name, (roots.get(name) ?? new Set()).add(root))
+    const inRoot = byRoot.get(root) ?? byRoot.set(root, []).get(root)
     inRoot.push(file)
   }
   return { byPath, roots, byRoot, platforms: platformsOf(files), found: new Map() }
@@ -273,8 +278,9 @@ function entryOf(index, root) {
 // `rest`: what the request names after the package's name, a subpath or a
 // loader's query; with none, `pkg/` too, the package itself.
 function packageFile(index, root, rest, entry) {
-  if (!/^\/[^?]/u.test(rest)) return find(index, root + rest) ?? entry(index, root)
-  return find(index, root + rest) ?? sourcePaths(rest.slice(1)).map((path) => find(index, `${root}/${path}`)).find(Boolean)
+  const found = find(index, root + rest)
+  if (found || !/^\/[^?]/u.test(rest)) return found ?? entry(index, root)
+  return sourcePaths(rest.slice(1)).map((path) => find(index, `${root}/${path}`)).find(Boolean)
 }
 
 // `entry` finds a package's entry where no index file at its root is.

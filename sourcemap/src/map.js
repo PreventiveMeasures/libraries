@@ -169,8 +169,11 @@ export function readSourceMap(input, options = {}) {
   }
   check(isObject(json), 'not a JSON object')
   const read = { files: [], bySource: new Map(), mapPath: options.path, parts: [], names: [] }
-  if (json.sections === undefined) readPlain(json, read, 0, 0)
-  else readSections(json, read)
+  if (json.sections === undefined) {
+    readPlain(json, read, 0, 0)
+  } else {
+    readSections(json, read)
+  }
   const map = { files: read.files }
   decoded.set(map, { ...decodeMappings(read.parts), nameList: read.names })
   return map
@@ -193,8 +196,11 @@ function lastAtOrBefore(array, lo, hi, value) {
   let [low, high] = [lo, hi]
   while (low < high) {
     const mid = (low + high) >> 1
-    if (array[mid] <= value) low = mid + 1
-    else high = mid
+    if (array[mid] <= value) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
   }
   return low - 1
 }
@@ -249,6 +255,6 @@ export function fileWithin(map, starts, start, end) {
       if (source >= 0) counts.set(source, (counts.get(source) ?? 0) + 1)
     }
   }
-  const [best] = [...counts].reduce((top, entry) => (entry[1] > top[1] ? entry : top), [-1, 0])
+  const [best] = counts.entries().reduce((top, entry) => (entry[1] > top[1] ? entry : top), [-1, 0])
   return best < 0 ? null : map.files[best]
 }
