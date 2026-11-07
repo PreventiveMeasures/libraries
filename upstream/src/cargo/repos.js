@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 import { assertCrateName, assertNames, show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
-import { CRATES_API, buildUrl, request } from '../http.js'
+import { CRATES_API, buildUrl, recover, request } from '../http.js'
 import { chunks } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
 
@@ -36,11 +36,7 @@ export async function lookUpCrateRepos(method, names, { soft = false, cachedOnly
   if (cachedOnly) return repos
   for (const [i, chunk] of chunks(names.filter((name) => !repos.has(name)), PER_REQUEST).entries()) {
     if (i > 0) await sleep(PACE_MS)
-    const answer = await askCrates(method, chunk).catch((error) => {
-      if (soft) return new Map()
-      throw error
-    })
-    await addRepos(DIR, repos, answer, cache)
+    await addRepos(DIR, repos, await askCrates(method, chunk).catch(recover(() => soft, new Map())), cache)
   }
   return repos
 }

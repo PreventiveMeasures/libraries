@@ -40,12 +40,6 @@ function isKeepable(method, name, version, json) {
   }
 }
 
-// A version's document as `cache` keeps it (readJSON), or none.
-async function keptDocument(method, name, version, cache) {
-  const json = await readJSON(DIR, `${name}@${version}`, cache)
-  return isKeepable(method, name, version, json) ? json : undefined
-}
-
 // The registry's document, kept whole in `cache` once it is keepable; one
 // whose dist is refused is answered all the same.
 async function keepDocument(method, name, version, json, cache) {
@@ -54,15 +48,13 @@ async function keepDocument(method, name, version, json, cache) {
   return json
 }
 
-const fetchDocument = async (method, name, version, cache) => await keepDocument(method, name, version, await getDocument(method, name, version), cache)
-
-// A version's document, kept or else fetched, for what is not an
-// integrity: a package's repo (advisories.js), as trusted as setCacheDir's
-// repo records are. Null where the registry does not have that version:
-// its 404 alone, never a failure of the cache's.
+// A version's document, kept (readJSON) or else fetched, for what is not
+// an integrity: a package's repo (advisories.js), as trusted as
+// setCacheDir's repo records are. Null where the registry does not have
+// that version: its 404 alone, never a failure of the cache's.
 export async function getVersionDocument(method, name, version, cache) {
-  const kept = await keptDocument(method, name, version, cache)
-  if (kept) return kept
+  const kept = await readJSON(DIR, `${name}@${version}`, cache)
+  if (isKeepable(method, name, version, kept)) return kept
   const json = await getDocument(method, name, version).catch(recover(isNotFound, null))
   return json && await keepDocument(method, name, version, json, cache)
 }
@@ -87,7 +79,7 @@ export async function getVersion(method, name, version, given, cache) {
     const dist = matchingDist(method, name, version, kept, given)
     if (dist) return { dist, json: kept }
   }
-  const json = await fetchDocument(method, name, version, cache)
+  const json = await keepDocument(method, name, version, await getDocument(method, name, version), cache)
   const dist = distOf(method, name, version, json)
   if (given !== undefined) {
     assert.ok(dist.integrity === given.integrity, `${method}: ${name}@${version} is ${dist.integrity} on the registry, not ${given.integrity}`)

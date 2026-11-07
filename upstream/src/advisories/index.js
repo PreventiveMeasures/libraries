@@ -46,8 +46,8 @@ const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.index
 // them). RustSec's kind of advisory that is not a vulnerability as such only
 // where each of them has that kind: a row without one is a vulnerability.
 function joinRows(rows, asked) {
-  const [head, ...rest] = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
-  const all = [head, ...rest]
+  const all = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
+  const [head, ...rest] = all
   const ranges = [...new Set(all.map((row) => row.range).filter((range) => range !== undefined))]
   const versions = new Set(all.flatMap((row) => row.versions))
   const joined = {

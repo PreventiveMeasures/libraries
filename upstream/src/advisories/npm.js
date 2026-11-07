@@ -118,11 +118,12 @@ async function servesAnyone(name) {
 async function publicOnly(asked, cache) {
   const names = [...asked.keys()]
   const kept = await pool(names, NAMES_AT_ONCE, (name) => readRecord('npm/public', name, cache))
-  const missing = names.filter((name, i) => kept[i]?.public !== true)
+  const serving = new Set(names.filter((name, i) => kept[i]?.public === true))
+  const missing = names.filter((name) => !serving.has(name))
   const found = await pool(missing, NAMES_AT_ONCE, servesAnyone)
   const added = missing.filter((name, i) => found[i])
   await pool(added, NAMES_AT_ONCE, (name) => writeRecord('npm/public', name, { public: true }, cache))
-  const serving = new Set([...names.filter((name, i) => kept[i]?.public === true), ...added])
+  for (const name of added) serving.add(name)
   return new Map([...asked].filter(([name]) => serving.has(name)))
 }
 

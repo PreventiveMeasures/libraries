@@ -42,9 +42,10 @@ function emptyDirs(dir, prefix = '') {
 
 // Git sorts a subtree as if its name ended in `/`.
 function treeId(dir) {
-  const entries = [...dir].map(([name, entry]) => (entry instanceof Map ? { mode: '40000', name, id: treeId(entry) } : { ...entry, name }))
-  const keyed = entries.map((entry) => [entry.mode === '40000' ? `${entry.name}/` : entry.name, entry])
-  keyed.sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
+  const keyed = [...dir].map(([name, entry]) => {
+    const own = entry instanceof Map ? { mode: '40000', name, id: treeId(entry) } : { ...entry, name }
+    return [own.mode === '40000' ? `${name}/` : name, own]
+  }).sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
   return objectId('tree', Buffer.concat(keyed.flatMap(([, { mode, name, id }]) => [Buffer.from(`${mode} ${name}\0`, 'latin1'), id])))
 }
 
