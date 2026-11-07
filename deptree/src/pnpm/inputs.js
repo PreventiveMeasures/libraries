@@ -15,10 +15,9 @@ import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
 const LIBC = new Set(['glibc', 'musl', 'unknown'])
 
 const MISNAMED = ['pnpm-workspaces.yaml', 'pnpm-workspaces.yml', 'pnpm-workspace.yml', '.pnpm-workspace.yaml', '.pnpm-workspace.yml', '.pnpm-workspaces.yaml', '.pnpm-workspaces.yml']
-const MISNAMED_9 = ['pnpm-workspace.yml']
-function readWorkspaceText(project, major) {
+function readWorkspaceText(project) {
   const text = readText(project, '/pnpm-workspace.yaml')
-  const misnamed = text === undefined ? (major < 10 ? MISNAMED_9 : MISNAMED).find((name) => typeOf(project, `/${name}`) === 'file') : undefined
+  const misnamed = text === undefined ? MISNAMED.find((name) => typeOf(project, `/${name}`) === 'file') : undefined
   if (misnamed !== undefined) throw new DeptreeError('pnpm refuses a workspace manifest not named pnpm-workspace.yaml', quote(misnamed))
   return text
 }
@@ -37,12 +36,11 @@ function readPatches(project, configured) {
   return texts
 }
 
-// pnpm 9 before 9.15.0, and pnpm 12 before 12.8.1, install otherwise in
-// places, and are refused.
-const SINCE = { 9: '9.15.0', 12: '12.8.1' }
+// pnpm 12 before 12.8.1 installs otherwise in places, and is refused.
+const SINCE = { 12: '12.8.1' }
 function majorOf(pnpm) {
   const major = Number(valid(pnpm)?.split('.')[0])
-  if (major < 9 || major > 12 || !Number.isInteger(major)) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 9, 10, 11 and 12 are`, 'host.pnpm')
+  if (major < 10 || major > 12 || !Number.isInteger(major)) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10, 11 and 12 are`, 'host.pnpm')
   if (major in SINCE && compareVersions(pnpm, SINCE[major]) < 0) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: pnpm ${major} is from ${SINCE[major]} on`, 'host.pnpm')
   return major
 }
@@ -93,15 +91,8 @@ function readRoot(project) {
 }
 
 // Where there is no pnpm-workspace.yaml, pnpm 12 writes one whose packages are
-// the root package.json's non-empty `workspaces` strings. pnpm 9 takes one that
-// sets nothing for `**`.
+// the root package.json's non-empty `workspaces` strings.
 function workspaceOf(workspace, text, major, root) {
-  if (major < 10) {
-    const mapping = workspace !== null && typeof workspace === 'object' && !Array.isArray(workspace)
-    if (text !== undefined && (workspace == null || (mapping && Object.keys(workspace).length === 0))) return { packages: ['**'] }
-    if (mapping && !workspace.packages) throw new DeptreeError('pnpm 9 fails on a workspace manifest that sets anything and no packages', 'pnpm-workspace.yaml: packages')
-    return workspace
-  }
   if (major < 12 || text !== undefined) return workspace
   const listed = root()?.workspaces
   const packages = Array.isArray(listed) ? listed.filter((pattern) => typeof pattern === 'string' && pattern !== '') : []
@@ -120,7 +111,7 @@ function readInstalls(project, pnpm) {
   let read
   const root = () => (read ??= readRoot(project))
   const installs = pnpmOf(pnpm, root)
-  const text = readWorkspaceText(project, installs.major)
+  const text = readWorkspaceText(project)
   const workspace = workspaceOf(readWorkspace(text), text, installs.major, root)
   return { ...installs, workspace, packages: packagesOf(workspace) }
 }

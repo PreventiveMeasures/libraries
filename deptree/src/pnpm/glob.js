@@ -1,4 +1,4 @@
-// glob 8 as npm-packlist 5 globs a `files` pattern for pnpm 9 and 10: dot
+// glob 8 as npm-packlist 5 globs a `files` pattern for pnpm 10: dot
 // and nocase, a leading `!` or `#` taken as it is. Each path found is spelled
 // as glob spells it, a directory's with the trailing slash a pattern gave
 // it, and a file named by a pattern with no part to match against names

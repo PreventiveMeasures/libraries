@@ -5,8 +5,7 @@
 // rewrites no `#!` line.
 // Where any patch is configured, pnpm 10 and 11 build each package patched
 // or with an install script, which links its own bins beside its children's
-// before the patch; pnpm 12 links them together, with no build pass. pnpm 9
-// links as pnpm 10 does, but fails on a bin that is a directory.
+// before the patch; pnpm 12 links them together, with no build pass.
 
 import { DeptreeError, quote } from '../error.js'
 import { crlfShebang, fixShebang } from '../tarball.js'
@@ -303,9 +302,9 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
   return fixedFiles(nodes, fixed, contested, major)
 }
 
-// pnpm 9 and 12 read each linked file's `#!` line. '' is the package.
+// pnpm 12 reads each linked file's `#!` line. '' is the package.
 export function failsAsDirectory(node, path, major) {
-  if (major >= 10 && major < 12) return false
+  if (major < 12) return false
   const prefix = `${path}/`
   return path === '' || node.files.keys().some((name) => name.startsWith(prefix))
 }

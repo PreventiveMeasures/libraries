@@ -1,4 +1,4 @@
-// The hoist of @yarnpkg/nm 4.0.5, which pnpm 9 and 10 bundle for the hoisted
+// The hoist of @yarnpkg/nm 4.0.5, which pnpm 10 bundles for the hoisted
 // linker: each package is moved as near the root as it can go without
 // shadowing a different one of its name for a package that needs that one.
 // Step for step as it runs, with its recursions on stacks of their own, and

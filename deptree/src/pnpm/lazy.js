@@ -17,7 +17,7 @@ import { compose, writeNode } from './write.js'
 // build pass builds it (`builds`), patched or with an install script, which
 // turns on its other copies and what else is built; or which of its bins pnpm
 // links could change them, one linked being fixed otherwise than it is, made
-// executable or its CRLF `#!` line made LF; or pnpm 9 and 12 fail on one that
+// executable or its CRLF `#!` line made LF; or pnpm 12 fails on one that
 // is a directory; or the package is patched, which is held to its bins as
 // linked; or its commands cannot be read alone. Else its files are as fetched
 // and patched, whatever pnpm links of its bins, and of anything else's.

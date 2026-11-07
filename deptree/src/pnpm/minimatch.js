@@ -1,6 +1,6 @@
 // minimatch as npm-packlist runs it, with matchBase, dot, flipNegate and
 // nocase, of patterns whose only glob syntax is `*`, `?` and `**`: 5.1.6 for
-// pnpm 9 and for 10 before 10.31, 5.1.9 for 10 from 10.31, which matches
+// pnpm 10 before 10.31, 5.1.9 from 10.31, which matches
 // `**` by other steps, and 10.2 for pnpm 11. Its regexps have no `u`, as
 // minimatch's have none: they take UTF-16 code units, and fold case as such
 // a regexp folds it.
@@ -22,7 +22,7 @@ export function checkGlob(body, where, { parent = false } = {}) {
 }
 
 // A longer pattern minimatch may make too large a regexp of for V8, which
-// pnpm 9, 10 and 11 then fail on, and globset one, which pnpm 12 then drops
+// pnpm 10 and 11 then fail on, and globset one, which pnpm 12 then drops
 // with the rest of its file; none does below several times this.
 const MAX_LENGTH = 4096
 

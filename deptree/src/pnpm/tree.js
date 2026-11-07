@@ -1,4 +1,4 @@
-// The node_modules tree pnpm 9, 10, 11 or 12 installs from a frozen lockfile
+// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile
 // with the isolated linker and --ignore-scripts, in a Vfs rooted at the
 // lockfile's directory; patched still, as pnpm patches before scripts. Bins are
 // not linked, though what linking does to their files is (bins.js). With
@@ -279,7 +279,7 @@ export async function buildPnpmTree(options) {
   // pins, which leaves the tree as it is.
   if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  // As pnpm 9, 10 and 11 write the lockfile's own directory.
+  // As pnpm 10 and 11 write the lockfile's own directory.
   const empty = major >= 12 ? Object.keys(lockfile.packages).find((key) => packageKeyOf(key).endsWith('@file:')) : undefined
   if (empty !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path', quote(empty))
   const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })

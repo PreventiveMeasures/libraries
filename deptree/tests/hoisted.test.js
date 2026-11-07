@@ -205,11 +205,6 @@ describe('buildPnpmTree with the hoisted linker', () => {
     }
   })
 
-  it('is refused for pnpm 9, as for 12 (settings.test.js)', async () => {
-    const spec = { projects: { '.': { dependencies: { ms: 'ms@2.1.3' } } }, snapshots: { 'ms@2.1.3': {} } }
-    await assert.rejects(build({ ...spec, host: { ...HOST, pnpm: '9.15.9' } }), /^DeptreeError: \.npmrc:1: node-linker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 9$/u)
-  })
-
   it('makes no node_modules where nothing is installed', async () => {
     const { vfs } = await build({ projects: { '.': {} }, snapshots: {} })
     assert.deepEqual(vfs.readdir('/'), [])
