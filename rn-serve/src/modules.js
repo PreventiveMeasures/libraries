@@ -9,6 +9,7 @@ import { ANY, importWarnings, loadCached, loweredOf, supportedOf, withDefaults }
 import { jsval } from '@preventive/rn/src/jsval.js'
 import { GLOBAL } from '@preventive/rn/src/serializer.js'
 import { keptOf } from './bundler.js'
+import { memo } from './fingerprint.js'
 import { concatMapsJson, pieceOf } from './mappings.js'
 import { resolutionOf } from './resolution.js'
 
@@ -26,10 +27,7 @@ export const wrapped = ({ lines, piece }) => [{ lines: 1, piece: null }, { lines
 // require.js, and `injected` are rn's own modules run after those run first, resolved as the entry's imports.
 export function createModuleBundler(options) {
   const { runtime, injected = [], ids = new Map(), builds = new Map() } = options
-  const idOf = (key) => {
-    if (!ids.has(key)) ids.set(key, ids.size)
-    return ids.get(key)
-  }
+  const idOf = (key) => memo(ids, key, () => ids.size)
   // With `esm`, Babel leaves import and export to esbuild, which makes each module CommonJS, but `commonJs`'s.
   const run = { ...withDefaults(options), injected, builds, idOf, scriptBuilds: new Map() }
   // Its resolver, kept in memory across its watcher-caused builds (resolution.js's resolutionOf()).
@@ -229,10 +227,7 @@ async function scriptOf(run, state, path) {
 
 // Each record's definition, made once (recordOf() keeps records across builds).
 const DEFINED = new WeakMap()
-const definedOf = (record) => {
-  if (!DEFINED.has(record)) DEFINED.set(record, defineCall(record))
-  return DEFINED.get(record)
-}
+const definedOf = (record) => memo(DEFINED, record, () => defineCall(record))
 
 // The bundle and its map, { js(), map() }, each made once as first asked for (a client may never ask for the
 // map): the prelude, the scripts, each module by id (the same bundle whatever order they were built in), each run.

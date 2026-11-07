@@ -63,7 +63,7 @@ const servedBy = (hub, reporter) => [...hub.sessions].filter((session) => sessio
 // told holds its startup requests, up to `wait` ms, while one may yet: a DevTools undecided, its runtime being
 // asked or naming an unknown reporter, or one just gone.
 function retell(hub, reporters = hub.reporters) {
-  const known = new Set(Array.from(hub.reporters, ({ id }) => id))
+  const known = new Set(hub.reporters.values().map(({ id }) => id))
   const open = hub.sessions.values().some((session) => session.network === 'pending' || (session.network === 'served' && (session.asking.size > 0 || !known.has(session.reporter))))
   const waiting = open || Date.now() - hub.ended < hub.wait
   for (const reporter of reporters) {
