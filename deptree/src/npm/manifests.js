@@ -63,7 +63,7 @@ export function recalculates(lists, edges) {
     }
   }
   for (const name of Object.keys(optionalDependencies)) delete byType.prod[name]
-  const left = new Set([...edges].filter(([, edge]) => edge.type !== 'workspace').map(([name]) => name))
+  const left = new Set(edges.keys().filter((name) => edges.get(name).type !== 'workspace'))
   for (const [type, specs] of Object.entries(byType)) {
     for (const [name, spec] of Object.entries(specs)) {
       if (edges.get(name)?.type !== type || edges.get(name).spec !== spec) return true

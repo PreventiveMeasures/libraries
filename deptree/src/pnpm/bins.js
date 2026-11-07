@@ -99,8 +99,9 @@ const PUBLIC = /^node_modules\/(?:@[^/]+\/)?[^/@.][^/]*$/u
 function preferOwn(entries, manifest, commandsOfDir) {
   const own = ownNames(manifest)
   const commands = entries.flatMap(([alias, dir]) => commandsOfDir(dir).map((command) => ({ ...command, direct: own.has(alias) })))
-  const names = new Set(commands.filter((command) => command.direct).map(({ name }) => name))
-  return [...commands.filter((command) => command.direct), ...commands.filter((command) => !names.has(command.name))]
+  const direct = commands.filter((command) => command.direct)
+  const names = new Set(direct.map(({ name }) => name))
+  return [...direct, ...commands.filter((command) => !names.has(command.name))]
 }
 
 // The files pnpm runs fixBin on, as sets of paths by package directory.
@@ -135,7 +136,7 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   const hoisted = [...links].filter(([path, dir]) => path.startsWith(PRIVATE) && nodes.get(dir)?.pkg.hasBin)
   link(hoisted.flatMap(([, dir]) => commandsOfDir(dir)), { ordered: true, where: quote(PRIVATE.slice(0, -1)) })
 
-  const patched = [...nodes.values()].some((node) => node.pkg.patchHash !== undefined)
+  const patched = nodes.values().some((node) => node.pkg.patchHash !== undefined)
   for (const [id, children] of direct) {
     const where = `importers[${quote(id)}]`
     const peerDirs = major >= 11 && peers ? peersOf(children, nodes) : []
@@ -188,7 +189,7 @@ export function binReads({ nodes, projects, direct, links, publicHoist, peers, m
       for (const dir of children.values()) reads.add(dir)
     }
   }
-  return new Set([...reads].filter((dir) => nodes.has(dir)))
+  return new Set(reads.values().filter((dir) => nodes.has(dir)))
 }
 
 // The copies of one package pnpm's build pass makes hardlinks of the one it
@@ -278,7 +279,7 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
   // before or after as they depend on each other.
   // What each snapshot reaches through the copies' dependencies, each taken
   // for the copies of its id.
-  const pkgs = new Map([...nodes.values()].map((node) => [idOf(node.key), node.pkg]))
+  const pkgs = new Map(nodes.values().map((node) => [idOf(node.key), node.pkg]))
   const edges = (id) => Object.values({ ...pkgs.get(id)?.dependencies, ...pkgs.get(id)?.optionalDependencies }).map(idOf)
   const building = builds.map((build) => {
     const where = quote(build.key)
@@ -324,9 +325,10 @@ function fixedFiles(nodes, fixed, contested, major) {
   }
   const byNode = new Map()
   for (const [target, owner] of fixed) {
+    const node = nodes.get(owner)
     const path = target.slice(owner.length + 1)
-    checkDirectory(nodes.get(owner), path)
-    if (nodes.get(owner).files.get(path)?.data === undefined) continue
+    checkDirectory(node, path)
+    if (node.files.get(path)?.data === undefined) continue
     if (!byNode.has(owner)) byNode.set(owner, new Set())
     byNode.get(owner).add(path)
   }

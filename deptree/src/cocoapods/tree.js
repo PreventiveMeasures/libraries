@@ -150,13 +150,14 @@ function writeManifest(vfs, lockfile, stats) {
 }
 
 export async function buildCocoaPodsTree(options) {
-  const { host: given, vfs: into, github, platforms: givenPlatforms } = options ?? {}
+  const all = options ?? {}
+  const { vfs: into, github } = all
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
   if (github !== undefined && GITHUB_METHODS.some((name) => typeof github?.[name] !== 'function')) throw new TypeError(GITHUB)
-  const inputs = inputsOf(options ?? {})
-  const platforms = platformsOf(givenPlatforms)
-  const { manifest, partial } = flagsOf(options ?? {})
-  const host = checkHost(given)
+  const inputs = inputsOf(all)
+  const platforms = platformsOf(all.platforms)
+  const { manifest, partial } = flagsOf(all)
+  const host = checkHost(all.host)
   const folded = host.os === 'darwin'
   // 1.13 to 1.15 copy a download into their cache with FileUtils.cp_r,
   // which copies the clone's .git; 1.16 on, with rsync, which leaves it out.

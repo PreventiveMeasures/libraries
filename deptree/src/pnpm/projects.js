@@ -100,8 +100,7 @@ function devEnginesPackageManager(devEngines, where) {
   const engine = list[Math.max(index, 0)]
   if (!engine.name) return undefined
   let { onFail } = engine
-  if (Array.isArray(engines) && index === -1) onFail = list.at(-1).onFail ?? 'error'
-  else if (Array.isArray(engines)) onFail ??= index === list.length - 1 ? 'error' : 'ignore'
+  if (Array.isArray(engines)) onFail = index === -1 ? list.at(-1).onFail ?? 'error' : onFail ?? (index === list.length - 1 ? 'error' : 'ignore')
   return { name: engine.name, onFail }
 }
 

@@ -27,7 +27,7 @@ const whereOf = (node) => `packages[${quote(node.location)}]`
 
 function checkLinks(lockfile) {
   for (const [location, target] of Object.entries(lockfile.links)) {
-    const where = `packages[${quote(location)}]`
+    const where = whereOf({ location })
     const importer = lockfile.importers[target]
     if (!importer?.workspace) throw new DeptreeError(`a link to ${importer === undefined ? 'a package' : 'the project'} is not supported`, where)
     if (location !== `node_modules/${importer.name}`) throw new DeptreeError(`a workspace linked other than as node_modules/${importer.name} is not supported`, where)
@@ -173,13 +173,14 @@ function rootListsOf(text) {
 }
 
 export async function buildNpmTree(options) {
-  const { host: given, vfs: into } = options ?? {}
+  const given = options ?? {}
+  const into = given.vfs
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const fetching = fetchingOf(options ?? {}, into)
-  const production = productionOf(options ?? {})
-  const host = checkHost(given)
+  const fetching = fetchingOf(given, into)
+  const production = productionOf(given)
+  const host = checkHost(given.host)
   const folded = host.os === 'darwin'
-  const inputs = inputsOf(options ?? {}, folded)
+  const inputs = inputsOf(given, folded)
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
   const { settings, manifests } = inputs
@@ -193,7 +194,7 @@ export async function buildNpmTree(options) {
   const nodes = graphOf(lockfile, manifests)
   const omitted = production ? omittedOf(nodes) : new Set()
   const skipped = skippedOf(nodes, host, settings, omitted)
-  const kept = [...nodes.values()].filter((node) => node.kind === 'package' && !skipped.has(node) && !omitted.has(node))
+  const kept = nodes.values().filter((node) => node.kind === 'package' && !skipped.has(node) && !omitted.has(node)).toArray()
   const tarballs = tarballsOf(kept)
   const fetched = fetching.lazy ? new Map() : await fetchAll(tarballs, host, fetching)
   const changed = settings.binLinks && !fetching.sizeEstimateOnly && !fetching.lazy ? fixBins(kept, fetched) : new Map()
@@ -205,7 +206,7 @@ export async function buildNpmTree(options) {
     const { name, version, dev, optional, devOptional, peer } = node.pkg
     return { path: node.location, name, version, integrity, ...about, dev, optional, devOptional, peer, ...fetching.sizeEstimateOnly ? { size } : {} }
   }
-  const tarballOf = new Map([...tarballs.values()].flatMap((group) => group.nodes.map((node) => [node, group])))
+  const tarballOf = new Map(tarballs.values().flatMap((group) => group.nodes.map((node) => [node, group])))
   // With `lazy`, by the lockfile's integrity, and nothing a document says yet.
   const installed = kept.map((node) => entryOf(node, fetched.get(node) ?? { integrity: tarballOf.get(node).tarball.integrity, about: NO_ABOUT }))
   const tree = mount(vfs, into, folded)

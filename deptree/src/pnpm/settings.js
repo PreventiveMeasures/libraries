@@ -62,8 +62,8 @@ function fromNpmrc(text, major) {
     const earlier = settings.get(name)
     if (earlier !== undefined && !(list && earlier.list)) throw new DeptreeError('set more than once', where)
     if (list && read.kind !== 'texts') throw new DeptreeError('not a list', where)
-    const next = list ? [...(earlier?.value ?? []), plain(value, where)] : plain(value, where)
-    settings.set(name, { value: next, list, where, read })
+    const given = plain(value, where)
+    settings.set(name, { value: list ? [...(earlier?.value ?? []), given] : given, list, where, read })
   }
   return { settings, environment }
 }
@@ -159,9 +159,7 @@ function derive(get, major) {
 }
 
 function catalogsOf(catalog, catalogs = {}) {
-  if (catalog !== undefined && Object.hasOwn(catalogs, 'default')) {
-    throw new DeptreeError('the default catalog is defined twice, as catalog and as catalogs.default', 'pnpm-workspace.yaml: catalog')
-  }
+  if (catalog !== undefined && Object.hasOwn(catalogs, 'default')) throw new DeptreeError('the default catalog is defined twice, as catalog and as catalogs.default', 'pnpm-workspace.yaml: catalog')
   return Object.assign(Object.create(null), catalog === undefined ? {} : { default: catalog }, catalogs)
 }
 
@@ -183,10 +181,7 @@ function settle(layers, manifest, major) {
 
 // Overrides that name nothing are none, and leave those below them.
 export function readSettings({ workspace, npmrc, manifest, major = 10, pinned = false }) {
-  const fromYaml = () => {
-    if (workspace === undefined) return new Map()
-    return major < 10 ? fromWorkspace9(workspace) : fromWorkspace(workspace, major, pinned)
-  }
+  const fromYaml = () => (workspace === undefined ? new Map() : major < 10 ? fromWorkspace9(workspace) : fromWorkspace(workspace, major, pinned))
   if (major >= 11) {
     if (npmrc !== undefined) checkNpmrcRegistries(npmrc)
     const settings = settle([fromYaml()], manifest, major)

@@ -39,9 +39,10 @@ export function walkWorkspaces(project, globs, { manager, fold = (path) => path,
     const dir = pending.pop()
     for (const name of project.readdir(`/${dir}`)) {
       const path = dir === '' ? name : `${dir}/${name}`
+      if (skip(name)) continue
       const key = fold(path)
       const taken = folded.some((glob) => matchesGlob(glob, key))
-      if (skip(name) || (!taken && !folded.some((glob) => reachesBelow(glob, key)))) continue
+      if (!taken && !folded.some((glob) => reachesBelow(glob, key))) continue
       const { type } = project.lstat(`/${path}`)
       if (type === 'symlink') throw new DeptreeError(`a link where ${manager} looks for workspaces is not supported`, quote(path))
       if (type !== 'directory') continue

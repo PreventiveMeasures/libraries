@@ -26,11 +26,17 @@ function group(selectors) {
   }
   for (const selector of selectors) {
     const { name, version, range } = parseSelector(selector)
-    if (version !== undefined) of(name).exact.set(version, selector)
-    else if (range === undefined) of(selector).all = selector
-    else if (validRange(range) === null) throw new DeptreeError(`${quote(range)} is not a version range, which pnpm refuses`, `patchedDependencies[${quote(selector)}]`)
-    else if (range.trim() === '*') of(name).all = selector
-    else of(name).ranges.push({ range, selector })
+    if (version !== undefined) {
+      of(name).exact.set(version, selector)
+    } else if (range === undefined) {
+      of(selector).all = selector
+    } else if (validRange(range) === null) {
+      throw new DeptreeError(`${quote(range)} is not a version range, which pnpm refuses`, `patchedDependencies[${quote(selector)}]`)
+    } else if (range.trim() === '*') {
+      of(name).all = selector
+    } else {
+      of(name).ranges.push({ range, selector })
+    }
   }
   return groups
 }

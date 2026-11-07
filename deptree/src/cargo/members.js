@@ -21,8 +21,9 @@ export function checkLists(workspace) {
     for (const [index, entry] of (workspace[key] ?? []).entries()) {
       const where = `Cargo.toml: workspace.${key === 'defaultMembers' ? 'default-members' : key}[${index}]`
       if (entry.startsWith('/') || UNSAFE.test(entry)) throw new DeptreeError(`${quote(entry)} is not a relative path within the project, which is all that is read`, where)
-      if (key !== 'exclude' && parts(entry).includes('..')) throw new DeptreeError(`${quote(entry)} leads out of the root, which is not read`, where)
-      if (key !== 'exclude' && /\*\*|\[/u.test(entry)) throw new DeptreeError(`${quote(entry)} has a \`**\` or a \`[\`, which is not supported`, where)
+      if (key === 'exclude') continue
+      if (parts(entry).includes('..')) throw new DeptreeError(`${quote(entry)} leads out of the root, which is not read`, where)
+      if (/\*\*|\[/u.test(entry)) throw new DeptreeError(`${quote(entry)} has a \`**\` or a \`[\`, which is not supported`, where)
     }
   }
 }

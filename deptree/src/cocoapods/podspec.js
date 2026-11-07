@@ -25,7 +25,9 @@ const LISTS = ['source_files', 'exclude_files', 'resources', 'preserve_paths', '
 // One path each, inherited: a subspec takes its parent's where it has none.
 const PATHS = ['prefix_header_file', 'module_map']
 
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+export const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+// Given at all: a podspec leaves a value out as undefined, null or false.
+export const given = (value) => value !== undefined && value !== null && value !== false
 // Text a pattern or a path can be: not what reads otherwise than it is
 // written, nor what CocoaPods compares by a case Ruby maps otherwise in one
 // release than another.
@@ -83,8 +85,8 @@ export function specNamed(root, name) {
 // deployment targets; anything else, none.
 function platformNames(spec, where) {
   const value = spec.attributes.platforms
-  const given = typeof value === 'string' ? [[value, null]] : Array.isArray(value) ? value.map((name) => [name, null]) : isObject(value) ? Object.entries(value) : []
-  return given.map(([name, target]) => {
+  const named = typeof value === 'string' ? [[value, null]] : Array.isArray(value) ? value.map((name) => [name, null]) : isObject(value) ? Object.entries(value) : []
+  return named.map(([name, target]) => {
     if (typeof name !== 'string' || PLATFORM_NAMES[name] === undefined) throw new DeptreeError(`${spec.at}platforms names ${typeof name === 'string' ? quote(name) : 'what is no name'}, not a platform CocoaPods takes alike in each release`, where)
     if (target !== null && !(typeof target === 'string' && DEPLOYMENT_TARGET.test(target))) throw new DeptreeError(`${spec.at}platforms.${name} is not a deployment target`, where)
     return PLATFORM_NAMES[name]
@@ -105,7 +107,7 @@ export function platformsOf(spec, where) {
 // a string.
 function platformHash(spec, platform, where) {
   const value = spec.attributes[platform]
-  if (value === undefined || value === null || value === false) return undefined
+  if (!given(value)) return undefined
   if (!isObject(value)) throw new DeptreeError(`${spec.at}${platform} is not a hash of values for the platform`, where)
   return value
 }
@@ -143,7 +145,7 @@ function checkPath(path, what, where) {
 function pathOf(spec, key, platform, where) {
   const [own, onPlatform] = rawValues(spec, key, platform, where)
   const value = onPlatform ?? own ?? (spec.parent === undefined ? undefined : pathOf(spec.parent, key, platform, where))
-  if (value === undefined || value === null || value === false) return undefined
+  if (!given(value)) return undefined
   if (typeof value !== 'string') throw new DeptreeError(`${spec.at}${key} is ${JSON.stringify(value)}, which CocoaPods fails on`, where)
   return checkPath(value, `${spec.at}${key}`, where)
 }
@@ -193,9 +195,9 @@ export function consumerOf(spec, platform, where) {
 export function licenseFileOf(root, where) {
   const license = root.attributes.license
   if (!isObject(license)) return undefined
-  if (license.text !== undefined && license.text !== null && license.text !== false && typeof license.text !== 'string') throw new DeptreeError('license.text is not text, which CocoaPods fails on', where)
+  if (given(license.text) && typeof license.text !== 'string') throw new DeptreeError('license.text is not text, which CocoaPods fails on', where)
   const file = license.file
-  if (file === undefined || file === null || file === false) return undefined
+  if (!given(file)) return undefined
   if (typeof file !== 'string') throw new DeptreeError('license.file is not a path, which CocoaPods fails on', where)
   return checkPath(file, 'license.file', where)
 }

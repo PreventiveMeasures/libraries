@@ -41,7 +41,7 @@ function md5(input) {
   }
   const bytes = new Uint8Array(16)
   const out = new DataView(bytes.buffer)
-  state.forEach((word, i) => out.setUint32(i * 4, word, true))
+  for (const [i, word] of state.entries()) out.setUint32(i * 4, word, true)
   return bytes
 }
 

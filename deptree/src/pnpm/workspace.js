@@ -99,7 +99,9 @@ function compile9(packages) {
     if (glob.startsWith('!')) {
       exclude.push(compile(glob.slice(1), where, true))
       excludeWhole.push(compile(glob.slice(1), where, false))
-    } else include.push(compile(glob, where, false))
+    } else {
+      include.push(compile(glob, where, false))
+    }
   }
   const dynamic = include.filter(isDynamic)
   const baseOf = (glob) => glob.raw.slice(0, glob.raw.findIndex((name) => name.includes('*')))
@@ -221,9 +223,8 @@ export function findProjects(project, packages, major = 10) {
       const linked = type === 'symlink' && typeOf(project, `/${path}`) === 'directory'
       if (type !== 'directory' && !linked) continue
       if (entry === 'node_modules') throw new DeptreeError('pnpm-workspace.yaml\'s packages walk into this node_modules, which is not supported', quote(path))
-      if (!linked) pending.push({ names: at, link })
-      else if (link === undefined) pending.push({ names: at, link: path })
-      else throw new DeptreeError(`a link to a directory in one tinyglobby follows, ${quote(path)}, is not supported`, quote(link))
+      if (linked && link !== undefined) throw new DeptreeError(`a link to a directory in one tinyglobby follows, ${quote(path)}, is not supported`, quote(link))
+      pending.push({ names: at, link: linked ? path : link })
     }
   }
   return ['.', ...major >= 12 ? ids.sort(byNames) : ids.sort()]

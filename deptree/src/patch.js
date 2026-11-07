@@ -62,8 +62,12 @@ function readHunks(lines, where) {
   if (!lines.every((line) => HUNK_LINE.test(line))) throw new DeptreeError('expected only hunks after the header', where)
   const files = parseDiff(`${lines.join('\n')}\n`)
   const hunks = files.flatMap((file) => file.hunks)
-  const heads = lines.filter((line) => line.startsWith('@@ ')).length
-  const held = lines.filter((line) => !line.startsWith('@@ ') && !line.startsWith('\\')).length
+  let heads = 0
+  let held = 0
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) heads++
+    else if (!line.startsWith('\\')) held++
+  }
   if (files.length !== 1 || files[0].format !== 'unified' || hunks.length !== heads || hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0) !== held) {
     throw new DeptreeError('expected unified hunks and nothing between them', where)
   }
@@ -89,9 +93,9 @@ function applyTo(text, { hunks, blocks, where }) {
   for (const hunk of hunks) {
     const kept = hunk.lines.filter((line) => line.tag !== '+')
     if (hunk.oldStart < end || (kept.length === 0 && hunk.oldStart !== 0)) throw new DeptreeError('hunks out of order, or one with no context', where)
-    kept.forEach((line, index) => {
+    for (const [index, line] of kept.entries()) {
       if (records[hunk.oldStart + index] !== line.text) throw new DeptreeError(`the hunk at line ${hunk.oldStart + 1} does not apply`, where)
-    })
+    }
     end = hunk.oldStart + kept.length
   }
   return applyChangeSet(text, blocks)
@@ -112,7 +116,7 @@ export function applyPatch(files, patch, { createdMode } = {}) {
   for (const file of patch) {
     const current = next.get(file.path)
     if (file.change === 'create') {
-      const taken = current !== undefined || [...next.keys()].some((path) => path.startsWith(`${file.path}/`)) || parentsOf(file.path).some((dir) => next.get(dir)?.data !== undefined)
+      const taken = current !== undefined || next.keys().some((path) => path.startsWith(`${file.path}/`)) || parentsOf(file.path).some((dir) => next.get(dir)?.data !== undefined)
       if (taken) throw new DeptreeError('creates a file that is there', file.where)
       next.set(file.path, { data: bytesOf(applyTo('', file), file.where), mode: createdMode ?? file.mode })
       continue

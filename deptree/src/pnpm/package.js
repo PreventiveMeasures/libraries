@@ -32,9 +32,7 @@ function filesOf(entries, where) {
     tops.add(entry.storedName.slice(0, Math.max(entry.storedName.indexOf('/'), 0)))
     if (tops.size > 1 || tops.has('')) throw new DeptreeError('the tarball has files under more than one directory, or at its top', where)
     const name = nameOf(entry.storedName)
-    if (!isInside(name)) {
-      throw new DeptreeError(`${quote(entry.storedName)} names no file in the package`, where)
-    }
+    if (!isInside(name)) throw new DeptreeError(`${quote(entry.storedName)} names no file in the package`, where)
     const file = { data: entry.data, mode: (entry.mode & 0o111) === 0 ? 0o644 : 0o755 }
     const earlier = files.get(name)
     if (earlier !== undefined && !sameFile(earlier, file)) throw new DeptreeError(`${quote(name)} is in the tarball twice`, where)

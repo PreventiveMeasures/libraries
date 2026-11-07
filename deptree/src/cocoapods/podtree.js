@@ -80,8 +80,8 @@ export class PodTree {
         continue
       }
       const next = this.byKey.get(this.key(join(at, name)))
-      const node = next === undefined ? undefined : this.nodes.get(next)
-      if (node === undefined) return undefined
+      if (next === undefined) return undefined
+      const node = this.nodes.get(next)
       if (node.type === 'symlink') {
         // A link to nothing at all, which leads nowhere.
         if (++followed > this.limits.links || node.target === '') return undefined
@@ -108,12 +108,11 @@ export class PodTree {
   // a directory, as nothing is under a link.
   removeAll(removed) {
     for (const path of this.paths) {
-      for (let at = path; at !== ''; at = parentOf(at)) {
-        if (!removed.has(at)) continue
-        this.nodes.delete(path)
-        this.byKey.delete(this.key(path))
-        break
-      }
+      let at = path
+      while (at !== '' && !removed.has(at)) at = parentOf(at)
+      if (at === '') continue
+      this.nodes.delete(path)
+      this.byKey.delete(this.key(path))
     }
   }
 
