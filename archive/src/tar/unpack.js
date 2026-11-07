@@ -25,9 +25,7 @@ const MAX_EXTENDED = 1 << 20
 const SPARSE_KEYS = new Set(['SCHILY.realsize', 'SUN.holesdata'])
 
 function sparse(keys, at) {
-  for (const key of keys) {
-    if (key.startsWith('GNU.sparse.') || SPARSE_KEYS.has(key)) throw new ArchiveError('sparse entries are not supported', at)
-  }
+  if (keys.some((key) => key.startsWith('GNU.sparse.') || SPARSE_KEYS.has(key))) throw new ArchiveError('sparse entries are not supported', at)
 }
 
 function paxNumber(value, what, at) {
@@ -160,8 +158,7 @@ class Unpacker {
     if (isZeroBlock(block)) {
       // A global header too: one with no entry after it stands for nothing,
       // unless the caller takes it as GNU tar does (trailingGlobal).
-      const unused = this.#trailingGlobal ? this.#extended.filter(({ kind }) => kind !== 'global') : this.#extended
-      if (unused.length > 0) throw new ArchiveError('an extended header is not followed by an entry', at)
+      if (this.#extended.some(({ kind }) => kind !== 'global' || !this.#trailingGlobal)) throw new ArchiveError('an extended header is not followed by an entry', at)
       if (++this.#zeros === 2) {
         this.#done = true
         const after = this.#position
@@ -195,20 +192,20 @@ class Unpacker {
       entry.data = raw
       located(() => this.#names.add(entry), at)
       out.push(entry)
-    } else if (extended === 'global') {
+      return true
+    }
+    if (extended === 'global') {
       this.#global = decodePax(raw, at)
-      for (const key of ['path', 'linkpath', 'size']) {
-        if (this.#global.has(key)) throw new ArchiveError(`a global header sets ${key}`, at)
-      }
+      const set = ['path', 'linkpath', 'size'].find((key) => this.#global.has(key))
+      if (set !== undefined) throw new ArchiveError(`a global header sets ${set}`, at)
       // Once, here: a global header stands until another replaces it, and
       // re-reading its keys under every entry is work an archive can ask for.
       sparse(this.#global.keys(), at)
-      this.#extended.push(Object.freeze({ kind: extended, magic, octal }))
     } else {
       if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
       this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
-      this.#extended.push(Object.freeze({ kind: extended, magic, octal }))
     }
+    this.#extended.push(Object.freeze({ kind: extended, magic, octal }))
     return true
   }
 
@@ -238,6 +235,7 @@ class Unpacker {
       if (hasUnsafe(value, false)) throw new ArchiveError(`${key} ${quote(value)} holds a control or formatting character`, at)
       return value
     }
+    const device = isDevice(type)
     const entry = {
       name,
       type,
@@ -248,8 +246,8 @@ class Unpacker {
       uname: owner('uname'),
       gname: owner('gname'),
       linkname,
-      devmajor: isDevice(type) ? number('devmajor') : 0,
-      devminor: isDevice(type) ? number('devminor') : 0,
+      devmajor: device ? number('devmajor') : 0,
+      devminor: device ? number('devminor') : 0,
       data: EMPTY,
       storedName: rawName,
       storedLinkname: rawTarget,
