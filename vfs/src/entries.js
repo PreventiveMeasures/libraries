@@ -73,10 +73,8 @@ function place(vfs, placed, { name, type = 'file', data, mode, mtime, linkname =
   const source = type === 'hardlink' ? `/${checkName(linkname, false)}` : linkname
   if (type === 'hardlink' && !placed.declared.has(source)) throw new VfsError('ENOENT', linkname)
   const before = placed.declared.get(path)
-  if (before !== undefined) {
-    if (before === type && same(vfs, path, type, data, mode, mtime, source)) return
-    throw new VfsError('EEXIST', name)
-  }
+  if (before === type && same(vfs, path, type, data, mode, mtime, source)) return
+  if (before !== undefined) throw new VfsError('EEXIST', name)
   placed.declared.set(path, type)
   const parent = dirname(path)
   if (parent !== placed.parent) {
@@ -84,14 +82,19 @@ function place(vfs, placed, { name, type = 'file', data, mode, mtime, linkname =
     if (vfs.realpath(parent) !== parent) throw new VfsError('ENOTDIR', name)
     placed.parent = parent
   }
-  if (file) vfs.writeFile(path, data ?? '', { mode, mtime })
-  else if (type === 'symlink') vfs.symlink(source, path, { mode, mtime })
-  else if (type === 'directory') {
+  if (file) {
+    vfs.writeFile(path, data ?? '', { mode, mtime })
+  } else if (type === 'symlink') {
+    vfs.symlink(source, path, { mode, mtime })
+  } else if (type === 'directory') {
     vfs.mkdir(path, { recursive: true })
     if (mode !== undefined) vfs.chmod(path, mode)
     if (mtime !== undefined) vfs.utimes(path, mtime)
-  } else if (type === 'hardlink' && fits(vfs.lstat(source), mode, mtime)) vfs.hardlink(source, path)
-  else throw new VfsError('EINVAL', name)
+  } else if (type === 'hardlink' && fits(vfs.lstat(source), mode, mtime)) {
+    vfs.hardlink(source, path)
+  } else {
+    throw new VfsError('EINVAL', name)
+  }
 }
 
 // What no name may hold: a control, a line separator or a bidirectional
