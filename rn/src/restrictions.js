@@ -1,8 +1,10 @@
 // rn.config.json's allowedPaths, disallowedPaths, allowedModules and disallowedModules: the files a build may
 // take, each rule checked on its own, a file breaking any of them an error. A path is a file's real path from
 // the project root, a module the name of the package it is of (packagesOf()), each as globs match it
-// (globRegExp()): a path glob each file in a directory it matches too. With allowedModules, a file of no
-// package is of none it allows. Those of development or production add to the top level's (restrictionsOf()).
+// (globRegExp()): a path glob each file in a directory it matches too. An installed package goes by the name
+// it is installed under too (installedOf()), where that is another: a module rule forbids it where it forbids
+// either name, and allows it only where it allows both. With allowedModules, a file of no package is of none
+// it allows. Those of development or production add to the top level's (restrictionsOf()).
 
 import { dirname, isAbsolute, join, relative } from 'node:path'
 
@@ -63,6 +65,9 @@ export function installedOf(path) {
 // has, as an npm alias ("nice": "npm:evil@1") installs it under another, else the one it is installed under;
 // else of the nearest package.json that names one (the project's, a workspace package's); null where none
 // does. Each directory looked up once, through `host` (build-host.js's, noting each file it reads for a watcher).
+// The module rules check the name it is installed under besides (rulesOf()): a package.json may name its
+// package as another (a git, tarball or file: dependency's, or a registry tarball's that differs from what was
+// published), and an alias names another.
 export function packagesOf(host) {
   const named = new Map()
   const nameIn = (dir) => {
@@ -103,11 +108,20 @@ export function restrictionsOf(config, projectRoot, dev) {
 }
 
 // The rules of the restrictions `options` sets (the top level's, or a section's, its keys named after `prefix`),
-// each (name, module) => its error, or null.
+// each (name, module) => its error, or null. A module rule checks an installed file by `module`, its
+// package.json's name, and by the name it is installed under (installedOf()) where that is another, as `name`
+// says it: either one it forbids forbids the file, and it allows the file only where it allows both.
 function rulesOf(options, prefix) {
   const globs = (key) => options[key].map((glob) => ({ glob, test: globRegExp(glob, key.endsWith('Paths')) }))
   const matching = (list, value) => list.find(({ test }) => test.test(value))
   const named = (key) => `${RN_CONFIG}'s ${prefix}${key}`
+  // The names the file `name` of the package `module` goes by: `module`, and the one it is installed under
+  // where that is another, each with how an error says it.
+  const namesOf = (name, module) => {
+    const installed = installedOf(name)?.name
+    const of = { value: module, text: `is of ${module}` }
+    return installed === undefined || installed === module ? [of] : [of, { value: installed, text: `is installed as ${installed} (of ${module})` }]
+  }
   const rules = []
   if (options.allowedPaths !== undefined) {
     const allowed = globs('allowedPaths')
@@ -124,14 +138,19 @@ function rulesOf(options, prefix) {
     const allowed = globs('allowedModules')
     rules.push((name, module) => {
       if (module === null) return `${name} is of no package (no package.json above it has a name), which ${named('allowedModules')} allows none of`
-      return matching(allowed, module) ? null : `${name} is of ${module}, which matches none of ${named('allowedModules')}`
+      const unmatched = namesOf(name, module).find(({ value }) => matching(allowed, value) === undefined)
+      return unmatched === undefined ? null : `${name} ${unmatched.text}, which matches none of ${named('allowedModules')}`
     })
   }
   if (options.disallowedModules !== undefined) {
     const disallowed = globs('disallowedModules')
     rules.push((name, module) => {
-      const found = module === null ? undefined : matching(disallowed, module)
-      return found === undefined ? null : `${name} is of ${module}, which matches ${JSON.stringify(found.glob)} of ${named('disallowedModules')}`
+      if (module === null) return null
+      for (const { value, text } of namesOf(name, module)) {
+        const found = matching(disallowed, value)
+        if (found !== undefined) return `${name} ${text}, which matches ${JSON.stringify(found.glob)} of ${named('disallowedModules')}`
+      }
+      return null
     })
   }
   return rules
