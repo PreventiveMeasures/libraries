@@ -45,9 +45,7 @@ function checkText(path, what) {
   // that is not one is what a drive letter is looked for on.
   if (/^[a-zA-Z]:/u.test(segments.find((segment) => segment !== '.') ?? '')) throw new ArchiveError(`${what} ${quote(path)} starts with a drive letter`)
   if (tooLong(path, PATH_MAX)) throw new ArchiveError(`${what} ${quote(path)} is longer than ${PATH_MAX} bytes`)
-  for (const segment of segments) {
-    if (tooLong(segment, NAME_MAX)) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)
-  }
+  if (segments.some((segment) => tooLong(segment, NAME_MAX))) throw new ArchiveError(`${what} ${quote(path)} has a segment longer than ${NAME_MAX} bytes`)
   return segments
 }
 

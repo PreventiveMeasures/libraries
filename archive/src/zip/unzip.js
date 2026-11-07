@@ -268,13 +268,15 @@ async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep =
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
   let expected = 0
   const sorted = list.toSorted((a, b) => a.offset - b.offset)
-  const boundaries = sorted.map((_, i) => sorted[i + 1]?.offset ?? start)
-  // The headers are read ahead through, but never the data between them,
-  // which is read again when its entry is reached: from each header to its
-  // own data, give or take a descriptor, by the directory's sizes, or on
-  // through the next header where it has none.
+  // Each entry ends where the next starts, the last at the directory. The
+  // headers are read ahead through, but never the data between them, which
+  // is read again when its entry is reached: from each header to its own
+  // data, give or take a descriptor, by the directory's sizes, or on through
+  // the next header where it has none.
+  const boundaries = []
   const stops = []
   for (let i = sorted.length - 1; i >= 0; i--) {
+    boundaries[i] = sorted[i + 1]?.offset ?? start
     stops[i] = sorted[i].csize === 0 && i + 1 < sorted.length ? stops[i + 1] : boundaries[i] - sorted[i].csize
   }
   const locals = walk(source)

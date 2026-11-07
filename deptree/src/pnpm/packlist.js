@@ -14,7 +14,6 @@ import { readBytes } from '../project.js'
 import { bytesOf, gitignoreGlob, matched, matchedOrParents } from './gitignore.js'
 import { pack10, pack11 } from './npm-packlist.js'
 
-
 const MODES = new Set([0o644, 0o664, 0o755, 0o775])
 
 // How deep a directory is walked: each entry is matched against the rules

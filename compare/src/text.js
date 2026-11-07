@@ -105,6 +105,10 @@ export function contentOf(old, fresh, options) {
   const a = textOf(old), b = textOf(fresh)
   if (a === undefined || b === undefined) return { binary: true, blocks: [], insertions: null, deletions: null }
   const blocks = a === b ? [] : lineChangeSet(a, b, options)
-  const lines = (from, to) => blocks.reduce((n, block) => n + block[to] - block[from], 0)
-  return { binary: false, blocks, insertions: lines('b0', 'b1'), deletions: lines('a0', 'a1') }
+  let deletions = 0, insertions = 0
+  for (const { a0, a1, b0, b1 } of blocks) {
+    insertions += b1 - b0
+    deletions += a1 - a0
+  }
+  return { binary: false, blocks, insertions, deletions }
 }

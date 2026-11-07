@@ -14,8 +14,9 @@ export function cleanDependencies(manifest) {
   for (const kind of kinds) {
     const list = manifest[kind]
     for (const name of Object.keys(list)) {
-      if (seen.has(name)) delete list[name]
-      else {
+      if (seen.has(name)) {
+        delete list[name]
+      } else {
         list[name] = ranges.get(name) ?? list[name]
         seen.add(name)
       }

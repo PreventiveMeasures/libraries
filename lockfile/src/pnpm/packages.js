@@ -172,7 +172,7 @@ function mergedInto(key, into, packages, depth = 0) {
   if (depth > DEEPEST || merged === undefined || kept === undefined || merged.unpeered !== kept.unpeered) return false
   if (merged.peers === undefined || kept.peers === undefined) return true
   const { dependencies, optionalDependencies } = packages[into]
-  return [...merged.peers].every(([name, peer]) => {
+  return merged.peers.entries().every(([name, peer]) => {
     if (!kept.peers.has(name)) return false
     const to = dependencies[name] ?? optionalDependencies[name]
     if (to === undefined) return peer === kept.peers.get(name)
@@ -247,7 +247,7 @@ function checkMerges(merges, packages) {
 // finds it: its name and version, else its name alone. A package of no
 // version a selector of a version may name is not decided here.
 function patchOf(info, patches, where) {
-  if (info.version === undefined && [...patches.keys()].some((selector) => selector.startsWith(`${info.name}@`))) {
+  if (info.version === undefined && patches.keys().some((selector) => selector.startsWith(`${info.name}@`))) {
     throw new LockfileError(`a package of no version in the lockfile, which a patch of a version of ${quote(info.name)} may be of`, where)
   }
   const exact = `${info.name}@${info.version}`
@@ -275,7 +275,7 @@ export function readPackages(doc, prefix, patches) {
   // What a peer of a peer may be named by: a snapshot, a package, or a
   // package's name and version; made where first asked for.
   let named
-  const known = () => (named ??= new Set([...Object.keys(snapshots), ...infos.keys(), ...[...infos.values()].map((info) => `${info.name}@${info.version}`)]))
+  const known = () => (named ??= new Set([...Object.keys(snapshots), ...infos.keys(), ...infos.values().map((info) => `${info.name}@${info.version}`)]))
   const seen = new Set()
   const used = new Set()
   const merges = []
@@ -297,13 +297,11 @@ export function readPackages(doc, prefix, patches) {
     return { ...info, patchHash, ...snapshot }
   })
   checkMerges(merges, packages)
-  for (const key of infos.keys()) {
-    if (!seen.has(key)) throw new LockfileError('no snapshot is of this package', at(packagesAt, key))
-  }
-  const unused = [...patches.keys()].find((selector) => !used.has(selector))
+  const unseen = infos.keys().find((key) => !seen.has(key))
+  if (unseen !== undefined) throw new LockfileError('no snapshot is of this package', at(packagesAt, unseen))
+  const unused = patches.keys().find((selector) => !used.has(selector))
   if (unused !== undefined) throw new LockfileError('patches no package in the lockfile, which pnpm refuses to install with', at(at(prefix, 'patchedDependencies'), unused))
-  for (const where of versioned.values()) {
-    throw new LockfileError('a registry package has its version in its key, except where a snapshot of it has a source in its peers', where)
-  }
+  const [versionedAt] = versioned.values()
+  if (versionedAt !== undefined) throw new LockfileError('a registry package has its version in its key, except where a snapshot of it has a source in its peers', versionedAt)
   return { packages, snapshots }
 }

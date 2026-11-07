@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON } from './json.js'
+import { expectObject, extractJSON, textOf } from './json.js'
 import { mapLimit } from './pool.js'
 import { compactSystem, compactUser } from './prompts.js'
 
@@ -19,7 +19,7 @@ import { compactSystem, compactUser } from './prompts.js'
 // than refuse -- the row is still usable, and one short list in twenty thousand is not worth a
 // re-ask -- and more are cut, since nothing could say which question the extras belong to. No list
 // at all is re-asked, though: that is not a short answer, it is the wrong shape.
-const answerAt = (value) => (typeof value === 'string' && value.trim() ? value.trim() : 'unknown')
+const answerAt = (value) => textOf(value) || 'unknown'
 
 function readRow(count, summarize) {
   return (text) => {
@@ -27,7 +27,7 @@ function readRow(count, summarize) {
     if (!Array.isArray(json.answers)) throw new TypeError('expected an answers list')
     const answers = Array.from({ length: count }, (_, i) => answerAt(json.answers[i]))
     // A string, or a re-ask: String() would turn `true` or an object into text the search then reads.
-    const summary = summarize && typeof json.summary === 'string' ? json.summary.trim() : ''
+    const summary = summarize ? textOf(json.summary) : ''
     if (summarize && !summary) throw new TypeError('expected a non-empty summary')
     return { summary, answers }
   }

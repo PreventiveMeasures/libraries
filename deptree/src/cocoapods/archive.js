@@ -28,14 +28,7 @@ const UMASK = 0o022
 const topsOf = ({ dirs, files, links }) => new Set([...dirs, ...files.keys(), ...links.keys()].map((path) => path.split('/')[0]))
 
 async function tarOf(bytes, where) {
-  if (startsWith(bytes, GZIP)) {
-    try {
-      return await decompress(bytes, 'gzip', { limit: MAX_BYTES })
-    } catch (error) {
-      if (error instanceof ArchiveError) throw new DeptreeError(`its archive cannot be read: ${error.message}`, where, { cause: error })
-      throw error
-    }
-  }
+  if (startsWith(bytes, GZIP)) return await decompress(bytes, 'gzip', { limit: MAX_BYTES })
   const other = OTHERS.find(([, magic]) => startsWith(bytes, magic))
   if (other !== undefined) throw new DeptreeError(`its archive is compressed with ${other[0]}, which is not read here: only gzip is`, where)
   return bytes
@@ -101,9 +94,8 @@ function flattened(contents, where) {
   if (top.endsWith('.')) throw new DeptreeError('the one directory in the archive has a name ending in `.`, which flattening it reads otherwise', at)
   const strip = (path) => path.slice(top.length + 1)
   const inside = (path) => path.startsWith(`${top}/`)
-  const moved = { dirs: new Set([...contents.dirs].filter(inside).map(strip)), files: new Map(), links: new Map() }
-  for (const [path, file] of contents.files) moved.files.set(strip(path), file)
-  for (const [path, target] of contents.links) moved.links.set(strip(path), target)
+  const stripped = (map) => new Map([...map].map(([path, value]) => [strip(path), value]))
+  const moved = { dirs: new Set([...contents.dirs].filter(inside).map(strip)), files: stripped(contents.files), links: stripped(contents.links) }
   if (topsOf(moved).has(`${top}.tmp`)) throw new DeptreeError(`the one directory in the archive holds ${quote(`${top}.tmp`)}, the name it is moved to while it is flattened`, at)
   return moved
 }

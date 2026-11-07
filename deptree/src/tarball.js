@@ -123,9 +123,7 @@ export async function fetchTarball(name, version, given, where, { metadata, cach
   const integrity = given ?? meta.dist.integrity
   if (!SHA512.test(integrity)) throw new DeptreeError('a tarball with no sha512 integrity is not supported', where)
   const dist = { tarball: tarballUrl(name, version), integrity }
-  let about = NO_ABOUT
-  if (meta !== undefined) about = aboutOf(meta)
-  else if (metadata) about = getMeta(name, version, { dist, cache }).then(aboutOf)
+  const about = meta === undefined ? (metadata ? getMeta(name, version, { dist, cache }).then(aboutOf) : NO_ABOUT) : aboutOf(meta)
   const [bytes, said] = await settled([getTarball(name, version, dist, { cache }), about])
   if (!await matchesIntegrity(bytes, integrity)) throw new DeptreeError(`the tarball is not ${integrity}`, where)
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the tarball is not gzipped', where)

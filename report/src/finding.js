@@ -268,7 +268,7 @@ export function descriptionSections(body) {
       continue
     }
     const open = sections.at(-1)
-    if (open && open.label === null) open.body += `\n\n${para}`
+    if (open?.label === null) open.body += `\n\n${para}`
     else sections.push({ label: null, body: para })
   }
   return sections

@@ -155,15 +155,8 @@ function sharesStart(sorted, text) {
   return false
 }
 
-// The used files of each set of values, each set once, as specs and
-// platforms often share one.
-function allUsed(list, accessors, licenseFile) {
-  const used = new Set()
-  for (const values of new Map(accessors.map((one) => [JSON.stringify(one), one])).values()) {
-    for (const path of usedFiles(list, values, licenseFile)) used.add(downcase(path))
-  }
-  return used
-}
+// Each set of values once, as specs and platforms often share one.
+const uniqueOf = (accessors) => [...new Map(accessors.map((one) => [JSON.stringify(one), one])).values()]
 
 // PodDirCleaner#clean!, by the consumerOf values of each spec on each
 // platform it is cleaned for: every path of the pod's directory removed,
@@ -174,7 +167,8 @@ function allUsed(list, accessors, licenseFile) {
 // is in the other where it is at its start. `budget` counts the matches
 // made, across every clean of the pod.
 export function clean(tree, accessors, licenseFile, budget) {
-  const used = [...allUsed(new PathList(tree, budget), accessors, licenseFile)].sort()
+  const list = new PathList(tree, budget)
+  const used = [...new Set(uniqueOf(accessors).flatMap((values) => usedFiles(list, values, licenseFile)).map(downcase))].sort()
   const kept = (path) => path.endsWith('.') || sharesStart(used, downcase(path))
   tree.removeAll(new Set(tree.paths.filter((one) => !kept(one))))
 }
@@ -184,8 +178,7 @@ export function clean(tree, accessors, licenseFile, budget) {
 // to nothing CocoaPods fails on, as File.stat does.
 export function lock(tree, accessors, budget) {
   const list = new PathList(tree, budget)
-  const unique = new Map(accessors.map((one) => [JSON.stringify(one), one])).values()
-  for (const path of new Set([...unique].flatMap((values) => sourceFiles(list, values)))) {
+  for (const path of new Set(uniqueOf(accessors).flatMap((values) => sourceFiles(list, values)))) {
     const resolved = tree.resolve(path)
     if (resolved === undefined) throw new DeptreeError(`the source file ${quote(path)} links to nothing, and CocoaPods fails on it as it makes it read-only`, tree.where)
     if (resolved.node.type === 'file') resolved.node.mode &= ~0o200

@@ -78,11 +78,11 @@ function checkLock(lock, inputs, crates, vendored) {
   for (const [dir, key] of keys) if (key in lock.packages) manifests[key] = inputs.packages.get(dir).manifest
   const texts = new Map(crates.map((crate) => [crate.key, manifestOf(crate, vendored.get(crate.key))]))
   for (const [key, { manifest }] of texts) manifests[key] = manifest
-  const members = [...inputs.packages].filter(([dir, { member }]) => member && keys.has(dir)).map(([dir]) => keys.get(dir))
+  const members = inputs.packages.entries().filter(([dir, { member }]) => member && keys.has(dir)).map(([dir]) => keys.get(dir)).toArray()
   checkPaths(linkCargo(lock, manifests, { workspace: inputs.root, members, config: inputs.config }), inputs.packages, keys)
   const read = readCargoVendor(lock, Object.fromEntries(crates.map((crate) => [crate.directory, { manifest: texts.get(crate.key).text, checksum: vendored.get(crate.key).checksumText }])))
   for (const crate of crates) if (read[crate.key].directory !== crate.directory) throw new Error(`unreachable: ${crate.key} read back from ${read[crate.key].directory}`)
-  return new Map([...texts].map(([key, { links }]) => [key, links]))
+  return new Map(texts.entries().map(([key, { links }]) => [key, links]))
 }
 
 // Each crate's bytes are let go once its files are written, which copies them.

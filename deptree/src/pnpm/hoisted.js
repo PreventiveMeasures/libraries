@@ -169,7 +169,7 @@ export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules
   for (const node of byDir.values()) if (!first.has(idOf(node.key))) first.set(idOf(node.key), node.dir)
   const dropping = mayDrop(byDir)
   const childrenOf = (node) => Object.entries({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }).map(([alias, key]) => [alias, first.get(idOf(key))]).filter(([, dir]) => dir !== undefined)
-  const tops = [...byDir.values()].filter((node) => projects.has(node.modules)).map((node) => node.dir)
+  const tops = byDir.values().filter((node) => projects.has(node.modules)).map((node) => node.dir)
   const reached = reachable(tops, (dir) => childrenOf(byDir.get(dir)).map(([, child]) => child))
   const built = []
   for (const [key, copies] of Map.groupBy(byDir.values(), (node) => node.key)) {
@@ -234,7 +234,7 @@ export function hoistedModules(byDir, links, projects, manifests, lockfile) {
     placedIn.get(modules).push([alias, dir])
   }
   for (const { dir, modules, alias } of byDir.values()) add(modules, alias, dir)
-  const filled = [...projects, ...[...byDir.keys()].map((dir) => `${dir}/node_modules`)]
+  const filled = [...projects, ...byDir.keys().map((dir) => `${dir}/node_modules`)]
   const all = filled.filter((dir) => placedIn.has(dir)).map((dir) => ({ dir, entries: placedIn.get(dir) }))
   for (const [path, target] of links) {
     const end = path.lastIndexOf('/node_modules/') + '/node_modules'.length
@@ -251,6 +251,6 @@ export function hoistedModules(byDir, links, projects, manifests, lockfile) {
 export function prodPackages(lockfile, skipped, directories) {
   const edges = ({ dependencies, optionalDependencies }) => [...Object.values(dependencies), ...Object.values(optionalDependencies)]
   const reached = reachable(Object.values(lockfile.importers).flatMap(edges), (key) => edges(lockfile.packages[key]), (key) => key.startsWith('link:') || skipped.has(key))
-  return new Set([...reached].map((key) => packageIdOf(key, lockfile.packages[key], directories)))
+  return new Set(reached.values().map((key) => packageIdOf(key, lockfile.packages[key], directories)))
 }
 

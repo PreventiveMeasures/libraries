@@ -73,12 +73,10 @@ export function createMatcher(patterns) {
     return { ignore, match: matcherOf(ignore ? pattern.slice(1) : pattern) }
   })
   if (matchers.every(({ ignore }) => ignore)) return (input) => !matchers.some(({ match }) => match(input))
+  // The last pattern to match decides: a plain one for, a `!` one against.
   return (input) => {
     let matched = false
-    for (const { ignore, match } of matchers) {
-      if (ignore) { if (match(input)) matched = false }
-      else if (!matched && match(input)) matched = true
-    }
+    for (const { ignore, match } of matchers) if (match(input)) matched = !ignore
     return matched
   }
 }

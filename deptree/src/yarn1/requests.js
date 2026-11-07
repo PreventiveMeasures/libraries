@@ -19,7 +19,7 @@ export function workspacesOf(manifests) {
   const workspaces = new Map()
   const found = new Set()
   for (const glob of globsOf(root)) {
-    const dirs = [...manifests.keys()].filter((dir) => dir !== '.' && !found.has(dir) && matchesGlob(glob, dir))
+    const dirs = manifests.keys().filter((dir) => dir !== '.' && !found.has(dir) && matchesGlob(glob, dir)).toArray()
     dirs.sort((a, b) => `${a}/package.json`.localeCompare(`${b}/package.json`, 'en'))
     for (const dir of dirs) {
       found.add(dir)

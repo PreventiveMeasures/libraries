@@ -24,7 +24,8 @@ const EDGE = ['name', 'version', 'source', 'extra', 'marker']
 // Revisions 1 to 3 add fields, which older ones lack; 4, which drops a
 // package's metadata, uv writes only as a preview.
 function checkRevision(value, where) {
-  if (value === undefined || value === 1 || value === 2 || value === 3) return value ?? 0
+  if (value === undefined) return 0
+  if (value === 1 || value === 2 || value === 3) return value
   throw new LockfileError(`unsupported revision: expected 1, 2 or 3, found ${kind(value)}`, where)
 }
 

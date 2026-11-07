@@ -4,6 +4,7 @@
 import { basename, dirname } from 'node:path'
 
 import { lookups, metroResolverOf } from '@preventive/rn/src/build-host.js'
+import { memo } from './fingerprint.js'
 
 const plainFile = (entry) => entry != null && entry.isFile() && !entry.isSymbolicLink()
 
@@ -61,9 +62,7 @@ export function resolutionOf(run) {
       kept = {
         lookups: keptLooked,
         resolveModule: (importer, specifier, options) => {
-          const key = `${importer}\0${specifier}\0${JSON.stringify(options ?? null)}`
-          if (!made.has(key)) made.set(key, resolveModule(importer, specifier, options))
-          return made.get(key)
+          return memo(made, `${importer}\0${specifier}\0${JSON.stringify(options ?? null)}`, () => resolveModule(importer, specifier, options))
         },
       }
     }

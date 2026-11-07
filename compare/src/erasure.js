@@ -58,8 +58,6 @@ export function strippedAs(statement) {
   switch (statement.type) {
     case 'ImportDeclaration':
       if (statement.importKind === 'type') return ERASED
-      // A side-effect import binds and names nothing: code a declaration file has no reason to hold, not a
-      // module a type comes from.
       return bindingless(statement) ? CODE : IMPORT
     case 'ExportAllDeclaration': return statement.exportKind === 'type' ? ERASED : IMPORT
     case 'TSImportEqualsDeclaration':
@@ -113,8 +111,8 @@ function exportEmptyEnd(text, from) {
   let at = from
   for (const token of EXPORT_EMPTY) {
     token.lastIndex = skip(text, at)
-    at = token.test(text) ? token.lastIndex : -1
-    if (at === -1) return -1
+    if (!token.test(text)) return -1
+    at = token.lastIndex
   }
   const semicolon = skip(text, at)
   return text[semicolon] === ';' ? semicolon + 1 : at

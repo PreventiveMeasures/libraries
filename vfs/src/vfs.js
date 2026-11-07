@@ -184,8 +184,11 @@ export class Vfs {
     const bytes = adopt && data instanceof Uint8Array ? plain(data) : encode(data, path)
     const found = this.#locate(path, { follow: !slashed(path), create: true })
     if (found.trailing || found.node?.type === 'directory') throw new VfsError('EISDIR', path)
-    if (found.node === undefined) this.#set(found, this.#inode('file', { bytes }, mode, mtime), path)
-    else update(found.node, bytes)
+    if (found.node === undefined) {
+      this.#set(found, this.#inode('file', { bytes }, mode, mtime), path)
+    } else {
+      update(found.node, bytes)
+    }
   }
 
   // Creates the file or truncates it; the inode stays, so a hard link sees it.
@@ -208,7 +211,9 @@ export class Vfs {
     if (found.node === undefined) {
       if (found.linked) throw new VfsError('ENOENT', path)
       this.#set(found, this.#directory(mode, mtime), path)
-    } else if (!recursive || found.node.type !== 'directory') throw new VfsError('EEXIST', path)
+    } else if (!recursive || found.node.type !== 'directory') {
+      throw new VfsError('EEXIST', path)
+    }
   }
 
   // A link's mode is 0o777 unless given, as Linux has it; one made elsewhere
@@ -330,9 +335,10 @@ export class Vfs {
       const name = under === '' ? top : under
       const entry = { name, type: node.type, mode: node.mode, mtime: node.mtime, linkname: '', data: NONE }
       const earlier = named.get(node)
-      if (earlier !== undefined) { entry.type = 'hardlink'; entry.linkname = earlier }
-      else if (node.type === 'symlink') { named.set(node, name); entry.linkname = node.target }
-      else if (node.type === 'file') { named.set(node, name); entry.data = node.bytes }
+      if (earlier !== undefined) return { ...entry, type: 'hardlink', linkname: earlier }
+      if (node.type !== 'directory') named.set(node, name)
+      if (node.type === 'symlink') entry.linkname = node.target
+      if (node.type === 'file') entry.data = node.bytes
       return entry
     })
   }

@@ -43,10 +43,15 @@ function lookup(scope, name) {
 
 function patternNames(pattern, out = []) {
   const type = pattern?.type
-  if (type === 'Identifier') out.push(pattern)
-  else if (type === 'ObjectPattern') for (const p of pattern.properties) patternNames(p.type === 'RestElement' ? p.argument : p.value, out)
-  else if (type === 'ArrayPattern') for (const p of pattern.elements) patternNames(p, out)
-  else if (type === 'AssignmentPattern' || type === 'RestElement') patternNames(pattern.left ?? pattern.argument, out)
+  if (type === 'Identifier') {
+    out.push(pattern)
+  } else if (type === 'ObjectPattern') {
+    for (const p of pattern.properties) patternNames(p.type === 'RestElement' ? p.argument : p.value, out)
+  } else if (type === 'ArrayPattern') {
+    for (const p of pattern.elements) patternNames(p, out)
+  } else if (type === 'AssignmentPattern' || type === 'RestElement') {
+    patternNames(pattern.left ?? pattern.argument, out)
+  }
   return out
 }
 
@@ -104,8 +109,7 @@ function visitClass(node, scope, pass) {
 function external(node, scope, pass) {
   if (pass.declaring) return
   const named = specifierOf(node)
-  if (named === null) return
-  if (named.kind === 'require' && lookup(scope, 'require') !== null) return
+  if (named === null || (named.kind === 'require' && lookup(scope, 'require') !== null)) return
   pass.addExternal(node, named.kind, named.specifier)
 }
 
@@ -118,8 +122,11 @@ function reference(node, scope, pass) {
   const binding = lookup(scope, node.name)
   if (binding === null) return
   const imported = pass.declared.get(binding)
-  if (imported === undefined) pass.link(pass.at(node), pass.at(binding), 'reference')
-  else pass.addExternal(node, 'import', imported)
+  if (imported === undefined) {
+    pass.link(pass.at(node), pass.at(binding), 'reference')
+  } else {
+    pass.addExternal(node, 'import', imported)
+  }
 }
 
 function visit(node, scope, pass) {

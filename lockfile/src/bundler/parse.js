@@ -59,8 +59,7 @@ const BUNDLERS = /^(?:2\.[2-7]|4\.0)\./u
 // Either may be left out: Bundler compares a lockfile without them when it
 // would write it, and leaves one without them so where nothing else changes.
 function readVersions(sections) {
-  const read = (name) => (sections.has(name) ? readOne(sections.get(name), name) : undefined)
-  const [ruby, bundled] = [read('RUBY VERSION'), read('BUNDLED WITH')]
+  const [ruby, bundled] = ['RUBY VERSION', 'BUNDLED WITH'].map((name) => (sections.has(name) ? readOne(sections.get(name), name) : undefined))
   if (ruby !== undefined && !RUBY.test(ruby)) throw new LockfileError(`${quote(ruby)} is not a Ruby as Bundler writes one, "ruby 3.3.6p108"`, 'rubyVersion')
   if (bundled !== undefined && !isVersion(bundled)) throw new LockfileError(`${quote(bundled)} is not a version as RubyGems writes one`, 'bundledWith')
   if (bundled !== undefined && !BUNDLERS.test(bundled)) throw new LockfileError(`${quote(bundled)} is not a version of Bundler from 2.2 to 4.0, which this reader reads`, 'bundledWith')
@@ -157,7 +156,7 @@ export function parseGemfileLock(text) {
   const gems = readGems(specs)
   checkDefaultSource({ sources, local, specs, gems, dependencies })
   checkGraph({ specs, gems, dependencies })
-  const checksums = sections.has('CHECKSUMS')
-  const bundlerChecksum = checksums ? readChecksums(sections.get('CHECKSUMS').lines, specs, sources) : undefined
-  return { sources, specs, gems, platforms, dependencies, checksums, bundlerChecksum, ...readVersions(sections) }
+  const checksums = sections.get('CHECKSUMS')
+  const bundlerChecksum = checksums === undefined ? undefined : readChecksums(checksums.lines, specs, sources)
+  return { sources, specs, gems, platforms, dependencies, checksums: checksums !== undefined, bundlerChecksum, ...readVersions(sections) }
 }

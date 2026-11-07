@@ -89,8 +89,11 @@ async function fetchAll(nodes, project, host, fetching) {
     return fetching.sizeEstimateOnly ? { ...got, size: bytesOf(got.files) } : got
   }
   await eachConcurrently(packages, async ([id, pkg]) => {
-    if (pkg.resolution.type === 'directory') fetched.set(id, read(pkg, quote(id)))
-    else if (!fetching.lazy) fetched.set(id, await fetch(pkg, quote(id)))
+    if (pkg.resolution.type === 'directory') {
+      fetched.set(id, read(pkg, quote(id)))
+    } else if (!fetching.lazy) {
+      fetched.set(id, await fetch(pkg, quote(id)))
+    }
   }, ([id]) => quote(id))
   return fetched
 }
@@ -253,10 +256,11 @@ async function buildIsolated({ lockfile, checked, settings, host, project, hook,
 }
 
 export async function buildPnpmTree(options) {
-  const { project, host: given, vfs: into } = options ?? {}
+  const opts = options ?? {}
+  const { project, host: given, vfs: into } = opts
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const fetching = fetchingOf(options ?? {}, into)
-  const production = productionOf(options ?? {})
+  const fetching = fetchingOf(opts, into)
+  const production = productionOf(opts)
   if (project !== undefined) checkProject(project)
   const machine = checkHost(given)
   const folded = machine.os === 'darwin'

@@ -165,7 +165,7 @@ export function profileReport({ files, ms, plugins, own, before = new Map() }, r
     line('ms', '%', 'files', 'calls', 'Babel, outside plugins'),
     ...owned.map(([name, entry]) => row(name, entry)),
     row('traversal, and the rest', { ms: rest }),
-    ...(before.size === 0 ? [] : [line('ms', '', 'files', '', 'before Babel, on the main thread'), ...[...before].map(([name, entry]) => line(Math.round(entry.ms), '', entry.files, '', name))]),
+    ...(before.size === 0 ? [] : [line('ms', '', 'files', '', 'before Babel, on the main thread'), ...before.entries().map(([name, entry]) => line(Math.round(entry.ms), '', entry.files, '', name))]),
     '',
   ].join('\n')
 }

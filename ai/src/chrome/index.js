@@ -58,8 +58,8 @@ export const IGNORED_DEFAULT_ARGS = [...SOFTWARE_GL, PLAYWRIGHT_ENABLE_FEATURES]
 
 // CHROME_CHANNEL takes playwright's channel names: chrome, chrome-beta, chrome-dev, chrome-canary.
 export function chromeTarget() {
-  if (env('CHROME_PATH')) return { executablePath: env('CHROME_PATH') }
-  return { channel: env('CHROME_CHANNEL') || 'chrome' }
+  const executablePath = env('CHROME_PATH')
+  return executablePath ? { executablePath } : { channel: env('CHROME_CHANNEL') || 'chrome' }
 }
 
 

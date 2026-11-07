@@ -357,7 +357,13 @@ export function readPackage(value, where, dev) {
   const type = filled(plain(value.type, at(where, 'type')), at(where, 'type'))
   if (lower(type) !== type) throw new LockfileError(`${quote(type)}, which Composer writes in lowercase`, at(where, 'type'))
   if (value['default-branch'] !== undefined && value['default-branch'] !== true) throw refuse('true, as Composer writes it of the default branch alone', value['default-branch'], at(where, 'default-branch'))
-  const read = Object.entries(LINKS).map(([property, key]) => [property, field(value, key, where, (links, here) => readLinks(links, here, value.version)) ?? { written: Object.create(null), links: [] }])
+  const written = Object.create(null)
+  const links = {}
+  for (const [property, key] of Object.entries(LINKS)) {
+    const read = field(value, key, where, (given, here) => readLinks(given, here, value.version))
+    written[property] = read?.written ?? Object.create(null)
+    links[property] = read?.links ?? []
+  }
   const free = (key) => field(value, key, where, nonEmpty)
   const pkg = {
     name,
@@ -367,7 +373,7 @@ export function readPackage(value, where, dev) {
     dev,
     source: field(value, 'source', where, readSource),
     dist: field(value, 'dist', where, readDist),
-    ...Object.fromEntries(read.map(([property, { written }]) => [property, written])),
+    ...written,
     suggest: field(value, 'suggest', where, readSuggest) ?? Object.create(null),
     defaultBranch: value['default-branch'] === true,
     bin: field(value, 'bin', where, (bins, here) => strings(bins, here, checkBin)) ?? [],
@@ -395,5 +401,5 @@ export function readPackage(value, where, dev) {
     transportOptions: free('transport-options'),
     time: field(value, 'time', where, checkTime),
   }
-  return { pkg, links: Object.fromEntries(read.map(([property, { links }]) => [property, links])) }
+  return { pkg, links }
 }

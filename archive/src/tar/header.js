@@ -56,6 +56,7 @@ const latin1 = (text) => Uint8Array.from(text, (c) => c.codePointAt(0))
 const ascii = (raw) => String.fromCodePoint(...raw)
 // Throws (RangeError) rather than overwriting the next field.
 const put = (block, offset, size, bytes) => block.subarray(offset, offset + size).set(bytes)
+const field = (block, offset, size) => untilNul(block.subarray(offset, offset + size))
 
 export const octalMax = (size) => 8 ** (size - 1) - 1
 export const fitsOctal = (value, size) => value >= 0 && value <= octalMax(size)
@@ -93,7 +94,7 @@ export function readNumber(block, offset, size, what, at, signed = false) {
     if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new ArchiveError(`the ${what} field is too large`, at)
     return Number(v)
   }
-  const match = /^ *([0-7]*) *$/u.exec(ascii(untilNul(block.subarray(offset, offset + size))))
+  const match = /^ *([0-7]*) *$/u.exec(ascii(field(block, offset, size)))
   if (!match) throw new ArchiveError(`the ${what} field is not an octal number`, at)
   return match[1] === '' ? 0 : Number.parseInt(match[1], 8)
 }
@@ -102,8 +103,6 @@ export function untilNul(raw) {
   const end = raw.indexOf(0)
   return end === -1 ? raw : raw.subarray(0, end)
 }
-
-const field = (block, offset, size) => untilNul(block.subarray(offset, offset + size))
 
 // Every byte, with the checksum field itself counted as spaces.
 function checksum(block) {
@@ -137,7 +136,7 @@ export function encodeHeader(f) {
 
 // Whether a numeric field holds octal digits, as POSIX writes it, rather
 // than nothing or GNU's base 256, both of which readNumber reads.
-const isOctal = (block, offset, size) => /^ *[0-7]+ *$/u.test(ascii(untilNul(block.subarray(offset, offset + size))))
+const isOctal = (block, offset, size) => /^ *[0-7]+ *$/u.test(ascii(field(block, offset, size)))
 
 export function decodeHeader(block, at) {
   if (checksum(block) !== readNumber(block, CHKSUM, 8, 'checksum', at)) throw new ArchiveError('header checksum does not match', at)

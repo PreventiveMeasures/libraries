@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON, numberOf } from './json.js'
+import { expectObject, extractJSON, ordinalOf } from './json.js'
 import { mapLimit } from './pool.js'
 import { blocks, listBlock, requestBlock, rerankSystem } from './prompts.js'
 import { hashSeed, random, shuffle } from './random.js'
@@ -32,8 +32,8 @@ function readOrder(size) {
     const seen = new Set()
     const order = []
     for (const item of json.order) {
-      const n = numberOf(item)
-      if (n === undefined || !Number.isInteger(n) || n < 1 || n > size || seen.has(n)) continue
+      const n = ordinalOf(item, size)
+      if (n === undefined || seen.has(n)) continue
       seen.add(n)
       order.push(n)
     }
@@ -66,13 +66,11 @@ export async function rerank({ task, request, results, rows, model, window = 20,
   const head = results.slice(0, window)
   if (head.length < 2 || rounds < 1) return { results, reranked: 0 }
   const byId = new Map(rows.map((row) => [row.id, row]))
-  for (const result of head) {
-    if (!byId.has(result.id)) throw new Error(`rerank: no row for finalist ${result.id}`)
-  }
+  const missing = head.find((result) => !byId.has(result.id))
+  if (missing) throw new Error(`rerank: no row for finalist ${missing.id}`)
   const systemPrompt = rerankSystem(task)
   const sums = new Map(head.map((result) => [result.id, 0]))
-  const roundsOf = Array.from({ length: rounds }, (_, round) => round)
-  await mapLimit(roundsOf, concurrency, async (round) => {
+  await mapLimit(Array.from({ length: rounds }, (_, round) => round), concurrency, async (round) => {
     const listed = shuffle(head, random(hashSeed(`${task.id}\u0000${request.id}\u0000rerank\u0000${round}`)))
     const { order } = await call({
       type: 'grid.rerank', model, systemPrompt,

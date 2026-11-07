@@ -57,15 +57,16 @@ export function createHook({ overrides, ignored, major = 10 }) {
       const scoped = byName(withParent.filter(({ parent }) => parent.name === copy.name && (!parent.range || inParentRange(copy.version, parent.range, where))))
       const pick = (list, spec) => mostSpecific((list ?? []).filter(({ target }) => meets(target.range, spec)))
       const override = (deps, peers) => {
-        for (const [name, spec] of Object.entries(peers ?? deps)) {
+        const given = peers ?? deps
+        for (const [name, spec] of Object.entries(given)) {
           const chosen = pick(scoped.get(name), spec) ?? pick(generic.get(name), spec)
           const version = converging.get(name)
           if (chosen === undefined) {
-            if (version !== undefined && validRange(spec, { loose: true }) !== null && satisfies(version, spec, { loose: true })) (peers ?? deps)[name] = version
+            if (version !== undefined && validRange(spec, { loose: true }) !== null && satisfies(version, spec, { loose: true })) given[name] = version
             continue
           }
           if (chosen.spec === '-') {
-            delete (peers ?? deps)[name]
+            delete given[name]
             if (peers !== undefined && major >= 11) delete copy.peerDependenciesMeta?.[name]
             continue
           }

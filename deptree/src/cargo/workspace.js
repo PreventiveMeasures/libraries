@@ -147,14 +147,11 @@ function loadMembers(context) {
 // Each [patch] from a path, the root's from the root and the config's from
 // the directory its .cargo is in, which is the root too.
 function patchesOf(root, config) {
-  const tables = [
-    ...Object.entries(root.patch).map(([table, specs]) => ({ table, specs, file: 'Cargo.toml' })),
-    ...Object.entries(config.patch).map(([table, specs]) => ({ table, specs, file: config.file })),
-  ]
-  return tables.flatMap(({ table, specs, file }) => Object.entries(specs).filter(([, spec]) => spec.source.type === 'path').map(([name, spec]) => {
+  const files = [[root.patch, 'Cargo.toml'], [config.patch, config.file]]
+  return files.flatMap(([patch, file]) => Object.entries(patch).flatMap(([table, specs]) => Object.entries(specs).filter(([, spec]) => spec.source.type === 'path').map(([name, spec]) => {
     const where = `${file}: patch.${quote(table)}.${name}`
     return { dir: resolvePath('.', spec.source.path, where), name: spec.package, where }
-  }))
+  })))
 }
 
 // `config` is what parseCargoConfig gives, with the `file` it was read from.

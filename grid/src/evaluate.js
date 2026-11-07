@@ -25,15 +25,15 @@ function judge(request, relevant, results, topK) {
   const inTop = new Set(top.flatMap(idsOf))
   const inFinal = new Set(results.flatMap(idsOf))
   const wanted = new Set(relevant)
+  const isMatch = (result) => idsOf(result).some((id) => wanted.has(id))
   const hits = relevant.filter((id) => inTop.has(id))
   const belowCut = relevant.filter((id) => !inTop.has(id) && inFinal.has(id))
   const dropped = relevant.filter((id) => !inFinal.has(id))
-  const relevantResults = top.filter((result) => idsOf(result).some((id) => wanted.has(id)))
-  const first = top.findIndex((result) => idsOf(result).some((id) => wanted.has(id)))
+  const first = top.findIndex(isMatch)
   return {
     id: request.id,
     recall: ratio(hits.length, relevant.length),
-    precision: ratio(relevantResults.length, top.length),
+    precision: ratio(top.filter(isMatch).length, top.length),
     reciprocalRank: first < 0 ? 0 : 1 / (first + 1),
     returned: top.length,
     hits,
@@ -51,11 +51,7 @@ function checkCases(cases) {
   }
 }
 
-const mean = (runs, key) => {
-  let sum = 0
-  for (const run of runs) sum += run[key]
-  return sum / runs.length
-}
+const mean = (runs, key) => runs.reduce((sum, run) => sum + run[key], 0) / runs.length
 
 // `cases` are `{ request, relevant }`; `topK` is the cut the measures are taken at (every finalist
 // when omitted); everything else is select()'s, with the table. Cases run one after another --

@@ -10,6 +10,7 @@ import { utf8 } from '@preventive/rn/src/bundle.js'
 import { defaults, diskHost } from '@preventive/rn/src/defaults.js'
 import { prelude } from '@preventive/rn/src/serializer.js'
 import { createBundler } from './bundler.js'
+import { memo } from './fingerprint.js'
 import { moduleName } from './hot.js'
 import { concatMaps, indexMappings } from './mappings.js'
 import { createModuleBundler, defineCall, wrapped } from './modules.js'
@@ -81,7 +82,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
   }
 
   // Those each build read, and its last good one: watched while a build fails, as its app runs those.
-  const files = () => new Set([...builds.values()].flatMap((build) => [...(build.last?.files ?? []), ...(build.good?.files ?? [])]))
+  const files = () => new Set(builds.values().flatMap(({ last, good }) => [...(last?.files ?? []), ...(good?.files ?? [])]))
   // Source requests and code frames need one membership check, not a union of every bundle's files.
   const hasFile = (path) => builds.values().some(({ last, good }) => last?.files.has(path) || good?.files.has(path))
   const uncovered = () => unwatched(config.caches, files())
@@ -123,7 +124,7 @@ export function createDevBundler({ projectRoot, esbuild, targetOptions, host = d
     // The files each bundle's last build read.
     files,
     // The asset a bundle built at `/assets/...`, else null.
-    asset: (httpServerLocation, name, type) => [...builds.values()].flatMap(({ last }) => (last?.ok ? last.assets : [])).find((data) => data.httpServerLocation === httpServerLocation && data.name === name && data.type === type) ?? null,
+    asset: (httpServerLocation, name, type) => builds.values().flatMap(({ last }) => (last?.ok ? last.assets : [])).find((data) => data.httpServerLocation === httpServerLocation && data.name === name && data.type === type) ?? null,
     // A file a bundle was built from, its bytes, else null.
     sourceFile: (path) => (hasFile(path) ? host.readFile(path) : null),
     // A source a bundle was built from, as text; else null, as where it isn't UTF-8.
@@ -179,8 +180,7 @@ function entryOf({ projectRoot, host, metro }, { entryFile, platform, dev }) {
 // those left CommonJS, which a file's cached build depends on. Returns { bundler, store }.
 function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injected, caches, ids, edits }, { platform, dev, minify }, entryPath, inlineRequires) {
   const target = `${platform}\0${dev}\0${minify}\0${JSON.stringify(inlineRequires)}`
-  if (!caches.has(target)) caches.set(target, { files: new Map(), modules: new Map(), commonJs: new Set() })
-  const cached = caches.get(target)
+  const cached = memo(caches, target, () => ({ files: new Map(), modules: new Map(), commonJs: new Set() }))
   const options = targetOptions({ platform, dev, inlineRequires })
   const common = {
     ...options,
@@ -238,7 +238,7 @@ function moduleOutcome(builds, { entryFile, platform, dev, minify }, projectRoot
   const name = moduleName(entryFile)
   for (const { request, last } of [...builds.values()].toReversed()) {
     if (request.platform !== platform || request.dev !== dev || request.minify !== minify || last?.modules === undefined) continue
-    const record = [...last.modules.values()].find((each) => each.name === name)
+    const record = last.modules.values().find((each) => each.name === name)
     if (record !== undefined) return withIndex({ ok: true, version: last.version, js: defineCall(record), map: JSON.stringify(concatMaps(wrapped(record))), assets: [], files: new Set() }, projectRoot)
   }
   return null

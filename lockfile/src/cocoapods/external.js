@@ -33,9 +33,9 @@ const ITEMS = new RegExp(STRING, 'gu')
 // "tgz"}`, or from Ruby 3.4 `{http: "...", type: "tgz"}`, by key: one
 // style throughout.
 function readInspected(inner) {
+  if (inner.endsWith(', ')) return undefined
   const entries = new Map()
   const styles = new Set()
-  if (inner.endsWith(', ')) return undefined
   ENTRY.lastIndex = 0
   while (ENTRY.lastIndex < inner.length) {
     const m = ENTRY.exec(inner)

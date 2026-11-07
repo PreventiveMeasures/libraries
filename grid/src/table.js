@@ -18,10 +18,7 @@ import { proposeQuestions } from './schema.js'
 export async function buildTable({ task, entries, model = DEFAULT_MODEL, maxQuestions, dedupe = {}, concurrency, think, effort, tally = newTally(), ask, onRow }) {
   const { focus, questions } = await proposeQuestions({ task, model, maxQuestions, think, effort, tally, ask })
   const groups = dedupe === false ? new Map() : groupDuplicates(entries, dedupe)
-  const dupOf = new Map()
-  for (const [canonical, ids] of groups) {
-    for (const id of ids) dupOf.set(id, canonical)
-  }
+  const dupOf = new Map(groups.entries().flatMap(([canonical, ids]) => ids.map((id) => [id, canonical])))
   const distinct = entries.filter((entry) => !dupOf.has(entry.id))
   const compacted = await compact({ task, focus, questions, entries: distinct, model, concurrency, think, effort, tally, ask, onRow })
   const byId = new Map(compacted.map((row) => [row.id, row]))

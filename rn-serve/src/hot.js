@@ -57,7 +57,7 @@ export function hotUpdate(before, after, clientUrl, { always = false } = {}) {
     if (was === undefined) added.push(record)
     else if (!same(was, record)) modified.push(record)
   }
-  const deleted = [...before.modules.keys()].filter((id) => !after.modules.has(id))
+  const deleted = before.modules.keys().filter((id) => !after.modules.has(id)).toArray()
   if (added.length + modified.length + deleted.length === 0 && !always) return null
   const dependents = new Map()
   for (const record of after.modules.values()) {

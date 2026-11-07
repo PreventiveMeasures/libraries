@@ -20,17 +20,14 @@
 // A module's function, CommonJS's or an ES module's default.
 const functionOf = (module) => (typeof module === 'function' ? module : typeof module?.default === 'function' ? module.default : null)
 
+// Without getDevServer, no reporter; without parseErrorStack, no call stacks.
 let getDevServer = null
 let parseErrorStack = null
 try {
   getDevServer = functionOf(require('react-native/Libraries/Core/Devtools/getDevServer'))
-} catch {
-  // No react-native of it: no reporter.
-}
-try {
   parseErrorStack = functionOf(require('react-native/Libraries/Core/Devtools/parseErrorStack'))
 } catch {
-  // No call stacks.
+  // No react-native of it.
 }
 
 // Characters of a body a message: rn-serve takes a message of 1 MiB at most,

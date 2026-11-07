@@ -175,8 +175,11 @@ function writeTree(placed, fetched) {
     }
     const pkg = fetched.get(ref)
     const earlier = copies.get(dest)
-    if (earlier?.[0].ref === ref) earlier.push(info)
-    else copies.set(dest, [info])
+    if (earlier?.[0].ref === ref) {
+      earlier.push(info)
+    } else {
+      copies.set(dest, [info])
+    }
     writeFiles(vfs, dest, pkg, counted, skipped)
     left.set(pkg, left.get(pkg) - 1)
     if (left.get(pkg) === 0) letGo(pkg)
@@ -199,15 +202,16 @@ function listInstalled(copies, fetched, asked, hoister) {
 }
 
 export async function buildYarn1Tree(options) {
-  const { host: given, vfs: into } = options ?? {}
+  const given = options ?? {}
+  const into = given.vfs
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const fetching = fetchingOf(options ?? {})
+  const fetching = fetchingOf(given)
   for (const option of ['sizeEstimateOnly', 'lazy']) {
     if (fetching[option]) throw new TypeError(`${option} is not taken for yarn 1, which hoists and leaves out packages by what their package.json says, which only their tarballs hold`)
   }
-  const production = productionOf(options ?? {})
-  const inputs = inputsOf(options ?? {})
-  const host = checkHost(given, inputs.manifests.get('.'))
+  const production = productionOf(given)
+  const inputs = inputsOf(given)
+  const host = checkHost(given.host, inputs.manifests.get('.'))
   const folded = host.os === 'darwin'
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoModules(into, folded)
@@ -219,7 +223,7 @@ export async function buildYarn1Tree(options) {
   checkBinLinks({ placed, patterns: resolved.patterns, locations, realOf: (path) => realOf(links, path) })
   const stats = {
     packages,
-    skipped: [...manifestOf.keys()].filter((ref) => ref.incompatible).length,
+    skipped: manifestOf.keys().filter((ref) => ref.incompatible).toArray().length,
     installed: placed.filter(({ info }) => info.ref.kind !== 'workspace').length,
     files,
     bytes,

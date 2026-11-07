@@ -3,6 +3,7 @@
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkHostKeys, checkLeftOut, checkProject, readBytes, readText, typeOf } from '../project.js'
+import { isObject } from './podspec.js'
 
 // CocoaPods 1.13.0 to 1.17.x, which download, clean and lock a pod alike
 // but for one thing, which tree.js follows: 1.16 on copy a download into
@@ -44,7 +45,7 @@ const LOCKFILE = 'lockfile must be the Podfile.lock text, or left out where proj
 const PODSPECS = 'podspecs must be an object of podspecs by name, each as text or bytes, or left out'
 function podspecsOf(podspecs, project) {
   if (podspecs !== undefined) {
-    if (podspecs === null || typeof podspecs !== 'object' || Array.isArray(podspecs)) throw new TypeError(PODSPECS)
+    if (!isObject(podspecs)) throw new TypeError(PODSPECS)
     const given = new Map(Object.entries(podspecs))
     for (const value of given.values()) if (!(typeof value === 'string' ? value.isWellFormed() : value instanceof Uint8Array)) throw new TypeError(PODSPECS)
     return (name) => {

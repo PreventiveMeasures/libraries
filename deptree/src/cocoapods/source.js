@@ -3,6 +3,7 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { githubRepoOf } from '../github.js'
+import { given, isObject } from './podspec.js'
 
 // cocoapods-downloader's strategies; a source names one of them alone.
 const STRATEGIES = ['git', 'hg', 'http', 'scp', 'svn']
@@ -35,9 +36,6 @@ function isGitHubUrl(url) {
   const segments = parsed.pathname.slice(1).split('/')
   return segments.length >= 3 && LOGIN.test(segments[0]) && REPO_NAME.test(segments[1]) && segments.every((segment) => SEGMENT.test(segment))
 }
-
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-const given = (value) => value !== undefined && value !== null && value !== false
 
 // A refusal of where a pod is downloaded from, which buildCocoaPodsTree's
 // `partial` leaves the pod to CocoaPods for; a DeptreeError otherwise.

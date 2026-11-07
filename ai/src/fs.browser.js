@@ -104,8 +104,9 @@ export async function move(from, to) {
   const target = segments(to)
   const name = target.at(-1)
   const dir = await dirAt(target.slice(0, -1), true)
+  const sourceDir = await dirAt(source.slice(0, -1), false)
 
-  const handle = await (await dirAt(source.slice(0, -1), false)).getFileHandle(source.at(-1))
+  const handle = await sourceDir.getFileHandle(source.at(-1))
     .catch(async (err) => {
       if (!isMissing(err)) throw err
       // Not a file, so move()-only.
@@ -121,7 +122,7 @@ export async function move(from, to) {
     return
   }
   await writeInto(await dir.getFileHandle(name, { create: true }), await (await handle.getFile()).text())
-  await (await dirAt(source.slice(0, -1), false)).removeEntry(source.at(-1))
+  await sourceDir.removeEntry(source.at(-1))
 }
 
 export async function moveIfExists(from, to) {

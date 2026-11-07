@@ -41,7 +41,7 @@ export function workletsGate({ cwd, envName = '' }) {
     try {
       const paths = loaded.length > 0 ? loaded : [createRequire(join(cwd, 'package.json')).resolve(`${name}/plugin`)]
       const code = paths.map((path) => readFileSync(path, 'utf8')).join('\n')
-      const names = new Set([...NAMES, ...Array.from(code.matchAll(NAMED), ([, , named]) => named)])
+      const names = new Set([...NAMES, ...code.matchAll(NAMED).map(([, , named]) => named)])
       return new RegExp(`worklet|\\b(?:${[...names].join('|')})\\b`, 'u')
     } catch {
       return null
