@@ -1,4 +1,4 @@
-// Which snapshots a frozen install leaves out. pnpm 9 and 10 walk depth first
+// Which snapshots a frozen install leaves out. pnpm 10 walks depth first
 // (@pnpm/lockfile.filtering's pkgAllDeps) and leave out an optional one the
 // host cannot run or first reached through one not installed: the first
 // reach decides. Projects go in lockfile order, pnpm's being the order it
@@ -87,15 +87,14 @@ function checkRoot12(manifest, where, context) {
 }
 
 // As pnpm's packageIsInstallable: a platform the host is not only warns, and
-// is found first, so the engines are then not checked. pnpm 9 holds it to the
-// host alone, before it reads supportedArchitectures.
+// is found first, so the engines are then not checked.
 export function checkProject(manifest, where, { host, settings, root }) {
   if (host.major >= 12) {
     if (root) checkRoot12(manifest, where, { host, settings })
     return
   }
   const platform = { os: platformList(manifest.os, `${where}.os`), cpu: platformList(manifest.cpu, `${where}.cpu`), libc: platformList(manifest.libc, `${where}.libc`) }
-  if (!takesPlatform(platform, host, host.major < 10 ? undefined : settings.supportedArchitectures)) return
+  if (!takesPlatform(platform, host, settings.supportedArchitectures)) return
   const { engines } = manifest
   if (engines == null) return
   const node = nodeOf({ host, settings })

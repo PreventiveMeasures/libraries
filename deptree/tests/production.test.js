@@ -84,11 +84,6 @@ describe('buildPnpmTree with production', () => {
     assert.equal(full.vfs.readlink('/node_modules/is-number'), '.pnpm/is-number@7.0.0/node_modules/is-number')
   })
 
-  it('keeps from hoisting, for pnpm 9, each name the root\'s specifiers have', async () => {
-    const { vfs } = await build('9.15.9')
-    assert.deepEqual(layout(vfs), [...STORE, ...hoisted('has-flag', 'ms')].sort())
-  })
-
   // From pnpm 11.28 and in pnpm 12, supports-color is only there for an
   // optional peer of debug, which the root lists among its devDependencies.
   for (const pnpm of ['11.28.9', '12.8.1', '12.16.1']) {

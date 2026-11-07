@@ -199,9 +199,7 @@ describe('hoist for pnpm 12', () => {
   })
 })
 
-// pnpm 9 hoists from the lockfile, checked against its own
-// getHoistedDependencies (@pnpm/hoist 9.1.16, as pnpm 9.15.9 bundles it).
-describe('hoist for pnpm 9', () => {
+describe('hoist by the graph', () => {
   const links = async (lock, { skipped = new Set(), projects = new Map(), major } = {}) => {
     const { nodes, direct, hoisting } = await buildGraph(lock, skipped, 120, major)
     const hoistedLinks = hoist(new Map([...nodes.values()].map((node) => [node.dir, node])), direct, settings, projects, major, hoisting)
@@ -210,20 +208,18 @@ describe('hoist for pnpm 9', () => {
 
   // `@a-c/d@1.0.0` sorts before `@a/b@1.0.0`, and its directory,
   // `@a-c+d@1.0.0`, after `@a+b@1.0.0`.
-  it('takes the snapshots of one depth in the order of their keys', async () => {
+  it('takes the snapshots of one depth in the order of their directories', async () => {
     const lock = lockfile({ root: { dependencies: ['@a/b', '@a-c/d'] }, graph: { '@a/b@1.0.0': { q: '1.0.0' }, '@a-c/d@1.0.0': { q: '2.0.0' }, 'q@1.0.0': {}, 'q@2.0.0': {} } })
-    assert.equal((await links(lock, { major: 9 })).q, 'q@2.0.0')
     assert.equal((await links(lock, { major: 10 })).q, 'q@1.0.0')
   })
 
-  it('takes an alias by a child left out, a link, or a project, though it links nothing by the first two', async () => {
+  it('takes no alias by a child left out', async () => {
     const graph = {
       'a@1.0.0': { o: '1.0.0', l: 'link:../l' }, 'b@1.0.0': { o: '2.0.0', l: '1.0.0', q: '1.0.0' },
       'o@1.0.0': {}, 'o@2.0.0': {}, 'l@1.0.0': {}, 'q@1.0.0': {}, 's@1.0.0': {}, 's@2.0.0': {}, 'u@1.0.0': { s: '2.0.0' },
     }
     const lock = lockfile({ root: { dependencies: ['a', 'b', 'u'], optionalDependencies: ['s'] }, graph, snapshotMeta: { 's@1.0.0': '    optional: true\n' } })
     const options = { skipped: new Set(['o@1.0.0', 's@1.0.0']), projects: new Map([['packages/x', 'Q']]) }
-    assert.deepEqual(await links(lock, { ...options, major: 9 }), { Q: 'packages/x' })
     assert.deepEqual(await links(lock, { ...options, major: 10 }), { Q: 'packages/x', l: 'l@1.0.0', o: 'o@2.0.0', q: 'q@1.0.0', s: 's@2.0.0' })
   })
 })

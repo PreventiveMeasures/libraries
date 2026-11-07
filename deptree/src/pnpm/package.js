@@ -18,7 +18,7 @@ function nameOf(stored) {
   return name.replaceAll('//', '/')
 }
 
-// pnpm 9, 10 and 11 drop a name's first segment at a `\` as at a `/` where the
+// pnpm 10 and 11 drop a name's first segment at a `\` as at a `/` where the
 // ustar header holds the name, and pnpm 10 and 11, where a name has a `.\`,
 // turn each `\` into a `/` before normalizing it; pnpm 12 takes every `\` for
 // a separator, and fails on a `..` that makes.
@@ -75,7 +75,7 @@ function readManifest(files, pkg, where) {
 
 // npm's abbreviated metadata, which pnpm resolves from unless a setting such
 // as supportedArchitectures.libc has it ask for the full document, has no
-// libc, nor has the package.json pnpm 9 and 10 keep in the store: a lockfile
+// libc, nor has the package.json pnpm 10 keeps in the store: a lockfile
 // may leave out a libc a registry package's package.json has. One it names is
 // held to it, as a directory's always is: pnpm reads that package.json whole.
 export function checkManifest(manifest, pkg, where, major, registry = false) {

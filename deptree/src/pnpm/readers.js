@@ -1,6 +1,6 @@
 // Each setting pnpm reads, by its pnpm-workspace.yaml name, is either read
-// and checked (READ, READ_9, READ_11, READ_12) or passed over as leaving
-// the tree as it is (IGNORED, NOT_9, IGNORED_11, IGNORED_12); any other is
+// and checked (READ, READ_11, READ_12) or passed over as leaving
+// the tree as it is (IGNORED, IGNORED_11, IGNORED_12); any other is
 // refused.
 
 import { valid } from '@preventive/upstream/semver.js'
@@ -104,9 +104,8 @@ export const READ = {
   filterProd: { kind: 'texts', check: never('every project is installed') },
   useNodeVersion: { kind: 'text', check: never('the Node a tree is built for is the host\'s, or nodeVersion') },
   globalPnpmfile: { kind: 'text', check: never('a pnpmfile\'s hooks are not run here') },
-  // [] loads none, not even the default one. An .npmrc's is passed over: from
-  // a path that leads nowhere pnpm 9 loads none, and a pnpmfile with hooks
-  // puts its pnpmfileChecksum in the lockfile, which is refused (tree.js).
+  // [] loads none, not even the default one. An .npmrc's is passed over: a
+  // pnpmfile with hooks puts its pnpmfileChecksum in the lockfile, which is refused (tree.js).
   pnpmfile: { kind: 'pnpmfile', check: (value, where) => (Array.isArray(value) && value.length === 0) || never('a pnpmfile\'s hooks are not run here')(value, where), rc: false },
   registry: { kind: 'text', check: checkRegistry },
   virtualStoreDirMaxLength: { kind: 'count' },
@@ -192,26 +191,6 @@ const UNRECOGNIZED_12 = new Set([
 
 export const unrecognized12 = (where) => new DeptreeError('pnpm 12 does not know it, and fails on it where the root package.json pins the pnpm that runs', where)
 
-// What pnpm 9 reads that pnpm 10 passes over: how it holds the root
-// package.json's packageManager to the pnpm that runs (projects.js).
-const READ_9 = {
-  __proto__: null,
-  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 9'),
-  managePackageManagerVersions: { kind: 'boolean' },
-  packageManagerStrict: { kind: 'boolean' },
-  packageManagerStrictVersion: { kind: 'boolean' },
-}
-
-// What pnpm 10 reads that pnpm 9 has no setting for, and passes over.
-const NOT_9 = new Set(['dedupePeers', 'enableGlobalVirtualStore', 'injectWorkspacePackages'])
-
-// The keys of package.json's `pnpm` pnpm 9 reads, passing over any other.
-export const MANIFEST_KEYS_9 = [
-  'allowNonAppliedPatches', 'allowedDeprecatedVersions', 'ignoredOptionalDependencies', 'neverBuiltDependencies',
-  'onlyBuiltDependencies', 'onlyBuiltDependenciesFile', 'overrides', 'packageExtensions', 'patchedDependencies',
-  'peerDependencyRules', 'supportedArchitectures',
-]
-
 // The keys of package.json's `pnpm` pnpm 10 reads, passing over any other.
 export const MANIFEST_KEYS = [
   'allowBuilds', 'allowNonAppliedPatches', 'allowUnusedPatches', 'allowedDeprecatedVersions', 'auditConfig',
@@ -278,11 +257,9 @@ function checkCatalogs(value, where) {
   for (const [name, catalog] of Object.entries(value)) checkCatalog(readers.mapping(catalog, `${where}.${name}`), `${where}.${name}`)
 }
 
-// `{}` where a setting leaves the tree as it is or pnpm 9 has no such setting,
-// undefined where not known here. pnpm 12 takes a pattern only as a list.
+// `{}` where a setting leaves the tree as it is, undefined where not known
+// here. pnpm 12 takes a pattern only as a list.
 function lookup(name, major) {
-  if (major < 10 && name in READ_9) return { read: READ_9[name] }
-  if (major < 10 && NOT_9.has(name)) return {}
   if (major >= 12 && UNRECOGNIZED_12.has(name)) return { unrecognized: true }
   if (major >= 12 && name in READ_12) return { read: READ_12[name] }
   if (major >= 11 && name in READ_11) return { read: READ_11[name] }

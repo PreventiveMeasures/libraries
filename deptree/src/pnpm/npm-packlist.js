@@ -1,4 +1,4 @@
-// The walks of npm-packlist over ignore-walk that pnpm 9 and 10 (npm-packlist
+// The walks of npm-packlist over ignore-walk that pnpm 10 (npm-packlist
 // 5.1.3, ignore-walk 5) and pnpm 11 (npm-packlist 10.0.4, ignore-walk 8)
 // run over a directory, kept to their steps, odd ones and all: a walker of a
 // directory asks its parent of each entry by a path from there, and reads

@@ -1,4 +1,4 @@
-// The graph a pnpm 9 or 10 install links, as @pnpm/deps.graph-builder builds
+// The graph a pnpm install links, as @pnpm/deps.graph-builder builds
 // it from a frozen lockfile. A child left out of the install is left out of its
 // parent's children; a `link:` child is the directory it names.
 
@@ -22,8 +22,8 @@ function hoistingOf(lockfile, all) {
 }
 
 // `direct` has devDependencies first, as pnpm spreads them, for hoisting to
-// walk. pnpm 9 hoists from the lockfile instead, and pnpm 12 from the
-// snapshots, where skipped ones hold directories too.
+// walk. pnpm 12 hoists from the snapshots instead, where skipped ones hold
+// directories too.
 export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
   const all = new Map()
   const keyByDir = new Map()
@@ -40,5 +40,5 @@ export async function buildGraph(lockfile, skipped, maxLength, major = 10) {
     node.children = childrenOf({ ...node.pkg.dependencies, ...node.pkg.optionalDependencies }, nodes)
   }
   const direct = new Map(Object.entries(lockfile.importers).map(([id, importer]) => [id, childrenOf({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies }, nodes)]))
-  return { nodes, direct, hoisting: major >= 12 ? hoistingOf(lockfile, all) : major < 10 ? { lockfile, nodes } : undefined }
+  return { nodes, direct, hoisting: major >= 12 ? hoistingOf(lockfile, all) : undefined }
 }
