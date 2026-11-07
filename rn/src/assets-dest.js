@@ -53,7 +53,7 @@ export function assetsDestFiles(assets, platform) {
       if (kept.has(scale)) copies.set(asset.files[index], assetDestPath(asset, scale, platform))
     })
   }
-  const files = copies.entries().map(([src, dest]) => ({ src, dest })).toArray()
+  const files = [...copies].map(([src, dest]) => ({ src, dest }))
   if (platform === 'android' && assets.length > 0) {
     const keep = assets.map((asset) => `@${resourceType(asset)}/${resourceName(asset)}`).join(',')
     files.push({ dest: join('raw', 'keep.xml'), contents: `<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="${keep}" />\n` })
