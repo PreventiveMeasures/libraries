@@ -175,19 +175,12 @@ function nearPass({ sets, threshold, hashes, bands, find, unite }) {
         buckets.set(key, [i])
         continue
       }
-      let matched = false
-      for (const j of held) {
-        if (find(j) === find(i)) {
-          matched = true
-          break
-        }
-        if (jaccard(sets.get(j), set) >= threshold) {
-          unite(j, i)
-          matched = true
-          break
-        }
+      const twin = held.find((j) => find(j) === find(i) || jaccard(sets.get(j), set) >= threshold)
+      if (twin === undefined) {
+        if (held.length < REPRESENTATIVES) held.push(i)
+      } else {
+        unite(twin, i)
       }
-      if (!matched && held.length < REPRESENTATIVES) held.push(i)
     }
   }
 }
