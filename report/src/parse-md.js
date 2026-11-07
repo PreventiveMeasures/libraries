@@ -46,8 +46,7 @@ export function parseMarkdownFindings(content) {
   // Each finding starts at a line beginning with `# ` outside fenced
   // code -- a `# comment` in a shell or Python snippet is the snippet's,
   // not a finding of its own. Empty chunks drop out.
-  const blocks = splitUnfenced(text, /^# /gmu).slice(1).filter((b) => b.trim().length > 0)
-  const findings = blocks.map((block) => parseBlock(block)).filter(Boolean)
+  const findings = splitUnfenced(text, /^# /gmu).slice(1).filter((b) => b.trim()).map(parseBlock).filter(Boolean)
   if (findings.length === 0) return null
 
   // `source` is what the renderer recognises the product by -- the page
@@ -71,9 +70,7 @@ function parseBlock(block) {
   // `## Location`, else the FIRST `## Evidence` row -- the primary site
   // by the format's convention. Every row, this one included, also
   // lands on `finding.evidence` below.
-  const { file, line, locationLink } = parseLocation(
-    sections.location || evidence[0]?.ref || '',
-  )
+  const { file, line, locationLink } = parseLocation(sections.location || evidence[0]?.ref || '')
 
   // Medium when missing or unrecognized, so an unparsable finding stays
   // visible rather than dropping out silently.
@@ -92,9 +89,7 @@ function parseBlock(block) {
   // the description is an always-open block. They survive a round trip
   // through this finding's own export, which writes them as sections
   // that parse-deepview-md.js narrativeSplit reads back as fields.
-  if (sections['reproduction steps']) {
-    finding.reproduction = normalizeStepList(sections['reproduction steps'])
-  }
+  if (sections['reproduction steps']) finding.reproduction = normalizeStepList(sections['reproduction steps'])
   if (sections['recommended fix']) finding.recommendation = sections['recommended fix']
   if (meta.repository) finding.repo = { github: meta.repository }
   // Auxiliary metadata, kept as plain strings: nothing renders these

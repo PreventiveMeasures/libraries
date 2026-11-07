@@ -3,13 +3,13 @@ import { isSecurityFinding } from './finding.js'
 function securityGraph() {
   const ids = [], nodes = new Map()
   const nodeFor = (key) => {
-    if (!nodes.has(key)) {
-      const node = { security: false }
-      node.parent = node
-      nodes.set(key, node)
-      if (typeof key === 'string') ids.push(key)
-    }
-    return nodes.get(key)
+    const known = nodes.get(key)
+    if (known) return known
+    const node = { security: false }
+    node.parent = node
+    nodes.set(key, node)
+    if (typeof key === 'string') ids.push(key)
+    return node
   }
   const root = (node) => {
     let current = node

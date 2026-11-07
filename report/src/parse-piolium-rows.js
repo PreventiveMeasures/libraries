@@ -114,8 +114,6 @@ export function variantFindings(tableText, index, parentId, sevFallback = '') {
   }
   if (out.length > 0) return out
   const items = listFindings(tableText, sevFallback, index)
-  for (const e of items) {
-    if (parentId && !e.finding.parent) e.finding.parent = parentId
-  }
+  if (parentId) for (const { finding } of items) finding.parent ||= parentId
   return items
 }
