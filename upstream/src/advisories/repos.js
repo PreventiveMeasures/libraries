@@ -4,7 +4,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
-import { PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, encodeSegment, isNotFound, recover, request } from '../http.js'
+import { specPath } from '../cocoapods.js'
+import { COCOAPODS_CDN, PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, encodeSegment, isNotFound, recover, request } from '../http.js'
 import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
@@ -43,6 +44,22 @@ async function fetchSoldeerRepo(name) {
   assert.ok(Array.isArray(answer?.data), `advisories: expected a list of projects from Soldeer for ${name}`)
   for (const project of answer.data) assert.ok(project?.name === name, `advisories: Soldeer answered for ${show(project?.name)}, not ${name}`)
   return githubRepoOfUrl(answer.data[0]?.github_url) ?? null
+}
+
+// A pod's :http source on GitHub: an archive of a tag, or a release's asset.
+const ARCHIVE = /^(?<repo>https:\/\/github\.com\/[\w-]+\/[\w.-]+)\/(?:archive|releases\/download)\//u
+
+// The repo the podspec of a pod's newest version asked names: its `source`
+// by :git, else by :http on GitHub, else its `homepage`. Trunk's CDN
+// redirects to jsDelivr, which is followed; a podspec it does not have, a
+// pod of another spec repo or of an external source, names none.
+async function fetchPodRepo(name, version) {
+  const url = buildUrl(COCOAPODS_CDN, specPath(name, version).map(encodeSegment))
+  const podspec = await request(url, { as: 'json', redirect: 'follow' }).catch(recover(isNotFound, null))
+  if (podspec === null) return null
+  assert.ok(podspec?.name === name && podspec.version === version, `advisories: trunk answered for ${show(podspec?.name)} ${show(podspec?.version)}, not ${name} ${version}`)
+  const { git, http } = podspec.source ?? {}
+  return githubRepoOfUrl(git) ?? githubRepoOfUrl(ARCHIVE.exec(typeof http === 'string' ? http : '')?.groups.repo) ?? githubRepoOfUrl(podspec.homepage) ?? null
 }
 
 // rubygems.org's API takes 10 requests a second from one address, whichever
@@ -103,5 +120,6 @@ export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', n
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
 export const gemRepos = (names, { cache }) => cachedRepos('rubygems/repos', names, (missing) => fetchEach(missing, fetchGemRepo), cache)
 export const pypiRepos = (names, { asked, cache }) => cachedRepos('pypi/repos', names, (missing) => fetchEach(missing, (name) => fetchPypiRepo(name, asked.get(name).at(-1))), cache)
+export const podRepos = (names, { asked, cache }) => cachedRepos('cocoapods/repos', names, (missing) => fetchEach(missing, (name) => fetchPodRepo(name, asked.get(name).at(-1))), cache)
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)

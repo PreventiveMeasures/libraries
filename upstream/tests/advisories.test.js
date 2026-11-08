@@ -66,7 +66,7 @@ describe('advisories', () => {
     }
     for (const [pkg, error] of [
       [null, /advisories: package must be an options object/u],
-      [{ ...ok, ecosystem: 'maven' }, /advisories: package\.ecosystem must be one of npm, cargo, composer, gem, pypi, swift, soldeer, github/u],
+      [{ ...ok, ecosystem: 'maven' }, /advisories: package\.ecosystem must be one of npm, cargo, composer, gem, pypi, swift, cocoapods, soldeer, github/u],
       [{ ...ok, ecosystem: '__proto__' }, /advisories: package\.ecosystem must be one of/u],
       [{ ...ok, versions: [] }, /advisories: package\.versions must be a non-empty array/u],
       [{ ...ok, versions: '1.0.0' }, /advisories: package\.versions must be a non-empty array/u],

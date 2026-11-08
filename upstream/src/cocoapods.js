@@ -15,7 +15,7 @@ const DIR = 'cocoapods/podspecs'
 // Where a spec repo keeps a version's podspec: under a directory each for
 // the first three hex digits of the md5 of the name, as
 // Pod::Source::Metadata shards trunk, and CocoaPods/Specs with it.
-function specPath(name, version) {
+export function specPath(name, version) {
   const shard = createHash('md5').update(name).digest('hex').slice(0, 3)
   return ['Specs', ...shard, name, version, `${name}.podspec.json`]
 }

@@ -53,9 +53,9 @@ export function setCacheDir(dir?: string | false): void
 // with `<name>@<version>` for a version's document and tarball; and for
 // advisories.js, `github/advisories` with the repository's `owner/name` in
 // lowercase for its listing, `cargo/repos`, `composer/repos`,
-// `rubygems/repos`, `pypi/repos` and `soldeer/repos` with a package's name
-// for the repository it names, `npm/public` with an npm package's name that is
-// public, for `osv`, and `rubysec/index` with `gems` for ruby-advisory-db's
+// `rubygems/repos`, `pypi/repos`, `cocoapods/repos` and `soldeer/repos`
+// with a package's name for the repository it names, `npm/public` with an
+// npm package's name that is public, for `osv`, and `rubysec/index` with `gems` for ruby-advisory-db's
 // listing and `rubysec/advisories` with a file's blob id for what is read
 // of it.
 // Values are plain JSON data, which `read` may answer as written or as a

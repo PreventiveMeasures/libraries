@@ -6,17 +6,21 @@ export type { CacheStore } from './npm.js'
 
 // As purl and stasis name them: purl's type for Ruby gems is `gem`, for
 // Python packages `pypi`, for Swift packages `swift`.
-export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'pypi' | 'swift' | 'soldeer' | 'github'
+export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'pypi' | 'swift' | 'cocoapods' | 'soldeer' | 'github'
 
 export interface Package {
   ecosystem: Ecosystem
   // An npm package name, a crate name, a Composer `vendor/name`, a gem's
   // name, a Python package's in any spelling (those PEP 503 normalizes
   // alike, `Django` and `django`, are one, the first spelling standing), a
-  // Soldeer project name, or for `github`, the repository `owner/name`
-  // itself. A Swift package's is its repository as OSV's SwiftURL names
-  // it: a Package.resolved pin's `location` less its scheme and a `.git`
-  // that ends it, `github.com/vapor/vapor` of
+  // pod's root name, a Soldeer project name, or for `github`, the
+  // repository `owner/name` itself. A pod's is its root's as Podfile.lock's
+  // SPEC CHECKSUMS has it, `Firebase` and never its subspec
+  // `Firebase/Core`, which is refused: a subspec is published with its
+  // root, and its advisories are its root's (PodfileLock's `roots`). A
+  // Swift package's is its repository as OSV's SwiftURL names it: a
+  // Package.resolved pin's `location` less its scheme and a `.git` that
+  // ends it, `github.com/vapor/vapor` of
   // `https://github.com/vapor/vapor.git`, its host in lowercase. OSV
   // matches the rest as it is spelled, case and all, as GitHub's database
   // spells it, the repository's own (`github.com/weichsel/ZIPFoundation`):
@@ -24,9 +28,10 @@ export interface Package {
   name: string
   // Its GitHub repository, where the caller knows it (package.json,
   // Cargo.toml, installed.json, a gemspec, pyproject.toml), for
-  // `repoAdvisories` to ask without looking it up, and for a `soldeer`
-  // package, to ask instead of the one Soldeer names; not for `github`
-  // packages, which are their own.
+  // `repoAdvisories` to ask without looking it up, and for a `soldeer` or
+  // `cocoapods` package, to ask instead of the one Soldeer or its podspec
+  // names (a pod from an external source, which trunk does not have, has
+  // none but this); not for `github` packages, which are their own.
   github?: RepoName
   // npm and `github`: semver; `github` also takes a branch name or 0.0.0,
   // which every range covers. cargo: semver, build metadata allowed.
@@ -45,15 +50,18 @@ export interface Package {
   // branch or of a bare revision has none, and OSV has no SwiftURL record
   // by commit: leave it out, or ask its repository as a `github` package by
   // its branch, which every range of the repository's advisories covers.
-  // soldeer: as soldeer.lock has it; one semver cannot read (a bare
-  // number, a commit) is covered by every range.
+  // cocoapods: as Podfile.lock writes one, Pod::Version's; ordered and
+  // matched as Gem::Version, which it is, its build metadata (`+...`) left
+  // off: `4.0` is `4.0.0`, and `2021.07.22.00` is read, not covered by
+  // every range. soldeer: as soldeer.lock has it; one semver cannot read
+  // (a bare number, a commit) is covered by every range.
   versions: string[]
 }
 
 export interface AdvisoryOptions {
-  // The client every GitHub request goes through. Required for `soldeer`
-  // and `github` packages, whose repository's published advisories are
-  // their only source, and for `repoAdvisories`. With gem packages it
+  // The client every GitHub request goes through. Required for
+  // `cocoapods`, `soldeer` and `github` packages, whose repository's
+  // published advisories are their only source, and for `repoAdvisories`. With gem packages it
   // also reads ruby-advisory-db (https://github.com/rubysec/ruby-advisory-db),
   // what `bundler-audit` reads: the listing of its `master` first, three
   // requests, kept for 90 minutes, then only the files under `gems/` of
@@ -80,8 +88,9 @@ export interface AdvisoryOptions {
   repoAdvisories?: boolean
   // Where what this call caches is kept, as CacheOptions (npm.js) has it:
   // a repository's listing, each package's repository looked up (an npm
-  // package's as its version's document), and ruby-advisory-db's listing
-  // and files. See `advisories`.
+  // package's as its version's document; a pod's, from its newest version
+  // asked's podspec, a month), and ruby-advisory-db's listing and files.
+  // See `advisories`.
   cache?: CacheStore | false
   // Also returns each advisory's full text, as `details`. OSV's records
   // and a repository's listing already carry it; npm's registry does not,
@@ -129,8 +138,10 @@ export interface Advisory {
   // its aliases, and stays a row of its own, as its source rates it.
   // `repository`: published on the package's repository, holding only the
   // versions the others' answer does not report under that GHSA. The only
-  // source for `soldeer` and `github`, where every range counts, whichever
-  // package it names.
+  // source for `cocoapods`, `soldeer` and `github`, which no advisory
+  // database has, OSV's among them: there every range counts, whichever
+  // package it names, as a pod's repository files its advisories under
+  // the Swift package or another the same release went out as.
   // An id answered more than once -- by npm's registry once a range, by
   // OSV's record of it, ruby-advisory-db or its repository for versions
   // beyond the registry's range, by its repository once a range -- is one
@@ -209,11 +220,13 @@ export interface Advisory {
 // ecosystem's rules before the first request; a name given twice is
 // merged, and must not name two repositories. npm is asked 250 names a
 // request, OSV 1000 versions, Soldeer one project, rubygems.org one gem,
-// ten a second at most, PyPI one version of one package, and with
-// `details`, OSV one GHSA among npm's rows; a project Soldeer does not
-// have or that names no GitHub repository, a gem rubygems.org does not
-// have or that names none, a Python package's version PyPI does not have
-// or that links none, a repository gone or
+// ten a second at most, PyPI one version of one package, trunk's CDN one
+// podspec, of the pod's newest version asked, and with `details`, OSV one
+// GHSA among npm's rows; a project Soldeer does not have or that names no
+// GitHub repository, a gem rubygems.org does not have or that names none,
+// a Python package's version PyPI does not have or that links none, a
+// podspec trunk does not have or whose `source` (by :git, else by :http on
+// GitHub) and `homepage` name none, a repository gone or
 // blocked, and one GitHub redirects anywhere but to a repository by its
 // id, add nothing, and a GHSA OSV does not have adds no `details`. With
 // `osv`, a name npm's registry doesn't serve without a token is taken as
