@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { isGhsa, isRepo, isStrings, matches, show } from '../args.js'
-import { satisfies, valid, validRange } from '../semver.js'
+import { intersects, satisfies, valid, validRange } from '../semver.js'
 
 export const order = (a, b) => (a > b) - (a < b)
 
@@ -21,6 +21,14 @@ export const inRange = (version, range) => satisfies(version, range, SEMVER)
 // A version semver cannot read may be in any range. Whatever it reads is
 // a version, `v1.2.3` and `1.2.3+build` included.
 export const mayBeInRange = (version, range) => valid(version) === null || inRange(version, range)
+
+// Whether some version is in both ranges, as `npm audit` reads them.
+export const overlap = (a, b) => validRange(a, SEMVER) !== null && intersects(a, b, SEMVER)
+
+// Whether a range, as `npm audit` reads it, is one set with no upper bound:
+// it takes the highest version semver can, as `>= 0` and `*` do.
+const HIGHEST = `${Number.MAX_SAFE_INTEGER}.${Number.MAX_SAFE_INTEGER}.${Number.MAX_SAFE_INTEGER}`
+export const isOpenAbove = (range) => !range.includes('|') && inRange(HIGHEST, range)
 
 // The asked versions a range `covers`. One semver cannot read, range or
 // version, covers them all: a missed advisory is worse than a spare one.

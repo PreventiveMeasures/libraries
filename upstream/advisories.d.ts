@@ -154,8 +154,9 @@ export interface Advisory {
   // repository range semver cannot read, or none, covers every version; a
   // gem's is read as Gem::Requirement reads each of its comma-separated
   // parts, and one it cannot read, or none, or over 1,024 characters, covers
-  // every version; one of lower bounds alone ends below its one patched
-  // version only where that is above them all, so is never emptied.
+  // every version. A repository range of lower bounds alone ends below its
+  // one patched version only where that is above them all, so is never
+  // emptied: `>= 3.0.0` patched in 2.2.9 is as given.
   // Each range its id was answered with that covers an asked version,
   // joined by ` || `; none ('') where one is none. A version only OSV
   // reports may be outside it: hermes-engine's GHSA-f5x2-xv93-4p23 is

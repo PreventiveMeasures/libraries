@@ -628,6 +628,43 @@ describe('npm, with a GitHub client', () => {
     ])
   })
 
+  it('ends a range below its patched version only where it is lower bounds alone, below that version', async () => {
+    const patched = (name, range, patchedVersions) => ({ ...vuln(name, range), patched_versions: patchedVersions })
+    stubAll({
+      repos: { 'mono-a': 'acme/mono' },
+      github: {
+        [REPO_ADVISORIES]: [
+          // Fixed below, or at, where the range begins: bounded, none of it.
+          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [patched('mono-a', '>= 3.0.0', '2.2.9')]),
+          repoAdvisory('GHSA-bbbb-bbbb-bbbb', [patched('mono-a', '>= 3.0.0', '3.0.0')]),
+          // Ended already, if not by a `<`.
+          repoAdvisory('GHSA-cccc-cccc-cccc', [patched('mono-a', '= 3.1.2', '3.1.2')]),
+          repoAdvisory('GHSA-dddd-dddd-dddd', [patched('mono-a', '^3.1.0', '3.1.3')]),
+          // Lower bounds alone, partial ones too, fixed above them.
+          repoAdvisory('GHSA-eeee-eeee-eeee', [patched('mono-a', '> 3.0.0, >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3', '3.1.0')]),
+          // Fixed in the next release: bounded, as 3.1.3-0 is in between.
+          repoAdvisory('GHSA-ffff-ffff-ffff', [patched('mono-a', '> 3.1.2', '3.1.3')]),
+          // Lower bounds as semver writes them, without a comma; alternatives,
+          // which `< 3.1.3` would end only one of, as given.
+          repoAdvisory('GHSA-gggg-gggg-gggg', [patched('mono-a', '>= 3.0.0 >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3.2.0 || >= 3.0.0', '3.1.3')]),
+          // Lower bounds semver reads as every version.
+          repoAdvisory('GHSA-hhhh-hhhh-hhhh', [patched('mono-a', '>= 0', '3.1.3'), patched('mono-a', '>= 0.0.0-0', '3.1.3'), patched('mono-a', '*', '3.1.3')]),
+        ],
+      },
+    })
+    const found = await npm(['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0'].map((version) => ({ name: 'mono-a', version })), { github, repoAdvisories: true })
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-bbbb-bbbb-bbbb', '>= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-cccc-cccc-cccc', '= 3.1.2', ['3.1.2']],
+      ['GHSA-dddd-dddd-dddd', '^3.1.0', ['3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-eeee-eeee-eeee', '> 3.0.0, >= 3.0.5, < 3.1.3 || >= 3, < 3.1.0', ['3.0.0', '3.1.2', '3.1.3-rc.1']],
+      ['GHSA-ffff-ffff-ffff', '> 3.1.2, < 3.1.3', ['3.1.3-rc.1']],
+      ['GHSA-gggg-gggg-gggg', '>= 3.0.0 >= 3.0.5, < 3.1.3 || >= 3.2.0 || >= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-hhhh-hhhh-hhhh', '>= 0, < 3.1.3 || >= 0.0.0-0, < 3.1.3 || *, < 3.1.3', ['3.0.0', '3.1.2', '3.1.3-rc.1']],
+    ])
+  })
+
   it('asks no repository without repoAdvisories, and with it, one given as is and the rest looked up, each once', async () => {
     const answers = { repos: { 'mono-a': 'acme/mono', 'mono-b': 'acme/mono' }, github: { [REPO_ADVISORIES]: [], [GIVEN]: [] } }
     const packages = [{ name: 'mono-a', version: '1.0.0' }, { name: 'mono-b', version: '1.0.0' }, { name: 'given', version: '1.0.0', github: 'acme/given' }]
