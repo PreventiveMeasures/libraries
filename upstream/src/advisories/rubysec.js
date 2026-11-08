@@ -10,12 +10,11 @@ import { readRange } from '../rubygems/version.js'
 import { objectId } from '../tree.js'
 import { advisoryUrl, detailsOf, isText, metrics } from './common.js'
 
-// ruby-advisory-db, what `bundler-audit` reads: `gems/<gem>/<id>.yml`, one
-// advisory each.
+// ruby-advisory-db, what `bundler-audit` reads: `gems/<gem>/<id>.yml` each.
 const DB = 'rubysec/ruby-advisory-db'
 // How late an advisory added to it can be seen.
 const LISTING_TTL_MS = 90 * 60 * 1000
-// Stamped on what is kept, and raised when it is kept differently.
+// Raised when what is kept changes.
 const VERSION = 1
 const FILES_AT_ONCE = 8
 const FILE = /^gems\/(?<gem>[^/]+)\/(?<id>[\w.-]+)\.yml$/u
@@ -23,8 +22,7 @@ const isId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
 const isFile = (entry) => Array.isArray(entry) && entry.length === 3 && typeof entry[0] === 'string' && typeof entry[1] === 'string' && isSha(entry[2])
 const isDigest = (value) => value?.v === VERSION && isId(value.id) && isStrings(value.aliases) && isText(value.title) && isStrings(value.unaffected) && isStrings(value.patched)
 
-// Each advisory file's gem, id and blob, at the commit `oid`: one listing
-// of the whole repository, kept 90 minutes.
+// Each advisory file's gem, id and blob, from one listing of the repository.
 async function listing(github, cache) {
   const kept = await readRecord('rubysec/index', 'gems', cache, LISTING_TTL_MS)
   if (kept?.v === VERSION && isSha(kept.oid) && Array.isArray(kept.files) && kept.files.every(isFile)) return kept
@@ -39,7 +37,7 @@ async function listing(github, cache) {
   return { oid, files }
 }
 
-// A field that may be one value or a list of them, as Array() reads it.
+// One value or a list of them, as Array() reads it.
 const list = (value) => (value == null ? [] : [value].flat())
 // `CVE-2024-1` of `2024-1` and of `CVE-2024-1` alike.
 const ids = (prefix, values) => values.filter((value) => value !== '').map((value) => (String(value).startsWith(prefix) ? String(value) : `${prefix}${value}`))
@@ -49,11 +47,8 @@ const V3 = [[9, 'critical'], [7, 'high'], [4, 'moderate'], [0.1, 'low']]
 const V2 = [[7, 'high'], [4, 'moderate'], [0, 'low']]
 const rate = (value, scale) => scale.find(([from]) => value >= from)?.[1]
 
-// What rows are made from, of one file: its ids as bundler-audit has them
-// (CVE-, OSVDB-, GHSA- and the file's own), `related`'s too, going by the
-// GHSA where it has one; its CVSS score, v3's, else v4's, else v2's; and
-// its requirements as written. Its `date`, a scalar the reader refuses as
-// YAML would type it a date, is not read.
+// Its ids as bundler-audit has them, `related`'s too, going by the GHSA
+// where there is one. `date` is dropped: lockfile's reader refuses a date.
 function digest(gem, file, yaml) {
   const what = `advisories: ${DB} gems/${gem}/${file}.yml`
   let doc
@@ -86,7 +81,7 @@ function digest(gem, file, yaml) {
   }
 }
 
-// A file's digest, kept for good by its blob, which names its content.
+// Kept for good by its blob, which names its content.
 async function advisoryOf(github, oid, [gem, file, sha], cache) {
   const kept = await readJSON('rubysec/advisories', sha, cache)
   if (isDigest(kept)) return kept
@@ -97,9 +92,8 @@ async function advisoryOf(github, oid, [gem, file, sha], cache) {
   return found
 }
 
-// As bundler-audit: a version is vulnerable unless a patched or unaffected
-// entry, a Gem::Requirement of its `, `-separated parts, takes it. One the
-// port can't read takes none.
+// As bundler-audit: vulnerable unless a patched or unaffected entry takes
+// the version; one the port can't read takes none.
 function toRow(name, advisory, asked, details) {
   const takes = [...advisory.patched, ...advisory.unaffected].map(readRange).filter(Boolean)
   const ghsa = isGhsa(advisory.id) ? advisory.id : undefined
@@ -118,8 +112,7 @@ function toRow(name, advisory, asked, details) {
   }
 }
 
-// The asked gems' advisories, through `github`: the listing first, then
-// the files of the asked gems alone.
+// The listing first, then the asked gems' files alone.
 export async function rubysecRows(github, asked, { details, cache }) {
   const { oid, files } = await listing(github, cache)
   const wanted = files.filter(([gem]) => asked.has(gem))

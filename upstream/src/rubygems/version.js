@@ -10,7 +10,7 @@ const SPACE = String.raw`[\t\n\v\f\r ]` // Ruby's \s, ASCII alone.
 const REQUIREMENT = new RegExp(`^${SPACE}*(?:(>=|<=|!=|~>|=|>|<)${SPACE}*)?(${VERSION})${SPACE}*$`, 'u')
 const ANCHORED = new RegExp(`^${VERSION}$`, 'u')
 
-// 256 at most, as assertGemVersion takes one, before any regex runs.
+// 256 at most, before any regex runs.
 export const isVersion = (text) => typeof text === 'string' && text.length <= 256 && ANCHORED.test(text)
 
 // Gem::Version reads `-` as `.pre.`.
@@ -21,8 +21,7 @@ const isPrerelease = (version) => /[A-Za-z]/u.test(version)
 // Gem::Version#partition_segments: numbers and runs of letters.
 const partition = (version) => (version.match(/\d+|[A-Za-z]+/gu) ?? []).map((part) => (/^\d/u.test(part) ? BigInt(part) : part))
 
-// Runs of `.` and `0` as [start, end), where canonical_segments' regexes can
-// match: one pass, not regexes retried from every place.
+// Runs of `.` and `0` as [start, end), in one pass.
 const zeroRuns = (text) => Array.from(text.matchAll(/[.0]+/gu), (m) => [m.index, m.index + m[0].length])
 
 function startIn(text, [from, to], follows) {
@@ -92,8 +91,8 @@ const OPERATORS = {
   '<=': (cmp) => cmp <= 0,
 }
 
-// Each `[operator, version]` of `>= 1.0.0, < 1.2.6`; undefined where a part
-// isn't a requirement, or the range is too long to be one, before any regex.
+// Undefined where a part isn't a requirement, or the range is over 1,024
+// characters.
 function requirementsOf(text) {
   if (text.length > 1024) return undefined
   const parts = text.split(',').map((part) => REQUIREMENT.exec(part))
@@ -115,8 +114,8 @@ export function readRange(text) {
   }
 }
 
-// A range of lower bounds alone, with the one version that fixed it above each
-// of them, ends below that version; any other is as given, never emptied.
+// Lower bounds alone end below the one patched version above them; any
+// other range is as given.
 export function boundRange(range, patched) {
   if (!isVersion(patched)) return range
   if (range.trim() === '') return `< ${patched}`

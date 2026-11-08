@@ -14,9 +14,8 @@ import { githubRepoOfUrl } from '../remote.js'
 
 const PACKAGES_AT_ONCE = 8
 
-// Name -> its GitHub repo, or null where the registry has no such package
-// or it names no GitHub repo; any other failure throws. Only a repo found
-// is cached, for a month, in the cache set or `cache` (readRecord).
+// Name -> its GitHub repo, or null for none; only one found is cached, a
+// month.
 async function cachedRepos(dir, names, fetchMissing, cache) {
   const repos = await readRepos(dir, names, cache)
   await addRepos(dir, repos, await fetchMissing(names.filter((name) => !repos.has(name))), cache)
@@ -46,10 +45,8 @@ async function fetchSoldeerRepo(name) {
   return githubRepoOfUrl(answer.data[0]?.github_url) ?? null
 }
 
-// The repo the podspec of a pod's newest version asked names: its `source`
-// by :git, else by :http on GitHub, else its `homepage`. Trunk's CDN
-// redirects to jsDelivr, which is followed; a podspec it does not have, a
-// pod of another spec repo or of an external source, names none.
+// The podspec's `source` by :git, else :http, else its `homepage`. Trunk's
+// CDN redirects to jsDelivr.
 async function fetchPodRepo(name, version) {
   const url = buildUrl(COCOAPODS_CDN, specPath(name, version).map(encodeSegment))
   const podspec = await request(url, { as: 'json', redirect: 'follow' }).catch(recover(isNotFound, null))
@@ -59,8 +56,7 @@ async function fetchPodRepo(name, version) {
   return [git, http, podspec.homepage].map(repoOfLink).find((repo) => repo !== undefined) ?? null
 }
 
-// rubygems.org's API takes 10 requests a second from one address, whichever
-// call asks.
+// rubygems.org takes 10 requests a second from one address.
 const GEM_PACE_MS = 100
 let nextGemAt = 0
 async function pacedForGems() {
@@ -70,13 +66,11 @@ async function pacedForGems() {
   if (at > now) await sleep(at - now)
 }
 
-// Rails' gems link a page in the repo's tree, not the repo itself, and a
-// pod's :http source an archive of a tag or a release's asset.
+// Rails' gems link a page in the repo's tree, and a pod's :http source a
+// tag's archive or a release's asset.
 const TREE_PAGE = /^(?<repo>(?i:https?:\/\/github\.com)\/[\w-]+\/[\w.-]+)\/(?:tree|blob|archive|releases\/download)\//u
 const repoOfLink = (url) => githubRepoOfUrl(url) ?? githubRepoOfUrl(TREE_PAGE.exec(typeof url === 'string' ? url : '')?.groups.repo)
 
-// `source_code_uri` has the gemspec's metadata, or what the owners set on
-// rubygems.org.
 async function fetchGemRepo(name) {
   await pacedForGems()
   const answer = await request(buildUrl(RUBYGEMS, ['api', 'v1', 'gems', `${name}.json`]), { as: 'json' }).catch(recover(isNotFound, null))
@@ -85,11 +79,8 @@ async function fetchGemRepo(name) {
   return [answer.source_code_uri, answer.homepage_uri].map(repoOfLink).find((repo) => repo !== undefined) ?? null
 }
 
-// PyPI's JSON for the newest version asked, not the project's, which lists
-// every release's files (3 MB for boto3). Its links by their labels, as PyPI
-// normalizes them for its page: a project's source's first, then its
-// homepage's, `home_page` among them, then the rest. A version's `+` and
-// `!` (`1.13.0+cpu`, `1!2.0`) are escaped, as a path segment takes them.
+// One version's JSON, not the project's, which lists every release's files
+// (3 MB for boto3). Links by label as PyPI normalizes them, source first.
 const LABELS = ['source', 'sourcecode', 'repository', 'code', 'github', 'homepage']
 const rank = ([label]) => {
   const at = LABELS.indexOf(label.toLowerCase().replaceAll(/[^\da-z]/gu, ''))
@@ -104,16 +95,13 @@ async function fetchPypiRepo(name, version) {
   return links.map(([, url]) => repoOfLink(url)).find((repo) => repo !== undefined) ?? null
 }
 
-// The repo the newest version asked of each package names, from that
-// version's document, kept for good (getVersionDocument): null where the
-// registry does not have that version, or it names no GitHub repo.
+// From the newest version asked's document, kept for good; null where the
+// registry hasn't that version.
 async function npmRepo(name, version, cache) {
   const json = await getVersionDocument('advisories', name, version, cache)
   return (json && getRepo(json).github) ?? null
 }
 
-// Each takes the names to look up, the versions `asked` of each, and the
-// call's `cache`.
 export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { cache })
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
 export const gemRepos = (names, { cache }) => cachedRepos('rubygems/repos', names, (missing) => fetchEach(missing, fetchGemRepo), cache)

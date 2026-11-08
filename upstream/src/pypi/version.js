@@ -2,11 +2,10 @@ import { compareVersions, parseVersion } from '@preventive/lockfile/pep440.js'
 
 import { assertion, matches } from '../args.js'
 
-// PEP 440 versions, read and ordered as packaging does by
-// @preventive/lockfile, and GitHub's ranges of them.
+// PEP 440 versions, by @preventive/lockfile, and GitHub's ranges of them.
 export { compareVersions }
 
-// 256 at most, as a gem's is, before any regex runs.
+// 256 at most, before any regex runs.
 export const isVersion = (text) => typeof text === 'string' && text.length <= 256 && parseVersion(text) !== undefined
 export const assertPypiVersion = assertion('a PEP 440 version', isVersion)
 // PEP 508's: letters, digits and `-_.` inside.
@@ -25,8 +24,8 @@ const OPERATORS = {
   '>=': (cmp) => cmp >= 0,
 }
 
-// Each `[operator, version]` of GitHub's `>= 1.0, < 1.2.6`; undefined where
-// a part isn't one, or the range is too long to be one, before any regex.
+// Undefined where a part isn't an operator and a version, or the range is
+// over 1,024 characters.
 function requirementsOf(text) {
   if (text.length > 1024) return undefined
   const parts = text.split(',').map((part) => PART.exec(part))
@@ -34,15 +33,14 @@ function requirementsOf(text) {
   return parts.map(([, operator = '=', against]) => [operator, against])
 }
 
-// A test of a range, every part of it met as PEP 440 orders versions: a
-// pre-release is in a range around it, as it is for every ecosystem here.
+// A pre-release is in a range around it, as for every ecosystem here.
 export function readRange(text) {
   const parts = requirementsOf(text)
   return parts && ((version) => parts.every(([operator, against]) => OPERATORS[operator](compareVersions(version, against))))
 }
 
-// A range of lower bounds alone, with the one version that fixed it above
-// each of them, ends below that version; any other is as given, as a gem's.
+// Lower bounds alone end below the one patched version above them; any
+// other range is as given.
 export function boundRange(range, patched) {
   if (!isVersion(patched)) return range
   if (range.trim() === '') return `< ${patched}`

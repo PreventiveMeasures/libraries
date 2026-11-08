@@ -1,8 +1,5 @@
-// PEP 440: a version in any spelling packaging reads, the normal form
-// packaging and uv write it in, which versions are equal, and the
-// specifiers of a requirement or a requires-python. No whitespace around a
-// version is taken, which packaging would strip. A check takes a value of
-// a TOML lockfile, and refuses anything but a string as its readers do.
+// PEP 440 versions and specifiers as packaging reads them, no whitespace
+// around a version. A check takes a TOML value, refusing anything but a string.
 
 import { LockfileError, quote } from '../error.js'
 import { checker } from '../toml/shape.js'
@@ -19,10 +16,8 @@ const PRE_KINDS = { __proto__: null, alpha: 'a', a: 'a', beta: 'b', b: 'b', prev
 // A number in a version, without the leading zeros it may be written with.
 const int = (digits) => digits.replace(/^0+(?=\d)/u, '')
 
-// The parts of a version, or undefined for what packaging does not read,
-// and for any that is not ASCII, which uv does not read: VERSION's
-// case-insensitive letters would take the long s for `s` and the Kelvin
-// sign for `k`.
+// Undefined for what packaging doesn't read, and anything not ASCII: the
+// case-insensitive regex would take the long s for `s`, Kelvin for `k`.
 export function parseVersion(text) {
   const m = /^[\0-\u007F]*$/u.test(text) ? VERSION.exec(text) : null
   if (m === null) return undefined
@@ -58,12 +53,8 @@ export function versionKey(parsed) {
 // The key of a version known to be one.
 export const versionKeyOf = (version) => versionKey(parseVersion(version))
 
-// What packaging's Version orders by, each part a list compared item by
-// item, a shorter one first where it starts the other: the epoch; the
-// release, less trailing zeros; a dev release of none before any
-// pre-release, `a` before `b` before `rc` as their letters sort, all before
-// none; no post-release before one; a dev release before none; no local
-// version before one, a word in it before a number.
+// packaging's Version sort key: a dev-only release before pre-releases,
+// which sort by their letters; a local version after the public one.
 function orderKey({ epoch, release, pre, post, dev, local }) {
   let end = release.length
   while (end > 1 && release[end - 1] === '0') end--
@@ -86,8 +77,6 @@ function compareKeys(a, b) {
   return Math.sign(a.length - b.length)
 }
 
-// packaging's order of two versions known to be ones: negative, zero or
-// positive.
 export const compareVersions = (a, b) => compareKeys(orderKey(parseVersion(a)), orderKey(parseVersion(b)))
 
 export const checkVersion = checker((text) => parseVersion(text) !== undefined, 'a version')
