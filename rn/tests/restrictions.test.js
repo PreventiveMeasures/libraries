@@ -30,6 +30,9 @@ describe('globRegExp', () => {
     assert.ok(!matches('src/**/*.{ts,tsx}', 'src/a/b.js'))
     assert.ok(matches('{src,lib}/{a,b1,b2}.js', 'lib/b2.js'))
     assert.ok(matches('app/?group?/+not-found@1.js', 'app/(group)/+not-found@1.js'))
+    // A name an object inherits is a name like any other.
+    for (const glob of ['constructor', '__proto__', '{toString,hasOwnProperty}']) assert.ok(matches(glob, glob.replace(/^\{(\w+),.*/u, '$1')), glob)
+    assert.ok(!matches('__proto__', 'other'))
   })
 
   it('takes a leading ./ for the project root, drops a trailing /, and is null of braces that do not pair', () => {

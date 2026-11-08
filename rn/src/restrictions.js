@@ -14,7 +14,8 @@ const trimmed = (glob) => glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '')
 // or nested brace) is refused, as Node's glob may read it otherwise.
 const SIMPLE = /^(?:[\p{L}\p{N}_.@+\-/*?]|\{[\p{L}\p{N}_.@+\-/*?]*,[\p{L}\p{N}_.@+\-/*?,]*\})*$/u
 const isSimple = (glob) => SIMPLE.test(glob) && !/[^/]\*\*|\*\*[^/]/u.test(glob)
-const TOKENS = { '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]', '{': '(?:', ',': '|', '}': ')' }
+// No prototype: a name such as `constructor` or `__proto__` is no token.
+const TOKENS = { __proto__: null, '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]', '{': '(?:', ',': '|', '}': ')' }
 
 // A path glob as a RegExp, or null where it is unsupported. `**` matches dot files too (Node's misses pnpm's
 // .pnpm). With `within`, a glob also matches what is inside a directory it matches (`secrets` all of secrets/).
