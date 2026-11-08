@@ -34,7 +34,8 @@ export function globRegExp(glob, within = false) {
   }
   const source = trimmed(glob).replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, token)
   if (!paired || depth !== 0) return null
-  return new RegExp(within ? `^(?:${source})(?:/.*)?$` : `^${source}$`, 'u')
+  // `s`: a name may hold a line break, which `.*` (`**`, a directory's paths) must match too.
+  return new RegExp(within ? `^(?:${source})(?:/.*)?$` : `^${source}$`, 'su')
 }
 
 // Whether a glob of paths is one a path from the project root may match: relative, of `/`s, and with no `.`,
