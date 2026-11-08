@@ -26,7 +26,7 @@ describe('rn-serve/ is self-contained', () => {
   it('has modules to check', () => assert.ok(modules.length >= 12, `found ${modules.length}`))
 
   it('declares no dependency but @preventive/rn, of its own version, and optional peers', () => {
-    assert.deepEqual([manifest.dependencies, manifest.optionalDependencies], [{ [RN]: 'workspace:*' }, undefined])
+    assert.deepEqual([manifest.dependencies, manifest.optionalDependencies], [{ [RN]: rnManifest.version }, undefined])
     assert.equal(manifest.version, rnManifest.version)
     for (const name of Object.keys(manifest.peerDependencies)) assert.equal(manifest.peerDependenciesMeta[name]?.optional, true, name)
   })
