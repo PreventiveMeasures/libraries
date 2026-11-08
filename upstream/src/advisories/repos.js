@@ -46,9 +46,6 @@ async function fetchSoldeerRepo(name) {
   return githubRepoOfUrl(answer.data[0]?.github_url) ?? null
 }
 
-// A pod's :http source on GitHub: an archive of a tag, or a release's asset.
-const ARCHIVE = /^(?<repo>https:\/\/github\.com\/[\w-]+\/[\w.-]+)\/(?:archive|releases\/download)\//u
-
 // The repo the podspec of a pod's newest version asked names: its `source`
 // by :git, else by :http on GitHub, else its `homepage`. Trunk's CDN
 // redirects to jsDelivr, which is followed; a podspec it does not have, a
@@ -59,7 +56,7 @@ async function fetchPodRepo(name, version) {
   if (podspec === null) return null
   assert.ok(podspec?.name === name && podspec.version === version, `advisories: trunk answered for ${show(podspec?.name)} ${show(podspec?.version)}, not ${name} ${version}`)
   const { git, http } = podspec.source ?? {}
-  return githubRepoOfUrl(git) ?? githubRepoOfUrl(ARCHIVE.exec(typeof http === 'string' ? http : '')?.groups.repo) ?? githubRepoOfUrl(podspec.homepage) ?? null
+  return [git, http, podspec.homepage].map(repoOfLink).find((repo) => repo !== undefined) ?? null
 }
 
 // rubygems.org's API takes 10 requests a second from one address, whichever
@@ -73,8 +70,9 @@ async function pacedForGems() {
   if (at > now) await sleep(at - now)
 }
 
-// Rails' gems link a page in the repo's tree, not the repo itself.
-const TREE_PAGE = /^(?<repo>(?i:https?:\/\/github\.com)\/[\w-]+\/[\w.-]+)\/(?:tree|blob)\//u
+// Rails' gems link a page in the repo's tree, not the repo itself, and a
+// pod's :http source an archive of a tag or a release's asset.
+const TREE_PAGE = /^(?<repo>(?i:https?:\/\/github\.com)\/[\w-]+\/[\w.-]+)\/(?:tree|blob|archive|releases\/download)\//u
 const repoOfLink = (url) => githubRepoOfUrl(url) ?? githubRepoOfUrl(TREE_PAGE.exec(typeof url === 'string' ? url : '')?.groups.repo)
 
 // `source_code_uri` has the gemspec's metadata, or what the owners set on

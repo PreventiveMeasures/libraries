@@ -183,31 +183,27 @@ export const SOLDEER = {
   advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, soldeerRepos, cache), details, cache }),
 }
 
-// A pod's version without its build metadata, which Pod::Version, a
-// Gem::Version, does not order by.
+// A pod's version as Gem::Version reads it: Pod::Version is one, and does
+// not order by build metadata.
 const podRelease = (version) => version.split('+')[0]
+
+// A range Gem::Requirement can't read covers every version.
+function podsIn(versions, range) {
+  const test = readRange(range)
+  return test === undefined ? [...versions] : versions.filter((version) => test(podRelease(version)))
+}
 
 // CocoaPods pods, which no advisory database has, OSV among them: the
 // repository each is published from, as given or else as its podspec on
 // trunk names it, is their only source, and every range its advisories
 // list counts, whichever package it names (often the Swift package the
 // same release went out as). Versions are ordered and ranges matched as
-// Gem::Version and Gem::Requirement do, as Pod::Version is one: `4.0` is
-// `4.0.0`, and `2021.07.22.00` a version like any other.
+// Gem::Version and Gem::Requirement do: `4.0` is `4.0.0`, and
+// `2021.07.22.00` a version like any other.
 export const COCOAPODS = {
   repositoryOnly: true,
   assertName: assertPodName,
   assertVersion: assertPodVersion,
   compare: (a, b) => compareVersions(podRelease(a), podRelease(b)) || order(a, b),
-  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, {
-    repoOf: await reposOf(asked, known, podRepos, cache),
-    // A range Gem::Requirement can't read covers every version.
-    versionsIn: (versions, range) => {
-      const test = readRange(range)
-      return test === undefined ? [...versions] : versions.filter((version) => test(podRelease(version)))
-    },
-    bound: boundRange,
-    details,
-    cache,
-  }),
+  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, podRepos, cache), versionsIn: podsIn, bound: boundRange, details, cache }),
 }

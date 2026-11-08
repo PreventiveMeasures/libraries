@@ -55,9 +55,9 @@ export function setCacheDir(dir?: string | false): void
 // lowercase for its listing, `cargo/repos`, `composer/repos`,
 // `rubygems/repos`, `pypi/repos`, `cocoapods/repos` and `soldeer/repos`
 // with a package's name for the repository it names, `npm/public` with an
-// npm package's name that is public, for `osv`, and `rubysec/index` with `gems` for ruby-advisory-db's
-// listing and `rubysec/advisories` with a file's blob id for what is read
-// of it.
+// npm package's name that is public, for `osv`, and `rubysec/index` with
+// `gems` for ruby-advisory-db's listing and `rubysec/advisories` with a
+// file's blob id for what is read of it.
 // Values are plain JSON data, which `read` may answer as written or as a
 // copy, but a tarball's are its bytes, a Uint8Array. Whatever it answers
 // is checked as a cached file is: one malformed, stale or kept differently
