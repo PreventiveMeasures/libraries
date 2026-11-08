@@ -12,8 +12,7 @@ const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
 
-// Ecosystem -> name -> { versions, github? }, a name given twice merged.
-// Every package is checked before any is used.
+// Ecosystem -> name -> { versions, github? }, every package checked first.
 function collect(packages) {
   assert.ok(isIterable(packages), 'advisories: packages must be an iterable of { ecosystem, name, github?, versions }')
   const byEcosystem = new Map()
@@ -25,8 +24,8 @@ function collect(packages) {
     for (const version of pkg.versions) assertVersion('advisories', 'package.versions', version)
     assert.ok(pkg.ecosystem !== 'github' || pkg.github === undefined, 'advisories: a github package is its own repository, and takes no package.github')
     const named = byEcosystem.get(pkg.ecosystem) ?? byEcosystem.set(pkg.ecosystem, new Map()).get(pkg.ecosystem)
-    // A name spelled more than one way, a repository's in any case, a
-    // Python package's as PEP 503 normalizes it: the first spelling stands.
+    // A repository's name in any case, a Python package's as PEP 503
+    // normalizes it: the first spelling stands.
     const key = nameKey && `${pkg.ecosystem}\0${nameKey(pkg.name)}`
     const name = key ? spelled.get(key) ?? spelled.set(key, pkg.name).get(key) : pkg.name
     const entry = named.get(name) ?? named.set(name, { versions: new Set() }).get(name)
@@ -37,17 +36,13 @@ function collect(packages) {
   return byEcosystem
 }
 
-// Which of an advisory's rows stands for it: npm's registry's, then OSV's,
-// then ruby-advisory-db's, then its repository's.
+// Which of an advisory's rows stands for it, first to last.
 const SOURCES = ['registry', 'osv', 'rubysec', 'repository']
 const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
-// An advisory's rows as one: the first's by source, what it lacks from the
-// first of the rest that has it, the others' aliases, and of them all the
-// worst severity, the highest CVSS score with its own vector (else the first
-// vector), the ranges (` || `), CWEs and versions (in the order `asked` has
-// them). RustSec's kind of advisory that is not a vulnerability as such only
-// where each of them has that kind: a row without one is a vulnerability.
+// An advisory's rows as one: the first by source, filled from the rest,
+// with the worst severity, the highest CVSS, and every range, CWE and
+// version. `informational` only where every row has it.
 function joinRows(rows, asked) {
   const all = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
   const [head, ...rest] = all
@@ -71,17 +66,13 @@ function joinRows(rows, asked) {
   delete joined.cvssVector
   if (scored?.cvss !== undefined) joined.cvss = scored.cvss
   if (scored?.cvssVector !== undefined) joined.cvssVector = scored.cvssVector
-  // A range of none ('') covers every version, as they then do together.
+  // A range of none ('') covers every version.
   if (ranges.length > 0) joined.range = ranges.includes('') ? '' : ranges.join(' || ')
   return joined
 }
 
-// One row for each advisory id on a package, where its sources answer more
-// than one: npm's registry one per range, and OSV's record of it, or its
-// repository, another for the versions they cover beyond that. Records of
-// other ids that name it as an alias stay rows of their own, each version
-// reported under one, as their sources rate them. Rows keep the place of the
-// first answered.
+// One row per advisory id; records of other ids that name it as an alias
+// stay rows of their own.
 function oneRowPerAdvisory(rows, asked) {
   const byId = Map.groupBy(rows, (row) => `${row.name}\0${row.id}`)
   return [...byId.values()].map((same) => (same.length === 1 ? same[0] : joinRows(same, asked.get(same[0].name))))

@@ -15,13 +15,11 @@ const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
 export const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
-// osv.dev's page for one of its records. An id that is only another's
-// alias (PKSA-...) has none, and redirects to a search.
+// An id that is only another's alias (PKSA-...) has no page of its own.
 const osvPage = (id) => `https://osv.dev/vulnerability/${id}`
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
-// Of the records that publish one advisory, the first answered for a
-// version stands for the rest on it: RustSec's, what `cargo audit` reads
-// and GitHub mirrors, then the GHSA, then any other (MAL-...), then by id.
+// Of one advisory's records, which a version is reported under: RustSec's
+// (what `cargo audit` reads), then the GHSA, then by id.
 const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
 const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
 const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
@@ -34,17 +32,15 @@ export const CARGO = {
   assertVersion: assertCrateVersion,
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }
-// TODO: packagist.org's API, what `composer audit` reads, also has the
-// FriendsOfPHP advisories OSV lacks; using it means matching Composer
-// version ranges here.
+// TODO: packagist.org's API, what `composer audit` reads, has the
+// FriendsOfPHP advisories OSV lacks; it needs Composer range matching.
 export const COMPOSER = {
   osv: 'Packagist',
   github: 'composer',
   lookUp: composerRepos,
   assertName: assertion('a Composer package name', matches(/^(?=.{3,256}$)[a-z\d](?:[_.-]?[a-z\d]+)*\/[a-z\d](?:(?:[_.]|-{1,2})?[a-z\d]+)*$/u)),
   assertVersion: assertion('a Composer release version', matches(/^(?=.{1,64}$)v?\d+(?:\.\d+){0,3}(?:[._-]?(?:stable|beta|b|RC|alpha|a|patch|pl|p)(?:[.-]?\d+)*)?$/iu)),
-  // Composer's `v1.2.3` is semver's 1.2.3; what semver cannot read at all
-  // (1.2.3.4, 1.0.0-p1) is covered by every range.
+  // What semver can't read (1.2.3.4, 1.0.0-p1) is covered by every range.
   versionsIn: bySemver((version, range) => {
     const plain = version.replace(/^v/iu, '')
     return !isExactVersion(plain) || inRange(plain, range)
@@ -52,8 +48,7 @@ export const COMPOSER = {
   advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
 }
 
-// OSV has none of ruby-advisory-db, what `bundler-audit` reads: with a
-// GitHub client, it is read too.
+// OSV, and with a GitHub client ruby-advisory-db, which OSV lacks.
 export const GEM = {
   osv: 'RubyGems',
   github: 'rubygems',
@@ -63,7 +58,6 @@ export const GEM = {
   // `1.0` and `1.0.0` are equal, so are ordered by their text.
   compare: (a, b) => compareGemVersions(a, b) || order(a, b),
   bound: boundGemRange,
-  // A range Gem::Requirement can't read covers every version.
   versionsIn: (asked, range) => {
     const test = readGemRange(range)
     return test === undefined ? [...asked] : asked.filter(test)
@@ -74,14 +68,11 @@ export const GEM = {
   },
 }
 
-// A Swift package by its repository, as OSV's SwiftURL names it: the URL
-// less its scheme and a `.git` that ends it, `github.com/vapor/vapor`,
-// which OSV matches as it is spelled, case and all.
+// As OSV's SwiftURL names it, `github.com/vapor/vapor`, case and all.
 const SWIFT_NAME = /^(?=.{1,512}$)[a-z\d-]+(?:\.[a-z\d-]+)+(?:\/(?!\.\.?(?:\/|$))[\w.~-]+)+(?<!\.git)$/u
-// TSCUtility.Version, as SwiftPM writes one: SemVer's form, but that an
-// identifier may be empty, or a number with a leading zero.
+// TSCUtility.Version: SemVer, but an identifier may be empty, or a number
+// have a leading zero.
 const SWIFT_VERSION = /^(?=.{5,256}$)(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){2}(?:-[\dA-Za-z.-]*)?(?:\+[\dA-Za-z.-]*)?$/u
-// One on github.com is its own repository, which no request finds.
 const swiftRepo = (name) => {
   const repo = name.startsWith('github.com/') ? name.slice('github.com/'.length) : ''
   return isRepo(repo) ? repo : null
@@ -96,9 +87,8 @@ export const SWIFT = {
   advisories: (asked, options) => osvAdvisories(SWIFT, asked, options),
 }
 
-// What `pip-audit` reads: OSV's records of PyPI, PyPA's (PYSEC-...),
-// GitHub's and malicious packages'. OSV takes a name in any spelling PEP 503
-// normalizes alike, and a version in any PEP 440 does.
+// What `pip-audit` reads. OSV takes a name in any spelling PEP 503
+// normalizes alike.
 export const PYPI = {
   osv: 'PyPI',
   github: 'pip',
@@ -109,7 +99,6 @@ export const PYPI = {
   // `1.0` and `1.0.0` are equal, so are ordered by their text.
   compare: (a, b) => comparePypiVersions(a, b) || order(a, b),
   bound: boundPypiRange,
-  // A range PEP 440 can't read covers every version.
   versionsIn: (asked, range) => {
     const test = readPypiRange(range)
     return test === undefined ? [...asked] : asked.filter(test)
@@ -147,13 +136,9 @@ function toAdvisory(ecosystem, name, versions, record, details) {
   }
 }
 
-// OSV's batch query matches versions on its side, but answers ids only:
-// each record is fetched once after. An advisory more than one database
-// publishes comes back under each one's id, the records naming each other
-// as aliases, either way round, directly or through others: one group, in
-// which each version is reported under the first answered for it, and
-// each record has the others' ids as aliases. `osv` is OSV's name for the
-// ecosystem.
+// OSV's batch query answers ids only, each record fetched after. Records
+// of one advisory, naming each other as aliases, are one group: each
+// version is reported under its first, the rest its aliases.
 export async function osvRows({ osv }, asked, { details }) {
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id -> name -> versions, in `list` order

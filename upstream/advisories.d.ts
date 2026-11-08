@@ -4,251 +4,71 @@ import type { CacheStore } from './npm.js'
 export { HttpError } from './npm.js'
 export type { CacheStore } from './npm.js'
 
-// As purl and stasis name them: purl's type for Ruby gems is `gem`, for
-// Python packages `pypi`, for Swift packages `swift`.
+// purl's package types.
 export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'pypi' | 'swift' | 'cocoapods' | 'soldeer' | 'github'
 
 export interface Package {
   ecosystem: Ecosystem
-  // An npm package name, a crate name, a Composer `vendor/name`, a gem's
-  // name, a Python package's in any spelling (those PEP 503 normalizes
-  // alike, `Django` and `django`, are one, the first spelling standing), a
-  // pod's root name, a Soldeer project name, or for `github`, the
-  // repository `owner/name` itself. A pod's is its root's as Podfile.lock's
-  // SPEC CHECKSUMS has it, `Firebase` and never its subspec
-  // `Firebase/Core`, which is refused: a subspec is published with its
-  // root, and its advisories are its root's (PodfileLock's `roots`). A
-  // Swift package's is its repository as OSV's SwiftURL names it: a
-  // Package.resolved pin's `location` less its scheme and a `.git` that
-  // ends it, `github.com/vapor/vapor` of
-  // `https://github.com/vapor/vapor.git`, its host in lowercase. OSV
-  // matches the rest as it is spelled, case and all, as GitHub's database
-  // spells it, the repository's own (`github.com/weichsel/ZIPFoundation`):
-  // a pin spelled otherwise is answered nothing.
+  // As its lockfile names it. A pod by its root (`Firebase`, not `Firebase/Core`),
+  // a Swift package by its repository as OSV spells it, case and all
+  // (`github.com/vapor/vapor`), a `github` package by `owner/name`.
   name: string
-  // Its GitHub repository, where the caller knows it (package.json,
-  // Cargo.toml, installed.json, a gemspec, pyproject.toml), for
-  // `repoAdvisories` to ask without looking it up, and for a `soldeer` or
-  // `cocoapods` package, to ask instead of the one Soldeer or its podspec
-  // names (a pod from an external source, which trunk does not have, has
-  // none but this); not for `github` packages, which are their own.
+  // Its repository, where known, so `repoAdvisories` needn't look it up.
   github?: RepoName
-  // npm and `github`: semver; `github` also takes a branch name or 0.0.0,
-  // which every range covers. cargo: semver, build metadata allowed.
-  // composer: a release (`v1.2.3`, `1.2.3.4`, `2.0.0-RC1`), dev versions
-  // refused; one semver cannot read is covered by every range. gem: as
-  // Gemfile.lock writes one (`7.0.4.3`, `1.16.0.rc1`), its platform
-  // (`-x86_64-linux`) left off; ordered and matched as RubyGems does, not
-  // by semver: `1.0.0.rc1` is below `1.0.0`, and `1.0` is `1.0.0`. pypi:
-  // PEP 440, in any spelling packaging reads (`1.0`, `v1.0`, `2.0rc1`,
-  // `1.13.0+cpu`); ordered and matched as packaging orders them: `2.0.dev1`
-  // is below `2.0rc1`, which is below `2.0`, and `1.0` is `1.0.0`. OSV
-  // matches a local version (`+cpu`) as its public one.
-  // swift: as Package.resolved writes a pin's (TSCUtility.Version, SemVer's
-  // form, but that an identifier may be empty or a number have a leading
-  // zero); one semver cannot read is covered by every range. A pin of a
-  // branch or of a bare revision has none, and OSV has no SwiftURL record
-  // by commit: leave it out, or ask its repository as a `github` package by
-  // its branch, which every range of the repository's advisories covers.
-  // cocoapods: as Podfile.lock writes one, Pod::Version's; ordered and
-  // matched as Gem::Version, which it is, its build metadata (`+...`) left
-  // off: `4.0` is `4.0.0`, and `2021.07.22.00` is read, not covered by
-  // every range. soldeer: as soldeer.lock has it; one semver cannot read
-  // (a bare number, a commit) is covered by every range.
+  // As its lockfile writes them, matched by the ecosystem's own rules. A
+  // `github` package also takes a branch name; a Swift pin without a version is refused.
   versions: string[]
 }
 
 export interface AdvisoryOptions {
-  // The client every GitHub request goes through. Required for
-  // `cocoapods`, `soldeer` and `github` packages, whose repository's
-  // published advisories are their only source, and for `repoAdvisories`. With gem packages it
-  // also reads ruby-advisory-db (https://github.com/rubysec/ruby-advisory-db),
-  // what `bundler-audit` reads: the listing of its `master` first, three
-  // requests, kept for 90 minutes, then only the files under `gems/` of
-  // the gems asked, one request each, kept for good by their blob. By
-  // itself it asks nothing else.
+  // Required for `cocoapods`, `soldeer` and `github` packages and for
+  // `repoAdvisories`. With it, gems are also checked against ruby-advisory-db.
   github?: Client
-  // Also asks each npm, cargo, composer, gem, pypi and swift package's GitHub
-  // repository for its published advisories, which it has before GitHub
-  // reviews them into the databases above: the package's `github` where
-  // given, else the one looked up. An npm package's is the one the
-  // document of its newest version asked names, kept for good as getMeta
-  // keeps it (none where the registry does not have that version); a
-  // crate's, a composer package's, a gem's and a Python package's, the one
-  // crates.io, Packagist, rubygems.org or PyPI names, kept a month: for a
-  // gem, its `source_code_uri`, else its `homepage_uri`; for a Python
-  // package, of the links PyPI has for its newest version asked, its
-  // source's (labeled Source, Source Code, Repository, Code or GitHub),
-  // else its Homepage, else `home_page`, else any other; each a
-  // repository's URL or a page in its tree
-  // (https://github.com/rails/rails/tree/v8.1.1/actionpack).
-  // A swift package on github.com is its own repository, asked with no
-  // request to find it, its GitHub `swift` entries naming it as it is
-  // named here. Needs `github`.
+  // Also reads advisories each package's repository has published that
+  // GitHub hasn't reviewed yet. Needs `github`.
   repoAdvisories?: boolean
-  // Where what this call caches is kept, as CacheOptions (npm.js) has it:
-  // a repository's listing, each package's repository looked up (an npm
-  // package's as its version's document; a pod's, from its newest version
-  // asked's podspec, a month), and ruby-advisory-db's listing and files.
-  // See `advisories`.
+  // Where lookups and listings are cached (see CacheOptions); false keeps none.
   cache?: CacheStore | false
-  // Also returns each advisory's full text, as `details`. OSV's records
-  // and a repository's listing already carry it; npm's registry does not,
-  // and its rows take OSV's record of their GHSA, one more request each
-  // (no GitHub client needed).
+  // Also returns each advisory's full text, as `details`.
   details?: boolean
-  // Also asks OSV of each npm package's versions, as cargo, composer and
-  // gem packages always are, for what the registry does not have: above all
-  // the malicious packages' records (MAL-...), which it has none of, as
-  // those of npm releases taken down that GitHub's database has no
-  // advisory of. A version a registry row reports under the same advisory,
-  // its id among an OSV record's id and aliases, is left to that row,
-  // which takes the record's ids among its aliases; the versions a record
-  // of the row's own id covers beyond the registry's range join it too.
-  // Only packages whose name npm's registry serves without a token (its
-  // latest version's document, else, where it has no `latest` tag, a HEAD
-  // of the package's; unscoped names too, 32 names at a time) go to OSV;
-  // the rest, private ones above all, go to the registry alone.
-  // The name decides, not the version: npm takes down malicious versions
-  // but keeps their name. Public names are cached for a month.
+  // Also asks OSV about public npm packages: malware and taken-down
+  // releases, which npm's registry has no advisories of.
   osv?: boolean
 }
 
-// One advisory on one package, with the versions asked about that it
-// covers (never empty): one row an id, however many of its sources answer
-// it, or however often one does.
+// One advisory on one package, one row per id, however many sources have it.
 export interface Advisory {
   ecosystem: Ecosystem
   name: string
-  // `registry`: npm's, as `npm audit` has it. `osv`: OSV's records for
-  // cargo, composer, gems, Python and swift packages, and with `osv` for
-  // npm, the versions they cover that no registry row reports under the
-  // same advisory; RustSec's, GitHub's and malicious packages' (MAL-...)
-  // among them; for a gem, GitHub's and malicious packages' alone; for a
-  // Python package, PyPA's (PYSEC-...) too, what `pip-audit` reads; and
-  // for a swift package, GitHub's alone. `rubysec`: with a GitHub
-  // client, a gem's in ruby-advisory-db, what `bundler-audit` reads, for
-  // the versions it takes as bundler-audit does: those neither a
-  // `patched_versions` nor an `unaffected_versions` entry takes, each
-  // entry a Gem::Requirement of its `, `-separated parts, and one the port
-  // cannot read taking none. Of the records naming each other as
-  // aliases, directly or through others, a version is reported under one
-  // only: RustSec's, else the GHSA, else the first by id, as the GHSA a
-  // gem's MAL- record names stands for it. Each has the others' ids among
-  // its aliases, and stays a row of its own, as its source rates it.
-  // `repository`: published on the package's repository, holding only the
-  // versions the others' answer does not report under that GHSA. The only
-  // source for `cocoapods`, `soldeer` and `github`, which no advisory
-  // database has, OSV's among them: there every range counts, whichever
-  // package it names, as a pod's repository files its advisories under
-  // the Swift package or another the same release went out as.
-  // An id answered more than once -- by npm's registry once a range, by
-  // OSV's record of it, ruby-advisory-db or its repository for versions
-  // beyond the registry's range, by its repository once a range -- is one
-  // row: the registry's, else OSV's, else ruby-advisory-db's, else the
-  // repository's, with what it lacks of theirs (title, details), the worst
-  // severity of them, the highest CVSS score with its own vector, and all
-  // their ranges, CWEs and versions. A ruby-advisory-db advisory without a
-  // GHSA whose ids (its CVE, say) OSV has as a record's aliases is
-  // answered under that record's id.
+  // npm's registry, OSV, ruby-advisory-db, or the package's repository (the
+  // only source for `cocoapods`, `soldeer` and `github`).
   source: 'registry' | 'osv' | 'rubysec' | 'repository'
-  // A GHSA, RUSTSEC-..., MAL-..., DRUPAL-CORE-... or another OSV id, or
-  // npm:<id> for a registry row without a GHSA. A `rubysec` row's is its
-  // GHSA, else its file's name, as bundler-audit has it (CVE-...,
-  // OSVDB-...).
+  // The GHSA where there is one, else its source's (RUSTSEC-..., PYSEC-...,
+  // MAL-..., CVE-...), or npm:<id>.
   id: string
-  // The id itself, or an OSV record's one GHSA alias.
   ghsa?: string
-  // GitHub's page for the GHSA, with it: a `repository` row's on its
-  // repository (https://github.com/owner/name/security/advisories/GHSA-...),
-  // which has it before GitHub reviews it into its advisory database; any
-  // other's in that database (https://github.com/advisories/GHSA-...). An
-  // `osv` row without one has osv.dev's page for its record
-  // (https://osv.dev/vulnerability/RUSTSEC-...). Built, never fetched: only
-  // a registry row without a GHSA (npm:<id>) has none, and a `rubysec` row
-  // without one has its file's `url`, where that is an http(s) URL.
   url?: string
-  // The advisory's other ids: an `osv` row's record's own and its group's,
-  // with `osv`, a registry row's OSV records' of it, and a `rubysec` row's
-  // CVE-, OSVDB- and GHSA- ids, `related`'s too, and its file's name.
+  // Its other ids.
   aliases: string[]
   title?: string
-  // With `details`, the advisory's full text, Markdown as published: an
-  // OSV record's `details`, a repository advisory's `description`, or for
-  // a registry row, OSV's record of its GHSA, a `rubysec` row's
-  // `description`. Absent where there is none:
-  // a registry row without a GHSA, or with one OSV does not have yet.
+  // With `details`: its full text, in Markdown.
   details?: string
-  // `critical`, `high`, `moderate`, `low`; GitHub's `medium` reads
-  // `moderate`. RustSec has none. ruby-advisory-db's is bundler-audit's,
-  // by the CVSS v3 score (v4's where there is none), else v2's.
+  // `critical`, `high`, `moderate` or `low`.
   severity?: string
-  // Absent where there is no score (npm spells that 0). ruby-advisory-db's
-  // is its CVSS v3 score, else v4's, else v2's, with no vector.
   cvss?: number
   cvssVector?: string
   cwe: string[]
-  // As written: npm's syntax from the registry, GitHub's
-  // (`>= 1.0.0, < 1.2.6`) from a repository; OSV's records have none. A
-  // repository range semver cannot read, or none, covers every version; a
-  // gem's is read as Gem::Requirement reads each of its comma-separated
-  // parts, and one it cannot read, or none, or over 1,024 characters, covers
-  // every version; a Python package's is read so too, each part an
-  // operator and a PEP 440 version, a pre-release in a range around it. A
-  // repository range of lower bounds alone ends below its one patched
-  // version only where that is above them all, so is never emptied:
-  // `>= 3.0.0` patched in 2.2.9 is as given.
-  // Each range its id was answered with that covers an asked version,
-  // joined by ` || `; none ('') where one is none. A version only OSV
-  // reports may be outside it: hermes-engine's GHSA-f5x2-xv93-4p23 is
-  // `<=0.4.3` on npm, the last version known affected, and fixed in 0.5.2
-  // by OSV's record of it, which reports 0.5.0 too.
+  // The affected range as its source wrote it, where it has one.
   range?: string
-  // RustSec's kind for an advisory that is not a vulnerability as such:
-  // `unmaintained`, `unsound`, `notice`. For an id answered more than once,
-  // only where each answer gives it.
+  // RustSec's `unmaintained`, `unsound` or `notice`: not a vulnerability as such.
   informational?: string
-  // Where the advisory is of malware, not a vulnerability: an OSV MAL-
-  // record (its `id` or an alias), CWE-506 (how GitHub files malware), or
-  // a `title` with the word "malware". `severity` is left as rated: MAL-
-  // records have none, and GitHub rates some malware high.
+  // Malware, not a vulnerability.
   malware?: true
+  // The asked versions it affects, never none.
   versions: string[]
 }
 
-// Every package, and every one of its versions, is checked against its
-// ecosystem's rules before the first request; a name given twice is
-// merged, and must not name two repositories. npm is asked 250 names a
-// request, OSV 1000 versions, Soldeer one project, rubygems.org one gem,
-// ten a second at most, PyPI one version of one package, trunk's CDN one
-// podspec, of the pod's newest version asked, and with `details`, OSV one
-// GHSA among npm's rows; a project Soldeer does not have or that names no
-// GitHub repository, a gem rubygems.org does not have or that names none,
-// a Python package's version PyPI does not have or that links none, a
-// podspec trunk does not have or whose `source` (by :git, else by :http on
-// GitHub) and `homepage` name none, a repository gone or
-// blocked, and one GitHub redirects anywhere but to a repository by its
-// id, add nothing, and a GHSA OSV does not have adds no `details`. With
-// `osv`, a name npm's registry doesn't serve without a token is taken as
-// private (see `osv`). A repository renamed or
-// transferred, which GitHub redirects to it by its id, is listed by the
-// name it has now, as getRepo's `followRedirect` (github.js) finds it, its
-// rows' `url` on it. Any other failure, a malformed answer, or one about
-// something not asked, throws: nothing is left out quietly. So does a
-// ruby-advisory-db file of an asked gem that is of another gem, in YAML
-// @preventive/lockfile's reader refuses, or not the blob its listing
-// names.
-// A repository's listing is kept for 90 minutes, as one entry for every
-// spelling of the name it is asked by, one renamed or transferred too,
-// holding only what rows are made from, `details` included: in
-// setCacheDir's cache gzipped, in a `cache` store as it is, or with
-// `cache` false, nowhere. 90 minutes is how late an advisory its
-// maintainer publishes can be seen. One gone or malformed is not kept.
-// ruby-advisory-db's listing is kept 90 minutes too, and each of its files
-// read for good, by its blob, each as what rows are made from.
-// Sorted by ecosystem and name. Versions are matched by npm's semver, from
-// the npm beside node, or by the semver peer where there is no npm; a
-// gem's as RubyGems 3.5's Gem::Version and Gem::Requirement match them,
-// ported here; a Python package's as packaging orders PEP 440 versions,
-// by @preventive/lockfile.
+// The advisories on the asked versions, sorted by ecosystem and name. Input
+// is checked before any request; a failed or malformed answer throws rather
+// than leaving anything out.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>
