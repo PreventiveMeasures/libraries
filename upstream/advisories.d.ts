@@ -10,8 +10,8 @@ export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'pypi' | 'swift' 
 export interface Package {
   ecosystem: Ecosystem
   // As its lockfile names it. A pod by its root (`Firebase`, not `Firebase/Core`),
-  // a Swift package by its repository as OSV spells it, case and all
-  // (`github.com/vapor/vapor`), a `github` package by `owner/name`.
+  // a Swift package by its repository in any case (`github.com/vapor/vapor`),
+  // a `github` package by `owner/name`.
   name: string
   // Its repository, where known, so `repoAdvisories` needn't look it up.
   github?: RepoName
