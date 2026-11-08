@@ -5,8 +5,8 @@ import { readRecord, writeRecord } from '../cache.js'
 import { isGone } from '../github/client.js'
 import { HttpError, recover } from '../http.js'
 import { pool } from '../pool.js'
-import { isExactVersion } from '../semver.js'
-import { advisoryUrl, covered, detailsOf, isText, mayBeInRange, metrics } from './common.js'
+import { compareVersions, isExactVersion } from '../semver.js'
+import { advisoryUrl, covered, detailsOf, isText, lowestIn, mayBeInRange, metrics } from './common.js'
 import { soldeerRepos } from './repos.js'
 
 const REPOS_AT_ONCE = 4
@@ -23,11 +23,15 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function' && typeof value.getRepo === 'function')
 
-// A range given only its lower bound, with the version that fixed it apart
-// (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`), ends below that version.
+// A range of lower bounds alone (`>= 5.0.0-beta.1`), with the one version that
+// fixed it above them (`5.0.0-rc.2`), ends below that version; any other is as
+// given, never emptied.
 function boundedRange(range, patched) {
-  if (!isExactVersion(patched) || range.includes('<')) return range
-  return range.trim() === '' ? `< ${patched}` : `${range.trim()}, < ${patched}`
+  if (!isExactVersion(patched)) return range
+  if (range.trim() === '') return `< ${patched}`
+  if (!range.split(',').every((part) => /^\s*>=?\s*[^\s<>=]+\s*$/u.test(part))) return range
+  const lowest = lowestIn(range.replaceAll(',', ' '))
+  return lowest !== null && compareVersions(patched, lowest) > 0 ? `${range.trim()}, < ${patched}` : range
 }
 
 // All that is kept of a listing. A malformed one is refused, and one whose
