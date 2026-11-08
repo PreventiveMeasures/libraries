@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn-serve",
   "version": "1.0.0-alpha.4",
-  "description": "A Metro-compatible React Native dev server: bundles as @preventive/rn builds them, Fast Refresh, symbolication, the debugger, and the app launched on a simulator or an Android device",
+  "description": "Metro-compatible React Native dev server",
   "type": "module",
   "bin": {
     "rn-serve": "bin/rn-serve.js"

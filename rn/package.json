@@ -1,7 +1,7 @@
 {
   "name": "@preventive/rn",
   "version": "1.0.0-alpha.4",
-  "description": "React Native tooling: Metro resolution, assets, bundling, and a `react-native bundle` for Xcode and Gradle",
+  "description": "Metro-compatible React Native bundler",
   "type": "module",
   "exports": {
     "./metro-resolver.js": {
