@@ -9,37 +9,21 @@ const RN_CONFIG = 'rn.config.json'
 // A glob less a leading `./` and a trailing `/`.
 const trimmed = (glob) => glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '')
 
-// Whether each brace is of a balanced `{...}` holding a `,` of its own, none after a `$`: the lists Node's glob
-// expands, where it takes `{a}` and `${a,b}` as themselves, `{1..3}` for a range and expands `{{a,b}}` within.
-function bracesListed(glob) {
-  const listed = []
-  for (let i = 0; i < glob.length; i++) {
-    if (glob[i] === '{') {
-      if (glob[i - 1] === '$') return false
-      listed.push(false)
-    } else if (glob[i] === ',' && listed.length > 0) {
-      listed[listed.length - 1] = true
-    } else if (glob[i] === '}' && listed.pop() !== true) {
-      return false
-    }
-  }
-  return listed.length === 0
+// Whether `glob` holds, or may hold, what Node's glob reads otherwise than this, taken as unsupported without
+// telling the cases apart: a class or escape (`[`, `]`, `\\`), an extglob (or an operator and a `(` that braces
+// may join), a `**` within a name, or a brace of no list (`{a}`, `{1..3}`, `${a,b}`, `{{a,b}}`, unpaired).
+function unsupported(glob) {
+  let lists = glob
+  for (let before; before !== lists;) [before, lists] = [lists, lists.replaceAll(/\{[^{}]*,[^{}]*\}/gu, '')]
+  return /[[\]\\]|\$\{|[!*+?@]\(|[^/]\*\*|\*\*[^/]/u.test(glob) || /[{}]/u.test(lists) ||
+    (/[!*+?@][,{}]/u.test(glob) && /[,{}]\(/u.test(glob))
 }
 
-// Whether `glob` holds an extglob (`@(a|b)`), or may once its braces expand, as Node's glob expands them first
-// (`{@,x}(a)` is `@(a)` or `x(a)`): an operator and a `(` each touching a brace, taken as forming one.
-const extglob = (glob) => /[!*+?@]\(/u.test(glob) || (/[!*+?@][,{}]/u.test(glob) && /[,{}]\(/u.test(glob))
-
-// Whether each `**` is a whole name: Node's glob takes `a**` for `a*`, where this would cross a `/`.
-const globstarsWhole = (glob) => [...glob.matchAll(/\*{2,}/gu)].every(({ 0: stars, index }) =>
-  stars.length === 2 && (index === 0 || glob[index - 1] === '/') && (index + 2 === glob.length || glob[index + 2] === '/'))
-
-// A path glob as a RegExp, or null where Node's glob would read it otherwise: an extglob (`@(a|b)`), a brace of no
-// list, a `**` within a name. `[...]` is itself (app/[id].js); `**` matches dot files too (Node's misses pnpm's
+// A path glob as a RegExp, or null where it is unsupported. `**` matches dot files too (Node's misses pnpm's
 // .pnpm). With `within`, a glob also matches what is inside a directory it matches (`secrets` all of secrets/).
 export function globRegExp(glob, within = false) {
   const bare = trimmed(glob)
-  if (extglob(bare) || !bracesListed(bare) || !globstarsWhole(bare)) return null
+  if (unsupported(bare)) return null
   let depth = 0
   const token = (part) => {
     if (part === '**/') return '(?:.*/)?'
@@ -65,7 +49,7 @@ export function globRegExp(glob, within = false) {
 // Whether a glob of paths is one a path from the project root may match: relative, of `/`s, and with no `.`,
 // `..` (but leading ones, out of the project) or empty name, which no such path has.
 export function isPathGlob(glob) {
-  if (glob === '' || isAbsolute(glob) || glob.includes('\\') || globRegExp(glob) === null) return false
+  if (glob === '' || isAbsolute(glob) || globRegExp(glob) === null) return false
   const names = trimmed(glob).split('/')
   const inside = names.slice(names.findLastIndex((name) => name === '..') + 1)
   return names.slice(0, names.length - inside.length).every((name) => name === '..') && inside.every((name) => name !== '' && name !== '.' && name !== '..')
