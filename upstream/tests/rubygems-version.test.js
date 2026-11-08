@@ -105,9 +105,9 @@ describe('Gem::Requirement, in GitHub\'s ranges', () => {
     ]) assert.equal(readRange(range)(version), met, `${version} in ${range}`)
   })
 
-  it('reads no range with a part it cannot, or none', () => {
-    for (const range of ['', ' ', '>= 1.0.0,', ', < 2', '>= 1.0.0 < 2.0.0', '=> 1.0', '== 1.0', '^1.0', '1.x.*', '*', '< v2', '>= 1.0.0 || < 0.5', '<\u00A01.0']) {
-      assert.equal(readRange(range), undefined, range)
+  it('reads no range with a part it cannot, a version over 256, or none', () => {
+    for (const range of ['', ' ', '>= 1.0.0,', ', < 2', '>= 1.0.0 < 2.0.0', '=> 1.0', '== 1.0', '^1.0', '1.x.*', '*', '< v2', '>= 1.0.0 || < 0.5', '<\u00A01.0', `< ${'9'.repeat(257)}`, `>= 1.0, ~> 1.${'0'.repeat(256)}`]) {
+      assert.equal(readRange(range), undefined, range.slice(0, 40))
     }
   })
 })

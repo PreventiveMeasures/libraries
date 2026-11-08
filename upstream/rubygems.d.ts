@@ -31,7 +31,7 @@ export function verifyChecksum(name: string, version: string, platform: string, 
 // still matches: the version is never pushed again.
 //
 // RubyGems' own caches are read first, and never written: the file in the
-// cache/ of each directory of GEM_PATH and of GEM_HOME, and of each
+// cache/ of each absolute directory of GEM_PATH and of GEM_HOME, and of each
 // Gem.user_dir, `<engine>/<ruby version>` under ~/.gem, and under
 // $XDG_DATA_HOME/gem, else ~/.local/share/gem, which RubyGems takes where
 // there is no ~/.gem. Gem.default_dir is under the prefix Ruby was built

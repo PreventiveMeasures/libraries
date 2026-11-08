@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readdir } from 'node:fs/promises'
 import { delimiter, join, resolve } from 'node:path'
 
-import { assertGem, assertSha256, assertion, isSha256, printable } from '../args.js'
+import { assertGem, assertSha256, assertion, isSha256, matches, printable } from '../args.js'
 import { absolute, home } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { RUBYGEMS, RUBYGEMS_INDEX, buildUrl, encodeSegment, request } from '../http.js'
@@ -48,23 +48,25 @@ async function getChecksum(method, { name, version, platform, what }) {
   return checksum
 }
 
-// Gem.user_dir: each <engine>/<ruby version> under ~/.gem and under the XDG
-// data dir.
+// Gem.user_dir: <engine>/<ruby version> under ~/.gem and the XDG data dir, as
+// RUBY_ENGINE and RbConfig's ruby_version name them, so not a GEM_HOME's gems/.
+const isEngine = matches(/^[a-z]{1,32}$/u)
+const isRubyVersion = matches(/^\d+(?:\.\d+){0,2}(?:\+\d+)?$/u)
 async function userDirs() {
   const base = home()
   if (base === undefined) return []
   const data = absolute(process.env.XDG_DATA_HOME) ?? join(base, '.local', 'share')
-  const below = async (dir) => (await readdir(dir).catch(() => [])).map((name) => join(dir, name))
-  const engines = (await Promise.all([join(base, '.gem'), join(data, 'gem')].map(below))).flat()
-  return (await Promise.all(engines.map(below))).flat()
+  const below = (keep) => async (dir) => (await readdir(dir).catch(() => [])).filter(keep).map((name) => join(dir, name))
+  const engines = (await Promise.all([join(base, '.gem'), join(data, 'gem')].map(below(isEngine)))).flat()
+  return (await Promise.all(engines.map(below(isRubyVersion)))).flat()
 }
 
-// RubyGems' own downloads, in the cache/ of each gem dir. Gem.default_dir
-// depends on how Ruby was built, so is read only as GEM_PATH or GEM_HOME
-// names it.
+// RubyGems' own downloads, in the cache/ of each absolute gem dir: the cwd is
+// not ours to read. Gem.default_dir depends on how Ruby was built, so is read
+// only as GEM_PATH or GEM_HOME names it.
 async function localPaths(file) {
   const { GEM_HOME, GEM_PATH } = process.env
-  const named = [...(GEM_PATH ?? '').split(delimiter), GEM_HOME ?? ''].filter(Boolean).map((dir) => resolve(dir))
+  const named = [...(GEM_PATH ?? '').split(delimiter), GEM_HOME].map(absolute).filter(Boolean).map((dir) => resolve(dir))
   return [...new Set([...named, ...await userDirs()])].map((dir) => join(dir, 'cache', file))
 }
 

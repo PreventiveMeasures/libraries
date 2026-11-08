@@ -329,6 +329,35 @@ describe("RubyGems' own caches", () => {
     assert.deepEqual(calls, [INDEX, GEM])
   })
 
+  it("reads ~/.gem's <engine>/<ruby version> alone, not a GEM_HOME's gems/ or specs/ there", async () => {
+    for (const dir of [join(HOME, '.gem', 'gems', 'evil-1.0.0'), join(HOME, '.gem', 'specs', 'rubygems.org%443'), join(HOME, '.gem', 'Ruby', '3.3.0'), join(HOME, '.gem', 'ruby', 'cache')]) {
+      await plant(dir, 'gem-1.0.0.gem', BYTES)
+    }
+    await plant(join(HOME, '.local', 'share', 'gem', 'ruby', '3.5.0+1'), 'gem-1.0.0-x86_64-linux.gem', BYTES)
+    const calls = stubRubygems()
+    assert.deepEqual(new Uint8Array(await getGem('gem', '1.0.0', 'ruby')), BYTES)
+    assert.deepEqual(new Uint8Array(await getGem('gem', '1.0.0', 'x86_64-linux', sha256(BYTES))), BYTES)
+    assert.deepEqual(calls, [INDEX, GEM])
+  })
+
+  it('reads no GEM_PATH or GEM_HOME entry that is relative, from wherever it runs', async () => {
+    const cwd = process.cwd()
+    const { GEM_HOME: home, GEM_PATH: path } = process.env
+    try {
+      await plant(join(RUBY, 'relative'), 'gem-1.0.0.gem', BYTES)
+      process.chdir(RUBY)
+      process.env.GEM_PATH = ['relative', '', './relative'].join(delimiter)
+      process.env.GEM_HOME = 'relative'
+      const calls = stubRubygems()
+      assert.deepEqual(new Uint8Array(await getGem('gem', '1.0.0', 'ruby')), BYTES)
+      assert.deepEqual(calls, [INDEX, GEM])
+    } finally {
+      process.chdir(cwd)
+      process.env.GEM_HOME = home
+      process.env.GEM_PATH = path
+    }
+  })
+
   it('reads nothing but a regular file', async () => {
     await mkdir(join(GEM_HOME, 'cache', 'gem-1.0.0.gem'), { recursive: true })
     const calls = stubRubygems()

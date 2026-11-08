@@ -91,18 +91,17 @@ const OPERATORS = {
   '<=': (cmp) => cmp <= 0,
 }
 
-// Gem::Requirement#satisfied_by? of one requirement. A prerelease meets one
-// as any version does: only Gem::Dependency sets them apart.
-function satisfies(version, [operator, against]) {
-  if (operator === '~>') return compareVersions(version, against) >= 0 && compareVersions(release(read(version)), bump(read(against))) < 0
-  return OPERATORS[operator](compareVersions(version, against))
-}
-
-// A test of `>= 1.0.0, < 1.2.6`, each comma-separated part a requirement;
-// undefined where a part isn't one Gem::Requirement reads.
+// A test of `>= 1.0.0, < 1.2.6`, each version read once; undefined where a
+// part isn't a requirement or names a version over 256. A prerelease meets
+// one as any version does: only Gem::Dependency sets them apart.
 export function readRange(text) {
   const parts = text.split(',').map((part) => REQUIREMENT.exec(part))
-  if (parts.some((match) => match === null)) return undefined
-  const requirements = parts.map((match) => [match[1] ?? '=', match[2]])
-  return (version) => requirements.every((requirement) => satisfies(version, requirement))
+  if (parts.some((match) => match === null || match[2].length > 256)) return undefined
+  const requirements = parts.map(([, operator = '=', against]) => ({ operator, at: canonical(read(against)), below: operator === '~>' ? canonical(bump(read(against))) : undefined }))
+  return (version) => {
+    const [own, released] = [canonical(read(version)), canonical(release(read(version)))]
+    return requirements.every(({ operator, at, below }) => (operator === '~>'
+      ? compareSegments(own, at) >= 0 && compareSegments(released, below) < 0
+      : OPERATORS[operator](compareSegments(own, at))))
+  }
 }

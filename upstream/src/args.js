@@ -110,7 +110,7 @@ const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$
 export const assertGemName = assertion('a gem name', matches(/^(?=.{1,256}$)(?=[\w.-]*[A-Za-z])[A-Za-z\d][\w.-]*$/u))
 // As Gemfile.lock writes one: no `-`, which Bundler reads as the start of a
 // platform.
-export const assertGemVersion = assertion('a RubyGems version', (value) => isGemVersion(value) && value.length <= 256 && !value.includes('-'))
+export const assertGemVersion = assertion('a RubyGems version', (value) => typeof value === 'string' && value.length <= 256 && !value.includes('-') && isGemVersion(value))
 // A package's name and version, as a registry's getters take them.
 const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {
   assertName(method, 'name', name)
