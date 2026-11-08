@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, afterEach, describe, it } from 'node:test'
+import { after, afterEach, beforeEach, describe, it, mock } from 'node:test'
 
 import { advisories } from '../advisories.js'
 import { createClient } from '../github.js'
@@ -14,7 +15,22 @@ const VULN = 'https://api.osv.dev/v1/vulns/'
 const GEMS = 'https://rubygems.org/api/v1/gems/'
 const realFetch = globalThis.fetch
 
+// rubygems.org is paced 100 ms a request, process-wide: on a clock of the
+// tests' own, 100 ms a real one, carried from test to test so the pacer's
+// state is never ahead of it.
+let clock = Date.now()
+let ticker
+beforeEach(() => {
+  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: clock })
+  syncBuiltinESMExports()
+  ticker = setInterval(() => mock.timers.tick(100), 1)
+})
+
 afterEach(() => {
+  clearInterval(ticker)
+  clock = Date.now()
+  mock.timers.reset()
+  syncBuiltinESMExports()
   globalThis.fetch = realFetch
 })
 
