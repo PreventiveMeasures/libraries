@@ -135,7 +135,8 @@
     "src/yarn1/requests.js",
     "src/yarn1/resolve.js",
     "src/yarn1/settings.js",
-    "src/yarn1/tree.js"
+    "src/yarn1/tree.js",
+    "src/zip.js"
   ],
   "engines": {
     "node": ">=24.14.0"

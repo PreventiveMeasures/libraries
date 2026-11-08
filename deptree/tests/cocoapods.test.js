@@ -10,9 +10,10 @@ import { installPod, planPod } from '../src/cocoapods/install.js'
 import { readPodspec } from '../src/cocoapods/podspec.js'
 import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
+import { zip } from '@preventive/archive/zip.js'
 import { archiveOf } from '../src/cocoapods/archive.js'
-import { ACME, ACME_ARCHIVE, OTHER, PODFILE, PODSPEC, allLock, coreLock, httpPodspecOf, mixedLock, podspecLock, podspecOf, sha1, sha256 } from './cocoapods-fixture.js'
-import { stubArchives, stubGitHub, stubTrunk } from './registry.js'
+import { ACME, ACME_ARCHIVE, ACME_ZIP, OTHER, PODFILE, PODSPEC, acmeZip, allLock, coreLock, httpPodspecOf, mixedLock, podspecLock, podspecOf, sha1, sha256 } from './cocoapods-fixture.js'
+import { rawZip, stubArchives, stubGitHub, stubTrunk } from './registry.js'
 
 // No spec repo of CocoaPods' own on this machine answers for the stubs.
 process.env.CP_REPOS_DIR = join(tmpdir(), `deptree-cocoapods-test-${process.pid}-none`)
@@ -324,6 +325,26 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(listing(tar), CORE, '`tar xf` reads a gzipped tar whatever its type says')
   })
 
+  it('downloads an :http zip from GitHub, as unzip extracts it, and flattens it only where :flatten says', async () => {
+    const bytes = await acmeZip()
+    const fromTrunk = async (podspec) => {
+      stubTrunk({ 'Acme@1.2.0': podspec })
+      const calls = stubArchives({ [ACME_ZIP]: bytes, [ACME_ARCHIVE]: ACME.tarball })
+      return { ...await buildCocoaPodsTree({ lockfile: coreLock(podspec), host: HOST, github: client() }), calls }
+    }
+    const zipped = (source = {}, rest = {}) => httpPodspecOf({ http: ACME_ZIP, sha256: sha256(bytes), ...source }, rest)
+    const { vfs, installed, calls } = await fromTrunk(zipped({ flatten: true }))
+    assert.deepEqual(listing(vfs), CORE)
+    assert.deepEqual(calls, [ACME_ZIP])
+    assert.deepEqual([installed[0].http, installed[0].sha256], [ACME_ZIP, sha256(bytes)])
+    const top = 'acme-acme-ef76ec6'
+    const { vfs: kept } = await fromTrunk(zipped({}, { subspecs: [{ name: 'Core', source_files: `${top}/Sources/Core` }] }))
+    assert.equal(listing(kept)[`Pods/Acme/${top}/Sources/Core/Acme.h`], '444 #import <Foundation/Foundation.h>\n', 'a zip is not flattened unless :flatten says so')
+    assert.equal(listing(kept)[`Pods/Acme/${top}/Sources/Core/Exec.c`], '555 int acme(void) { return 1; }\n')
+    await assert.rejects(fromTrunk(zipped({ type: 'tgz' })), /pods\["Acme"\]: its archive is a zip, which bsdtar extracts for `tar xf` and GNU tar does not/u)
+    await assert.rejects(fromTrunk(httpPodspecOf({ type: 'zip' })), /pods\["Acme"\]: its archive cannot be read: no end of central directory record/u)
+  })
+
   it('refuses an archive its hash is not of, partial or not', async () => {
     for (const partial of [false, true]) {
       const podspec = httpPodspecOf({ sha256: 'a'.repeat(64) })
@@ -333,7 +354,7 @@ describe('buildCocoaPodsTree', () => {
     }
   })
 
-  it('refuses an :http source but one on GitHub over https, held to a hash, of an archive `tar xf` extracts', async () => {
+  it('refuses an :http source but one on GitHub over https, held to a hash, of an archive `tar xf` or unzip extracts', async () => {
     for (const [source, message] of [
       [{ http: 'http://github.com/acme/acme/archive/refs/tags/v1.2.0.tar.gz' }, /not https:\/\/github\.com\/<owner>\/<repo>\//u],
       [{ http: 'https://gitlab.com/acme/acme/-/archive/v1.2.0/acme.tar.gz' }, /not https:\/\/github\.com/u],
@@ -344,8 +365,8 @@ describe('buildCocoaPodsTree', () => {
       [{ sha256: null, sha1: sha1(ACME.tarball) }, /held to a :sha1 alone, which two archives can be made to share, is not supported: only one held to a :sha256 is/u],
       [{ sha256: 'A'.repeat(64) }, /its :sha256 is not one in lowercase hex/u],
       [{ headers: ['Authorization: x'] }, /with :headers, which curl sends with the request, is not supported/u],
-      [{ type: 'zip' }, /an :http source of a zip is not supported/u],
-      [{ http: 'https://github.com/acme/acme/archive/refs/tags/v1.2.0.zip' }, /an :http source of a zip is not supported/u],
+      [{ type: 'dmg' }, /an :http source of a dmg, which hdiutil mounts, is not supported: only a zip, and tgz, tar, tbz and txz, which `tar xf` extracts, are/u],
+      [{ http: 'https://github.com/acme/acme/releases/download/v1.2.0/Acme.dmg' }, /an :http source of a dmg/u],
       [{ type: 'gz' }, /its :type "gz" names no type of archive/u],
       [{ http: 'https://github.com/acme/acme/releases/download/v1.2.0/acme' }, /its URL names no type of archive/u],
       [{ shallow: true }, /its source has :shallow, which cocoapods-downloader refuses of :http/u],
@@ -460,7 +481,7 @@ describe('expandBraces', () => {
 })
 
 describe('archiveOf', () => {
-  const tgz = { file: 'file.tgz', flatten: true }
+  const tgz = { archive: 'tgz', file: 'file.tgz', flatten: true }
   const archive = async (entries, gzip = true) => {
     const tar = pack(entries)
     return gzip ? await compress(tar, 'gzip') : tar
@@ -479,7 +500,7 @@ describe('archiveOf', () => {
       { name: 'Pod-1.0/c.h', type: 'symlink', linkname: 'a.h' },
     ])
     assert.deepEqual(out, { dirs: [], files: { 'a.h': '644', 'b.h': '644', 'sub/run': '755' }, links: { 'c.h': 'a.h' } })
-    assert.deepEqual((await extract([{ name: 'Pod-1.0/a.h', data: Buffer.from('a') }], { file: 'file.tgz', flatten: false })).files, { 'Pod-1.0/a.h': '644' })
+    assert.deepEqual((await extract([{ name: 'Pod-1.0/a.h', data: Buffer.from('a') }], { archive: 'tgz', file: 'file.tgz', flatten: false })).files, { 'Pod-1.0/a.h': '644' })
     assert.deepEqual((await extract([{ name: 'Pod-1.0/a.h', data: Buffer.from('a') }, { name: 'README', data: Buffer.from('r') }])).files, { 'Pod-1.0/a.h': '644', README: '644' }, 'two things are not flattened')
     assert.deepEqual((await archiveOf(await archive([{ name: 'x/a.h', data: Buffer.from('a') }], false), tgz, 'pod')).files.get('a.h').mode, 0o644, 'a tar not gzipped')
   })
@@ -499,5 +520,89 @@ describe('archiveOf', () => {
     ]) await assert.rejects(extract(entries), (error) => error instanceof DeptreeError && message.test(error.message), JSON.stringify(entries))
     await assert.rejects(archiveOf(Buffer.from('BZh91AY&SY'), tgz, 'pod'), /compressed with bzip2, which is not read here/u)
     await assert.rejects(archiveOf(Buffer.from('not a tar at all'), tgz, 'pod'), /its archive cannot be read/u)
+    await assert.rejects(archiveOf(rawZip([{ name: 'a', data: '' }]), tgz, 'pod'), /its archive is a zip, which bsdtar extracts for `tar xf` and GNU tar does not/u)
+    await assert.rejects(archiveOf(rawZip([]), tgz, 'pod'), /its archive is a zip/u)
+  })
+
+  const zipSource = { archive: 'zip', file: 'file.zip', flatten: false }
+  const unzipped = async (bytes, source = zipSource) => {
+    const { dirs, files, links } = await archiveOf(bytes, source, 'pod')
+    return { dirs: [...dirs].sort(), files: Object.fromEntries([...files].map(([path, { mode }]) => [path, mode.toString(8)])), links: Object.fromEntries(links) }
+  }
+  const U = (mode) => mode * 0x10000
+
+  it('extracts a zip as unzip does, a Unix maker\'s modes as they are but for the special bits, flattened only where asked', async () => {
+    const made = await zip([
+      { name: 'Pod-1.0/', type: 'directory', mode: 0o700 },
+      { name: 'Pod-1.0/a.h', data: Buffer.from('a'), mode: 0o664 },
+      { name: 'Pod-1.0/sub/run', data: Buffer.from('#!'), mode: 0o4755 },
+      { name: 'Pod-1.0/c.h', type: 'symlink', linkname: 'a.h' },
+    ])
+    assert.deepEqual(await unzipped(made), { dirs: ['Pod-1.0'], files: { 'Pod-1.0/a.h': '664', 'Pod-1.0/sub/run': '755' }, links: { 'Pod-1.0/c.h': 'a.h' } })
+    assert.deepEqual(await unzipped(made, { ...zipSource, flatten: true }), { dirs: [], files: { 'a.h': '664', 'sub/run': '755' }, links: { 'c.h': 'a.h' } })
+    assert.deepEqual((await unzipped(await zip([{ name: 'x/a.h', data: Buffer.from('a') }], { method: 'store' }))).files, { 'x/a.h': '644' })
+    await assert.rejects(archiveOf(await archive([{ name: 'x/a.h', data: Buffer.from('a') }]), zipSource, 'pod'), /its archive cannot be read: no end of central directory record/u)
+  })
+
+  it('reads the attributes as unzip does, by the system an entry was made on, and a directory\'s where unzip makes it', async () => {
+    const out = await unzipped(rawZip([
+      { name: 'plain', data: 'x', system: 0, attributes: 0 },
+      { name: 'readonly', data: 'x', system: 0, attributes: 1 },
+      { name: 'pkzip', data: 'x', system: 0, attributes: U(0o100664) },
+      { name: 'pkzip-ro', data: 'x', system: 0, attributes: U(0o100400) | 1 },
+      { name: 'exec-by-dos', data: 'x', system: 0, attributes: U(0o100755) },
+      { name: 'ntfs', data: 'x', system: 11, attributes: U(0o100600) },
+      { name: 'later', data: 'x', system: 99, attributes: U(0o100600) | 1 },
+      { name: 'dos-dir/', system: 0, attributes: 0x10 },
+      { name: 'dos-dir/in', data: 'x', system: 0, attributes: 0 },
+      { name: 'unix', data: 'x', system: 3, attributes: U(0o100600) },
+      { name: 'unix-untyped', data: 'x', system: 3, attributes: U(0o640) },
+      { name: 'unix-sgid', data: 'x', system: 3, attributes: U(0o102755) },
+      { name: 'beos', data: 'x', system: 16, attributes: U(0o100664) },
+      { name: 'qdos-link', data: 'x', system: 12, attributes: U(0o120777) },
+      { name: 'late/f', data: 'x' },
+      { name: 'late/', attributes: U(0o040555) | 0x10 },
+      { name: 'late/', attributes: U(0o040555) | 0x10 },
+      { name: './', attributes: U(0o040755) | 0x10 },
+      { name: 'x;1/', attributes: U(0o040755) | 0x10 },
+      { name: 'x;1/a;1b', data: '' },
+      { name: '__MACOSX/._plain', data: 'Mac OS X' },
+      { name: 'pk45', data: 'x', version: 45 },
+    ]))
+    assert.deepEqual(out, {
+      dirs: ['dos-dir', 'late', 'x;1'],
+      files: { plain: '644', readonly: '444', pkzip: '664', 'pkzip-ro': '400', 'exec-by-dos': '644', ntfs: '644', later: '444', 'dos-dir/in': '644', unix: '600', 'unix-untyped': '640', 'unix-sgid': '755', beos: '664', 'qdos-link': '777', 'late/f': '644', 'x;1/a;1b': '644', '__MACOSX/._plain': '644', pk45: '644' },
+      links: {},
+    })
+  })
+
+  it('refuses what unzip asks about or writes otherwise than it is read here, and what CocoaPods would fail on', async () => {
+    const asi = Buffer.concat([Buffer.from([0x6e, 0x75, 14, 0]), Buffer.alloc(14)])
+    for (const [entries, message] of [
+      [[], /an empty archive, which unzip warns of, and CocoaPods fails on the warning/u],
+      [[{ name: 'a', data: '', version: 46 }], /"a": needs PKZIP 4\.6 to extract, past the 4\.5 an unzip built without bzip2 takes/u],
+      [[{ name: 'a', data: '', version: 20 | (2 << 8) }], /marked as stored in VMS format, which unzip asks before extracting/u],
+      [[{ name: 'a', data: '', system: 1 }], /made on Amiga, whose attributes unzip reads by that system/u],
+      [[{ name: 'a', data: '', system: 18 }], /made on THEOS/u],
+      [[{ name: 'a', data: '', system: 3, attributes: 0, extra: asi }], /attributes with no mode, and an extra field unzip reads one from/u],
+      [[{ name: 'a', data: '', system: 3, attributes: 0 }], /a file of mode 0, which its owner cannot read/u],
+      [[{ name: 'a', data: '', system: 3, attributes: U(0o100200) }], /a file of mode 200, which its owner cannot read/u],
+      [[{ name: 'l', data: 'a', system: 0, attributes: U(0o120600) }, { name: 'a', data: '' }], /"l": a symlink by the attributes of a maker that is not Unix, which unzip makes a link of/u],
+      [[{ name: 'l', data: 'a', system: 16, attributes: U(0o120777) }, { name: 'a', data: '' }], /a symlink by the attributes of a maker that is not Unix/u],
+      [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x' }], /"a": a name again, which unzip asks whether to replace/u],
+      [[{ name: 'a', data: 'x' }, { name: './a', data: 'x' }], /"\.\/a": a name again/u],
+      [[{ name: 'l', data: 'a', attributes: U(0o120777) }, { name: 'l', data: 'a', attributes: U(0o120777) }, { name: 'a', data: '' }], /a name again/u],
+      [[{ name: 'ü', data: '', flags: 0x800 }], /a name with a character outside ASCII, which unzip writes by the machine's locale and its own build/u],
+      [[{ name: 'x/.', data: '' }], /a name ending in a `\.` segment, which unzip writes as `_`/u],
+      [[{ name: 'x;1', data: '' }], /a name ending in `;` and digits, which unzip takes for a VMS version and drops/u],
+      [[{ name: 'x;', data: '' }], /a name ending in `;` and digits/u],
+      [[{ name: 'l;12', data: 'a', attributes: U(0o120777) }, { name: 'a', data: '' }], /a name ending in `;` and digits/u],
+      [[{ name: 'd/', attributes: U(0o040555) | 0x10 }, { name: 'd/a', data: '' }], /"d\/": a directory of mode 555, which its owner cannot list and write in/u],
+      [[{ name: 'd/', system: 0, attributes: 0x11 }], /a directory of mode 555/u],
+      [[{ name: 'x/.git/config', data: '' }], /a path with a \.git in it/u],
+      [[{ name: 'file.zip', data: '' }], /the archive holds "file\.zip", the name RemoteFile downloads it under/u],
+      [[{ name: 'x', data: 'y', attributes: U(0o120777) }], /the one thing in the archive is a link/u],
+      [[{ name: 'a', data: '', extra: Buffer.from([0x75, 0x70, 1, 0, 1]) }], /its archive cannot be read: .*Unicode path extra field/u],
+    ]) await assert.rejects(unzipped(rawZip(entries), { ...zipSource, flatten: true }), (error) => error instanceof DeptreeError && message.test(error.message), JSON.stringify(entries))
   })
 })
