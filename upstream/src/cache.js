@@ -21,12 +21,12 @@ const compress = promisify(gzip)
 const decompress = promisify(gunzip)
 
 // An environment variable may hold anything: only an absolute path is one.
-const absolute = (path) => (typeof path === 'string' && isAbsolute(path) ? path : undefined)
+export const absolute = (path) => (typeof path === 'string' && isAbsolute(path) ? path : undefined)
 const within = (base, ...names) => (base === undefined ? undefined : join(base, ...names))
 
 // os.homedir() takes $HOME as it is, relative or empty, and throws where
 // neither it nor the user's passwd entry has one.
-function home() {
+export function home() {
   try {
     return absolute(homedir())
   } catch {

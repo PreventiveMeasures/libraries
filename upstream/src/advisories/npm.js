@@ -143,6 +143,6 @@ export const NPM = {
   advisories: async (asked, options) => {
     const [registry, osv] = await Promise.all([registryAdvisories(asked), options.osv ? osvOfPublic(asked, options) : []])
     const rows = withOsv(registry, osv)
-    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { ecosystem: 'npm', lookUp: npmRepos })
+    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { github: 'npm', lookUp: npmRepos })
   },
 }

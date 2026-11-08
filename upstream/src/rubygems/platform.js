@@ -1,6 +1,5 @@
-// A gem's platform as Gem::Platform reads one and writes it back, RubyGems
-// 3 and 4 each their own way: @preventive/lockfile's rules, of which only
-// the reading and writing are needed here.
+// Gem::Platform's reading and writing of a platform, RubyGems 3 and 4 each
+// their own way, ported from @preventive/lockfile.
 
 // Ruby's String#split on `-`, which drops the empty strings at the end.
 function split(text) {
@@ -11,10 +10,8 @@ function split(text) {
 
 const none = () => undefined
 
-// Gem::Platform#initialize's reading of the OS, in its order, of RubyGems 3
-// and of 4, which reads all after the CPU as the OS, and takes a `-` before
-// its version; each test as unanchored as RubyGems has it. Of a platform of
-// one part, mswin32 is of the x86.
+// Gem::Platform#initialize's OS patterns, in its order and as unanchored.
+// RubyGems 4 reads all after the CPU as the OS, and a `-` before its version.
 const OSES = {
   3: [
     [/aix(\d+)?/u, 'aix'],
@@ -73,12 +70,11 @@ function readOs(os, rubygems) {
   return ['unknown', undefined, undefined]
 }
 
-// The CPU and what follows, as RubyGems 3 splits a platform: x86_64-linux-gnu
-// with its libc a part of the OS, and darwin-23 with its version apart.
+// RubyGems 3: x86_64-linux-gnu's libc is part of the OS, darwin-23's
+// version apart.
 function split3(text) {
   const parts = split(text)
-  // RubyGems tests /\d+(\.\d+)?$/, which a part takes where it ends in a
-  // digit, and which a regex engine tries from every digit.
+  // RubyGems' /\d+(\.\d+)?$/, without a regex retried from every digit.
   if (parts.length > 2 && !/\d$/u.test(parts.at(-1))) {
     const extra = parts.pop()
     parts[parts.length - 1] += `-${extra}`
@@ -97,8 +93,7 @@ function split4(text) {
   return sep === -1 ? { cpu: trimmed || undefined } : { cpu: trimmed.slice(0, sep), os: trimmed.slice(sep + 1) }
 }
 
-// [cpu, os, version] as Gem::Platform.new(text) of RubyGems 3.4 to 3.6, or
-// of 4, reads them; each undefined where there is none.
+// [cpu, os, version] as Gem::Platform.new reads them, undefined where absent.
 function platformParts(text, rubygems) {
   const { cpu, os, version } = rubygems === 3 ? split3(text) : split4(text)
   const x86 = cpu !== undefined && /i\d86/u.test(cpu) ? 'x86' : cpu
@@ -108,22 +103,18 @@ function platformParts(text, rubygems) {
   return [os === undefined ? lone : x86, name, osVersion]
 }
 
-// Gem::Platform#to_s: the parts there are, `-` between them, or of a lone
-// OS, RubyGems 4 none.
+// Gem::Platform#to_s: RubyGems 4 puts no `-` in a platform without a CPU.
 function platformOf(text, rubygems) {
   const parts = platformParts(text, rubygems)
   return parts.filter((part) => part !== undefined).join(rubygems === 4 && parts[0] === undefined ? '' : '-')
 }
 
-// The CPU is kept as written, so `..-linux` would read as itself: each
-// part starts with a letter or a digit, the first with a letter, as every
-// CPU and lone OS RubyGems names does (libv8's `universal.x86_64` too); no
-// `..`, and 128 at most, ours.
+// RubyGems keeps the CPU as written, so `..-linux` would round-trip: each
+// part starts with a letter or digit, the first with a letter, and no `..`
+// (cap ours).
 const SHAPE = /^(?=.{1,128}$)(?!.*\.\.)[A-Za-z][\w.]*(?:-[\dA-Za-z][\w.]*)*$/u
 
-// A platform as RubyGems writes one, and so the platform a gem's file is
-// named by: what RubyGems 3 and 4 both read it as, written back the same.
-// `ruby` and `current`, which it reads as no platform and as the host's,
-// are not one.
+// What RubyGems 3 and 4 both read back as written: the platform a gem's
+// file is named by. `ruby` and `current` mean no platform and the host's.
 export const isGemPlatform = (text) => typeof text === 'string' && SHAPE.test(text) && text !== 'ruby' && text !== 'current'
   && platformOf(text, 3) === text && platformOf(text, 4) === text

@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
-import { PACKAGIST_REPO, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
+import { PACKAGIST_REPO, RUBYGEMS, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
 import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
-import { lookUpGemRepos } from '../rubygems/repos.js'
 
 const PACKAGES_AT_ONCE = 8
 
@@ -44,6 +44,31 @@ async function fetchSoldeerRepo(name) {
   return githubRepoOfUrl(answer.data[0]?.github_url) ?? null
 }
 
+// rubygems.org's API takes 10 requests a second from one address, whichever
+// call asks.
+const GEM_PACE_MS = 100
+let nextGemAt = 0
+async function pacedForGems() {
+  const now = Date.now()
+  const at = Math.max(now, nextGemAt)
+  nextGemAt = at + GEM_PACE_MS
+  if (at > now) await sleep(at - now)
+}
+
+// Rails' gems link a page in the repo's tree, not the repo itself.
+const TREE_PAGE = /^(?<repo>(?i:https?:\/\/github\.com)\/[\w-]+\/[\w.-]+)\/(?:tree|blob)\//u
+const repoOfLink = (url) => githubRepoOfUrl(url) ?? githubRepoOfUrl(TREE_PAGE.exec(typeof url === 'string' ? url : '')?.groups.repo)
+
+// `source_code_uri` has the gemspec's metadata, or what the owners set on
+// rubygems.org.
+async function fetchGemRepo(name) {
+  await pacedForGems()
+  const answer = await request(buildUrl(RUBYGEMS, ['api', 'v1', 'gems', `${name}.json`]), { as: 'json' }).catch(recover(isNotFound, null))
+  if (answer === null) return null
+  assert.ok(answer?.name === name, `advisories: rubygems.org answered for ${show(answer?.name)}, not ${name}`)
+  return [answer.source_code_uri, answer.homepage_uri].map(repoOfLink).find((repo) => repo !== undefined) ?? null
+}
+
 // The repo the newest version asked of each package names, from that
 // version's document, kept for good (getVersionDocument): null where the
 // registry does not have that version, or it names no GitHub repo.
@@ -56,6 +81,6 @@ async function npmRepo(name, version, cache) {
 // call's `cache`.
 export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { cache })
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
-export const gemRepos = (names, { cache }) => lookUpGemRepos('advisories', names, { cache })
+export const gemRepos = (names, { cache }) => cachedRepos('rubygems/repos', names, (missing) => fetchEach(missing, fetchGemRepo), cache)
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)

@@ -105,12 +105,10 @@ export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` an
 const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?!\.)[!-'*-.0-[\]-~]+$/u))
 // Pod::Version's pattern, as Podfile.lock writes a version.
 const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
-// A gem's name as Gem::SpecificationPolicy#validate_name takes one, and
-// @preventive/lockfile reads it: letters, digits, `.`, `-` and `_`, a
-// letter among them, none of the three others first; 256 at most, ours.
+// Gem::SpecificationPolicy#validate_name's rule; the 256 cap is ours.
 export const assertGemName = assertion('a gem name', (value) => matches(/^(?=.{1,256}$)[A-Za-z\d][\w.-]*$/u)(value) && /[A-Za-z]/u.test(value))
-// Gem::Version's pattern as Gemfile.lock writes a version: RubyGems writes
-// a `-` as `.pre.`, and Bundler reads one as the start of a platform.
+// As Gemfile.lock writes one: no `-`, which Bundler reads as the start of a
+// platform.
 export const assertGemVersion = assertion('a RubyGems version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z]+)*$/u))
 // A package's name and version, as a registry's getters take them.
 const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {

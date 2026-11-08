@@ -110,7 +110,6 @@
     "src/remote.js",
     "src/rubygems/gem.js",
     "src/rubygems/platform.js",
-    "src/rubygems/repos.js",
     "src/rubygems/version.js",
     "src/semver-peer.cjs",
     "src/semver.js",
