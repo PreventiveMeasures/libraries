@@ -9,39 +9,20 @@ const RN_CONFIG = 'rn.config.json'
 // A glob less a leading `./` and a trailing `/`.
 const trimmed = (glob) => glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '')
 
-// Whether `glob` holds, or may hold, what Node's glob reads otherwise than this, taken as unsupported without
-// telling the cases apart: a class or escape (`[`, `]`, `\\`), an extglob (or an operator and a `(` that braces
-// may join), a `**` within a name, or a brace of no list (`{a}`, `{1..3}`, `${a,b}`, `{{a,b}}`, unpaired).
-function unsupported(glob) {
-  let lists = glob
-  for (let before; before !== lists;) [before, lists] = [lists, lists.replaceAll(/\{[^{}]*,[^{}]*\}/gu, '')]
-  return /[[\]\\]|\$\{|[!*+?@]\(|[^/]\*\*|\*\*[^/]/u.test(glob) || /[{}]/u.test(lists) ||
-    (/[!*+?@][,{}]/u.test(glob) && /[,{}]\(/u.test(glob))
-}
+// The globs supported, which every glob reads alike: names of letters, digits and `_.@+-`, with `*`, `?`, `**`
+// as a whole name and `{a,b}` lists, none nested. Anything else (a class, an escape, an extglob, a range, a lone
+// or nested brace) is refused, as Node's glob may read it otherwise.
+const SIMPLE = /^(?:[\p{L}\p{N}_.@+\-/*?]|\{[\p{L}\p{N}_.@+\-/*?]*,[\p{L}\p{N}_.@+\-/*?,]*\})*$/u
+const isSimple = (glob) => SIMPLE.test(glob) && !/[^/]\*\*|\*\*[^/]/u.test(glob)
+// No prototype: a name such as `constructor` or `__proto__` is no token.
+const TOKENS = { __proto__: null, '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]', '{': '(?:', ',': '|', '}': ')' }
 
 // A path glob as a RegExp, or null where it is unsupported. `**` matches dot files too (Node's misses pnpm's
 // .pnpm). With `within`, a glob also matches what is inside a directory it matches (`secrets` all of secrets/).
 export function globRegExp(glob, within = false) {
   const bare = trimmed(glob)
-  if (unsupported(bare)) return null
-  let depth = 0
-  const token = (part) => {
-    if (part === '**/') return '(?:.*/)?'
-    if (part === '**') return '.*'
-    if (part === '*') return '[^/]*'
-    if (part === '?') return '[^/]'
-    if (part === ',') return depth > 0 ? '|' : ','
-    if (part === '{') {
-      depth++
-      return '(?:'
-    }
-    if (part === '}') {
-      depth--
-      return ')'
-    }
-    return RegExp.escape(part)
-  }
-  const source = bare.replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, token)
+  if (!isSimple(bare)) return null
+  const source = bare.replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, (part) => TOKENS[part] ?? RegExp.escape(part))
   // `s`: a name may hold a line break, which `.*` (`**`, a directory's paths) must match too.
   return new RegExp(within ? `^(?:${source})(?:/.*)?$` : `^${source}$`, 'su')
 }
