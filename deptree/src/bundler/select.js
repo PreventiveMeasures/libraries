@@ -4,8 +4,6 @@
 import { DeptreeError, quote } from '../error.js'
 import { bestFor, isLocked, parsePlatform } from './platform.js'
 
-export const about = (key) => `specs[${quote(key)}]`
-
 const platformOf = (text) => (text === 'ruby' ? 'ruby' : parsePlatform(text))
 
 // Bundler resolves anew a lockfile its machine is not among the PLATFORMS
@@ -29,9 +27,10 @@ export function installedSpecs(lock, machine, shown) {
     seen.add(name)
     const keys = lock.gems[name]
     if (keys === undefined) continue
+    const where = `gems[${quote(name)}]`
     const { best, tied } = bestFor(keys.map((key) => ({ key, platform: platformOf(lock.specs[key].platform) })), machine)
-    if (tied !== undefined) throw new DeptreeError(`${tied.map(({ key }) => quote(key)).join(' and ')} are as specific to ${quote(shown)}, of which Bundler installs either or both`, `gems[${quote(name)}]`)
-    if (best === undefined) throw new DeptreeError(`no gem of it is of a platform ${quote(shown)} takes, for which Bundler resolves anew`, `gems[${quote(name)}]`)
+    if (tied !== undefined) throw new DeptreeError(`${tied.map(({ key }) => quote(key)).join(' and ')} are as specific to ${quote(shown)}, of which Bundler installs either or both`, where)
+    if (best === undefined) throw new DeptreeError(`no gem of it is of a platform ${quote(shown)} takes, for which Bundler resolves anew`, where)
     chosen.add(best.key)
     queue.push(...Object.keys(lock.specs[best.key].dependencies))
   }

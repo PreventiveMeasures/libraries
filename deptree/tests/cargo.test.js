@@ -335,11 +335,11 @@ describe('a .crate', () => {
     const one = await crate('gz', '1.0.0')
     const second = await compress(pack([{ name: 'gz-1.0.0/more', data: encoder.encode('more') }]), 'gzip')
     const refusedBytes = (bytes, message) => assert.rejects(build([gzipped('gz', '1.0.0', bytes)]), message)
-    await refusedBytes(new Uint8Array([...one.bytes, ...second]), /: the \.crate is not one gzip member, which cargo reads the first of alone$/u)
+    await refusedBytes(new Uint8Array([...one.bytes, ...second]), /: the \.crate is not one gzip member, of which cargo reads the first alone$/u)
     await refusedBytes(new Uint8Array([...one.bytes, 0, 0, 0, 0]), /: the \.crate is not one gzip member/u)
     const crc = new Uint8Array(one.bytes)
     crc[3] |= 0x02
-    await refusedBytes(crc, /: a gzip header with a header CRC or a reserved flag is not supported$/u)
+    await refusedBytes(crc, /: the \.crate's gzip header has a header CRC or a reserved flag, which is not supported$/u)
     for (const at of [8, 1]) {
       const trailer = new Uint8Array(one.bytes)
       trailer[trailer.length - at] ^= 1

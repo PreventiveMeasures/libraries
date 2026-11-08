@@ -6,28 +6,22 @@ import { Vfs } from '@preventive/vfs'
 import { eachConcurrently } from '../concurrent.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
-import { fold, mount, writeFiles } from '../mount.js'
+import { checkNoDir, mount, writeFiles } from '../mount.js'
 import { installGem } from './extract.js'
 import { readGem } from './gem.js'
 import { checkHost, inputsOf, partialOf } from './inputs.js'
-import { about, checkPlatforms, installedSpecs } from './select.js'
+import { checkPlatforms, installedSpecs } from './select.js'
 import { DEFAULT, sameRequirements, satisfiedBy } from './version.js'
 
 const RUBYGEMS_ORG = 'https://rubygems.org/'
 
+const about = (key) => `specs[${quote(key)}]`
+
 // A refusal `partial` skips the gem for.
 class SkipRefusal extends DeptreeError {}
-
-// A Vfs holding the install path already is refused: Bundler takes what is
-// in it as installed, and installs beside it.
-function checkNoPath(vfs, path, folded) {
-  let at = ''
-  for (const segment of path.split('/')) {
-    const there = vfs.isDirectory(at || '/') ? vfs.readdir(at || '/').find((name) => name === segment || (folded && fold(name) === fold(segment))) : undefined
-    if (there === undefined) return
-    at = `${at}/${there}`
-  }
-  throw new DeptreeError(`${quote(path)} is there already, which Bundler takes what is in as installed`, `vfs[${quote(at)}]`)
+function skip(skipped, key, error) {
+  if (skipped === undefined || !(error instanceof SkipRefusal)) throw error
+  skipped.set(key, error.message)
 }
 
 // Bundler 2.3 and later install the Bundler BUNDLED WITH names into the
@@ -63,9 +57,8 @@ function checkSpec(spec, locked, host, where) {
   if (spec.extensions.length > 0) throw new SkipRefusal(`a gem with extensions to build, ${spec.extensions.map(quote).join(', ')}, whose directory holds what they make, is not supported`, where)
 }
 
-async function installAll(gems, host, skipped) {
+async function installAll(gems, host, folded, skipped) {
   const contents = new Map()
-  const folded = host.os === 'darwin'
   await eachConcurrently(gems, async ({ key, spec: locked }) => {
     const where = about(key)
     const bytes = await getGem(locked.name, locked.version, locked.platform, locked.checksum)
@@ -75,11 +68,10 @@ async function installAll(gems, host, skipped) {
     try {
       checkSpec(spec, locked, host, where)
     } catch (error) {
-      if (skipped === undefined || !(error instanceof SkipRefusal)) throw error
-      skipped.set(key, error.message)
+      skip(skipped, key, error)
       return
     }
-    contents.set(key, { bytes, checksum, spec, dir: installGem(entries, spec, folded, where) })
+    contents.set(key, { bytes, checksum, spec, dir: installGem(await entries(), spec, folded, where) })
   }, ({ key }) => about(key))
   return contents
 }
@@ -108,8 +100,10 @@ export async function buildBundlerTree(options) {
   const partial = partialOf(all)
   const host = checkHost(all.host)
   const folded = host.os === 'darwin'
-  // Refused before anything is fetched; mount checks again.
-  if (into !== undefined) checkNoPath(into, inputs.path, folded)
+  // Bundler takes what is in its path as installed, and installs beside it;
+  // refused before anything is fetched, and by mount again.
+  const checkNoPath = checkNoDir(inputs.path, quote(inputs.path), 'which Bundler takes what is in as installed')
+  if (into !== undefined) checkNoPath(into, folded)
   const lock = parseGemfileLock(inputs.lockfile)
   checkBundledWith(lock, host)
   checkPlatforms(lock, host.machine, host.platform)
@@ -121,14 +115,13 @@ export async function buildBundlerTree(options) {
     if (source.type === 'path') continue
     if (source.type === 'git') {
       const detail = `a gem from git, ${quote(source.remote)}, which Bundler checks out with git, is not supported`
-      if (skipped === undefined) throw new DeptreeError(detail, about(key))
-      skipped.set(key, `${about(key)}: ${detail}`)
+      skip(skipped, key, new SkipRefusal(detail, about(key)))
       continue
     }
     if (source.remote !== RUBYGEMS_ORG) throw new DeptreeError(`a gem from ${quote(String(source.remote))} is not supported: only those from ${RUBYGEMS_ORG} are`, about(key))
     gems.push({ key, spec, source })
   }
-  const contents = await installAll(gems, host, skipped)
+  const contents = await installAll(gems, host, folded, skipped)
   const scope = `${inputs.path}/${host.scope}`
   const stats = { specs: Object.keys(lock.specs).length, installed: contents.size, files: 0, bytes: 0, links: 0 }
   // In the lockfile's order, before writeTree lets each gem go.
@@ -142,5 +135,5 @@ export async function buildBundlerTree(options) {
     return { name, version, platform, reason: skipped.get(key), paths: git ? [`${scope}/bundler/gems`, `${scope}/cache/bundler/git`] : [`${scope}/gems/${key}`, `${scope}/cache/${key}.gem`] }
   })
   const vfs = writeTree(gems, contents, scope, stats)
-  return { vfs: mount(vfs, into, folded, (target) => checkNoPath(target, inputs.path, folded)), stats, installed, skipped: left }
+  return { vfs: mount(vfs, into, folded, checkNoPath), stats, installed, skipped: left }
 }

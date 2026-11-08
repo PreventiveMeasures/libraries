@@ -4,8 +4,7 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { fold } from '../mount.js'
-
-const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i])
+import { sameFile } from '../tarball.js'
 
 const dirname = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
@@ -32,7 +31,7 @@ class GemDir {
   constructor(folded) {
     this.key = folded ? fold : (name) => name
     // Each node by its path's key: its path, and a directory's or a file's
-    // mode, a file's data, a link's target.
+    // mode, a file's tar entry, a link's target.
     this.nodes = new Map([['', { path: '', type: 'directory', mode: 0o755 }]])
     // The longest a chain of links resolves through: Linux's 40, macOS' 32.
     this.maxLinks = folded ? 32 : 40
@@ -99,11 +98,10 @@ function permissions(entry, here) {
 }
 
 // extract_tar_gz: each entry where install_location puts it; what rm_rf
-// would remove refused, but the same file again; its directory made once;
-// each link, after every entry, where what it leads to is there.
+// would remove refused, but the same file again; each link, after every
+// entry, where what it leads to is there.
 function extract(entries, dir, where) {
-  const made = new Set()
-  const links = []
+  const links = new Map()
   for (const entry of entries) {
     const here = `${where}: ${quote(entry.name)}`
     if (entry.name.startsWith('/') || entry.name.startsWith('~')) refuse('a name RubyGems reads as outside the gem\'s directory, which it refuses', here)
@@ -113,22 +111,19 @@ function extract(entries, dir, where) {
       if (entry.linkname.startsWith('/') || entry.linkname.startsWith('~')) refuse('a link RubyGems reads as leading out of the gem\'s directory, which it refuses', here)
       const target = expand(dirname(destination), entry.linkname)
       if (target === undefined || target === '') refuse('a link leading out of the gem\'s directory, which RubyGems refuses', here)
-      if (links.some((link) => dir.key(link.path) === dir.key(destination))) refuse('a link twice, which RubyGems fails to make again', here)
-      links.push({ path: destination, linkname: entry.linkname, target, here })
+      if (links.has(dir.key(destination))) refuse('a link twice, which RubyGems fails to make again', here)
+      links.set(dir.key(destination), { path: destination, linkname: entry.linkname, target, here })
     }
     const there = dir.get(destination)
-    if (there !== undefined && !(entry.type === 'file' && there.type === 'file' && there.entry.mode === entry.mode && sameBytes(there.entry.data, entry.data))) {
+    if (there !== undefined && !(entry.type === 'file' && there.type === 'file' && sameFile(there.entry, entry))) {
       refuse(`a ${entry.type} where RubyGems has made a ${there.type} already, which it removes first`, here)
     }
-    if (links.some((link) => link.path !== destination && dir.key(link.path) === dir.key(destination))) refuse('a link\'s place, which RubyGems fails to make the link in', here)
+    if (![undefined, destination].includes(links.get(dir.key(destination))?.path)) refuse('a link\'s place, which RubyGems fails to make the link in', here)
     const mkdir = entry.type === 'directory' ? destination : dirname(destination)
-    if (!made.has(dir.key(mkdir))) {
-      dir.mkdirP(mkdir, entry.type === 'directory' ? permissions(entry, here) : undefined, here)
-      made.add(dir.key(mkdir))
-    }
-    if (entry.type === 'file' && there === undefined) dir.add({ path: destination, type: 'file', mode: permissions(entry, here) & ~UMASK, data: entry.data, entry }, here)
+    dir.mkdirP(mkdir, entry.type === 'directory' ? permissions(entry, here) : undefined, here)
+    if (entry.type === 'file' && there === undefined) dir.add({ path: destination, type: 'file', mode: permissions(entry, here) & ~UMASK, entry }, here)
   }
-  for (const { path, linkname, target, here } of links) {
+  for (const { path, linkname, target, here } of links.values()) {
     const found = dir.resolve(target)
     if (found === null) refuse('a link leading out of the gem\'s directory through another', here)
     if (found === undefined) continue
@@ -149,7 +144,7 @@ function makeExecutable(dir, { bindir, executables }, where) {
   }
 }
 
-// The gem's directory, as writeFiles takes it.
+// The gem's directories, each with its mode, its files and its links.
 export function installGem(entries, spec, folded, where) {
   const dir = new GemDir(folded)
   extract(entries, dir, where)
@@ -160,7 +155,7 @@ export function installGem(entries, spec, folded, where) {
   for (const node of dir.nodes.values()) {
     if (node.path === '') continue
     if (node.type === 'directory') dirs.push(node)
-    else if (node.type === 'file') files.set(node.path, { data: node.data, mode: node.mode })
+    else if (node.type === 'file') files.set(node.path, { data: node.entry.data, mode: node.mode })
     else links.set(node.path, node.target)
   }
   return { dirs, files, links }

@@ -5,7 +5,7 @@
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE, isInside } from '../mount.js'
-import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readUnlinked } from '../project.js'
 
 // 1.94 to 1.99 vendor alike, but for the `$comment` 1.97 and later write.
 const VERSION = /^1\.(9[4-9])\.(?:0|[1-9]\d*)$/u
@@ -18,24 +18,10 @@ export function checkHost(host) {
   return { cargo: host.cargo, os: host.os, comment: Number(minor) >= 97 }
 }
 
-// A file cargo reads, by its path from the root, as text, or undefined where
-// there is none: a link at it or on the way to it is refused, so that nothing
-// is read from outside the project's view.
-export function readUnlinked(project, file, what) {
-  const segments = file.split('/')
-  for (let i = 1; i <= segments.length; i++) {
-    const path = segments.slice(0, i).join('/')
-    const type = typeOf(project, `/${path}`, false)
-    if (type === undefined) return undefined
-    if (type === 'symlink') throw new DeptreeError(`a link where cargo reads ${what} is not supported`, quote(path))
-  }
-  return readText(project, `/${file}`, file)
-}
-
 // Cargo reads .cargo/config where it is, in .cargo/config.toml's stead.
 function readConfig(project) {
   for (const file of ['.cargo/config', '.cargo/config.toml']) {
-    const text = readUnlinked(project, file, 'its config')
+    const text = readUnlinked(project, file, 'cargo', 'its config')
     if (text !== undefined) return { text, file }
   }
   return { text: undefined, file: '.cargo/config.toml' }
@@ -69,7 +55,7 @@ export function inputsOf(options) {
     if (project === undefined) throw new TypeError(LOCKFILE)
     checkProject(project)
     checkLeftOut({ manifests, config }, 'all')
-    const lock = readUnlinked(project, 'Cargo.lock', 'its lockfile')
+    const lock = readUnlinked(project, 'Cargo.lock', 'cargo', 'its lockfile')
     if (lock === undefined) throw new DeptreeError('the project has no Cargo.lock, without which cargo resolves every dependency anew')
     return { lockfile: lock, config: readConfig(project), project, given: undefined }
   }

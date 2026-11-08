@@ -1,9 +1,9 @@
 // A tar as Gem::Package::TarReader reads it, headers alone, held to read
 // alike by @preventive/archive's reader, which refuses what it refuses.
 
-import { utf8toString } from '@exodus/bytes/utf8.js'
-import { ArchiveError, unpack } from '@preventive/archive/tar.js'
+import { untar } from '../archive.js'
 import { DeptreeError, quote } from '../error.js'
+import { decodeUtf8 } from '../project.js'
 
 const TYPES = { 0: 'file', 2: 'symlink', 5: 'directory' }
 
@@ -32,7 +32,7 @@ function numbers(block, here) {
     if (read[key] === undefined) throw new DeptreeError(`its ${key} is no octal string, which RubyGems refuses`, here)
   }
   for (const offset of [108, 116]) {
-    if ((block[offset] === 0x80 || block[offset] === 0xff) || strictOct(block, offset, 8) !== undefined) continue
+    if (block[offset] === 0x80 || block[offset] === 0xff || strictOct(block, offset, 8) !== undefined) continue
     throw new DeptreeError('its uid or gid is no octal string, which RubyGems refuses', here)
   }
   return read
@@ -40,11 +40,7 @@ function numbers(block, here) {
 
 function nameOf(raw, here) {
   if (raw.includes(0)) throw new DeptreeError('a name with a NUL in it, which RubyGems refuses', here)
-  try {
-    return utf8toString(raw)
-  } catch {
-    throw new DeptreeError('a name that is not UTF-8', here)
-  }
+  return decodeUtf8(raw, 'a name that is not UTF-8', here)
 }
 
 // TarReader::Entry#full_name: the prefix, a `/`, the name.
@@ -57,16 +53,9 @@ function fullName(block, here) {
 
 // Each entry, { name, type, mode, linkname, data }, `name` as RubyGems
 // reads it; `what` is the tar, for a refusal.
-export function readTar(tar, what, where, options) {
-  let entries
-  try {
-    entries = unpack(tar, options)
-  } catch (error) {
-    if (error instanceof ArchiveError) throw new DeptreeError(`${what} cannot be read: ${error.message}`, where, { cause: error })
-    throw error
-  }
+export function readTar(tar, what, where) {
   let offset = 0
-  return entries.map((entry) => {
+  return untar(tar, what, where).map((entry) => {
     const here = `${where}: ${quote(entry.storedName)}`
     if (entry.extended.length > 0) throw new DeptreeError('an extended header, which RubyGems reads as an entry of its own', here)
     const block = tar.subarray(offset, offset + 512)

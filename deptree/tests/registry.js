@@ -31,15 +31,17 @@ export async function tarball(name, version, files = {}, { top = 'package', mani
 }
 
 // A tar of files under their names as given, which pack would refuse: a
-// ustar header each, of `type` or a file's, 0o644, owned by root, from the
-// epoch, with the data's size unless `size` gives another.
+// ustar header each, of `type` or a file's, 0o644 unless `mode` gives
+// another, owned by root, from the epoch, with the data's size unless `size`
+// gives another, and a link's `linkname`.
 export function rawTar(entries) {
   const blocks = []
-  for (const { name, data, type = '0', size = Buffer.byteLength(data) } of entries) {
+  for (const { name, data = '', type = '0', mode = 0o644, linkname = '', size = Buffer.byteLength(data) } of entries) {
     const header = Buffer.alloc(512)
     header.write(name, 0)
-    for (const [at, value, width] of [[100, 0o644, 7], [108, 0, 7], [116, 0, 7], [124, size, 11], [136, 0, 11]]) header.write(`${value.toString(8).padStart(width, '0')}\0`, at)
+    for (const [at, value, width] of [[100, mode, 7], [108, 0, 7], [116, 0, 7], [124, size, 11], [136, 0, 11]]) header.write(`${value.toString(8).padStart(width, '0')}\0`, at)
     header.write(`        ${type}`, 148)
+    header.write(linkname, 157)
     header.write('ustar\u000000', 257)
     header.write(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0`, 148)
     blocks.push(header, Buffer.from(data), Buffer.alloc(-Buffer.byteLength(data) & 511))

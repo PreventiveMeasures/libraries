@@ -68,8 +68,9 @@ function dependencies(node, where) {
     const name = string(entries.get('name'), `${field}.name`, where)
     if (LINE_BREAK.test(name) || /[<>]/u.test(name)) refuse(`${field}.name ${quote(name)} is one RubyGems refuses to install`, where)
     // Gem::Dependency#type is :runtime where it is nil.
-    const type = isNull(entries.get('type')) ? ':runtime' : entries.get('type').value
-    if (!isNull(entries.get('type')) && (entries.get('type').type !== 'symbol' || ![':runtime', ':development'].includes(type))) refuse(`${field}.type is neither :runtime nor :development, which RubyGems refuses to install`, where)
+    const typed = entries.get('type')
+    const type = isNull(typed) ? ':runtime' : typed.value
+    if (!isNull(typed) && (typed.type !== 'symbol' || ![':runtime', ':development'].includes(type))) refuse(`${field}.type is neither :runtime nor :development, which RubyGems refuses to install`, where)
     // #requirement, or where it is nil, the legacy version_requirements.
     if (entries.has('version_requirement')) refuse(`${field} has a version_requirement, which RubyGems reads as of old`, where)
     const required = isNull(entries.get('requirement')) ? entries.get('version_requirements') : entries.get('requirement')
@@ -99,7 +100,7 @@ export function readSpec(text, where) {
   // verify_spec holds its to_s to digits; nil is -1 there.
   const specVersion = fields.get('specification_version')
   if (specVersion?.kind !== 'scalar' || !['integer', 'string'].includes(specVersion.type) || !/^\d+$/u.test(specVersion.value)) refuse('specification_version is not a number, which RubyGems refuses to install', where)
-  const requirePaths = isNull(fields.get('require_paths')) ? ['lib'] : strings(fields.get('require_paths'), 'require_paths', where)
+  const requirePaths = strings(fields.get('require_paths'), 'require_paths', where)
   const extensions = strings(fields.get('extensions'), 'extensions', where)
   for (const [field, list] of [['require_paths', requirePaths], ['extensions', extensions]]) {
     if (list.some((item) => LINE_BREAK.test(item))) refuse(`${field} has a line break, which RubyGems refuses to install`, where)

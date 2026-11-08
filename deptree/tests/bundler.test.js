@@ -344,7 +344,7 @@ describe('a .gem', () => {
     await refused(withData(new Uint8Array([...good.data, ...good.data])), /: data\.tar\.gz is not one gzip member, of which Zlib reads the first alone$/u)
     const crc = new Uint8Array(good.data)
     crc[3] |= 0x02
-    await refused(withData(crc), /: data\.tar\.gz has a gzip flag Zlib refuses$/u)
+    await refused(withData(crc), /: data\.tar\.gz's gzip header has a header CRC or a reserved flag, which is not supported$/u)
     const trailer = new Uint8Array(good.data)
     trailer[trailer.length - 5] ^= 1
     await refused(withData(trailer), /: data\.tar\.gz's gzip trailer does not match its data$/u)

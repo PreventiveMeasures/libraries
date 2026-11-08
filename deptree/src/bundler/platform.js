@@ -99,7 +99,7 @@ function readParts(text, reading) {
   return [os === undefined ? lone : x86, name, osVersion]
 }
 
-const written = ([cpu, os, version]) => [cpu, os, version].filter((part) => part !== undefined).join('-')
+const written = (parts) => parts.filter((part) => part !== undefined).join('-')
 
 // A platform both readings take as written, so that each release matches
 // it alike: what @preventive/lockfile holds a lockfile's to.

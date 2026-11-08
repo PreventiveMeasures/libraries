@@ -147,8 +147,8 @@ function foldBlock(lines) {
   return value
 }
 
-const isBlank = (line) => /^ *$/u.test(line)
-const indentOf = (line) => /^ */u.exec(line)[0].length
+export const isBlank = (line) => /^ *$/u.test(line)
+export const indentOf = (line) => /^ */u.exec(line)[0].length
 
 // A block scalar whose header, `|` or `>`, its indentation indicator and
 // its chomping, is `header`, and whose lines, `lines`, follow it, of a node

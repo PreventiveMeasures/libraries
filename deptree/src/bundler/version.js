@@ -23,7 +23,7 @@ function startIn(text, [from, to], follows) {
 function canonical(version) {
   let from = version.length
   while (version[from - 1] === '.' || version[from - 1] === '0') from--
-  const end = from < version.length ? startIn(version, [from, version.length], (char) => char !== undefined && /[A-Za-z.]/u.test(char)) : undefined
+  const end = startIn(version, [from, version.length], (char) => char !== undefined && /[A-Za-z.]/u.test(char))
   const text = version.slice(0, end)
   if (!isPrerelease(version)) return partition(text)
   for (const run of zeroRuns(text)) {
@@ -86,13 +86,10 @@ export function satisfiedBy(version, requirements) {
 // and an equal version; where any is `~>`, those of `~>` the same version
 // as written, as #eql? holds them.
 const sortKey = ([op, version]) => `[${JSON.stringify(op)}, #<Gem::Version ${JSON.stringify(version)}>]`
-const sorted = (requirements) => requirements.map((pair) => [sortKey(pair), pair]).sort(([a], [b]) => order(a, b)).map(([, pair]) => pair)
+const sorted = (requirements) => requirements.toSorted((p, q) => order(sortKey(p), sortKey(q)))
 export function sameRequirements(a, b) {
   const [x, y] = [sorted(a), sorted(b)]
-  if (x.length !== y.length || x.some(([op, version], i) => op !== y[i][0] || compareVersions(version, y[i][1]) !== 0)) return false
-  const tilde = (list) => list.filter(([op]) => op === '~>')
-  const [tx, ty] = [tilde(x), tilde(y)]
-  return tx.every(([, version], i) => version === ty[i][1])
+  return x.length === y.length && x.every(([op, version], i) => op === y[i][0] && compareVersions(version, y[i][1]) === 0 && (op !== '~>' || version === y[i][1]))
 }
 
 // What Gem::Requirement.new makes of none: `>= 0`.

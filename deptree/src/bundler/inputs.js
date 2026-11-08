@@ -3,7 +3,7 @@
 
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE, isInside } from '../mount.js'
-import { checkHostKeys, checkProject, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkProject, readUnlinked, typeOf } from '../project.js'
 import { parsePlatform } from './platform.js'
 
 // Before 2.5.12 Bundler installs no default gem of its Ruby; RubyGems before
@@ -55,19 +55,6 @@ function readConfig(text) {
   return path
 }
 
-// A file Bundler reads, or undefined where there is none; a link at it or
-// on the way to it refused, so that nothing is read from outside the view.
-function readUnlinked(project, file) {
-  const segments = file.split('/')
-  for (let i = 1; i <= segments.length; i++) {
-    const at = segments.slice(0, i).join('/')
-    const type = typeOf(project, `/${at}`, false)
-    if (type === undefined) return undefined
-    if (type === 'symlink') throw new DeptreeError('a link where Bundler reads a file is not supported', quote(at))
-  }
-  return readText(project, `/${file}`, file)
-}
-
 // The Gemfile Bundler finds first, gems.rb before Gemfile, and its lockfile.
 export function lockfileOf(project) {
   const gemfile = ['gems.rb', 'Gemfile'].find((name) => typeOf(project, `/${name}`) === 'file')
@@ -79,10 +66,11 @@ const DEFAULT_PATH = 'vendor/bundle'
 
 // The install path in a project: `.bundle/config`'s BUNDLE_PATH, or else
 // vendor/bundle.
-export function bundlePathOf(project) {
-  const text = readUnlinked(project, '.bundle/config')
-  return (text === undefined ? undefined : readConfig(text)) ?? DEFAULT_PATH
+function configuredPath(project) {
+  const text = readUnlinked(project, '.bundle/config', 'Bundler')
+  return text === undefined ? undefined : readConfig(text)
 }
+export const bundlePathOf = (project) => configuredPath(project) ?? DEFAULT_PATH
 
 const LOCKFILE = 'lockfile must be the Gemfile.lock text, or left out where project is given'
 
@@ -93,10 +81,9 @@ export function inputsOf(options) {
     if (project === undefined) throw new TypeError(LOCKFILE)
     checkProject(project)
     const file = lockfileOf(project)
-    const text = readUnlinked(project, file)
+    const text = readUnlinked(project, file, 'Bundler')
     if (text === undefined) throw new DeptreeError(`the project has no ${file}, without which Bundler resolves every gem anew`)
-    const configured = readUnlinked(project, '.bundle/config')
-    const read = configured === undefined ? undefined : readConfig(configured)
+    const read = configuredPath(project)
     if (path !== undefined && read !== undefined && read !== path) throw new DeptreeError(`BUNDLE_PATH is ${quote(read)}, where Bundler installs, not ${quote(path)}`, '.bundle/config')
     return { lockfile: text, path: path ?? read ?? DEFAULT_PATH }
   }

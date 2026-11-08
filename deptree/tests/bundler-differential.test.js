@@ -13,6 +13,7 @@ import { parsePsych } from '../src/bundler/yaml.js'
 import { readSpec } from '../src/bundler/spec.js'
 import { gemOf } from './bundler-fixture.js'
 import { bundlerVersion, reference } from './bundler-reference.js'
+import { rawTar } from './registry.js'
 
 // Bundler and RubyGems themselves against the port here: random .gem files,
 // installed by Bundler's own installer as `bundle install` runs it; random
@@ -33,23 +34,6 @@ function random(seed) {
     return (state >>> 16) % n
   }
   return { next, pick: (items) => items[next(items.length)] }
-}
-
-// A ustar header as any tar writes one, of a name, mode, type and link
-// target as given, which @preventive/archive's pack would hold to more.
-function ustar(entries) {
-  const blocks = []
-  for (const { name, mode = 0o644, type = '0', linkname = '', data = Buffer.alloc(0) } of entries) {
-    const header = Buffer.alloc(512)
-    header.write(name, 0)
-    for (const [at, value, width] of [[100, mode, 7], [108, 0, 7], [116, 0, 7], [124, data.length, 11], [136, 0, 11]]) header.write(`${value.toString(8).padStart(width, '0')}\0`, at)
-    header.write(`        ${type}`, 148)
-    header.write(linkname, 157)
-    header.write('ustar\u000000', 257)
-    header.write(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0`, 148)
-    blocks.push(header, data, Buffer.alloc(-data.length & 511))
-  }
-  return new Uint8Array(Buffer.concat([...blocks, Buffer.alloc(1024)]))
 }
 
 const DIRS = ['lib', 'lib/x', 'bin', 'exe', 'd', '.hid', 'a b', 'lib/x/y']
@@ -89,12 +73,12 @@ async function gemCaseOf(r, i) {
   }
   const executables = NAMES.filter(() => r.next(4) === 0)
   const spec = { name: `g${i}`, version: '1.0.0', executables, bindir: r.pick(['bin', 'exe', 'lib/x', '.']) }
-  return { bytes: (await gemOf(spec, { tar: ustar(entries) })).bytes, spec, entries }
+  return { bytes: (await gemOf(spec, { tar: rawTar(entries) })).bytes, spec, entries }
 }
 
 async function portInstall(bytes) {
   const { spec, entries } = await readGem(bytes, 'gem')
-  const { dirs, files, links } = installGem(entries, spec, false, 'gem')
+  const { dirs, files, links } = installGem(await entries(), spec, false, 'gem')
   return [...dirs.map(({ path, mode }) => [path, 'directory', mode]), ...[...files].map(([path, { mode }]) => [path, 'file', mode]), ...[...links].map(([path, target]) => [path, 'symlink', target])]
 }
 
@@ -118,8 +102,8 @@ function portRead(yaml) {
 describe('the port, against Bundler and RubyGems', { skip: SKIP }, () => {
   it('leaves of each .gem what Bundler\'s installer does, where it does not refuse it', async () => {
     const r = random(9)
-    const cases = []
-    for (let i = 0; i < 300; i++) cases.push(await gemCaseOf(r, i))
+    // Each case takes what it does of `r` before its first await.
+    const cases = await Promise.all(Array.from({ length: 300 }, (_, i) => gemCaseOf(r, i)))
     const { install: expected } = reference({ install: cases.map(({ bytes }) => Buffer.from(bytes).toString('base64')) })
     let compared = 0
     let refused = 0
@@ -236,13 +220,12 @@ async function reachable() {
   }
 }
 
-const INSTALL_SKIP = SKIP || (!await reachable() && 'rubygems.org cannot be reached')
-
-describe('a bundle install, against the tree built from its lockfile', { skip: INSTALL_SKIP }, () => {
+describe('a bundle install, against the tree built from its lockfile', { skip: SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), 'deptree-bundler-'))
   after(() => rmSync(root, { recursive: true, force: true }))
 
   it('holds the same gems, files, modes and links under BUNDLE_PATH', async (t) => {
+    if (!await reachable()) return t.skip('rubygems.org cannot be reached')
     mkdirSync(join(root, '.bundle'))
     writeFileSync(join(root, 'Gemfile'), GEMFILE)
     writeFileSync(join(root, 'Gemfile.lock'), LOCKFILE)

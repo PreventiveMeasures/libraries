@@ -9,7 +9,7 @@ import { TomlError, parseToml } from '@preventive/lockfile/toml.js'
 import { dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE } from '../mount.js'
-import { readUnlinked } from './inputs.js'
+import { readUnlinked } from '../project.js'
 import { checkDefaultMembers, checkLists, explicitMembers, isExcluded, parts } from './members.js'
 
 export const fileOf = (dir) => (dir === '.' ? 'Cargo.toml' : `${dir}/Cargo.toml`)
@@ -50,7 +50,7 @@ export function parseAs(file, parse) {
 // A Cargo.toml's text and TOML, or undefined where there is none.
 function readRaw(project, dir) {
   const file = fileOf(dir)
-  const text = readUnlinked(project, file, 'a manifest')
+  const text = readUnlinked(project, file, 'cargo', 'a manifest')
   return text === undefined ? undefined : { text, doc: parseAs(file, () => parseToml(text)) }
 }
 

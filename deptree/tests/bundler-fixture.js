@@ -57,7 +57,7 @@ const bytesOf = (data) => (typeof data === 'string' ? encoder.encode(data) : dat
 export function dataEntries(files = {}, entries = []) {
   return [
     ...Object.entries(files).map(([name, file]) => {
-      const { data = '', ...fields } = typeof file === 'string' ? { data: file } : file
+      const { data = '', ...fields } = typeof file === 'string' || file instanceof Uint8Array ? { data: file } : file
       const type = fields.type ?? 'file'
       return { name, mode: 0o644, ...fields, ...(type === 'file' ? { data: bytesOf(data) } : {}) }
     }),

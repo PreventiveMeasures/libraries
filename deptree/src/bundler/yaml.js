@@ -3,7 +3,7 @@
 // 'map', entries }, { kind: 'seq', items } or { kind: 'scalar', type, value }.
 
 import { DeptreeError, quote } from '../error.js'
-import { blockScalar, closingQuote, fold, plainType, scanQuoted } from './scalar.js'
+import { blockScalar, closingQuote, fold, indentOf, isBlank, plainType, scanQuoted } from './scalar.js'
 
 const TAGS = new Set(['Specification', 'Version', 'Requirement', 'Dependency', 'Platform', 'Version::Requirement'].map((name) => `!ruby/object:Gem::${name}`))
 const SYMBOLS = new Set(['development', 'runtime'])
@@ -13,9 +13,7 @@ const MAX_DEPTH = 64
 // breaks of YAML 1.1 but LF, which libyaml would read lines by.
 const FORBIDDEN = /(?!\t)[\p{Cc}\u2028\u2029\uFEFF\uFFFE\uFFFF]/u
 
-const indentOf = (line) => /^ */u.exec(line)[0].length
 const textOf = (line) => line.slice(indentOf(line))
-const isBlank = (line) => /^ *$/u.test(line)
 const isEntry = (text) => text === '-' || text.startsWith('- ')
 // As YAML trims a line of a flow scalar: of spaces and tabs alone.
 const trimWhite = (text) => text.replace(/^[ \t]+|[ \t]+$/gu, '')
@@ -65,7 +63,7 @@ class Reader {
       if (this.at === this.lines.length) this.fail('nothing in the document', 0)
       node = this.block(-1)
     } else {
-      node = this.inline(0, 3 + indentOf(first.slice(3)), -1, {})
+      node = this.inline(0, 3 + indentOf(first.slice(3)), -1)
     }
     if (this.content(this.at) !== this.lines.length) this.fail('more after the document', this.content(this.at))
     return node
@@ -81,9 +79,9 @@ class Reader {
     const line = this.at
     const text = this.structural(line)
     const indent = indentOf(this.lines[line])
-    if (isEntry(text)) return this.sequence(indent, line, indent)
-    if (this.key(text, line) !== undefined) return this.mapping(indent, line, indent)
-    return this.inline(line, indent, parent, {})
+    if (isEntry(text)) return this.sequence(indent, line)
+    if (this.key(text, line) !== undefined) return this.mapping(indent, line)
+    return this.inline(line, indent, parent)
   }
 
   // `&anchor` and `!tag`, in either order, and what follows them.
@@ -113,7 +111,7 @@ class Reader {
     const next = this.lines[this.at]
     const indent = next === undefined ? -1 : indentOf(next)
     if (indent > parent) return this.block(parent)
-    if (value && indent === parent && isEntry(this.structural(this.at))) return this.sequence(indent, this.at, indent)
+    if (value && indent === parent && isEntry(this.structural(this.at))) return this.sequence(indent, this.at)
     if (tag !== undefined) this.fail(`${quote(tag)} on nothing`, line)
     return { kind: 'scalar', type: 'null', value: '' }
   }
@@ -128,7 +126,7 @@ class Reader {
 
   // A node from `col` of `line`, going on over lines deeper than `parent`;
   // of a sequence's `entry`, a mapping or sequence may start on its line.
-  inline(line, col, parent, { entry = false, value = false }) {
+  inline(line, col, parent, { entry = false, value = false } = {}) {
     this.enter(line)
     const props = this.properties(this.lines[line].slice(col), col, line)
     const { anchor, tag, text } = props
@@ -139,8 +137,8 @@ class Reader {
     else if (text.startsWith('|') || text.startsWith('>')) node = this.blockScalar(line, text, parent)
     else if (text === '[]') node = this.empty({ kind: 'seq', items: [] }, line)
     else if (text === '{}') node = this.empty({ kind: 'map', entries: new Map() }, line)
-    else if (bare && isEntry(text)) node = this.sequence(props.col, line, props.col)
-    else if (bare && this.key(text, line) !== undefined) node = this.mapping(props.col, line, props.col)
+    else if (bare && isEntry(text)) node = this.sequence(props.col, line)
+    else if (bare && this.key(text, line) !== undefined) node = this.mapping(props.col, line)
     else node = this.flowScalar(line, props.col, parent)
     if (tag !== undefined) {
       const kind = tag === '!binary' ? 'scalar' : 'map'
@@ -179,14 +177,14 @@ class Reader {
     return { key, rest: text.slice(colon.index + 1) }
   }
 
-  mapping(indent, line, col) {
+  mapping(indent, line) {
     this.enter(line)
     const entries = new Map()
     let at = line
-    for (let start = col; ; start = indent) {
-      const text = this.lines[at].slice(start)
+    for (;;) {
+      const text = this.lines[at].slice(indent)
       const found = this.key(text, at) ?? this.fail(`expected a mapping key, found ${quote(text)}`, at)
-      const { key, value } = found.complex ? this.complexEntry(at, start, indent) : { key: found.key, value: this.inline(at, start + text.length - found.rest.length + indentOf(found.rest), indent, { value: true }) }
+      const { key, value } = found.complex ? this.complexEntry(at, indent) : { key: found.key, value: this.inline(at, indent + text.length - found.rest.length + indentOf(found.rest), indent, { value: true }) }
       if (entries.has(key)) this.fail(`a second ${quote(key)}`, at)
       entries.set(key, value)
       at = this.content(this.at)
@@ -199,9 +197,9 @@ class Reader {
   }
 
   // `? key` at `col` of `line`, then `: value` at the mapping's column.
-  complexEntry(line, col, indent) {
-    const text = this.lines[line].slice(col + 1)
-    const key = this.inline(line, col + 1 + indentOf(text), indent, {})
+  complexEntry(line, indent) {
+    const text = this.lines[line].slice(indent + 1)
+    const key = this.inline(line, indent + 1 + indentOf(text), indent)
     if (key.kind !== 'scalar') this.fail('a key that is no scalar, which RubyGems sets no attribute of', line)
     const at = this.content(this.at)
     const after = at === this.lines.length ? undefined : this.lines[at]
@@ -209,14 +207,14 @@ class Reader {
     return { key: key.value, value: this.inline(at, indent + 1 + indentOf(textOf(after).slice(1)), indent, { value: true }) }
   }
 
-  sequence(indent, line, col) {
+  sequence(indent, line) {
     this.enter(line)
     const items = []
     let at = line
-    for (let start = col; ; start = indent) {
-      const text = this.lines[at].slice(start)
+    for (;;) {
+      const text = this.lines[at].slice(indent)
       if (!isEntry(text)) this.fail(`expected a sequence entry, found ${quote(text)}`, at)
-      items.push(this.inline(at, start + 1 + indentOf(text.slice(1)), indent, { entry: true }))
+      items.push(this.inline(at, indent + 1 + indentOf(text.slice(1)), indent, { entry: true }))
       at = this.content(this.at)
       if (at === this.lines.length || indentOf(this.lines[at]) < indent || (indentOf(this.lines[at]) === indent && !isEntry(this.structural(at)))) break
       if (indentOf(this.lines[at]) > indent) this.fail('bad indentation', at)

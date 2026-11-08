@@ -12,6 +12,9 @@ function utf8(text, where) {
   return utf8fromString(text)
 }
 
+// A digest WebCrypto makes, `algorithm` as it names one, in hex.
+export const hexDigest = async (algorithm, bytes) => toHex(await digest(algorithm, bytes))
+
 export const sha256Hex = async (text, where) => toHex(await digest('SHA-256', utf8(text, where)))
 
 export const sha256Base64 = async (text, where) => toBase64(await digest('SHA-256', utf8(text, where)))
@@ -19,7 +22,7 @@ export const sha256Base64 = async (text, where) => toBase64(await digest('SHA-25
 export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${toBase64(await digest('SHA-512', bytes))}`
 
 // As yarn 1 records a tarball's after the `#` of its URL.
-export const sha1Hex = async (bytes) => toHex(await digest('SHA-1', bytes))
+export const sha1Hex = (bytes) => hexDigest('SHA-1', bytes)
 
 // As soldeer.lock records a zip's checksum.
-export const bytesSha256Hex = async (bytes) => toHex(await digest('SHA-256', bytes))
+export const bytesSha256Hex = (bytes) => hexDigest('SHA-256', bytes)

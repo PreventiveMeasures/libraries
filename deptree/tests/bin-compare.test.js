@@ -546,7 +546,7 @@ describe('deptree compare, with Bundler', async () => {
 
   it('with --partial leaves out a gem with extensions, and needs --bundler where no BUNDLED WITH names one', () => {
     const unpinned = run(ruby, mixed)
-    assert.match(unpinned.stderr, /^deptree: Gemfile\.lock: give --bundler <version>, the Bundler that installed, which the lockfile has no BUNDLED WITH of$/mu)
+    assert.match(unpinned.stderr, /^deptree: Gemfile\.lock: give --bundler <version>, the Bundler that installed, which the lockfile does not name$/mu)
     assert.equal(unpinned.status, 2)
     const refused = run([...ruby, '--bundler', '4.0.18'], mixed)
     assert.match(refused.stderr, /^deptree: specs\["ext-1\.0\.0"\]: a gem with extensions to build, "ext\/extconf\.rb", whose directory holds what they make, is not supported$/mu)

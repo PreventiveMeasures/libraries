@@ -43,6 +43,20 @@ export function readText(project, path, where) {
   return decodeUtf8(readBytes(project, path), `${quote(path.slice(1))} is not UTF-8`, where)
 }
 
+// A file `reader` reads, by its path from the root, as text, or undefined
+// where there is none: a link at it or on the way to it is refused, so that
+// nothing is read from outside the project's view.
+export function readUnlinked(project, file, reader, what = 'a file') {
+  const segments = file.split('/')
+  for (let i = 1; i <= segments.length; i++) {
+    const path = segments.slice(0, i).join('/')
+    const type = typeOf(project, `/${path}`, false)
+    if (type === undefined) return undefined
+    if (type === 'symlink') throw new DeptreeError(`a link where ${reader} reads ${what} is not supported`, quote(path))
+  }
+  return readText(project, `/${file}`, file)
+}
+
 // The checks each manager's checkHost and inputsOf make alike.
 export function checkHostKeys(host, keys, wanted) {
   if (host === null || typeof host !== 'object') throw new TypeError(`host must be an object with ${wanted}`)
