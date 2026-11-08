@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -8,7 +9,9 @@ import { after, afterEach, beforeEach, describe, it, mock } from 'node:test'
 import { advisories } from '../advisories.js'
 import { createClient } from '../github.js'
 import { setCacheDir } from '../npm.js'
+import { objectId } from '../src/tree.js'
 import { mapStore } from './cache-store.js'
+import { deepOf, treeOf } from './github-stub.js'
 
 const BATCH = 'https://api.osv.dev/v1/querybatch'
 const VULN = 'https://api.osv.dev/v1/vulns/'
@@ -36,18 +39,42 @@ afterEach(() => {
 
 const github = createClient({ token: 'test-token' })
 const listing = (repo) => `https://api.github.com/repos/${repo}/security-advisories?state=published&per_page=100`
+const DB = 'https://api.github.com/repos/rubysec/ruby-advisory-db/'
+const DB_SHA = '0123456789abcdef0123456789abcdef01234567'
+const blobOf = (text) => objectId('blob', Buffer.from(text)).toString('hex')
 const gem = (name, versions, rest = {}) => ({ ecosystem: 'gem', name, versions, ...rest })
+
+// ruby-advisory-db at DB_SHA, of `files` by path beside its README:
+// GitHub's answer for a request of it, or undefined for one not of it.
+function rubysecAnswer(url, files) {
+  if (!url.startsWith(DB)) return undefined
+  const { tree, listings } = treeOf(Object.fromEntries(Object.entries({ 'README.md': '# ruby-advisory-db', ...files }).map(([path, text]) => [path, { mode: '100644', type: 'blob', sha: blobOf(text) }])))
+  const { pathname, search } = new URL(url)
+  const at = pathname.slice(new URL(DB).pathname.length)
+  if (at === 'git/ref/heads/master') return Response.json({ ref: 'refs/heads/master', object: { type: 'commit', sha: DB_SHA } })
+  if (at === `git/commits/${DB_SHA}`) return Response.json({ sha: DB_SHA, tree: { sha: tree } })
+  if (at === `git/trees/${tree}` && search === '?recursive=1') return Response.json({ sha: tree, tree: deepOf(listings, tree), truncated: false })
+  const path = at.startsWith('contents/') && search === `?ref=${DB_SHA}` ? at.slice('contents/'.length) : undefined
+  if (path !== undefined && Object.hasOwn(files, path)) {
+    const bytes = Buffer.from(files[path])
+    return Response.json({ type: 'file', path, size: bytes.length, sha: blobOf(files[path]), encoding: 'base64', content: bytes.toString('base64') })
+  }
+  return Response.json({ message: 'Not Found' }, { status: 404 })
+}
 
 // OSV, rubygems.org and GitHub, each answering from what is given: `hits`
 // is `name@version` -> ids, `records` id -> record, `gems` name -> the
-// gem's document (a Response as is), and `listings` repo -> its listing.
-// `calls` is every request, with its parsed body and when it was made.
-function stubAll({ hits = {}, records = {}, gems = {}, listings = {} } = {}) {
+// gem's document (a Response as is), `listings` repo -> its listing, and
+// `rubysec` path -> the text of a file in ruby-advisory-db. `calls` is
+// every request, with its parsed body and when it was made.
+function stubAll({ hits = {}, records = {}, gems = {}, listings = {}, rubysec = {} } = {}) {
   const calls = []
   globalThis.fetch = (url, init = {}) => {
     url = String(url)
     const body = init.body && JSON.parse(init.body)
     calls.push({ url, body, at: Date.now() })
+    const fromDb = rubysecAnswer(url, rubysec)
+    if (fromDb) return Promise.resolve(fromDb)
     if (url === BATCH) {
       return Promise.resolve(Response.json({ results: body.queries.map(({ package: { name }, version }) => ({ vulns: (hits[`${name}@${version}`] ?? []).map((id) => ({ id })) })) }))
     }
@@ -216,7 +243,7 @@ describe('gem, with a GitHub client', () => {
     const names = ['nokogiri', 'not-a-gem', 'racc', 'rack', 'rspec-core', 'sly', 'unicorn']
     assert.deepEqual(await advisories(names.map((name) => gem(name, ['1.0.0'])), options), [])
     assert.deepEqual(calls.filter(({ url }) => url.startsWith(GEMS)).map(({ url }) => url), names.map((name) => `${GEMS}${name}.json`))
-    assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://api.github.com/')).map(({ url }) => url).toSorted(), [
+    assert.deepEqual(calls.filter(({ url }) => url.startsWith('https://api.github.com/') && !url.startsWith(DB)).map(({ url }) => url).toSorted(), [
       listing('rack/rack'), listing('rspec/rspec'), listing('ruby/racc'), listing('sparklemotion/nokogiri'),
     ])
   })
@@ -277,5 +304,155 @@ describe('gem, with a GitHub client', () => {
       await advisories([gem('rack', ['2.2.0'])], options)
       assert.deepEqual(calls.filter(({ url }) => !url.startsWith('https://api.osv.dev/')).map(({ url }) => url), [`${GEMS}rack.json`])
     })
+  })
+})
+
+describe('gem, from ruby-advisory-db', () => {
+  // As ruby-advisory-db has rack's CVE-2024-25126, its patched versions
+  // three branches' fixes.
+  const RACK_GHSA = `---
+gem: rack
+cve: 2024-25126
+ghsa: 22f2-v57c-j9cx
+url: https://github.com/rack/rack/security/advisories/GHSA-22f2-v57c-j9cx
+title: Denial of Service Vulnerability in Rack Content-Type Parsing
+date: 2024-02-28
+description: |
+  Carefully crafted content type headers can cause Rack's media type
+  parser to take much longer than expected.
+cvss_v3: 5.3
+unaffected_versions:
+  - "< 0.4"
+patched_versions:
+  - "~> 2.0.9, >= 2.0.9.4"
+  - "~> 2.2.8, >= 2.2.8.1"
+  - ">= 3.0.9.1"
+related:
+  url:
+    - https://discuss.rubyonrails.org/t/84942
+`
+  // One with no GHSA, rated by CVSS v2, as many older ones are.
+  const RACK_CVE = `---
+gem: rack
+cve: 2011-5036
+osvdb: 78121
+url: https://nvd.nist.gov/vuln/detail/CVE-2011-5036
+title: 'CVE-2011-5036 rubygem-rack: hash table collisions DoS
+  (oCERT-2011-003)'
+date: 2011-12-28
+description: |
+  Rack before 1.1.3 computes hash values for form parameters predictably.
+cvss_v2: 5.0
+patched_versions:
+  - "~> 1.1.3"
+  - ">= 1.4.0"
+`
+  const rubysec = {
+    'gems/actionpack/CVE-2016-0751.yml': '---\ngem: actionpack\ncve: 2016-0751\nurl: https://x\ntitle: t\ndate: 2016-01-25\ndescription: d\n',
+    'gems/rack/CVE-2011-5036.yml': RACK_CVE,
+    'gems/rack/GHSA-22f2-v57c-j9cx.yml': RACK_GHSA,
+  }
+  const contents = (path) => `${DB}contents/${path}?ref=${DB_SHA}`
+  const LISTED = [`${DB}git/ref/heads/master`, `${DB}git/commits/${DB_SHA}`]
+  const fromDb = (calls) => calls.filter(({ url }) => url.startsWith(DB)).map(({ url }) => url)
+
+  it("lists the database once, reads the files of the asked gems alone, and matches versions as bundler-audit: neither patched nor unaffected", async () => {
+    const calls = stubAll({ rubysec })
+    const found = await advisories([gem('rack', ['0.3', '1.1.2', '1.1.3', '2.0.9.3', '2.0.9.4', '2.2.8', '2.2.8.1', '3.1.0']), gem('nokogiri', ['1.13.0'])], { github })
+    const db = fromDb(calls)
+    assert.deepEqual(db.slice(0, 2), LISTED)
+    assert.match(db[2], /\/git\/trees\/[\da-f]{40}\?recursive=1$/u)
+    assert.deepEqual(db.slice(3).toSorted(), [contents('gems/rack/CVE-2011-5036.yml'), contents('gems/rack/GHSA-22f2-v57c-j9cx.yml')])
+    assert.deepEqual(found, [
+      {
+        ecosystem: 'gem',
+        name: 'rack',
+        source: 'rubysec',
+        id: 'CVE-2011-5036',
+        url: 'https://nvd.nist.gov/vuln/detail/CVE-2011-5036',
+        aliases: ['OSVDB-78121'],
+        title: 'CVE-2011-5036 rubygem-rack: hash table collisions DoS (oCERT-2011-003)',
+        severity: 'moderate',
+        cvss: 5,
+        cwe: [],
+        versions: ['0.3', '1.1.2'],
+      },
+      {
+        ecosystem: 'gem',
+        name: 'rack',
+        source: 'rubysec',
+        id: 'GHSA-22f2-v57c-j9cx',
+        ghsa: 'GHSA-22f2-v57c-j9cx',
+        url: 'https://github.com/advisories/GHSA-22f2-v57c-j9cx',
+        aliases: ['CVE-2024-25126'],
+        title: 'Denial of Service Vulnerability in Rack Content-Type Parsing',
+        severity: 'moderate',
+        cvss: 5.3,
+        cwe: [],
+        versions: ['1.1.2', '1.1.3', '2.0.9.3', '2.2.8'],
+      },
+    ])
+  })
+
+  it("is one row with OSV's of the same GHSA, or of the GHSA whose alias is its CVE, and gives its description as details where OSV has none", async () => {
+    stubAll({
+      rubysec,
+      hits: { 'rack@1.1.2': ['GHSA-bbbb-bbbb-bbbb'], 'rack@2.2.8': ['GHSA-22f2-v57c-j9cx'] },
+      records: {
+        'GHSA-22f2-v57c-j9cx': ghsa('GHSA-22f2-v57c-j9cx', { details: 'From OSV.' }),
+        'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: ['CVE-2011-5036'], database_specific: { severity: 'HIGH' } }),
+      },
+    })
+    const found = await advisories([gem('rack', ['1.1.2', '2.0.9.3', '2.2.8'])], { github, details: true })
+    assert.deepEqual(found.map(({ source, id, aliases, severity, details, versions }) => [source, id, aliases, severity, details, versions]), [
+      ['osv', 'GHSA-22f2-v57c-j9cx', ['CVE-2024-25126'], 'moderate', 'From OSV.', ['1.1.2', '2.0.9.3', '2.2.8']],
+      ['osv', 'GHSA-bbbb-bbbb-bbbb', ['CVE-2011-5036', 'OSVDB-78121'], 'high', 'Rack before 1.1.3 computes hash values for form parameters predictably.\n', ['1.1.2']],
+    ])
+    stubAll({ rubysec })
+    const alone = await advisories([gem('rack', ['2.2.8'])], { github, details: true })
+    assert.equal(alone[0].details, "Carefully crafted content type headers can cause Rack's media type\nparser to take much longer than expected.\n")
+  })
+
+  it('asks nothing of it without a GitHub client, or without a gem asked', async () => {
+    let calls = stubAll({ rubysec })
+    await advisories([gem('rack', ['2.2.8'])])
+    assert.deepEqual(fromDb(calls), [])
+    calls = stubAll({ rubysec })
+    await advisories([{ ecosystem: 'composer', name: 'acme/app', versions: ['1.0.0'] }], { github })
+    assert.deepEqual(fromDb(calls), [])
+  })
+
+  it('keeps the listing 90 minutes and each file for good, by its blob', async () => {
+    const store = mapStore()
+    const packages = [gem('rack', ['2.2.8'])]
+    stubAll({ rubysec })
+    const first = await advisories(packages, { github, cache: store })
+    assert.deepEqual(store.log.filter(([op]) => op === 'write').map(([, type, key]) => [type, key]).toSorted(), [
+      ['rubysec/advisories', blobOf(RACK_CVE)], ['rubysec/advisories', blobOf(RACK_GHSA)], ['rubysec/index', 'gems'],
+    ].toSorted())
+    let calls = stubAll({ rubysec })
+    assert.deepEqual(await advisories(packages, { github, cache: store }), first)
+    assert.deepEqual(fromDb(calls), [])
+    store.set('rubysec/index', 'gems', { ...store.get('rubysec/index', 'gems'), at: Date.now() - 91 * 60 * 1000 })
+    calls = stubAll({ rubysec })
+    assert.deepEqual(await advisories(packages, { github, cache: store }), first)
+    assert.deepEqual(fromDb(calls).length, 3)
+  })
+
+  it("refuses a file of another gem, one it can't read, and one that is not the blob listed", async () => {
+    stubAll({ rubysec: { 'gems/rack/CVE-1.yml': RACK_CVE.replace('gem: rack', 'gem: rails') } })
+    await assert.rejects(advisories([gem('rack', ['1.0'])], { github }), /gems\/rack\/CVE-1\.yml is of "rails", not rack/u)
+    stubAll({ rubysec: { 'gems/rack/CVE-1.yml': RACK_CVE.replace('cvss_v2: 5.0', 'cvss_v2: 5.0\ncvss_v2: 6.0') } })
+    await assert.rejects(advisories([gem('rack', ['1.0'])], { github }), /gems\/rack\/CVE-1\.yml: duplicate key "cvss_v2"/u)
+    const calls = stubAll({ rubysec: { 'gems/rack/CVE-1.yml': RACK_CVE } })
+    const real = globalThis.fetch
+    globalThis.fetch = async (url, init) => {
+      const answer = await real(url, init)
+      if (!String(url).includes('/contents/')) return answer
+      const file = await answer.json()
+      return Response.json({ ...file, content: Buffer.from(RACK_GHSA).toString('base64'), size: RACK_GHSA.length, sha: blobOf(RACK_GHSA) })
+    }
+    await assert.rejects(advisories([gem('rack', ['1.0'])], { github }), /gems\/rack\/CVE-1\.yml at [\da-f]{40} is not blob [\da-f]{40}/u)
+    assert.ok(calls.some(({ url }) => url.includes('/contents/')))
   })
 })

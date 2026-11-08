@@ -33,8 +33,12 @@ export interface Package {
 export interface AdvisoryOptions {
   // The client every GitHub request goes through. Required for `soldeer`
   // and `github` packages, whose repository's published advisories are
-  // their only source, and for `repoAdvisories`; by itself it asks nothing
-  // else.
+  // their only source, and for `repoAdvisories`. With gem packages it
+  // also reads ruby-advisory-db (https://github.com/rubysec/ruby-advisory-db),
+  // what `bundler-audit` reads: the listing of its `master` first, three
+  // requests, kept for 90 minutes, then only the files under `gems/` of
+  // the gems asked, one request each, kept for good by their blob. By
+  // itself it asks nothing else.
   github?: Client
   // Also asks each npm, cargo, composer and gem package's GitHub
   // repository for its published advisories, which it has before GitHub
@@ -49,8 +53,9 @@ export interface AdvisoryOptions {
   // Needs `github`.
   repoAdvisories?: boolean
   // Where what this call caches is kept, as CacheOptions (npm.js) has it:
-  // a repository's listing, and each package's repository looked up (an
-  // npm package's as its version's document). See `advisories`.
+  // a repository's listing, each package's repository looked up (an npm
+  // package's as its version's document), and ruby-advisory-db's listing
+  // and files. See `advisories`.
   cache?: CacheStore | false
   // Also returns each advisory's full text, as `details`. OSV's records
   // and a repository's listing already carry it; npm's registry does not,
@@ -84,8 +89,12 @@ export interface Advisory {
   // cargo, composer and gems, and with `osv` for npm, the versions they
   // cover that no registry row reports under the same advisory; RustSec's,
   // GitHub's and malicious packages' (MAL-...) among them; for a gem,
-  // GitHub's and malicious packages' alone, none of ruby-advisory-db's,
-  // what `bundler-audit` reads. Of the records naming each other as
+  // GitHub's and malicious packages' alone. `rubysec`: with a GitHub
+  // client, a gem's in ruby-advisory-db, what `bundler-audit` reads, for
+  // the versions it takes as bundler-audit does: those neither a
+  // `patched_versions` nor an `unaffected_versions` entry takes, each
+  // entry a Gem::Requirement of its `, `-separated parts, and one the port
+  // cannot read taking none. Of the records naming each other as
   // aliases, directly or through others, a version is reported under one
   // only: RustSec's, else the GHSA, else the first by id, as the GHSA a
   // gem's MAL- record names stands for it. Each has the others' ids among
@@ -95,14 +104,19 @@ export interface Advisory {
   // source for `soldeer` and `github`, where every range counts, whichever
   // package it names.
   // An id answered more than once -- by npm's registry once a range, by
-  // OSV's record of it or its repository for versions beyond the registry's
-  // range, by its repository once a range -- is one row: the registry's,
-  // else OSV's, else the repository's, with what it lacks of theirs (title,
-  // details), the worst severity of them, the highest CVSS score with its
-  // own vector, and all their ranges, CWEs and versions.
-  source: 'registry' | 'osv' | 'repository'
+  // OSV's record of it, ruby-advisory-db or its repository for versions
+  // beyond the registry's range, by its repository once a range -- is one
+  // row: the registry's, else OSV's, else ruby-advisory-db's, else the
+  // repository's, with what it lacks of theirs (title, details), the worst
+  // severity of them, the highest CVSS score with its own vector, and all
+  // their ranges, CWEs and versions. A ruby-advisory-db advisory without a
+  // GHSA whose ids (its CVE, say) OSV has as a record's aliases is
+  // answered under that record's id.
+  source: 'registry' | 'osv' | 'rubysec' | 'repository'
   // A GHSA, RUSTSEC-..., MAL-..., DRUPAL-CORE-... or another OSV id, or
-  // npm:<id> for a registry row without a GHSA.
+  // npm:<id> for a registry row without a GHSA. A `rubysec` row's is its
+  // GHSA, else its file's name, as bundler-audit has it (CVE-...,
+  // OSVDB-...).
   id: string
   // The id itself, or an OSV record's one GHSA alias.
   ghsa?: string
@@ -112,21 +126,26 @@ export interface Advisory {
   // other's in that database (https://github.com/advisories/GHSA-...). An
   // `osv` row without one has osv.dev's page for its record
   // (https://osv.dev/vulnerability/RUSTSEC-...). Built, never fetched: only
-  // a registry row without a GHSA (npm:<id>) has none.
+  // a registry row without a GHSA (npm:<id>) has none, and a `rubysec` row
+  // without one has its file's `url`, where that is an http(s) URL.
   url?: string
   // The advisory's other ids: an `osv` row's record's own and its group's,
-  // and with `osv`, a registry row's OSV records' of it.
+  // with `osv`, a registry row's OSV records' of it, and a `rubysec` row's
+  // CVE-, OSVDB- and GHSA- ids, `related`'s too, and its file's name.
   aliases: string[]
   title?: string
   // With `details`, the advisory's full text, Markdown as published: an
   // OSV record's `details`, a repository advisory's `description`, or for
-  // a registry row, OSV's record of its GHSA. Absent where there is none:
+  // a registry row, OSV's record of its GHSA, a `rubysec` row's
+  // `description`. Absent where there is none:
   // a registry row without a GHSA, or with one OSV does not have yet.
   details?: string
   // `critical`, `high`, `moderate`, `low`; GitHub's `medium` reads
-  // `moderate`. RustSec has none.
+  // `moderate`. RustSec has none. ruby-advisory-db's is bundler-audit's,
+  // by the CVSS v3 score (v4's where there is none), else v2's.
   severity?: string
-  // Absent where there is no score (npm spells that 0).
+  // Absent where there is no score (npm spells that 0). ruby-advisory-db's
+  // is its CVSS v3 score, else v4's, else v2's, with no vector.
   cvss?: number
   cvssVector?: string
   cwe: string[]
@@ -169,13 +188,18 @@ export interface Advisory {
 // transferred, which GitHub redirects to it by its id, is listed by the
 // name it has now, as getRepo's `followRedirect` (github.js) finds it, its
 // rows' `url` on it. Any other failure, a malformed answer, or one about
-// something not asked, throws: nothing is left out quietly.
+// something not asked, throws: nothing is left out quietly. So does a
+// ruby-advisory-db file of an asked gem that is of another gem, in YAML
+// @preventive/lockfile's reader refuses, or not the blob its listing
+// names.
 // A repository's listing is kept for 90 minutes, as one entry for every
 // spelling of the name it is asked by, one renamed or transferred too,
 // holding only what rows are made from, `details` included: in
 // setCacheDir's cache gzipped, in a `cache` store as it is, or with
 // `cache` false, nowhere. 90 minutes is how late an advisory its
 // maintainer publishes can be seen. One gone or malformed is not kept.
+// ruby-advisory-db's listing is kept 90 minutes too, and each of its files
+// read for good, by its blob, each as what rows are made from.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm; a
 // gem's as RubyGems 3.5's Gem::Version and Gem::Requirement match them,

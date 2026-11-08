@@ -35,8 +35,8 @@ function collect(packages) {
 }
 
 // Which of an advisory's rows stands for it: npm's registry's, then OSV's,
-// then its repository's.
-const SOURCES = ['registry', 'osv', 'repository']
+// then ruby-advisory-db's, then its repository's.
+const SOURCES = ['registry', 'osv', 'rubysec', 'repository']
 const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
 // An advisory's rows as one: the first's by source, what it lacks from the

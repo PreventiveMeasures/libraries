@@ -32,8 +32,9 @@ export const defaultCacheDir: string | undefined
 // reads ours all the same, set or not.
 //
 // The directory is trusted: a package's repo, as recorded or as a version
-// document kept here names it, and for 90 minutes a repository's published
-// advisories (advisories.js), are answered from it as they were written,
+// document kept here names it, for 90 minutes a repository's published
+// advisories and ruby-advisory-db's listing, and what was read of each of
+// its files (advisories.js), are answered from it as they were written,
 // with no request. Point it only at storage that
 // nothing less trusted than the caller can write, never a cache shared
 // with or restored from lower-trust jobs. Tarballs, crates (cargo.js), gems
@@ -53,8 +54,10 @@ export function setCacheDir(dir?: string | false): void
 // advisories.js, `github/advisories` with the repository's `owner/name` in
 // lowercase for its listing, `cargo/repos`, `composer/repos`,
 // `rubygems/repos` and `soldeer/repos` with a package's name for the
-// repository it names, and `npm/public` with an npm package's name that
-// is public, for `osv`.
+// repository it names, `npm/public` with an npm package's name that is
+// public, for `osv`, and `rubysec/index` with `gems` for ruby-advisory-db's
+// listing and `rubysec/advisories` with a file's blob id for what is read
+// of it.
 // Values are plain JSON data, which `read` may answer as written or as a
 // copy, but a tarball's are its bytes, a Uint8Array. Whatever it answers
 // is checked as a cached file is: one malformed, stale or kept differently

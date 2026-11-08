@@ -200,6 +200,9 @@ importers:
       '@preventive/archive':
         specifier: ^1.2.0
         version: link:../archive
+      '@preventive/lockfile':
+        specifier: ^1.2.0
+        version: link:../lockfile
 
   vfs:
     devDependencies:

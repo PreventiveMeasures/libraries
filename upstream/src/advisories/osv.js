@@ -8,6 +8,7 @@ import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { bySemver, withRepositories } from './github.js'
 import { composerRepos, crateRepos, gemRepos } from './repos.js'
+import { rubysecRows, sameIds } from './rubysec.js'
 
 const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
@@ -50,8 +51,8 @@ export const COMPOSER = {
   advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
 }
 
-// TODO: OSV has none of ruby-advisory-db, what `bundler-audit` reads, so
-// what of it GitHub's database lacks is missed.
+// OSV has none of ruby-advisory-db, what `bundler-audit` reads: with a
+// GitHub client, it is read too.
 export const GEM = {
   osv: 'RubyGems',
   github: 'rubygems',
@@ -66,7 +67,10 @@ export const GEM = {
     const test = readGemRange(range)
     return test === undefined ? [...asked] : asked.filter(test)
   },
-  advisories: (asked, options) => osvAdvisories(GEM, asked, options),
+  advisories: async (asked, options) => {
+    const [osv, rubysec] = await Promise.all([osvRows(GEM, asked, options), options.github ? rubysecRows(options.github, asked, options) : []])
+    return await withRepositories([...osv, ...sameIds(rubysec, osv)], asked, options, GEM)
+  },
 }
 
 export async function getVuln(id) {
