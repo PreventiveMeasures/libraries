@@ -19,6 +19,12 @@ describe('globRegExp', () => {
     assert.ok(matches('../shared/**', '../shared/a.js'))
   })
 
+  it('has ** and a directory match a name holding a line break too', () => {
+    for (const glob of ['secrets/**', '**', '**/*.js']) assert.ok(matches(glob, 'secrets/key\n.js'), glob)
+    assert.ok(matches('src/**/x.js', 'src/a\nb/x.js'))
+    assert.ok(globRegExp('secrets', true).test('secrets/key\n.js'))
+  })
+
   it('has {a,b} either, and the rest as it is', () => {
     assert.ok(matches('src/**/*.{ts,tsx}', 'src/a/b.tsx'))
     assert.ok(!matches('src/**/*.{ts,tsx}', 'src/a/b.js'))
