@@ -18,7 +18,7 @@ const PLAIN_RELEASE = /^(?:0|[1-9]\d{0,14})\.(?:0|[1-9]\d{0,14})\.(?:0|[1-9]\d{0
 function attempt(load) {
   try {
     const lib = load()
-    if (['compare', 'intersects', 'minVersion', 'satisfies', 'valid', 'validRange'].every((name) => typeof lib?.[name] === 'function')) return lib
+    if (['compare', 'intersects', 'satisfies', 'valid', 'validRange'].every((name) => typeof lib?.[name] === 'function')) return lib
   } catch {}
   return null
 }
@@ -51,7 +51,6 @@ function semver() {
 export const satisfies = (...args) => semver().satisfies(...args)
 export const validRange = (...args) => semver().validRange(...args)
 export const intersects = (...args) => semver().intersects(...args)
-export const minVersion = (...args) => semver().minVersion(...args)
 export const compareVersions = (...args) => semver().compare(...args)
 export const valid = (version, ...rest) => (rest.length === 0 && typeof version === 'string' && PLAIN_RELEASE.test(version) ? version : semver().valid(version, ...rest))
 export const isExactVersion = (version) => typeof version === 'string' && valid(version) === version

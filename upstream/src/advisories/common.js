@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { isGhsa, isRepo, isStrings, matches, show } from '../args.js'
-import { minVersion, satisfies, valid, validRange } from '../semver.js'
+import { intersects, satisfies, valid, validRange } from '../semver.js'
 
 export const order = (a, b) => (a > b) - (a < b)
 
@@ -22,8 +22,8 @@ export const inRange = (version, range) => satisfies(version, range, SEMVER)
 // a version, `v1.2.3` and `1.2.3+build` included.
 export const mayBeInRange = (version, range) => valid(version) === null || inRange(version, range)
 
-// The lowest version a range takes, as `npm audit` reads it, or null.
-export const lowestIn = (range) => (validRange(range, SEMVER) === null ? null : minVersion(range, SEMVER))
+// Whether some version is in both ranges, as `npm audit` reads them.
+export const overlap = (a, b) => validRange(a, SEMVER) !== null && intersects(a, b, SEMVER)
 
 // The asked versions a range `covers`. One semver cannot read, range or
 // version, covers them all: a missed advisory is worse than a spare one.

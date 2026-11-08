@@ -642,16 +642,19 @@ describe('npm, with a GitHub client', () => {
           repoAdvisory('GHSA-dddd-dddd-dddd', [patched('mono-a', '^3.1.0', '3.1.3')]),
           // Lower bounds alone, partial ones too, fixed above them.
           repoAdvisory('GHSA-eeee-eeee-eeee', [patched('mono-a', '> 3.0.0, >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3', '3.1.0')]),
+          // Fixed in the next release: bounded, as 3.1.3-0 is in between.
+          repoAdvisory('GHSA-ffff-ffff-ffff', [patched('mono-a', '> 3.1.2', '3.1.3')]),
         ],
       },
     })
-    const found = await npm(['3.0.0', '3.1.2', '3.2.0'].map((version) => ({ name: 'mono-a', version })), { github, repoAdvisories: true })
+    const found = await npm(['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0'].map((version) => ({ name: 'mono-a', version })), { github, repoAdvisories: true })
     assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
-      ['GHSA-aaaa-aaaa-aaaa', '>= 3.0.0', ['3.0.0', '3.1.2', '3.2.0']],
-      ['GHSA-bbbb-bbbb-bbbb', '>= 3.0.0', ['3.0.0', '3.1.2', '3.2.0']],
+      ['GHSA-aaaa-aaaa-aaaa', '>= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-bbbb-bbbb-bbbb', '>= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
       ['GHSA-cccc-cccc-cccc', '= 3.1.2', ['3.1.2']],
-      ['GHSA-dddd-dddd-dddd', '^3.1.0', ['3.1.2', '3.2.0']],
-      ['GHSA-eeee-eeee-eeee', '> 3.0.0, >= 3.0.5, < 3.1.3 || >= 3, < 3.1.0', ['3.0.0', '3.1.2']],
+      ['GHSA-dddd-dddd-dddd', '^3.1.0', ['3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-eeee-eeee-eeee', '> 3.0.0, >= 3.0.5, < 3.1.3 || >= 3, < 3.1.0', ['3.0.0', '3.1.2', '3.1.3-rc.1']],
+      ['GHSA-ffff-ffff-ffff', '> 3.1.2, < 3.1.3', ['3.1.3-rc.1']],
     ])
   })
 
