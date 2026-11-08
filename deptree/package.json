@@ -27,6 +27,10 @@
     "./cocoapods.js": {
       "types": "./cocoapods.d.ts",
       "default": "./cocoapods.js"
+    },
+    "./bundler.js": {
+      "types": "./bundler.d.ts",
+      "default": "./bundler.js"
     }
   },
   "bin": {
@@ -35,6 +39,8 @@
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "bundler.d.ts",
+    "bundler.js",
     "cargo.d.ts",
     "cargo.js",
     "cocoapods.d.ts",
@@ -50,6 +56,17 @@
     "bin/compare.js",
     "bin/deptree.js",
     "bin/npmrc.js",
+    "src/bundler/extract.js",
+    "src/bundler/gem.js",
+    "src/bundler/inputs.js",
+    "src/bundler/platform.js",
+    "src/bundler/scalar.js",
+    "src/bundler/select.js",
+    "src/bundler/spec.js",
+    "src/bundler/tar.js",
+    "src/bundler/tree.js",
+    "src/bundler/version.js",
+    "src/bundler/yaml.js",
     "src/cargo/crate.js",
     "src/cargo/inputs.js",
     "src/cargo/members.js",

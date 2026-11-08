@@ -10,24 +10,28 @@ import { diffLineStyles } from '@preventive/diff/color.js'
 import { createClient } from '@preventive/upstream/github.js'
 import { defaultCacheDir, setCacheDir } from '@preventive/upstream/npm.js'
 import { join } from '@preventive/vfs/path.js'
+import { buildBundlerTree } from '../bundler.js'
 import { buildCargoTree } from '../cargo.js'
 import { buildCocoaPodsTree } from '../cocoapods.js'
 import { buildNpmTree, findNpmWorkspaces } from '../npm.js'
 import { DeptreeError, LockfileError, buildPnpmTree, findPnpmProjects } from '../pnpm.js'
 import { TomlError, buildSoldeerTree } from '../soldeer.js'
 import { buildYarn1Tree, findYarn1Workspaces } from '../yarn1.js'
+import { bundlePathOf, lockfileOf } from '../src/bundler/inputs.js'
 import { escaped } from '../src/error.js'
 import { readText, typeOf } from '../src/project.js'
-import { difference, leftBehind, leftOut, projectView, readSide } from './compare.js'
+import { bundlerNotBuilt, difference, leftBehind, leftOut, projectView, readSide } from './compare.js'
 import { userToken } from './npmrc.js'
 
 const USAGE = `Usage: deptree compare [options] [<dir>]
 
 Builds the tree the lockfile in <dir> (by default .) installs, from
-pnpm-lock.yaml, package-lock.json, yarn.lock, soldeer.lock, Cargo.lock or
-Podfile.lock, and lists where it differs from what is on disk, every
-node_modules of the project, Soldeer's dependencies, cargo's vendor or the
-pods' directories and Manifest.lock in CocoaPods' Pods:
+pnpm-lock.yaml, package-lock.json, yarn.lock, soldeer.lock, Cargo.lock,
+Podfile.lock, or Gemfile.lock or gems.locked, and lists where it differs
+from what is on disk, every node_modules of the project, Soldeer's
+dependencies, cargo's vendor, the pods' directories and Manifest.lock in
+CocoaPods' Pods, or the gems and their .gem files in Bundler's path, the
+BUNDLE_PATH .bundle/config sets or vendor/bundle:
 
   + <path>   only in the tree
   - <path>   only on disk
@@ -35,34 +39,44 @@ pods' directories and Manifest.lock in CocoaPods' Pods:
 
 A directory one side has alone is one line, ending in /. Left out unless
 --all: .bin directories, state files, Soldeer's .git, what CocoaPods
-generates in Pods but Manifest.lock, and directories on disk holding
-nothing else. Exits 0 where the two are the same, 1 where they differ, 2
-on trouble.
+generates in Pods but Manifest.lock, what Bundler generates beside the
+gems -- specifications, bin, extensions, build_info, plugins, doc -- and
+.bundle/config, and directories on disk holding nothing else. Exits 0
+where the two are the same, 1 where they differ, 2 on trouble.
 
 A pod by :podspec is built by its podspec in Pods/Local Podspecs, which
 SPEC CHECKSUMS holds, and an archive by :http by the podspec's sha256 of
 it. A pod by a git tag, which the lockfile holds no commit for, is not
 built.
 
-Tarballs, zips, crates, podspecs and archives are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
+Tarballs, zips, crates, podspecs, archives and gems are kept in ${defaultCacheDir ?? 'no cache, as no home directory is known'}.
 A scoped package is fetched with PREVENTIVE_MEASURES_NPM_TOKEN,
 STASIS_NPM_TOKEN or NPM_TOKEN, else with a ~/.npmrc line of nothing but
 //registry.npmjs.org/:_authToken=npm_\u2026; a Soldeer git dependency or a
 pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
 
-  --pnpm, --yarn, --npm, --soldeer, --cargo, --cocoapods <version>
-                     the one that installed: by default the one
+  --pnpm, --yarn, --npm, --soldeer, --cargo, --cocoapods, --bundler
+  <version>          the one that installed: by default the one
                      packageManager pins, Soldeer 0.12.0, or the
-                     CocoaPods Podfile.lock names; npm's and cargo's are
-                     needed
+                     CocoaPods or Bundler the lockfile names; npm's and
+                     cargo's are needed
   --platform <name>  a platform the Podfile's targets are for, ios, osx,
                      tvos, visionos or watchos, once for each; needed
                      where a pod names other files on another
-  --partial          compare the pods deptree downloads alone, leaving
-                     out each it does not for where it is from -- a spec
-                     repo but trunk, an external source but :path and
-                     :podspec, a source but git by a commit and :http
-                     from GitHub, a prepare_command -- and saying why
+  --ruby, --rubygems <version>
+                     the Ruby and RubyGems Bundler ran on, as
+                     RUBY_VERSION and Gem::VERSION give them; needed
+  --gem-platform <platform>
+                     the machine's, as Gem::Platform.local gives it; by
+                     default x86_64-linux or aarch64-linux, and -musl
+                     after it on musl, and needed elsewhere
+  --partial          compare the pods or gems deptree builds alone,
+                     leaving out each it does not and saying why: a pod
+                     for where it is from -- a spec repo but trunk, an
+                     external source but :path and :podspec, a source but
+                     git by a commit and :http from GitHub, a
+                     prepare_command -- and a gem from git or with
+                     extensions to build
   --node <version>   the Node it installed with; by default this one
   --production       devDependencies were left out, as by pnpm install
                      --prod, npm ci --omit=dev or yarn install --production
@@ -81,7 +95,11 @@ const OPTIONS = {
   soldeer: { type: 'string' },
   cargo: { type: 'string' },
   cocoapods: { type: 'string' },
+  bundler: { type: 'string' },
   platform: { type: 'string', multiple: true },
+  ruby: { type: 'string' },
+  rubygems: { type: 'string' },
+  'gem-platform': { type: 'string' },
   partial: { type: 'boolean' },
   node: { type: 'string' },
   metadata: { type: 'boolean', default: false },
@@ -121,6 +139,18 @@ const MANAGERS = {
     projects: () => ['.'],
     build: (options) => buildCocoaPodsTree({ ...options, github: github(), manifest: true }),
   },
+  // The gems and their .gem files under BUNDLE_PATH: what else Bundler
+  // writes there, it generates.
+  bundler: {
+    lockfile: 'Gemfile.lock',
+    also: ['gems.locked'],
+    folder: bundlePathOf,
+    notBuilt: bundlerNotBuilt,
+    pinned: (project) => /^BUNDLED WITH\n {2,3}(\S+)$/mu.exec(readText(project, `/${lockfileOf(project)}`, lockfileOf(project)) ?? '')?.[1],
+    development: true,
+    projects: () => ['.'],
+    build: buildBundlerTree,
+  },
 }
 
 async function main(argv) {
@@ -135,7 +165,9 @@ async function main(argv) {
   const name = managerOf(project, dir, values)
   const manager = MANAGERS[name]
   if (values.production && manager.development) fail(`deptree: ${manager.lockfile}: --production is not taken: ${DEVELOPMENT[name]}\n`)
-  for (const flag of ['platform', 'partial']) if (values[flag] !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --${flag} is taken for CocoaPods alone\n`)
+  if (values.platform !== undefined && name !== 'cocoapods') fail(`deptree: ${manager.lockfile}: --platform is taken for CocoaPods alone\n`)
+  if (values.partial !== undefined && name !== 'cocoapods' && name !== 'bundler') fail(`deptree: ${manager.lockfile}: --partial is taken for CocoaPods and Bundler alone\n`)
+  for (const flag of ['ruby', 'rubygems', 'gem-platform']) if (values[flag] !== undefined && name !== 'bundler') fail(`deptree: ${manager.lockfile}: --${flag} is taken for Bundler alone\n`)
   if (defaultCacheDir !== undefined) setCacheDir()
   // upstream reads it for each request, and sends it for a scoped package.
   process.env.NPM_TOKEN ||= userToken() ?? ''
@@ -143,22 +175,27 @@ async function main(argv) {
   // there is none to find.
   const libc = libcOf()
   const host = { [name]: values[name] ?? manager.version ?? manager.pinned?.(project), node: values.node ?? process.versions.node, os: process.platform, cpu: process.arch, ...(name === 'npm' && libc === 'unknown' ? {} : { libc }) }
+  if (name === 'bundler' && host.bundler === undefined) fail(`deptree: ${manager.lockfile}: give --bundler <version>, the Bundler that installed, which the lockfile has no BUNDLED WITH of\n`)
+  if (name === 'bundler') Object.assign(host, rubyOf(values, libc))
   // The disk first, as it is before anything is fetched.
-  const dirs = manager.projects({ project, host, os: host.os }).map((at) => join(at, manager.folder))
-  const disk = readSide(project, dirs)
+  const folder = typeof manager.folder === 'function' ? manager.folder(project) : manager.folder
+  const notBuilt = manager.notBuilt?.(folder)
+  const dirs = manager.projects({ project, host, os: host.os }).map((at) => join(at, folder))
+  const disk = readSide(project, dirs, notBuilt)
   const files = [...disk.values()].filter((entry) => entry.type === 'file')
-  note(`${manager.folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
+  note(`${folder} on disk: ${files.length} files, ${size(files.reduce((sum, file) => sum + file.data.length, 0))}`)
   const tree = await manager.build({ project, host, metadata: values.metadata, platforms: values.platform, partial: values.partial, ...values.production ? { production: true } : {} })
   note(`${manager.lockfile}: ${tree.stats.files} files, ${size(tree.stats.bytes)} built`)
-  // A pod --partial skips is CocoaPods' to download: its directory on disk
-  // is not compared. The reason quotes what it names, as a refusal does.
-  for (const { name: pod, reason } of tree.skipped ?? []) {
+  // A pod or a gem --partial skips is CocoaPods' or Bundler's to install:
+  // what it installs for it on disk is not compared. The reason quotes what
+  // it names, as a refusal does.
+  for (const { name: pod, reason, paths = [`Pods/${pod}`] } of tree.skipped ?? []) {
     note(`not compared: ${reason}`)
-    for (const path of disk.keys()) if (path === `Pods/${pod}` || path.startsWith(`Pods/${pod}/`)) disk.delete(path)
+    for (const path of disk.keys()) if (paths.some((at) => path === at || path.startsWith(`${at}/`))) disk.delete(path)
   }
-  const built = readSide(tree.vfs, dirs)
+  const built = readSide(tree.vfs, dirs, notBuilt)
   const changes = difference(disk, built)
-  const left = values.all ? new Set() : leftOut(changes, disk)
+  const left = values.all ? new Set() : leftOut(changes, disk, notBuilt)
   const listed = changes.filter((change) => !left.has(change.path))
   // A file of other content, with its mode lines where those differ too, as
   // patch -p1 carries out no link's. A name that ends in a space git apply
@@ -175,17 +212,30 @@ const DEVELOPMENT = {
   soldeer: 'Soldeer has no devDependencies to leave out',
   cargo: 'cargo vendor vendors dev-dependencies too',
   cocoapods: 'CocoaPods installs every pod the Podfile asks for',
+  bundler: 'Bundler leaves groups out by BUNDLE_WITHOUT, of a Gemfile not read',
 }
 
 // The one a version flag names, or else the one whose lockfile is there.
 function managerOf(project, dir, values) {
   const names = Object.keys(MANAGERS)
   const named = names.filter((name) => values[name] !== undefined)
-  const [name, ...others] = named.length > 0 ? named : names.filter((n) => typeOf(project, MANAGERS[n].lockfile) === 'file')
-  if (name === undefined) fail(`deptree: ${dir}: no ${names.map((n) => MANAGERS[n].lockfile).join(', ')}\n`)
+  const [name, ...others] = named.length > 0 ? named : names.filter((n) => [MANAGERS[n].lockfile, ...MANAGERS[n].also ?? []].some((file) => typeOf(project, file) === 'file'))
+  if (name === undefined) fail(`deptree: ${dir}: no ${names.flatMap((n) => [MANAGERS[n].lockfile, ...MANAGERS[n].also ?? []]).join(', ')}\n`)
   if (others.length > 0) fail(`deptree: ${dir}: give one of --${[name, ...others].join(', --')}, for the package manager that installed\n`)
   if (MANAGERS[name].unpinned && values[name] === undefined) fail(`deptree: ${MANAGERS[name].lockfile}: give --${name} <version>, the ${name} that installed, which no file pins\n`)
   return name
+}
+
+// The Ruby Bundler ran on, which nothing on disk names: its RUBY_VERSION,
+// its Gem::VERSION, and Gem::Platform.local, which on Linux is the CPU and
+// the libc, CRuby's arch, and is needed elsewhere.
+const GEM_CPUS = { x64: 'x86_64', arm64: 'aarch64' }
+function rubyOf(values, libc) {
+  if (values.ruby === undefined || values.rubygems === undefined) fail("deptree: Gemfile.lock: give --ruby <version> and --rubygems <version>, the Ruby and RubyGems Bundler ran on: ruby -e 'puts RUBY_VERSION, Gem::VERSION'\n")
+  const cpu = process.platform === 'linux' && libc !== 'unknown' ? GEM_CPUS[process.arch] : undefined
+  const platform = values['gem-platform'] ?? (cpu === undefined ? undefined : `${cpu}-linux${libc === 'musl' ? '-musl' : ''}`)
+  if (platform === undefined) fail("deptree: Gemfile.lock: give --gem-platform <platform>, the machine's: ruby -e 'puts Gem::Platform.local'\n")
+  return { ruby: values.ruby, rubygems: values.rubygems, platform }
 }
 
 // As pnpm's detect-libc tells it, from Node's report, which leaves out the

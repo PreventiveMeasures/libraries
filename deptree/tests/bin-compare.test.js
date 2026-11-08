@@ -11,10 +11,12 @@ import { pack } from '@preventive/archive/tar.js'
 import { CompareError, formatPatch } from '@preventive/compare'
 import { createClient } from '@preventive/upstream/github.js'
 import { createVfs } from '@preventive/vfs'
+import { buildBundlerTree } from '../bundler.js'
 import { buildCargoTree } from '../cargo.js'
 import { buildCocoaPodsTree } from '../cocoapods.js'
-import { byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
+import { bundlerNotBuilt, byPath, difference, leftBehind, leftOut, projectView, readSide } from '../bin/compare.js'
 import { tokenIn, userToken } from '../bin/npmrc.js'
+import { HOST as BUNDLER_HOST, gemOf, lockOf, stubGems } from './bundler-fixture.js'
 import { ACME, ACME_ARCHIVE, MIXED_PODFILE, OTHER, PODFILE, coreLock, httpPodspecOf, mixedLock, podspecLock, sha1 } from './cocoapods-fixture.js'
 import { commitOf, packOf, podspecUrl, rawZip, sha256, stubGitHub, stubRegistry, stubTrunk, tarball, uploadPackAnswer, url } from './registry.js'
 
@@ -160,6 +162,19 @@ describe('leftOut', () => {
       assert.equal(alone(path, '~'), false, path)
     }
     for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github', 'Pods/Acme', 'Pods/Manifest.lock', 'Pods/Acme/Headers', 'Pods/Acme/Manifest.lock', 'ios/Pods/Headers', 'Pods/Headers.txt']) assert.equal(alone(path), false, path)
+  })
+})
+
+describe('bundlerNotBuilt', () => {
+  it('takes what Bundler generates in each scope of its path, and .bundle/config', () => {
+    const notBuilt = bundlerNotBuilt('vendor/bundle')
+    for (const name of ['specifications', 'bin', 'extensions', 'build_info', 'plugins', 'doc']) {
+      assert.equal(notBuilt.test(`vendor/bundle/ruby/3.3.0/${name}`), true, name)
+      assert.equal(notBuilt.test(`vendor/bundle/ruby/3.3.0/${name}/x`), true, name)
+      assert.equal(notBuilt.test(`vendor/bundle/ruby/3.3.0/gems/x-1.0.0/${name}`), false, name)
+    }
+    assert.equal(bundlerNotBuilt('.bundle').test('.bundle/config'), true)
+    for (const path of ['vendor/bundle/ruby/3.3.0/gems', 'vendor/bundle/ruby/3.3.0/cache', 'vendor/bundle/ruby/3.3.0/specification', 'vendor/bundlex/ruby/3.3.0/bin', 'vendor/bundle/bin']) assert.equal(notBuilt.test(path), false, path)
   })
 })
 
@@ -466,11 +481,81 @@ describe('deptree compare, with Cargo', async () => {
     const production = cli(home, ['compare', '--cargo', '1.97.0', '--production', project])
     assert.match(production.stderr, /^deptree: Cargo\.lock: --production is not taken: cargo vendor vendors dev-dependencies too$/mu)
     assert.equal(production.status, 2)
-    for (const flag of [['--platform', 'ios'], ['--partial']]) {
-      const cocoapods = cli(home, ['compare', '--cargo', '1.97.0', ...flag, project])
-      assert.match(cocoapods.stderr, new RegExp(`^deptree: Cargo\\.lock: ${flag[0]} is taken for CocoaPods alone$`, 'mu'))
-      assert.equal(cocoapods.status, 2)
+    for (const [flag, alone] of [[['--platform', 'ios'], 'CocoaPods'], [['--partial'], 'CocoaPods and Bundler'], [['--ruby', '3.3.6'], 'Bundler'], [['--gem-platform', 'x86_64-linux'], 'Bundler']]) {
+      const other = cli(home, ['compare', '--cargo', '1.97.0', ...flag, project])
+      assert.match(other.stderr, new RegExp(`^deptree: Cargo\\.lock: ${flag[0]} is taken for ${alone} alone$`, 'mu'))
+      assert.equal(other.status, 2)
     }
+  })
+})
+
+describe('deptree compare, with Bundler', async () => {
+  const home = temp('deptree-bin-bundler-')
+  const project = join(home, 'project')
+  // Each .gem in RubyGems' cache under GEM_PATH, which upstream reads
+  // before rubygems.org.
+  const tool = await gemOf({ name: 'tool', version: '1.0.0', executables: ['tool'] }, { files: { 'lib/tool.rb': 'tool\n', 'bin/tool': '#!/usr/bin/env ruby\n' } })
+  const ext = await gemOf({ name: 'ext', version: '1.0.0', extensions: ['ext/extconf.rb'] })
+  for (const gem of [tool, ext]) writeDisk(home, side({ [`gems/cache/${gem.key}.gem`]: file(gem.bytes) }))
+  const lockfile = lockOf([tool])
+  // The path as deptree builds it, which tests/bundler.test.js holds to
+  // Bundler's, but for one file changed and a gem the lockfile has not;
+  // and beside it what Bundler generates there.
+  stubGems([tool, ext])
+  const { vfs } = await buildBundlerTree({ lockfile, host: BUNDLER_HOST })
+  writeDisk(project, readSide(vfs, ['vendor/bundle']))
+  writeDisk(project, side({
+    Gemfile: file('source "https://rubygems.org"\ngem "tool"\n'),
+    'Gemfile.lock': file(lockfile),
+    'vendor/bundle/ruby/3.3.0/gems/tool-1.0.0/lib/tool.rb': file('changed\n'),
+    'vendor/bundle/ruby/3.3.0/gems/other-1.0.0/lib/other.rb': file(''),
+    'vendor/bundle/ruby/3.3.0/specifications/tool-1.0.0.gemspec': file(''),
+    'vendor/bundle/ruby/3.3.0/bin/tool': file('#!/usr/bin/env ruby\n', 0o755),
+  }))
+  const mixed = join(home, 'mixed')
+  writeDisk(mixed, readSide(vfs, ['vendor/bundle']))
+  writeDisk(mixed, side({
+    Gemfile: file(''),
+    'Gemfile.lock': file(lockOf([tool, ext], { bundled: null })),
+    '.bundle/config': file('---\nBUNDLE_PATH: "vendor/bundle"\n'),
+    'vendor/bundle/ruby/3.3.0/gems/ext-1.0.0/ext/Makefile': file(''),
+    'vendor/bundle/ruby/3.3.0/cache/ext-1.0.0.gem': file(ext.bytes),
+    'vendor/bundle/ruby/3.3.0/extensions/x86_64-linux/3.3.0/ext-1.0.0/gem.build_complete': file(''),
+  }))
+  const run = (args, at = project) => cli(home, ['compare', ...args, at], { env: { GEM_PATH: join(home, 'gems') } })
+  const ruby = ['--ruby', '3.3.6', '--rubygems', '3.5.22', '--gem-platform', 'x86_64-linux']
+
+  it('lists what differs in the gems and .gem files Gemfile.lock installs, with the Bundler it names', () => {
+    const r = run(ruby)
+    assert.equal(r.stdout, '- vendor/bundle/ruby/3.3.0/gems/other-1.0.0/\n~ vendor/bundle/ruby/3.3.0/gems/tool-1.0.0/lib/tool.rb  (content)\n', r.stderr)
+    assert.match(r.stderr, /^vendor\/bundle on disk: 4 files, /mu)
+    assert.match(r.stderr, /; 2 left out \(--all lists them\)$/mu)
+    assert.equal(r.status, 1)
+    assert.equal(run([...ruby, '--all']).stdout, '- vendor/bundle/ruby/3.3.0/bin/\n- vendor/bundle/ruby/3.3.0/gems/other-1.0.0/\n~ vendor/bundle/ruby/3.3.0/gems/tool-1.0.0/lib/tool.rb  (content)\n- vendor/bundle/ruby/3.3.0/specifications/\n')
+    assert.equal(run([...ruby, '--bundler', '2.5.11']).status, 2, 'only the Bundler deptree builds for')
+    for (const [args, said] of [
+      [['--gem-platform', 'x86_64-linux'], /^deptree: Gemfile\.lock: give --ruby <version> and --rubygems <version>, the Ruby and RubyGems Bundler ran on: ruby -e 'puts RUBY_VERSION, Gem::VERSION'$/mu],
+      [[...ruby, '--production'], /^deptree: Gemfile\.lock: --production is not taken: Bundler leaves groups out by BUNDLE_WITHOUT, of a Gemfile not read$/mu],
+      [[...ruby, '--platform', 'ios'], /^deptree: Gemfile\.lock: --platform is taken for CocoaPods alone$/mu],
+    ]) {
+      const refused = run(args)
+      assert.match(refused.stderr, said)
+      assert.equal(refused.status, 2)
+    }
+  })
+
+  it('with --partial leaves out a gem with extensions, and needs --bundler where no BUNDLED WITH names one', () => {
+    const unpinned = run(ruby, mixed)
+    assert.match(unpinned.stderr, /^deptree: Gemfile\.lock: give --bundler <version>, the Bundler that installed, which the lockfile has no BUNDLED WITH of$/mu)
+    assert.equal(unpinned.status, 2)
+    const refused = run([...ruby, '--bundler', '4.0.18'], mixed)
+    assert.match(refused.stderr, /^deptree: specs\["ext-1\.0\.0"\]: a gem with extensions to build, "ext\/extconf\.rb", whose directory holds what they make, is not supported$/mu)
+    assert.equal(refused.status, 2)
+    const r = run([...ruby, '--bundler', '4.0.18', '--partial'], mixed)
+    assert.equal(r.stdout, '', r.stderr)
+    assert.match(r.stderr, /^not compared: specs\["ext-1\.0\.0"\]: a gem with extensions to build/mu)
+    assert.match(r.stderr, /^the same; 1 left out \(--all lists them\)$/mu)
+    assert.equal(r.status, 0)
   })
 })
 
