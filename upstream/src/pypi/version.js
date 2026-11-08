@@ -15,11 +15,10 @@ export const assertPypiName = assertion('a Python package name', matches(/^(?=.{
 // PEP 503's: any case, and a run of `-`, `_` and `.` one `-`.
 export const normalName = (name) => name.toLowerCase().replaceAll(/[-_.]+/gu, '-')
 
-const PART = /^\s*(<=|>=|==|<|>|=)?\s*(\S+)\s*$/u
+const PART = /^\s*(<=|>=|<|>|=)?\s*(\S+)\s*$/u
 const OPERATORS = {
   __proto__: null,
   '=': (cmp) => cmp === 0,
-  '==': (cmp) => cmp === 0,
   '<': (cmp) => cmp < 0,
   '<=': (cmp) => cmp <= 0,
   '>': (cmp) => cmp > 0,

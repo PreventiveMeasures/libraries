@@ -71,19 +71,21 @@ async function fetchGemRepo(name) {
 }
 
 // PyPI's JSON for the newest version asked, not the project's, which lists
-// every release's files (3 MB for boto3). Its project_urls labels are as
-// PyPI normalizes them for its page: those of a project's source first,
-// then its homepage, then any other a link in a repository's tree.
-const SOURCE_LABELS = ['source', 'sourcecode', 'repository', 'code', 'github', 'homepage']
-const label = (text) => text.toLowerCase().replaceAll(/[^\da-z]/gu, '')
+// every release's files (3 MB for boto3). Its links by their labels, as PyPI
+// normalizes them for its page: a project's source's first, then its
+// homepage's, `home_page` among them, then the rest.
+const LABELS = ['source', 'sourcecode', 'repository', 'code', 'github', 'homepage']
+const rank = ([label]) => {
+  const at = LABELS.indexOf(label.toLowerCase().replaceAll(/[^\da-z]/gu, ''))
+  return at === -1 ? LABELS.length : at
+}
 async function fetchPypiRepo(name, version) {
   const answer = await request(buildUrl(PYPI, ['pypi', name, version, 'json']), { as: 'json' }).catch(recover(isNotFound, null))
   if (answer === null) return null
   const info = answer?.info
   assert.ok(typeof info?.name === 'string' && normalName(info.name) === normalName(name), `advisories: PyPI answered for ${show(info?.name)}, not ${name}`)
-  const links = info.project_urls && typeof info.project_urls === 'object' ? Object.entries(info.project_urls) : []
-  const ranked = SOURCE_LABELS.flatMap((wanted) => links.filter(([text]) => label(text) === wanted)).concat([['home_page', info.home_page]], links)
-  return ranked.map(([, url]) => repoOfLink(url)).find((repo) => repo !== undefined) ?? null
+  const links = [...Object.entries(info.project_urls ?? {}), ['home_page', info.home_page]].toSorted((a, b) => rank(a) - rank(b))
+  return links.map(([, url]) => repoOfLink(url)).find((repo) => repo !== undefined) ?? null
 }
 
 // The repo the newest version asked of each package names, from that

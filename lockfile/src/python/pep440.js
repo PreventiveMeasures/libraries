@@ -61,19 +61,17 @@ export const versionKeyOf = (version) => versionKey(parseVersion(version))
 // What packaging's Version orders by, each part a list compared item by
 // item, a shorter one first where it starts the other: the epoch; the
 // release, less trailing zeros; a dev release of none before any
-// pre-release, `a` before `b` before `rc`, all before none; no post-release
-// before one; a dev release before none; no local version before one, a
-// word in it before a number.
-const PRE_KINDS_ORDER = { __proto__: null, a: 0, b: 1, rc: 2 }
-
+// pre-release, `a` before `b` before `rc` as their letters sort, all before
+// none; no post-release before one; a dev release before none; no local
+// version before one, a word in it before a number.
 function orderKey({ epoch, release, pre, post, dev, local }) {
   let end = release.length
   while (end > 1 && release[end - 1] === '0') end--
-  const [, kind, number] = /^([a-z]+)(\d+)$/u.exec(pre ?? '') ?? []
+  const [, kind, number] = /^(\D+)(\d+)$/u.exec(pre ?? '') ?? []
   return [
     [BigInt(epoch)],
     release.slice(0, end).map(BigInt),
-    pre === undefined ? [post === undefined && dev !== undefined ? 0 : 2] : [1, PRE_KINDS_ORDER[kind], BigInt(number)],
+    pre === undefined ? [post === undefined && dev !== undefined ? 0 : 2] : [1, kind, BigInt(number)],
     post === undefined ? [0] : [1, BigInt(post)],
     dev === undefined ? [1] : [0, BigInt(dev)],
     local === undefined ? [0] : [1, ...local.map((part) => (/^\d+$/u.test(part) ? [1, BigInt(part)] : [0, part]))],
