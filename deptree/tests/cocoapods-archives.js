@@ -92,14 +92,15 @@ export async function zipCaseOf(r) {
 // MS-DOS, Unix, NTFS, VMS, BeOS, QDOS and an unknown maker; Amiga and THEOS
 // now and then.
 const SYSTEMS = [0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 11, 2, 16, 12, 99]
-const systemOf = (r) => (r.next(97) < 2 ? 1 : r.next(97) < 2 ? 18 : r.pick(SYSTEMS))
+const systemOf = (r) => (r.next(997) < 5 ? r.pick([1, 18]) : r.pick(SYSTEMS))
 const TYPE_BITS = { directory: 0o040000, symlink: 0o120000, file: 0o100000 }
 const UT = Buffer.from([0x55, 0x54, 5, 0, 1, 0, 0, 0, 0])
 const ASI = Buffer.concat([Buffer.from([0x6e, 0x75, 14, 0]), Buffer.alloc(14)])
 
 // A Unix mode above, with or without the type bits, or none; DOS bits below.
 function attributesOf(r, system, type, mode) {
-  const dos = type === 'directory' ? (r.next(97) < 7 ? 0x11 : r.pick([0x10, 0x10, 0x10, 0x10, 0])) : r.pick([0, 0, 0, 0, 1, 0x20, 0x21])
+  const label = r.next(97) < 3 ? 8 : 0
+  const dos = label | (type === 'directory' ? (r.next(97) < 3 ? 0x11 : r.pick([0x10, 0x10, 0x10, 0x10, 0])) : r.pick([0, 0, 0, 0, 1, 0x20, 0x21]))
   const typed = TYPE_BITS[type] | mode
   let upper = r.next(101) < 2 ? 0 : r.pick([typed, typed, typed, typed, mode])
   if (system === 0) upper = r.pick([0, 0, 0, 0, typed, 0o100664, 0o100755, 0o100444, 0o120777, 0o120600, 0o040755])
@@ -118,6 +119,7 @@ export function rawZipCaseOf(r) {
     const out = { name: entry.name, data: type === 'symlink' ? entry.linkname : entry.data, system, attributes: attributesOf(r, system, type, mode), deflate: r.next(3) === 0 }
     if (r.next(89) < 3) out.version = r.pick([10, 45, 46, 20 | (2 << 8), 20])
     if (r.next(83) < 4) out.extra = r.pick([UT, ASI, UT])
+    if (r.next(97) < 2) out.internal = 4
     return out
   }
   const entries = made.map(entryOf)

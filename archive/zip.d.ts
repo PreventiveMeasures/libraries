@@ -23,9 +23,9 @@ export type EntryType = 'file' | 'directory' | 'symlink'
 // reader that follows another program's reading of it: `system` is the
 // maker's, the upper byte of the version made by, 3 for Unix, whose
 // attributes alone `mode` is read from; `version` the one needed to
-// extract, `flags` the general purpose bits and `attributes` the external
-// ones, each as stored; `extra` the extra fields, each its id and data, in
-// the order stored.
+// extract, `flags` the general purpose bits, `internalAttributes` and
+// `attributes` the internal and external ones, each as stored; `extra` the
+// extra fields, each its id and data, in the order stored.
 export interface Entry {
   name: string
   type: EntryType
@@ -37,6 +37,7 @@ export interface Entry {
   system: number
   version: number
   flags: number
+  internalAttributes: number
   attributes: number
   extra: ExtraField[]
 }

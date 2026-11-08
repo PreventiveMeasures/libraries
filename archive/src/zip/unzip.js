@@ -142,6 +142,7 @@ async function readCentral(read, at) {
     crc: r.u32(at + 16),
     csize: r.u32(at + 20),
     usize: r.u32(at + 24),
+    internal: r.u16(at + 36),
     attributes: r.u32(at + 38),
     offset: r.u32(at + 42),
     // A copy, so that no entry holds on to the chunk it was read from.
@@ -237,7 +238,7 @@ async function entryOf(source, entry, names) {
   const named = located(() => cleanNames(rawName, type, target, names.above), at)
   const out = {
     ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName,
-    system: entry.madeBy >> 8, version: entry.version, flags: entry.flags, attributes: entry.attributes, extra: entry.extra,
+    system: entry.madeBy >> 8, version: entry.version, flags: entry.flags, internalAttributes: entry.internal, attributes: entry.attributes, extra: entry.extra,
   }
   located(() => names.add(out), at)
   return out

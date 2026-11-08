@@ -92,44 +92,54 @@ async function untarred(bytes, where) {
   }
 }
 
-// A mode as unzip 6.0's mapattr() makes one: a Unix maker's as stored, any
+// What unzip 6.0 stops to ask about, which fails `pod install` with nothing
+// on stdin.
+const PKZIP_VERSION = 45
+const VMS = 2
+
+function checkVersion({ version }, at) {
+  const needed = version & 0xff
+  if (needed > PKZIP_VERSION) throw new DeptreeError(`needs PKZIP ${(needed / 10).toFixed(1)} to extract, past the 4.5 an unzip built without bzip2 takes`, at)
+  if (version >> 8 === VMS) throw new DeptreeError('marked as stored in VMS format, which unzip asks before extracting', at)
+}
+
+// A mode as unzip's mapattr() makes one: a Unix maker's as stored, any
 // other's from the DOS bits under the umask, unless the Unix mode it stored
 // agrees with them, as PKZip for Unix writes one; filtattr() then drops the
 // special bits. A symlink is one by its mode, from a maker known to make them.
 const UNIX_HOSTS = new Set([2, 3, 5, 12, 13, 16, 17, 30])
 const SYMLINK_HOSTS = new Set([2, 3, 5, 16, 30])
+const LABEL_HOSTS = new Set([0, 5, 6, 11])
 const MODE_EXTRAS = new Set([0x756e, 0x000c]) // ASI Unix and PKWARE VMS, read where the attributes hold no mode
 const S_IFMT = 0o170000
 const S_IFLNK = 0o120000
 const DOS_READONLY = 1
+const DOS_LABEL = 8
 const DOS_DIRECTORY = 0x10
+const CONTROL_FIELDS = 4 // of the internal attributes: the external ones are then their low byte alone
 
-function unzipAttributes({ system, attributes, extra, storedName }, at) {
+function unzipAttributes({ system, internalAttributes, attributes, extra, storedName }, at) {
   const host = Math.min(system, 31)
   if (host === 1 || host === 18) throw new DeptreeError('made on Amiga or THEOS, whose attributes unzip reads by that system', at)
+  const external = internalAttributes & CONTROL_FIELDS ? attributes & 0xff : attributes
+  if ((external & DOS_LABEL) !== 0 && LABEL_HOSTS.has(host)) return { label: true }
   let unix = 0
   if (UNIX_HOSTS.has(host)) {
-    unix = attributes >>> 16
+    unix = external >>> 16
     if (unix === 0 && extra.some(({ id }) => MODE_EXTRAS.has(id))) throw new DeptreeError('attributes with no mode, and an extra field unzip reads one from', at)
     return { mode: unix, symlink: (unix & S_IFMT) === S_IFLNK && SYMLINK_HOSTS.has(host) }
   }
-  if (host === 0) unix = attributes >>> 16
-  const dos = ((attributes & DOS_READONLY) === 0 ? 2 : 0) | ((attributes & DOS_DIRECTORY) !== 0 || storedName.endsWith('/') ? 1 : 0)
+  if (host === 0) unix = external >>> 16
+  const dos = ((external & DOS_READONLY) === 0 ? 2 : 0) | ((external & DOS_DIRECTORY) !== 0 || storedName.endsWith('/') ? 1 : 0)
   if ((unix & 0o700) === (0o400 | (dos << 6))) return { mode: unix, symlink: (unix & S_IFMT) === S_IFLNK && host === 0 }
   return { mode: (0o444 | (dos << 6) | (dos << 3) | dos) & ~UMASK, symlink: false }
 }
 
-// What unzip stops to ask about, which fails `pod install` with nothing on
-// stdin, and what its mapname() writes otherwise than the reader reads it.
+// What unzip's mapname() writes otherwise than the reader reads it.
 const NON_ASCII = /[^\u0020-\u007E]/u
 const VMS_VERSION = /;\d*$/u
-const PKZIP_VERSION = 45
-const VMS = 2
 
-function checkEntry({ version, storedName, type }, at) {
-  const needed = version & 0xff
-  if (needed > PKZIP_VERSION) throw new DeptreeError(`needs PKZIP ${(needed / 10).toFixed(1)} to extract, past the 4.5 an unzip built without bzip2 takes`, at)
-  if (version >> 8 === VMS) throw new DeptreeError('marked as stored in VMS format, which unzip asks before extracting', at)
+function checkName({ storedName, type }, at) {
   if (NON_ASCII.test(storedName)) throw new DeptreeError('a name with a character outside ASCII, which unzip writes by the machine\'s locale and its own build', at)
   if (type === 'directory') return
   const last = storedName.split('/').at(-1)
@@ -137,8 +147,9 @@ function checkEntry({ version, storedName, type }, at) {
   if (VMS_VERSION.test(last)) throw new DeptreeError('a name ending in `;` and digits, which unzip takes for a VMS version and drops', at)
 }
 
-// Each entry as unzip writes it out, in the central directory's order; a
-// directory entry's mode counts only where unzip makes the directory for it.
+// Each entry as unzip writes it out, in the central directory's order: a
+// volume label skipped, a directory entry's mode counted only where unzip
+// makes the directory for it.
 async function unzipped(bytes, where) {
   let entries
   try {
@@ -156,11 +167,13 @@ async function unzipped(bytes, where) {
     const { name, type } = entry
     if (name === '.') continue
     const at = `${where}: ${quote(entry.storedName)}`
-    checkEntry(entry, at)
+    checkVersion(entry, at)
+    const { label, mode, symlink } = unzipAttributes(entry, at)
+    if (label) continue
+    checkName(entry, at)
     const segments = name.split('/')
     if (segments.some(isGit)) throw gitRefusal(at)
     if (files.has(name) || links.has(name)) throw new DeptreeError('a name again, which unzip asks whether to replace', at)
-    const { mode, symlink } = unzipAttributes(entry, at)
     if (symlink !== (type === 'symlink')) throw new DeptreeError('a symlink by the attributes of a maker that is not Unix, which unzip makes a link of', at)
     const perms = mode & 0o777
     for (let i = 1; i < segments.length; i++) made.add(segments.slice(0, i).join('/'))

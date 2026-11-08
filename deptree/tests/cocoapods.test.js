@@ -568,10 +568,15 @@ describe('archiveOf', () => {
       { name: 'x;1/a;1b', data: '' },
       { name: '__MACOSX/._plain', data: 'Mac OS X' },
       { name: 'pk45', data: 'x', version: 45 },
+      { name: 'label', data: 'x', system: 0, attributes: U(0o100644) | 8 },
+      { name: 'labelled/', system: 11, attributes: 0x18 },
+      { name: 'labelled/in', data: 'x', system: 0, attributes: 0 },
+      { name: 'unix-label-bit', data: 'x', system: 3, attributes: U(0o100600) | 8 },
+      { name: 'controlled', data: 'x', system: 0, attributes: U(0o100664), internal: 4 },
     ]))
     assert.deepEqual(out, {
       dirs: ['dos-dir', 'late', 'x;1'],
-      files: { plain: '644', readonly: '444', pkzip: '664', 'pkzip-ro': '400', 'exec-by-dos': '644', ntfs: '644', later: '444', 'dos-dir/in': '644', unix: '600', 'unix-untyped': '640', 'unix-sgid': '755', beos: '664', 'qdos-link': '777', 'late/f': '644', 'x;1/a;1b': '644', '__MACOSX/._plain': '644', pk45: '644' },
+      files: { plain: '644', readonly: '444', pkzip: '664', 'pkzip-ro': '400', 'exec-by-dos': '644', ntfs: '644', later: '444', 'dos-dir/in': '644', unix: '600', 'unix-untyped': '640', 'unix-sgid': '755', beos: '664', 'qdos-link': '777', 'late/f': '644', 'x;1/a;1b': '644', '__MACOSX/._plain': '644', pk45: '644', 'labelled/in': '644', 'unix-label-bit': '600', controlled: '644' },
       links: {},
     })
   })
@@ -587,6 +592,9 @@ describe('archiveOf', () => {
       [[{ name: 'a', data: '', system: 3, attributes: 0, extra: asi }], /attributes with no mode, and an extra field unzip reads one from/u],
       [[{ name: 'a', data: '', system: 3, attributes: 0 }], /a file of mode 0, which its owner cannot read/u],
       [[{ name: 'a', data: '', system: 3, attributes: U(0o100200) }], /a file of mode 200, which its owner cannot read/u],
+      [[{ name: 'a', data: '', system: 3, attributes: U(0o100644), internal: 4 }], /a file of mode 0, which its owner cannot read/u],
+      [[{ name: 'a', data: '', system: 0, attributes: 8, version: 46 }], /needs PKZIP 4\.6/u],
+      [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x', system: 0, attributes: 8 }, { name: 'a', data: 'x' }], /"a": a name again/u],
       [[{ name: 'l', data: 'a', system: 0, attributes: U(0o120600) }, { name: 'a', data: '' }], /"l": a symlink by the attributes of a maker that is not Unix, which unzip makes a link of/u],
       [[{ name: 'l', data: 'a', system: 16, attributes: U(0o120777) }, { name: 'a', data: '' }], /a symlink by the attributes of a maker that is not Unix/u],
       [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x' }], /"a": a name again, which unzip asks whether to replace/u],

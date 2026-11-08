@@ -280,8 +280,9 @@ export interface CocoaPodsTree {
 // file of the mode a Unix maker stored, but for a setuid, setgid or sticky
 // bit, and of 0o644, or 0o444 by the DOS read-only bit, from any other
 // maker, unless it stored a Unix mode that agrees with those bits, which is
-// kept; a symlink by its mode, from a Unix maker. Refused is what unzip
-// would stop and ask about, which fails `pod install`, or write otherwise
+// kept; a symlink by its mode, from a Unix maker; an MS-DOS volume label
+// left out, as unzip skips one. Refused is what unzip would stop and ask
+// about, which fails `pod install`, or write otherwise
 // than @preventive/archive/zip.js reads it, beside what that reader
 // refuses: an empty archive; a name again; an entry that needs PKZIP past
 // 4.5, or is marked as stored in VMS format; an Amiga or THEOS maker; a
