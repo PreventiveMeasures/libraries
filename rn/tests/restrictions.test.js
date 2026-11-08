@@ -40,6 +40,13 @@ describe('globRegExp', () => {
     for (const glob of ['src/{a,b', 'src/a}', '}{']) assert.equal(globRegExp(glob), null, glob)
   })
 
+  it('is null of what Node\'s glob reads otherwise: an extglob, a brace of no list, a ** within a name', () => {
+    for (const glob of ['@(a|b).js', 'src/+(a).js', '!(a)', 'x/?(a)', '*(a).js']) assert.equal(globRegExp(glob), null, glob)
+    for (const glob of ['{a}', 'v{1..3}', '{a..c}.js', 'x${a,b}', '{{a,b}}', '{a,b}}']) assert.equal(globRegExp(glob), null, glob)
+    for (const glob of ['a**', '**b/c', 'src/a**/b', 'a/***/b', '{**,x}']) assert.equal(globRegExp(glob), null, glob)
+    for (const glob of ['{a,{b,c}}', 'app/+not-found.tsx', 'app/(group)/**', '**', './**/', 'a/**/b']) assert.notEqual(globRegExp(glob), null, glob)
+  })
+
   it('has, `within`, each path in a directory it matches too', () => {
     const within = (glob, path) => globRegExp(glob, true).test(path)
     for (const glob of ['secrets', 'secrets/', './secrets', 'secret?', '{secrets,keys}']) assert.ok(within(glob, 'secrets/deep/key.js'), glob)
