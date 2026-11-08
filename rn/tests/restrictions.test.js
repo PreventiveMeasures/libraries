@@ -187,6 +187,36 @@ describe('restrictionsOf', () => {
     assert.deepEqual(errorsIn(config, true), errorsIn(RULES, true))
   })
 
+  it('has a module rule check an installed package by its package.json\'s name and the name it is installed under, forbidding either, allowing both', () => {
+    // A package naming itself as another (a git, tarball or file: dependency's package.json, or a registry
+    // tarball's that differs from what was published), in node_modules and in pnpm's store, and an npm alias.
+    const manifests = {
+      ...MANIFESTS,
+      '/app/node_modules/evil/package.json': JSON.stringify({ name: 'left' }),
+      '/app/node_modules/.pnpm/evil@1.0.0/node_modules/evil/package.json': JSON.stringify({ name: 'left' }),
+    }
+    const files = ['node_modules/evil/index.js', 'node_modules/.pnpm/evil@1.0.0/node_modules/evil/index.js', 'node_modules/time/moment.js']
+    const named = packagesOf(hostOf(manifests))
+    const errorsIn = (config) => {
+      const restrict = restrictionsOf(config, root)
+      return files.map((name) => restrict(join(root, name), named(join(root, name))))
+    }
+    assert.deepEqual(errorsIn({ disallowedModules: ['evil', 'time'] }), [
+      [`node_modules/evil/index.js is installed as evil (of left), which matches "evil" of rn.config.json's disallowedModules`],
+      [`node_modules/.pnpm/evil@1.0.0/node_modules/evil/index.js is installed as evil (of left), which matches "evil" of rn.config.json's disallowedModules`],
+      [`node_modules/time/moment.js is installed as time (of moment), which matches "time" of rn.config.json's disallowedModules`],
+    ])
+    assert.deepEqual(errorsIn({ disallowedModules: ['left', 'moment'] }).map((errors) => errors.length), [1, 1, 1])
+    assert.deepEqual(errorsIn({ allowedModules: ['left', 'moment'] }), [
+      ["node_modules/evil/index.js is installed as evil (of left), which matches none of rn.config.json's allowedModules"],
+      ["node_modules/.pnpm/evil@1.0.0/node_modules/evil/index.js is installed as evil (of left), which matches none of rn.config.json's allowedModules"],
+      ["node_modules/time/moment.js is installed as time (of moment), which matches none of rn.config.json's allowedModules"],
+    ])
+    assert.deepEqual(errorsIn({ allowedModules: ['evil', 'time'] })[2], ["node_modules/time/moment.js is of moment, which matches none of rn.config.json's allowedModules"])
+    // Allowed where both names are: an alias by allowing the package and the name it is installed under.
+    assert.deepEqual(errorsIn({ allowedModules: ['left', 'evil', 'moment', 'time'] }), [[], [], []])
+  })
+
   it('checks each rule on its own: rules together forbid what each forbids alone, and only that', () => {
     const together = errorsOf(RULES)
     const alone = Object.entries(RULES).map(([key, list]) => errorsOf({ [key]: list }))
