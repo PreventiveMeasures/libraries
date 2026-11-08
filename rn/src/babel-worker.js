@@ -36,18 +36,16 @@ const sourceSize = (source = '') => {
   return map < 0 ? source.length : map
 }
 
-// -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
-// corePath, less the config's plugins keyed in `without` (options: transformerOf()). Runs up to `max`
-// workers (defaultWorkers() if null), all started now if `warm`; with `eager`, all as a build is past
-// IN_BAND files, not one more as each has a BACKLOG: a build that misses a cache gets them all at once,
-// one that hits it none. Has close(), and fingerprint() with a fingerprinter.
+// -> async (source, filename, without = []) => { code, imports, uncacheable? }, on up to `max` workers
+// (defaultWorkers() if null). `warm` starts them all now; `eager` starts them all once a build passes
+// IN_BAND files, rather than one per BACKLOG. Has close(), and fingerprint() with a fingerprinter.
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false, eager = false } = {}) {
   const most = max ?? defaultWorkers()
   const bySize = options.oneBuild && !options.sourceMaps
   const workers = []
   const made = () => {
     const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } }, resourceLimits: { maxYoungGenerationSizeMb: YOUNG_MB } })
-    // The answers it owes, which it gives in turn.
+    // `asked`: the answers it owes, in order.
     const info = { worker, asked: [], ready: false, load: 0 }
     worker.on('message', (answer) => {
       // READY is its first message, so any means it is ready.

@@ -3,9 +3,8 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-// (filename) => whether Babel's .babelrc lookup (Metro's enableBabelRCLookup) finds a config for the file:
-// a .babelrc*, a .babelignore or a package.json Babel takes, from its directory up to its package's root.
-// Where it finds none, Babel loads the same options with babelrc: false.
+// -> (filename) => whether the lookup finds a .babelrc*, .babelignore or package.json Babel takes, up to the
+// file's package root. Where it finds none, babelrc: false loads the same options.
 export function babelrcFinder() {
   const known = new Map()
   const finds = (directory) => {
@@ -24,7 +23,7 @@ export function babelrcFinder() {
   return (filename) => finds(dirname(filename))
 }
 
-// Whether Babel takes a package.json as a config: it has a `babel` key, or is invalid (Babel throws on it).
+// Babel takes a package.json with a `babel` key, and throws on an invalid one.
 function babelOf(path) {
   try {
     const manifest = JSON.parse(readFileSync(path, 'utf8'))
