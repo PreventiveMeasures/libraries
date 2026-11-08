@@ -27,7 +27,7 @@ function readAffected(entry) {
     if (from !== undefined) ranges.push(`>=${from}`)
     open ||= from !== undefined
   }
-  const listed = new Set((Array.isArray(entry.versions) ? entry.versions : []).map((version) => String(version).replace(/^v/iu, '')))
+  const listed = new Set((Array.isArray(entry.versions) ? entry.versions : []).map((version) => full(String(version).replace(/^v/iu, ''))))
   // Listed versions alone, or with neither, every version.
   if (ranges.length === 0) return { listed, range: null, open: listed.size === 0, all: listed.size === 0 }
   const range = ranges.join(' || ')
@@ -44,9 +44,9 @@ function covers(version, { listed, range, open, all }) {
   if (isSha(version)) return true
   const tag = version.replace(/^v/iu, '')
   if (version === '0.0.0' || (!isPartial(tag) && valid(tag, { loose: true }) === null)) return open
-  if (all || listed.has(tag)) return true
-  if (range === null) return false
-  return isPartial(tag) ? overlap(range, `${tag}.x`) : inRange(tag, range)
+  if (all) return true
+  if (isPartial(tag)) return [...listed].some((listedVersion) => inRange(listedVersion, `${tag}.x`)) || (range !== null && overlap(range, `${tag}.x`))
+  return listed.has(tag) || (range !== null && inRange(tag, range))
 }
 
 async function actionRows(asked, details) {

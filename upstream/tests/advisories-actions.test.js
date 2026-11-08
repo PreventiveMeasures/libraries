@@ -82,6 +82,26 @@ describe('github, from OSV of GitHub Actions', () => {
     })
   })
 
+  it('takes a moving tag as its line against listed versions too, and a listed version as OSV writes it', async () => {
+    const listed = (id, versions, ranges = []) => record(id, 'acme/action', ranges, { affected: [{ package: { ecosystem: 'GitHub Actions', name: 'acme/action' }, versions, ranges }] })
+    stubAll({
+      records: {
+        'GHSA-aaaa-aaaa-aaaa': listed('GHSA-aaaa-aaaa-aaaa', ['3.0.0']),
+        // Listed beside a range v5's line misses.
+        'GHSA-bbbb-bbbb-bbbb': listed('GHSA-bbbb-bbbb-bbbb', ['5.1.0'], fixedIn('2.0.0')),
+        // OSV's `1.2` is 1.2.0.
+        'GHSA-cccc-cccc-cccc': listed('GHSA-cccc-cccc-cccc', ['v1.2']),
+      },
+      listings: { 'acme/action': [] },
+    })
+    const found = await advisories([repo('acme/action', ['v1.2.0', 'v3', 'v3.0', 'v3.0.0', 'v3.1.0', 'v4', 'v5'])], { github })
+    assert.deepEqual(found.map(({ id, versions }) => [id, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', ['v3', 'v3.0', 'v3.0.0']],
+      ['GHSA-bbbb-bbbb-bbbb', ['v1.2.0', 'v5']],
+      ['GHSA-cccc-cccc-cccc', ['v1.2.0']],
+    ])
+  })
+
   it("is one row with the repository's own advisory of the same GHSA, and leaves out a withdrawn record", async () => {
     const calls = stubAll({
       records: {
