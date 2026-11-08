@@ -21,6 +21,9 @@ def version(text):
     return str(Version(text))
 def same(pair):
     return Version(pair[0]) == Version(pair[1])
+def compare(pair):
+    a, b = Version(pair[0]), Version(pair[1])
+    return (a > b) - (a < b)
 def specifiers(text):
     SpecifierSet(text)
     return True
@@ -43,7 +46,7 @@ def pylock(text):
         return 'unavailable'
     Pylock.from_dict(tomllib.loads(text))
     return True
-KINDS = {'version': version, 'same': same, 'specifiers': specifiers, 'marker': marker, 'requirement': requirement, 'name': name, 'wheel': wheel, 'sdist': sdist, 'pylock': pylock}
+KINDS = {'version': version, 'same': same, 'compare': compare, 'specifiers': specifiers, 'marker': marker, 'requirement': requirement, 'name': name, 'wheel': wheel, 'sdist': sdist, 'pylock': pylock}
 results = []
 for kind, text in json.load(sys.stdin):
     try:

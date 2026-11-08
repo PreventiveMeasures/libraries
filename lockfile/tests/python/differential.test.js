@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { describe, it } from 'node:test'
+import { compareVersions } from '../../pep440.js'
 import { parsePylock } from '../../pylock.js'
 import { parseSdistName, parseWheelName } from '../../src/python/files.js'
 import { checkSpecifiers, normalVersion, parseVersion, versionKey } from '../../src/python/pep440.js'
@@ -76,6 +77,22 @@ describe('against packaging', { skip: !hasPackaging() && 'no python3 with packag
       if (same) equal++
     }
     assert.ok(equal > 50, `${equal}`)
+  })
+
+  it('versions: ordered as packaging orders them', () => {
+    const generator = random(0x0D_E2_44)
+    const pairs = Array.from({ length: 6000 }, () => {
+      const a = version(generator)
+      return [a, generator.next() < 0.3 ? a.replace(/(\d)(?=$|\+)/u, '$1.0') : version(generator)]
+    }).filter(([a, b]) => parseVersion(a) !== undefined && parseVersion(b) !== undefined)
+    const results = packaging(pairs.map((pair) => ['compare', pair]))
+    const seen = new Set()
+    for (const [index, [a, b]] of pairs.entries()) {
+      const order = Math.sign(compareVersions(a, b))
+      assert.equal(order, results[index].value, `${a} ${b}`)
+      seen.add(order)
+    }
+    assert.deepEqual([...seen].toSorted(), [-1, 0, 1])
   })
 
   it('specifier sets: read here, read by packaging; whole, read by packaging, read here', () => {

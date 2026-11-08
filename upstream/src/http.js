@@ -18,10 +18,11 @@ export const SOLDEER_REVISIONS = 'https://soldeer-revisions.s3.amazonaws.com'
 export const COCOAPODS_CDN = 'https://cdn.cocoapods.org'
 export const RUBYGEMS = 'https://rubygems.org'
 export const RUBYGEMS_INDEX = 'https://index.rubygems.org'
+export const PYPI = 'https://pypi.org'
 export const GITHUB_WEB = 'https://github.com'
 export const MAX_BYTES = 512 * 1024 * 1024
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, GITHUB_WEB])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, PYPI, GITHUB_WEB])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)

@@ -4,10 +4,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
-import { PACKAGIST_REPO, RUBYGEMS, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
+import { PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
 import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
+import { normalName } from '../pypi/version.js'
 import { githubRepoOfUrl } from '../remote.js'
 
 const PACKAGES_AT_ONCE = 8
@@ -69,6 +70,22 @@ async function fetchGemRepo(name) {
   return [answer.source_code_uri, answer.homepage_uri].map(repoOfLink).find((repo) => repo !== undefined) ?? null
 }
 
+// PyPI's JSON for the newest version asked, not the project's, which lists
+// every release's files (3 MB for boto3). Its project_urls labels are as
+// PyPI normalizes them for its page: those of a project's source first,
+// then its homepage, then any other a link in a repository's tree.
+const SOURCE_LABELS = ['source', 'sourcecode', 'repository', 'code', 'github', 'homepage']
+const label = (text) => text.toLowerCase().replaceAll(/[^\da-z]/gu, '')
+async function fetchPypiRepo(name, version) {
+  const answer = await request(buildUrl(PYPI, ['pypi', name, version, 'json']), { as: 'json' }).catch(recover(isNotFound, null))
+  if (answer === null) return null
+  const info = answer?.info
+  assert.ok(typeof info?.name === 'string' && normalName(info.name) === normalName(name), `advisories: PyPI answered for ${show(info?.name)}, not ${name}`)
+  const links = info.project_urls && typeof info.project_urls === 'object' ? Object.entries(info.project_urls) : []
+  const ranked = SOURCE_LABELS.flatMap((wanted) => links.filter(([text]) => label(text) === wanted)).concat([['home_page', info.home_page]], links)
+  return ranked.map(([, url]) => repoOfLink(url)).find((repo) => repo !== undefined) ?? null
+}
+
 // The repo the newest version asked of each package names, from that
 // version's document, kept for good (getVersionDocument): null where the
 // registry does not have that version, or it names no GitHub repo.
@@ -82,5 +99,6 @@ async function npmRepo(name, version, cache) {
 export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { cache })
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
 export const gemRepos = (names, { cache }) => cachedRepos('rubygems/repos', names, (missing) => fetchEach(missing, fetchGemRepo), cache)
+export const pypiRepos = (names, { asked, cache }) => cachedRepos('pypi/repos', names, (missing) => fetchEach(missing, (name) => fetchPypiRepo(name, asked.get(name).at(-1))), cache)
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)

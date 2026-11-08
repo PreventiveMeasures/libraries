@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isRepo, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
+import { assertPypiName, assertPypiVersion, boundRange as boundPypiRange, compareVersions as comparePypiVersions, normalName, readRange as readPypiRange } from '../pypi/version.js'
 import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { bySemver, withRepositories } from './github.js'
-import { composerRepos, crateRepos, gemRepos } from './repos.js'
+import { composerRepos, crateRepos, gemRepos, pypiRepos } from './repos.js'
 import { rubysecRows, sameIds } from './rubysec.js'
 
 const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
@@ -93,6 +94,27 @@ export const SWIFT = {
   assertName: assertion("a Swift package's repository as OSV names it, `github.com/owner/name`", matches(SWIFT_NAME)),
   assertVersion: assertion('a version as SwiftPM writes one', matches(SWIFT_VERSION)),
   advisories: (asked, options) => osvAdvisories(SWIFT, asked, options),
+}
+
+// What `pip-audit` reads: OSV's records of PyPI, PyPA's (PYSEC-...),
+// GitHub's and malicious packages'. OSV takes a name in any spelling PEP 503
+// normalizes alike, and a version in any PEP 440 does.
+export const PYPI = {
+  osv: 'PyPI',
+  github: 'pip',
+  lookUp: pypiRepos,
+  assertName: assertPypiName,
+  assertVersion: assertPypiVersion,
+  nameKey: normalName,
+  // `1.0` and `1.0.0` are equal, so are ordered by their text.
+  compare: (a, b) => comparePypiVersions(a, b) || order(a, b),
+  bound: boundPypiRange,
+  // A range PEP 440 can't read covers every version.
+  versionsIn: (asked, range) => {
+    const test = readPypiRange(range)
+    return test === undefined ? [...asked] : asked.filter(test)
+  },
+  advisories: (asked, options) => osvAdvisories(PYPI, asked, options),
 }
 
 export async function getVuln(id) {

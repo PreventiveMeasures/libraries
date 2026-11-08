@@ -5,25 +5,28 @@ export { HttpError } from './npm.js'
 export type { CacheStore } from './npm.js'
 
 // As purl and stasis name them: purl's type for Ruby gems is `gem`, for
-// Swift packages `swift`.
-export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'swift' | 'soldeer' | 'github'
+// Python packages `pypi`, for Swift packages `swift`.
+export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'pypi' | 'swift' | 'soldeer' | 'github'
 
 export interface Package {
   ecosystem: Ecosystem
   // An npm package name, a crate name, a Composer `vendor/name`, a gem's
-  // name, a Soldeer project name, or for `github`, the repository
-  // `owner/name` itself. A Swift package's is its repository as OSV's
-  // SwiftURL names it: a Package.resolved pin's `location` less its scheme
-  // and a `.git` that ends it, `github.com/vapor/vapor` of
+  // name, a Python package's in any spelling (those PEP 503 normalizes
+  // alike, `Django` and `django`, are one, the first spelling standing), a
+  // Soldeer project name, or for `github`, the repository `owner/name`
+  // itself. A Swift package's is its repository as OSV's SwiftURL names
+  // it: a Package.resolved pin's `location` less its scheme and a `.git`
+  // that ends it, `github.com/vapor/vapor` of
   // `https://github.com/vapor/vapor.git`, its host in lowercase. OSV
   // matches the rest as it is spelled, case and all, as GitHub's database
   // spells it, the repository's own (`github.com/weichsel/ZIPFoundation`):
   // a pin spelled otherwise is answered nothing.
   name: string
   // Its GitHub repository, where the caller knows it (package.json,
-  // Cargo.toml, installed.json, a gemspec), for `repoAdvisories` to ask
-  // without looking it up, and for a `soldeer` package, to ask instead of
-  // the one Soldeer names; not for `github` packages, which are their own.
+  // Cargo.toml, installed.json, a gemspec, pyproject.toml), for
+  // `repoAdvisories` to ask without looking it up, and for a `soldeer`
+  // package, to ask instead of the one Soldeer names; not for `github`
+  // packages, which are their own.
   github?: RepoName
   // npm and `github`: semver; `github` also takes a branch name or 0.0.0,
   // which every range covers. cargo: semver, build metadata allowed.
@@ -31,7 +34,11 @@ export interface Package {
   // refused; one semver cannot read is covered by every range. gem: as
   // Gemfile.lock writes one (`7.0.4.3`, `1.16.0.rc1`), its platform
   // (`-x86_64-linux`) left off; ordered and matched as RubyGems does, not
-  // by semver: `1.0.0.rc1` is below `1.0.0`, and `1.0` is `1.0.0`.
+  // by semver: `1.0.0.rc1` is below `1.0.0`, and `1.0` is `1.0.0`. pypi:
+  // PEP 440, in any spelling packaging reads (`1.0`, `v1.0`, `2.0rc1`,
+  // `1.13.0+cpu`); ordered and matched as packaging orders them: `2.0.dev1`
+  // is below `2.0rc1`, which is below `2.0`, and `1.0` is `1.0.0`. OSV
+  // matches a local version (`+cpu`) as its public one.
   // swift: as Package.resolved writes a pin's (TSCUtility.Version, SemVer's
   // form, but that an identifier may be empty or a number have a leading
   // zero); one semver cannot read is covered by every range. A pin of a
@@ -53,16 +60,20 @@ export interface AdvisoryOptions {
   // the gems asked, one request each, kept for good by their blob. By
   // itself it asks nothing else.
   github?: Client
-  // Also asks each npm, cargo, composer, gem and swift package's GitHub
+  // Also asks each npm, cargo, composer, gem, pypi and swift package's GitHub
   // repository for its published advisories, which it has before GitHub
   // reviews them into the databases above: the package's `github` where
   // given, else the one looked up. An npm package's is the one the
   // document of its newest version asked names, kept for good as getMeta
   // keeps it (none where the registry does not have that version); a
-  // crate's, a composer package's and a gem's, the one crates.io,
-  // Packagist or rubygems.org names, kept a month: for a gem, its
-  // `source_code_uri`, else its `homepage_uri`, each a repository's URL or
-  // a page in its tree (https://github.com/rails/rails/tree/v8.1.1/actionpack).
+  // crate's, a composer package's, a gem's and a Python package's, the one
+  // crates.io, Packagist, rubygems.org or PyPI names, kept a month: for a
+  // gem, its `source_code_uri`, else its `homepage_uri`; for a Python
+  // package, of the links PyPI has for its newest version asked, its
+  // source's (labeled Source, Source Code, Repository, Code or GitHub),
+  // else its Homepage, else `home_page`, else any other; each a
+  // repository's URL or a page in its tree
+  // (https://github.com/rails/rails/tree/v8.1.1/actionpack).
   // A swift package on github.com is its own repository, asked with no
   // request to find it, its GitHub `swift` entries naming it as it is
   // named here. Needs `github`.
@@ -101,11 +112,12 @@ export interface Advisory {
   ecosystem: Ecosystem
   name: string
   // `registry`: npm's, as `npm audit` has it. `osv`: OSV's records for
-  // cargo, composer, gems and swift packages, and with `osv` for npm, the
-  // versions they cover that no registry row reports under the same
-  // advisory; RustSec's, GitHub's and malicious packages' (MAL-...) among
-  // them; for a gem, GitHub's and malicious packages' alone, and for a
-  // swift package, GitHub's alone. `rubysec`: with a GitHub
+  // cargo, composer, gems, Python and swift packages, and with `osv` for
+  // npm, the versions they cover that no registry row reports under the
+  // same advisory; RustSec's, GitHub's and malicious packages' (MAL-...)
+  // among them; for a gem, GitHub's and malicious packages' alone; for a
+  // Python package, PyPA's (PYSEC-...) too, what `pip-audit` reads; and
+  // for a swift package, GitHub's alone. `rubysec`: with a GitHub
   // client, a gem's in ruby-advisory-db, what `bundler-audit` reads, for
   // the versions it takes as bundler-audit does: those neither a
   // `patched_versions` nor an `unaffected_versions` entry takes, each
@@ -170,9 +182,11 @@ export interface Advisory {
   // repository range semver cannot read, or none, covers every version; a
   // gem's is read as Gem::Requirement reads each of its comma-separated
   // parts, and one it cannot read, or none, or over 1,024 characters, covers
-  // every version. A repository range of lower bounds alone ends below its
-  // one patched version only where that is above them all, so is never
-  // emptied: `>= 3.0.0` patched in 2.2.9 is as given.
+  // every version; a Python package's is read so too, each part an
+  // operator and a PEP 440 version, a pre-release in a range around it. A
+  // repository range of lower bounds alone ends below its one patched
+  // version only where that is above them all, so is never emptied:
+  // `>= 3.0.0` patched in 2.2.9 is as given.
   // Each range its id was answered with that covers an asked version,
   // joined by ` || `; none ('') where one is none. A version only OSV
   // reports may be outside it: hermes-engine's GHSA-f5x2-xv93-4p23 is
@@ -195,9 +209,11 @@ export interface Advisory {
 // ecosystem's rules before the first request; a name given twice is
 // merged, and must not name two repositories. npm is asked 250 names a
 // request, OSV 1000 versions, Soldeer one project, rubygems.org one gem,
-// ten a second at most, and with `details`, OSV one GHSA among npm's rows;
-// a project Soldeer does not have or that names no GitHub repository, a
-// gem rubygems.org does not have or that names none, a repository gone or
+// ten a second at most, PyPI one version of one package, and with
+// `details`, OSV one GHSA among npm's rows; a project Soldeer does not
+// have or that names no GitHub repository, a gem rubygems.org does not
+// have or that names none, a Python package's version PyPI does not have
+// or that links none, a repository gone or
 // blocked, and one GitHub redirects anywhere but to a repository by its
 // id, add nothing, and a GHSA OSV does not have adds no `details`. With
 // `osv`, a name npm's registry doesn't serve without a token is taken as
@@ -220,5 +236,6 @@ export interface Advisory {
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
 // the npm beside node, or by the semver peer where there is no npm; a
 // gem's as RubyGems 3.5's Gem::Version and Gem::Requirement match them,
-// ported here.
+// ported here; a Python package's as packaging orders PEP 440 versions,
+// by @preventive/lockfile.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>

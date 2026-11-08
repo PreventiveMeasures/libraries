@@ -5,9 +5,9 @@ import { assertCache } from '../cache.js'
 import { SEVERITIES, isMalware, order } from './common.js'
 import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
-import { CARGO, COMPOSER, GEM, SWIFT } from './osv.js'
+import { CARGO, COMPOSER, GEM, PYPI, SWIFT } from './osv.js'
 
-const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, gem: GEM, swift: SWIFT, soldeer: SOLDEER, github: GITHUB }
+const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, gem: GEM, pypi: PYPI, swift: SWIFT, soldeer: SOLDEER, github: GITHUB }
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
@@ -17,15 +17,18 @@ const assertVersions = assertion('a non-empty array', (value) => Array.isArray(v
 function collect(packages) {
   assert.ok(isIterable(packages), 'advisories: packages must be an iterable of { ecosystem, name, github?, versions }')
   const byEcosystem = new Map()
+  const spelled = new Map()
   for (const pkg of packages) {
     assertArgs('advisories', pkg, { ecosystem: assertEcosystem, name: null, github: optional(assertRepo), versions: assertVersions }, 'package')
-    const { assertName, assertVersion } = ECOSYSTEMS[pkg.ecosystem]
+    const { assertName, assertVersion, nameKey } = ECOSYSTEMS[pkg.ecosystem]
     assertName('advisories', 'package.name', pkg.name)
     for (const version of pkg.versions) assertVersion('advisories', 'package.versions', version)
     assert.ok(pkg.ecosystem !== 'github' || pkg.github === undefined, 'advisories: a github package is its own repository, and takes no package.github')
     const named = byEcosystem.get(pkg.ecosystem) ?? byEcosystem.set(pkg.ecosystem, new Map()).get(pkg.ecosystem)
-    // A repository's name is GitHub's, in any case: the first spelling stands.
-    const name = pkg.ecosystem === 'github' ? [...named.keys()].find((known) => sameName(known, pkg.name)) ?? pkg.name : pkg.name
+    // A name spelled more than one way, a repository's in any case, a
+    // Python package's as PEP 503 normalizes it: the first spelling stands.
+    const key = nameKey && `${pkg.ecosystem}\0${nameKey(pkg.name)}`
+    const name = key ? spelled.get(key) ?? spelled.set(key, pkg.name).get(key) : pkg.name
     const entry = named.get(name) ?? named.set(name, { versions: new Set() }).get(name)
     assert.ok(pkg.github === undefined || entry.github === undefined || sameName(entry.github, pkg.github), `advisories: ${pkg.name} is given two repositories`)
     entry.github ??= pkg.github
