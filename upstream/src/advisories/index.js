@@ -5,9 +5,9 @@ import { assertCache } from '../cache.js'
 import { SEVERITIES, isMalware, order } from './common.js'
 import { GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
-import { CARGO, COMPOSER } from './osv.js'
+import { CARGO, COMPOSER, GEM } from './osv.js'
 
-const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, soldeer: SOLDEER, github: GITHUB }
+const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, gem: GEM, soldeer: SOLDEER, github: GITHUB }
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)

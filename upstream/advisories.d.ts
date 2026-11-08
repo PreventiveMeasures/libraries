@@ -4,25 +4,29 @@ import type { CacheStore } from './npm.js'
 export { HttpError } from './npm.js'
 export type { CacheStore } from './npm.js'
 
-// As purl and stasis name them.
-export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'soldeer' | 'github'
+// As purl and stasis name them: purl's type for Ruby gems is `gem`.
+export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'soldeer' | 'github'
 
 export interface Package {
   ecosystem: Ecosystem
-  // An npm package name, a crate name, a Composer `vendor/name`, a Soldeer
-  // project name, or for `github`, the repository `owner/name` itself.
+  // An npm package name, a crate name, a Composer `vendor/name`, a gem's
+  // name, a Soldeer project name, or for `github`, the repository
+  // `owner/name` itself.
   name: string
   // Its GitHub repository, where the caller knows it (package.json,
-  // Cargo.toml, installed.json), for `repoAdvisories` to ask without
-  // looking it up, and for a `soldeer` package, to ask instead of the one
-  // Soldeer names; not for `github` packages, which are their own.
+  // Cargo.toml, installed.json, a gemspec), for `repoAdvisories` to ask
+  // without looking it up, and for a `soldeer` package, to ask instead of
+  // the one Soldeer names; not for `github` packages, which are their own.
   github?: RepoName
   // npm and `github`: semver; `github` also takes a branch name or 0.0.0,
   // which every range covers. cargo: semver, build metadata allowed.
   // composer: a release (`v1.2.3`, `1.2.3.4`, `2.0.0-RC1`), dev versions
-  // refused; one semver cannot read is covered by every range. soldeer: as
-  // soldeer.lock has it; one semver cannot read (a bare number, a commit)
-  // is covered by every range.
+  // refused; one semver cannot read is covered by every range. gem: as
+  // Gemfile.lock writes one (`7.0.4.3`, `1.16.0.rc1`), its platform
+  // (`-x86_64-linux`) left off; ordered and matched as RubyGems does, not
+  // by semver: `1.0.0.rc1` is below `1.0.0`, and `1.0` is `1.0.0`.
+  // soldeer: as soldeer.lock has it; one semver cannot read (a bare
+  // number, a commit) is covered by every range.
   versions: string[]
 }
 
@@ -32,14 +36,17 @@ export interface AdvisoryOptions {
   // their only source, and for `repoAdvisories`; by itself it asks nothing
   // else.
   github?: Client
-  // Also asks each npm, cargo and composer package's GitHub repository
-  // for its published advisories, which it has before GitHub reviews them
-  // into the databases above: the package's `github` where given, else
-  // the one looked up. An npm package's is the one the document of its
-  // newest version asked names, kept for good as getMeta keeps it (none
-  // where the registry does not have that version); a crate's and a
-  // composer package's, the one crates.io or Packagist names, kept a
-  // month. Needs `github`.
+  // Also asks each npm, cargo, composer and gem package's GitHub
+  // repository for its published advisories, which it has before GitHub
+  // reviews them into the databases above: the package's `github` where
+  // given, else the one looked up. An npm package's is the one the
+  // document of its newest version asked names, kept for good as getMeta
+  // keeps it (none where the registry does not have that version); a
+  // crate's, a composer package's and a gem's, the one crates.io,
+  // Packagist or rubygems.org names, kept a month: for a gem, its
+  // `source_code_uri`, else its `homepage_uri`, each a repository's URL or
+  // a page in its tree (https://github.com/rails/rails/tree/v8.1.1/actionpack).
+  // Needs `github`.
   repoAdvisories?: boolean
   // Where what this call caches is kept, as CacheOptions (npm.js) has it:
   // a repository's listing, and each package's repository looked up (an
@@ -50,8 +57,8 @@ export interface AdvisoryOptions {
   // and its rows take OSV's record of their GHSA, one more request each
   // (no GitHub client needed).
   details?: boolean
-  // Also asks OSV of each npm package's versions, as cargo and composer
-  // packages always are, for what the registry does not have: above all
+  // Also asks OSV of each npm package's versions, as cargo, composer and
+  // gem packages always are, for what the registry does not have: above all
   // the malicious packages' records (MAL-...), which it has none of, as
   // those of npm releases taken down that GitHub's database has no
   // advisory of. A version a registry row reports under the same advisory,
@@ -74,13 +81,15 @@ export interface Advisory {
   ecosystem: Ecosystem
   name: string
   // `registry`: npm's, as `npm audit` has it. `osv`: OSV's records for
-  // cargo and composer, and with `osv` for npm, the versions they cover
-  // that no registry row reports under the same advisory; RustSec's,
-  // GitHub's and malicious packages' (MAL-...) among them; of the records
-  // naming each other as aliases, directly or through others, a version is
-  // reported under one only: RustSec's, else the GHSA, else the first by
-  // id. Each has the others' ids among its aliases, and stays a row of its
-  // own, as its source rates it.
+  // cargo, composer and gems, and with `osv` for npm, the versions they
+  // cover that no registry row reports under the same advisory; RustSec's,
+  // GitHub's and malicious packages' (MAL-...) among them; for a gem,
+  // GitHub's and malicious packages' alone, none of ruby-advisory-db's,
+  // what `bundler-audit` reads. Of the records naming each other as
+  // aliases, directly or through others, a version is reported under one
+  // only: RustSec's, else the GHSA, else the first by id, as the GHSA a
+  // gem's MAL- record names stands for it. Each has the others' ids among
+  // its aliases, and stays a row of its own, as its source rates it.
   // `repository`: published on the package's repository, holding only the
   // versions the others' answer does not report under that GHSA. The only
   // source for `soldeer` and `github`, where every range counts, whichever
@@ -123,7 +132,9 @@ export interface Advisory {
   cwe: string[]
   // As written: npm's syntax from the registry, GitHub's
   // (`>= 1.0.0, < 1.2.6`) from a repository; OSV's records have none. A
-  // repository range semver cannot read, or none, covers every version.
+  // repository range semver cannot read, or none, covers every version; a
+  // gem's is read as Gem::Requirement reads each of its comma-separated
+  // parts, and one it cannot read, or none, covers every version.
   // Each range its id was answered with that covers an asked version,
   // joined by ` || `; none ('') where one is none. A version only OSV
   // reports may be outside it: hermes-engine's GHSA-f5x2-xv93-4p23 is
@@ -145,12 +156,14 @@ export interface Advisory {
 // Every package, and every one of its versions, is checked against its
 // ecosystem's rules before the first request; a name given twice is
 // merged, and must not name two repositories. npm is asked 250 names a
-// request, OSV 1000 versions, Soldeer one project, and with `details`, OSV
-// one GHSA among npm's rows; a project Soldeer does not have or that names
-// no GitHub repository, a repository gone or blocked, and one GitHub
-// redirects anywhere but to a repository by its id, add nothing, and a
-// GHSA OSV does not have adds no `details`. With `osv`, a name npm's
-// registry doesn't serve without a token is taken as private (see `osv`). A repository renamed or
+// request, OSV 1000 versions, Soldeer one project, rubygems.org one gem,
+// ten a second at most, and with `details`, OSV one GHSA among npm's rows;
+// a project Soldeer does not have or that names no GitHub repository, a
+// gem rubygems.org does not have or that names none, a repository gone or
+// blocked, and one GitHub redirects anywhere but to a repository by its
+// id, add nothing, and a GHSA OSV does not have adds no `details`. With
+// `osv`, a name npm's registry doesn't serve without a token is taken as
+// private (see `osv`). A repository renamed or
 // transferred, which GitHub redirects to it by its id, is listed by the
 // name it has now, as getRepo's `followRedirect` (github.js) finds it, its
 // rows' `url` on it. Any other failure, a malformed answer, or one about
@@ -162,5 +175,7 @@ export interface Advisory {
 // `cache` false, nowhere. 90 minutes is how late an advisory its
 // maintainer publishes can be seen. One gone or malformed is not kept.
 // Sorted by ecosystem and name. Versions are matched by npm's semver, from
-// the npm beside node, or by the semver peer where there is no npm.
+// the npm beside node, or by the semver peer where there is no npm; a
+// gem's as RubyGems 3.5's Gem::Version and Gem::Requirement match them,
+// ported here.
 export function advisories(packages: Iterable<Package>, options?: AdvisoryOptions): Promise<Advisory[]>

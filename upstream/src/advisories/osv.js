@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
+import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
+import { compareVersions as compareGemVersions, parseRange, satisfiesAll } from '../rubygems/version.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { withRepositories } from './github.js'
-import { composerRepos, crateRepos } from './repos.js'
+import { composerRepos, crateRepos, gemRepos } from './repos.js'
 
 const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
@@ -19,6 +20,8 @@ const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
 // Of the records that publish one advisory, the first answered for a
 // version stands for the rest on it: RustSec's, what `cargo audit` reads
 // and GitHub mirrors, then the GHSA, then any other (MAL-...), then by id.
+// A gem has GitHub's and malicious packages' alone, the GHSA standing for
+// the MAL- record that names it.
 const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
 const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
 const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
@@ -47,6 +50,28 @@ export const COMPOSER = {
     return !isExactVersion(plain) || inRange(plain, range)
   },
   advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
+}
+
+// Gems, by OSV's records of them: GitHub's and malicious packages' alone.
+// Versions are Gem::Version's, `1.0.0.rc1` below `1.0.0`, and a
+// repository's ranges, GitHub's `>= 1.0.0, < 1.2.6`, are read as
+// Gem::Requirement reads each comma-separated part: one it cannot read,
+// or none, covers every version.
+// TODO: ruby-advisory-db, what `bundler-audit` reads, has no records in
+// OSV; what of it GitHub's database lacks is missed.
+export const GEM = {
+  osv: 'RubyGems',
+  github: 'rubygems',
+  lookUp: gemRepos,
+  assertName: assertGemName,
+  assertVersion: assertGemVersion,
+  // Equal versions spelt apart (`1.0`, `1.0.0`) by their text.
+  compare: (a, b) => compareGemVersions(a, b) || order(a, b),
+  versionsIn: (asked, range) => {
+    const requirements = parseRange(range)
+    return requirements === undefined ? [...asked] : asked.filter((version) => satisfiesAll(version, requirements))
+  },
+  advisories: (asked, options) => osvAdvisories(GEM, asked, options),
 }
 
 export async function getVuln(id) {
@@ -126,6 +151,6 @@ export async function osvRows({ osv }, asked, { details }) {
 }
 
 async function osvAdvisories(ecosystem, asked, options) {
-  const { github, lookUp, covers } = ecosystem
-  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, { ecosystem: github, lookUp, covers })
+  const { github, lookUp, covers, versionsIn } = ecosystem
+  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, { ecosystem: github, lookUp, covers, versionsIn })
 }

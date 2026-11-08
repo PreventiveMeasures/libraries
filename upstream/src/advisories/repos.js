@@ -8,6 +8,7 @@ import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
 import { githubRepoOfUrl } from '../remote.js'
+import { lookUpGemRepos } from '../rubygems/repos.js'
 
 const PACKAGES_AT_ONCE = 8
 
@@ -55,5 +56,6 @@ async function npmRepo(name, version, cache) {
 // call's `cache`.
 export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { cache })
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
+export const gemRepos = (names, { cache }) => lookUpGemRepos('advisories', names, { cache })
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)
