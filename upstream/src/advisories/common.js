@@ -25,6 +25,13 @@ export const mayBeInRange = (version, range) => valid(version) === null || inRan
 // Whether some version is in both ranges, as `npm audit` reads them.
 export const overlap = (a, b) => validRange(a, SEMVER) !== null && intersects(a, b, SEMVER)
 
+// Whether a range, as `npm audit` reads it, is lower bounds alone: one set,
+// each comparator `>` or `>=`.
+export function isOpenAbove(range) {
+  const normal = validRange(range, SEMVER)
+  return normal !== null && !normal.includes('|') && normal.split(' ').every((comparator) => comparator.startsWith('>'))
+}
+
 // The asked versions a range `covers`. One semver cannot read, range or
 // version, covers them all: a missed advisory is worse than a spare one.
 export const covered = (asked, range, covers = mayBeInRange) => (validRange(range, SEMVER) === null ? [...asked] : asked.filter((version) => covers(version, range)))

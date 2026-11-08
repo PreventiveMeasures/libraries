@@ -644,6 +644,9 @@ describe('npm, with a GitHub client', () => {
           repoAdvisory('GHSA-eeee-eeee-eeee', [patched('mono-a', '> 3.0.0, >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3', '3.1.0')]),
           // Fixed in the next release: bounded, as 3.1.3-0 is in between.
           repoAdvisory('GHSA-ffff-ffff-ffff', [patched('mono-a', '> 3.1.2', '3.1.3')]),
+          // Lower bounds as semver writes them, without a comma; alternatives,
+          // which `< 3.1.3` would end only one of, as given.
+          repoAdvisory('GHSA-gggg-gggg-gggg', [patched('mono-a', '>= 3.0.0 >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3.2.0 || >= 3.0.0', '3.1.3')]),
         ],
       },
     })
@@ -655,6 +658,7 @@ describe('npm, with a GitHub client', () => {
       ['GHSA-dddd-dddd-dddd', '^3.1.0', ['3.1.2', '3.1.3-rc.1', '3.2.0']],
       ['GHSA-eeee-eeee-eeee', '> 3.0.0, >= 3.0.5, < 3.1.3 || >= 3, < 3.1.0', ['3.0.0', '3.1.2', '3.1.3-rc.1']],
       ['GHSA-ffff-ffff-ffff', '> 3.1.2, < 3.1.3', ['3.1.3-rc.1']],
+      ['GHSA-gggg-gggg-gggg', '>= 3.0.0 >= 3.0.5, < 3.1.3 || >= 3.2.0 || >= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
     ])
   })
 

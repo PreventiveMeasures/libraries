@@ -6,7 +6,7 @@ import { isGone } from '../github/client.js'
 import { HttpError, recover } from '../http.js'
 import { pool } from '../pool.js'
 import { isExactVersion } from '../semver.js'
-import { advisoryUrl, covered, detailsOf, isText, mayBeInRange, metrics, overlap } from './common.js'
+import { advisoryUrl, covered, detailsOf, isOpenAbove, isText, mayBeInRange, metrics, overlap } from './common.js'
 import { soldeerRepos } from './repos.js'
 
 const REPOS_AT_ONCE = 4
@@ -29,8 +29,8 @@ export const assertClient = assertion('a GitHub client from createClient', (valu
 function boundedRange(range, patched) {
   if (!isExactVersion(patched)) return range
   if (range.trim() === '') return `< ${patched}`
-  if (!range.split(',').every((part) => /^\s*>=?\s*[^\s<>=]+\s*$/u.test(part))) return range
-  return overlap(range.replaceAll(',', ' '), `< ${patched}`) ? `${range.trim()}, < ${patched}` : range
+  const npm = range.replaceAll(',', ' ')
+  return isOpenAbove(npm) && overlap(npm, `< ${patched}`) ? `${range.trim()}, < ${patched}` : range
 }
 
 // All that is kept of a listing. A malformed one is refused, and one whose
