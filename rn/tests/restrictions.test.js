@@ -42,9 +42,11 @@ describe('globRegExp', () => {
 
   it('is null of what Node\'s glob reads otherwise: an extglob, a brace of no list, a ** within a name', () => {
     for (const glob of ['@(a|b).js', 'src/+(a).js', '!(a)', 'x/?(a)', '*(a).js']) assert.equal(globRegExp(glob), null, glob)
+    // One braces form, as Node's glob expands them first: `{@,x}(a)` is `@(a)` or `x(a)`.
+    for (const glob of ['{@,x}(a)', '@{,x}(a)', 'x/{a,b@}{(c),d}']) assert.equal(globRegExp(glob), null, glob)
     for (const glob of ['{a}', 'v{1..3}', '{a..c}.js', 'x${a,b}', '{{a,b}}', '{a,b}}']) assert.equal(globRegExp(glob), null, glob)
     for (const glob of ['a**', '**b/c', 'src/a**/b', 'a/***/b', '{**,x}']) assert.equal(globRegExp(glob), null, glob)
-    for (const glob of ['{a,{b,c}}', 'app/+not-found.tsx', 'app/(group)/**', '**', './**/', 'a/**/b']) assert.notEqual(globRegExp(glob), null, glob)
+    for (const glob of ['{a,{b,c}}', 'app/+not-found.tsx', 'app/(group)/**', '**', './**/', 'a/**/b', 'app/{(tabs),(auth)}/**', 'app/(tabs)/*{.ts,.tsx}']) assert.notEqual(globRegExp(glob), null, glob)
   })
 
   it('has, `within`, each path in a directory it matches too', () => {

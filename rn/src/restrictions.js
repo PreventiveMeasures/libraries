@@ -26,6 +26,10 @@ function bracesListed(glob) {
   return listed.length === 0
 }
 
+// Whether `glob` holds an extglob (`@(a|b)`), or may once its braces expand, as Node's glob expands them first
+// (`{@,x}(a)` is `@(a)` or `x(a)`): an operator and a `(` each touching a brace, taken as forming one.
+const extglob = (glob) => /[!*+?@]\(/u.test(glob) || (/[!*+?@][,{}]/u.test(glob) && /[,{}]\(/u.test(glob))
+
 // Whether each `**` is a whole name: Node's glob takes `a**` for `a*`, where this would cross a `/`.
 const globstarsWhole = (glob) => [...glob.matchAll(/\*{2,}/gu)].every(({ 0: stars, index }) =>
   stars.length === 2 && (index === 0 || glob[index - 1] === '/') && (index + 2 === glob.length || glob[index + 2] === '/'))
@@ -35,7 +39,7 @@ const globstarsWhole = (glob) => [...glob.matchAll(/\*{2,}/gu)].every(({ 0: star
 // .pnpm). With `within`, a glob also matches what is inside a directory it matches (`secrets` all of secrets/).
 export function globRegExp(glob, within = false) {
   const bare = trimmed(glob)
-  if (/[!*+?@]\(/u.test(bare) || !bracesListed(bare) || !globstarsWhole(bare)) return null
+  if (extglob(bare) || !bracesListed(bare) || !globstarsWhole(bare)) return null
   let depth = 0
   const token = (part) => {
     if (part === '**/') return '(?:.*/)?'
