@@ -23,7 +23,7 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function' && typeof value.getRepo === 'function')
 
-// A range of lower bounds alone (`>= 5.0.0-beta.1`) ends below the one version
+// A range with no upper bound (`>= 5.0.0-beta.1`) ends below the one version
 // that fixed it (`5.0.0-rc.2`) where some of it, a prerelease too, is below
 // that version; any other is as given, never emptied.
 function boundedRange(range, patched) {
