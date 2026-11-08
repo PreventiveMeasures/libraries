@@ -10,7 +10,7 @@ import { assertCacheName, assertDirectoryPath, assertion, isRepo } from './args.
 import { MAX_BYTES, decode } from './http.js'
 import { pool } from './pool.js'
 
-const DIRS = new Set(['npm/repos', 'npm/public', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'cocoapods/podspecs', 'cocoapods/archives', 'github/trees', 'github/advisories'])
+const DIRS = new Set(['npm/repos', 'npm/public', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'rubygems/repos', 'rubygems/gems', 'cocoapods/podspecs', 'cocoapods/archives', 'github/trees', 'github/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 const RECORDS_AT_ONCE = 8
 // JSON filed gzipped, as `<name>.json.gz`: a listing carries each
@@ -21,12 +21,12 @@ const compress = promisify(gzip)
 const decompress = promisify(gunzip)
 
 // An environment variable may hold anything: only an absolute path is one.
-const absolute = (path) => (typeof path === 'string' && isAbsolute(path) ? path : undefined)
+export const absolute = (path) => (typeof path === 'string' && isAbsolute(path) ? path : undefined)
 const within = (base, ...names) => (base === undefined ? undefined : join(base, ...names))
 
 // os.homedir() takes $HOME as it is, relative or empty, and throws where
 // neither it nor the user's passwd entry has one.
-function home() {
+export function home() {
   try {
     return absolute(homedir())
   } catch {

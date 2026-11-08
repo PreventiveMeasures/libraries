@@ -1,7 +1,7 @@
 {
   "name": "@preventive/upstream",
   "version": "1.5.1",
-  "description": "Minimal npm, crates.io, Soldeer, CocoaPods trunk, GitHub and git checkout clients",
+  "description": "Minimal npm, crates.io, RubyGems, Soldeer, CocoaPods trunk, GitHub and git checkout clients",
   "type": "module",
   "exports": {
     "./advisories.js": {
@@ -36,6 +36,10 @@
       "types": "./package.d.ts",
       "default": "./package.js"
     },
+    "./rubygems.js": {
+      "types": "./rubygems.d.ts",
+      "default": "./rubygems.js"
+    },
     "./semver.js": {
       "types": "./semver.d.ts",
       "default": "./semver.js"
@@ -68,6 +72,8 @@
     "npm.js",
     "package.d.ts",
     "package.js",
+    "rubygems.d.ts",
+    "rubygems.js",
     "semver.d.ts",
     "semver.js",
     "soldeer.d.ts",
@@ -102,6 +108,9 @@
     "src/package.js",
     "src/pool.js",
     "src/remote.js",
+    "src/rubygems/gem.js",
+    "src/rubygems/platform.js",
+    "src/rubygems/version.js",
     "src/semver-peer.cjs",
     "src/semver.js",
     "src/tree.js",

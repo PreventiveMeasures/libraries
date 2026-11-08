@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
+import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
+import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
-import { withRepositories } from './github.js'
-import { composerRepos, crateRepos } from './repos.js'
+import { bySemver, withRepositories } from './github.js'
+import { composerRepos, crateRepos, gemRepos } from './repos.js'
 
 const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
@@ -42,11 +43,30 @@ export const COMPOSER = {
   assertVersion: assertion('a Composer release version', matches(/^(?=.{1,64}$)v?\d+(?:\.\d+){0,3}(?:[._-]?(?:stable|beta|b|RC|alpha|a|patch|pl|p)(?:[.-]?\d+)*)?$/iu)),
   // Composer's `v1.2.3` is semver's 1.2.3; what semver cannot read at all
   // (1.2.3.4, 1.0.0-p1) is covered by every range.
-  covers: (version, range) => {
+  versionsIn: bySemver((version, range) => {
     const plain = version.replace(/^v/iu, '')
     return !isExactVersion(plain) || inRange(plain, range)
-  },
+  }),
   advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
+}
+
+// TODO: OSV has none of ruby-advisory-db, what `bundler-audit` reads, so
+// what of it GitHub's database lacks is missed.
+export const GEM = {
+  osv: 'RubyGems',
+  github: 'rubygems',
+  lookUp: gemRepos,
+  assertName: assertGemName,
+  assertVersion: assertGemVersion,
+  // `1.0` and `1.0.0` are equal, so are ordered by their text.
+  compare: (a, b) => compareGemVersions(a, b) || order(a, b),
+  bound: boundGemRange,
+  // A range Gem::Requirement can't read covers every version.
+  versionsIn: (asked, range) => {
+    const test = readGemRange(range)
+    return test === undefined ? [...asked] : asked.filter(test)
+  },
+  advisories: (asked, options) => osvAdvisories(GEM, asked, options),
 }
 
 export async function getVuln(id) {
@@ -126,6 +146,5 @@ export async function osvRows({ osv }, asked, { details }) {
 }
 
 async function osvAdvisories(ecosystem, asked, options) {
-  const { github, lookUp, covers } = ecosystem
-  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, { ecosystem: github, lookUp, covers })
+  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, ecosystem)
 }

@@ -15,7 +15,7 @@ const DIR = 'github/advisories'
 // GitHub reviews it is what a repository is asked for: 90 minutes, not a month.
 const LISTING_TTL_MS = 90 * 60 * 1000
 // Stamped on each entry, and raised when a listing is kept differently.
-const VERSION = 2
+const VERSION = 3
 
 const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' && isGhsa(advisory.ghsa_id)
   && advisory.state === 'published' && isText(advisory.summary)
@@ -23,23 +23,15 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function' && typeof value.getRepo === 'function')
 
-// A maintainer may give a vulnerable range only its lower bound, and the
-// version that fixed it apart (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`),
-// as GitHub's page shows them side by side: such a range ends below its one
-// patched version. A range bounded above, or patched in more than one
-// version, is as given.
+// A range given only its lower bound, with the version that fixed it apart
+// (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`), ends below that version.
 function boundedRange(range, patched) {
-  const fixed = typeof patched === 'string' ? patched.trim() : null
-  if (!isExactVersion(fixed) || range.includes('<')) return range
-  return range.trim() === '' ? `< ${fixed}` : `${range.trim()}, < ${fixed}`
+  if (!isExactVersion(patched) || range.includes('<')) return range
+  return range.trim() === '' ? `< ${patched}` : `${range.trim()}, < ${patched}`
 }
 
-// What rows are made from, and all that is kept of a listing: each advisory
-// not withdrawn, with its CVSS vector GitHub prefers, and each vulnerable
-// range with the package it names, ended below its patched version where it
-// has no end of its own (boundedRange). A listing that is malformed is
-// refused whole, and never kept; one whose only fault is a description
-// (isDigest) is answered, but not kept either.
+// All that is kept of a listing. A malformed one is refused, and one whose
+// only fault is a description (isDigest) is answered but not kept.
 function digest(repo, list) {
   return list.flatMap((advisory) => {
     assert.ok(isRepoAdvisory(advisory), `advisories: malformed advisory from ${repo}`)
@@ -49,7 +41,8 @@ function digest(repo, list) {
       const range = vulnerability?.vulnerable_version_range ?? ''
       assert.ok(typeof range === 'string', `advisories: malformed range in ${advisory.ghsa_id}`)
       const { ecosystem, name } = vulnerability?.package ?? {}
-      return { range: boundedRange(range, vulnerability?.patched_versions), ...(typeof ecosystem === 'string' && { ecosystem }), ...(typeof name === 'string' && { name }) }
+      const patched = vulnerability?.patched_versions
+      return { range, ...(typeof patched === 'string' && { patched: patched.trim() }), ...(typeof ecosystem === 'string' && { ecosystem }), ...(typeof name === 'string' && { name }) }
     })
     return [{
       ghsa: advisory.ghsa_id,
@@ -65,7 +58,7 @@ function digest(repo, list) {
 // one leaves the listing usable, but not kept.
 const isDigest = (advisory) => advisory && typeof advisory === 'object' && isGhsa(advisory.ghsa) && isText(advisory.title)
   && (advisory.description === undefined || isText(advisory.description))
-  && Array.isArray(advisory.ranges) && advisory.ranges.every((entry) => typeof entry?.range === 'string')
+  && Array.isArray(advisory.ranges) && advisory.ranges.every((entry) => typeof entry?.range === 'string' && (entry.patched === undefined || typeof entry.patched === 'string'))
 
 // GitHub answers for a repository renamed or transferred with a redirect,
 // which getRepo follows to the repository it is now, listed by that name.
@@ -100,12 +93,11 @@ async function listAdvisories(github, repo, cache) {
   return { repo: found.repo, advisories }
 }
 
-// GitHub's `>= 1.0.0, < 1.2.6` is npm's with the commas dropped.
-// Maintainers write these unreviewed: one without a range, or with one
-// semver cannot read, covers every version. Its page is on `repo`, which
-// may publish it long before the advisory database has one, and its
-// `description` is the text `details` asks for: the listing has it all.
-function fromRepository(repo, name, advisory, range, asked, { covers, details }) {
+// GitHub's `>= 1.0.0, < 1.2.6` is npm's without the commas. Maintainers write
+// these unreviewed: none, or one semver can't read, covers every version.
+export const bySemver = (covers) => (asked, range) => covered(asked, range.replaceAll(',', ' '), covers)
+
+function fromRepository(repo, name, advisory, range, versions, details) {
   return {
     name,
     source: 'repository',
@@ -117,24 +109,23 @@ function fromRepository(repo, name, advisory, range, asked, { covers, details })
     ...(details && detailsOf(advisory.description, advisory.ghsa)),
     ...metrics({ severity: advisory.severity, score: advisory.cvss, vector: advisory.cvssVector, cwe: advisory.cwe }),
     range,
-    versions: covered(asked, range.replaceAll(',', ' '), covers),
+    versions,
   }
 }
 
-// Each asked name's repository, `repoOf` it, is asked once, and its
-// advisories' vulnerable ranges become rows for the names that `takes` a
-// range's package, one per name, advisory and range, holding the asked
-// versions it `covers`, and with `details`, its text.
-async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, covers, details, cache }) {
+// A row per name `takes` a range's package for, advisory and range. Ranges
+// are bounded, and matched, as the asking ecosystem reads them.
+async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), bound = boundedRange, details, cache }) {
   // GitHub's names are case-insensitive: one spelling asks for all.
   const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
   const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ names, ...(await listAdvisories(github, repoOf(names[0]), cache)) }))
   const rows = new Map()
   for (const { repo, names, advisories } of listed) {
     for (const advisory of advisories) {
-      for (const { range, ...pkg } of advisory.ranges) {
+      for (const { range: given, patched, ...pkg } of advisory.ranges) {
+        const range = bound(given, patched)
         for (const name of names.filter((candidate) => takes(candidate, pkg))) {
-          rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, asked.get(name), { covers, details }))
+          rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, versionsIn(asked.get(name), range), details))
         }
       }
     }
@@ -154,12 +145,12 @@ async function reposOf(asked, known, lookUp, cache) {
 // each package's repository, `known` or else looked up, adds what it
 // publishes for GitHub's `ecosystem` entries naming the package, for the
 // versions `rows` do not already report under that GHSA.
-export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { ecosystem, lookUp, covers }) {
+export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { github: ecosystem, lookUp, versionsIn, bound }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
   const repoOf = await reposOf(asked, known, lookUp, cache)
   const takes = (name, pkg) => pkg.ecosystem === ecosystem && pkg.name === name
-  const added = await repositoryAdvisories(github, asked, { repoOf, takes, covers, details, cache })
+  const added = await repositoryAdvisories(github, asked, { repoOf, takes, versionsIn, bound, details, cache })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
 }
 
@@ -173,7 +164,7 @@ export const GITHUB = {
   repositoryOnly: true,
   assertName: assertRepo,
   assertVersion: assertion('a version or a branch name', isRefName),
-  advisories: (asked, { github, details, cache }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, covers: coversPlaceholder, details, cache }),
+  advisories: (asked, { github, details, cache }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, versionsIn: bySemver(coversPlaceholder), details, cache }),
 }
 
 // Soldeer packages, which no advisory database has: the repository each
