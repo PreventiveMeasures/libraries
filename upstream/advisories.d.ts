@@ -4,14 +4,21 @@ import type { CacheStore } from './npm.js'
 export { HttpError } from './npm.js'
 export type { CacheStore } from './npm.js'
 
-// As purl and stasis name them: purl's type for Ruby gems is `gem`.
-export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'soldeer' | 'github'
+// As purl and stasis name them: purl's type for Ruby gems is `gem`, for
+// Swift packages `swift`.
+export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'swift' | 'soldeer' | 'github'
 
 export interface Package {
   ecosystem: Ecosystem
   // An npm package name, a crate name, a Composer `vendor/name`, a gem's
   // name, a Soldeer project name, or for `github`, the repository
-  // `owner/name` itself.
+  // `owner/name` itself. A Swift package's is its repository as OSV's
+  // SwiftURL names it: a Package.resolved pin's `location` less its scheme
+  // and a `.git` that ends it, `github.com/vapor/vapor` of
+  // `https://github.com/vapor/vapor.git`, its host in lowercase. OSV
+  // matches the rest as it is spelled, case and all, as GitHub's database
+  // spells it, the repository's own (`github.com/weichsel/ZIPFoundation`):
+  // a pin spelled otherwise is answered nothing.
   name: string
   // Its GitHub repository, where the caller knows it (package.json,
   // Cargo.toml, installed.json, a gemspec), for `repoAdvisories` to ask
@@ -25,6 +32,12 @@ export interface Package {
   // Gemfile.lock writes one (`7.0.4.3`, `1.16.0.rc1`), its platform
   // (`-x86_64-linux`) left off; ordered and matched as RubyGems does, not
   // by semver: `1.0.0.rc1` is below `1.0.0`, and `1.0` is `1.0.0`.
+  // swift: as Package.resolved writes a pin's (TSCUtility.Version, SemVer's
+  // form, but that an identifier may be empty or a number have a leading
+  // zero); one semver cannot read is covered by every range. A pin of a
+  // branch or of a bare revision has none, and OSV has no SwiftURL record
+  // by commit: leave it out, or ask its repository as a `github` package by
+  // its branch, which every range of the repository's advisories covers.
   // soldeer: as soldeer.lock has it; one semver cannot read (a bare
   // number, a commit) is covered by every range.
   versions: string[]
@@ -40,7 +53,7 @@ export interface AdvisoryOptions {
   // the gems asked, one request each, kept for good by their blob. By
   // itself it asks nothing else.
   github?: Client
-  // Also asks each npm, cargo, composer and gem package's GitHub
+  // Also asks each npm, cargo, composer, gem and swift package's GitHub
   // repository for its published advisories, which it has before GitHub
   // reviews them into the databases above: the package's `github` where
   // given, else the one looked up. An npm package's is the one the
@@ -50,7 +63,9 @@ export interface AdvisoryOptions {
   // Packagist or rubygems.org names, kept a month: for a gem, its
   // `source_code_uri`, else its `homepage_uri`, each a repository's URL or
   // a page in its tree (https://github.com/rails/rails/tree/v8.1.1/actionpack).
-  // Needs `github`.
+  // A swift package on github.com is its own repository, asked with no
+  // request to find it, its GitHub `swift` entries naming it as it is
+  // named here. Needs `github`.
   repoAdvisories?: boolean
   // Where what this call caches is kept, as CacheOptions (npm.js) has it:
   // a repository's listing, each package's repository looked up (an npm
@@ -86,10 +101,11 @@ export interface Advisory {
   ecosystem: Ecosystem
   name: string
   // `registry`: npm's, as `npm audit` has it. `osv`: OSV's records for
-  // cargo, composer and gems, and with `osv` for npm, the versions they
-  // cover that no registry row reports under the same advisory; RustSec's,
-  // GitHub's and malicious packages' (MAL-...) among them; for a gem,
-  // GitHub's and malicious packages' alone. `rubysec`: with a GitHub
+  // cargo, composer, gems and swift packages, and with `osv` for npm, the
+  // versions they cover that no registry row reports under the same
+  // advisory; RustSec's, GitHub's and malicious packages' (MAL-...) among
+  // them; for a gem, GitHub's and malicious packages' alone, and for a
+  // swift package, GitHub's alone. `rubysec`: with a GitHub
   // client, a gem's in ruby-advisory-db, what `bundler-audit` reads, for
   // the versions it takes as bundler-audit does: those neither a
   // `patched_versions` nor an `unaffected_versions` entry takes, each

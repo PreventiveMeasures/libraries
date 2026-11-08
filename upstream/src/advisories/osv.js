@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
+import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isRepo, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
@@ -71,6 +71,28 @@ export const GEM = {
     const [osv, rubysec] = await Promise.all([osvRows(GEM, asked, options), options.github ? rubysecRows(options.github, asked, options) : []])
     return await withRepositories([...osv, ...sameIds(rubysec, osv)], asked, options, GEM)
   },
+}
+
+// A Swift package by its repository, as OSV's SwiftURL names it: the URL
+// less its scheme and a `.git` that ends it, `github.com/vapor/vapor`,
+// which OSV matches as it is spelled, case and all.
+const SWIFT_NAME = /^(?=.{1,512}$)[a-z\d-]+(?:\.[a-z\d-]+)+(?:\/(?!\.\.?(?:\/|$))[\w.~-]+)+(?<!\.git)$/u
+// TSCUtility.Version, as SwiftPM writes one: SemVer's form, but that an
+// identifier may be empty, or a number with a leading zero.
+const SWIFT_VERSION = /^(?=.{5,256}$)(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){2}(?:-[\dA-Za-z.-]*)?(?:\+[\dA-Za-z.-]*)?$/u
+// One on github.com is its own repository, which no request finds.
+const swiftRepo = (name) => {
+  const repo = name.startsWith('github.com/') ? name.slice('github.com/'.length) : ''
+  return isRepo(repo) ? repo : null
+}
+
+export const SWIFT = {
+  osv: 'SwiftURL',
+  github: 'swift',
+  lookUp: (names) => new Map(names.map((name) => [name, swiftRepo(name)])),
+  assertName: assertion("a Swift package's repository as OSV names it, `github.com/owner/name`", matches(SWIFT_NAME)),
+  assertVersion: assertion('a version as SwiftPM writes one', matches(SWIFT_VERSION)),
+  advisories: (asked, options) => osvAdvisories(SWIFT, asked, options),
 }
 
 export async function getVuln(id) {
