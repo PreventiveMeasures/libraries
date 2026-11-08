@@ -60,7 +60,8 @@ export interface Advisory {
   cwe: string[]
   // The affected range as its source wrote it, where it has one.
   range?: string
-  // RustSec's `unmaintained`, `unsound` or `notice`: not a vulnerability as such.
+  // RustSec's `unmaintained`, `unsound` or `notice`: not a vulnerability as
+  // such. A yanked crate isn't an advisory: see cargo.js's yankedVersions.
   informational?: string
   // Malware, not a vulnerability.
   malware?: true
