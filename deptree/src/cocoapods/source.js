@@ -17,11 +17,9 @@ const HTTP_OPTIONS = new Set(['http', 'type', 'flatten', 'sha1', 'sha256', 'head
 // the lowercase hex Ruby's hexdigest writes, which it compares as text: a
 // sha256 alone is taken, as two archives can be made to share a sha1.
 const SHA256 = /^[\da-f]{64}$/u
-// RemoteFile's types, as its :type names one, and else by the end of the
-// URL's path, type_with_url: those it extracts with `tar xf`, which reads
-// an archive by what it is rather than by its name, and flattens by
-// default; a zip, which it extracts with `unzip` and does not flatten; and
-// a dmg, which it mounts, and is not read here.
+// RemoteFile's types, by :type or the end of the URL's path: tars it
+// extracts with `tar xf` and flattens by default, a zip with `unzip`, which
+// it does not flatten, and a dmg it mounts, not read here.
 const TARS = new Set(['tgz', 'tar', 'tbz', 'txz'])
 const TYPES = new Set([...TARS, 'zip', 'dmg'])
 const URL_TYPES = [[/\.zip$/u, 'zip'], [/\.(?:tgz|tar\.gz)$/u, 'tgz'], [/\.tar$/u, 'tar'], [/\.(?:tbz|tar\.bz2)$/u, 'tbz'], [/\.(?:txz|tar\.xz)$/u, 'txz'], [/\.dmg$/u, 'dmg']]

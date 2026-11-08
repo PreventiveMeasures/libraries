@@ -122,8 +122,7 @@ describe('the port, against CocoaPods', { skip: SKIP }, () => {
     assert.ok(compared > 150, `compared ${compared}`)
   })
 
-  // Where the port refuses an archive, CocoaPods may take it or not; where
-  // it takes one, CocoaPods has to, and to leave the same.
+  // What the port takes, CocoaPods has to take and leave the same.
   async function extracted(cases) {
     const { extract: expected } = cocoapods({ fnmatch: [], expand: [], install: [], extract: cases })
     let compared = 0

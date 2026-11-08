@@ -1,44 +1,41 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { DeptreeError } from '../src/error.js'
 import { portExtract, random, rawZipCaseOf, sorted, zipCaseOf } from './cocoapods-archives.js'
 
-// The unzip on the machine, where it is Info-ZIP's, against the port's
-// reading of a zip: each extracted as RemoteFile has it extracted, `unzip
-// file.zip -d <dir>` in the directory the zip was downloaded into, with
-// nothing on stdin to answer a question, under a umask of 0o022, and
-// listed. Where unzip exits with 0, the port has to list the same or refuse
-// the zip; where it does not, which fails `pod install`, the port has to
-// refuse it. Needs no Ruby, as the differential test does, so it runs
-// wherever unzip is. The seeds are fixed.
+// Info-ZIP's unzip on the machine, if any, against the port: `unzip file.zip
+// -d <dir>` as RemoteFile runs it, with nothing on stdin, under a umask of
+// 0o022. Needs no Ruby, as the differential test does. The seeds are fixed.
 
 const version = spawnSync('unzip', ['-v'], { encoding: 'utf8' })
 const SKIP = !(version.status === 0 && /Info-ZIP/u.test(version.stdout)) && 'no Info-ZIP unzip on the PATH'
 
 process.umask(0o022)
 
-function listing(root) {
-  return readdirSync(root, { recursive: true }).map((name) => {
-    const path = name.split(sep).join('/')
-    const st = lstatSync(join(root, name))
-    if (st.isSymbolicLink()) return [path, 'symlink', readlinkSync(join(root, name))]
-    return st.isDirectory() ? [path, 'directory'] : [path, 'file', st.mode & 0o7777]
+// Each directory made listable and removable on the way, as its mode is not
+// compared.
+function listing(root, prefix = '') {
+  return readdirSync(root).flatMap((name) => {
+    const path = join(root, name)
+    const st = lstatSync(path)
+    if (st.isSymbolicLink()) return [[`${prefix}${name}`, 'symlink', readlinkSync(path)]]
+    if (!st.isDirectory()) return [[`${prefix}${name}`, 'file', st.mode & 0o7777]]
+    chmodSync(path, 0o700)
+    return [[`${prefix}${name}`, 'directory'], ...listing(path, `${prefix}${name}/`)]
   })
 }
 
 function unzipExtract({ archive }) {
   const root = mkdtempSync(join(tmpdir(), 'deptree-unzip-live-'))
   try {
-    const file = join(root, 'file.zip')
-    writeFileSync(file, Buffer.from(archive, 'base64'))
-    const r = spawnSync('unzip', ['-q', file, '-d', root], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' })
-    if (r.status !== 0) return { error: r.status, output: `${r.stdout}${r.stderr}` }
-    rmSync(file)
-    return { entries: listing(root) }
+    writeFileSync(join(root, 'file.zip'), Buffer.from(archive, 'base64'))
+    const r = spawnSync('unzip', ['-q', 'file.zip', '-d', root], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' })
+    const entries = listing(root).filter(([path]) => path !== 'file.zip')
+    return r.status === 0 ? { entries } : { error: `${r.status}: ${r.stdout}${r.stderr}` }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -50,7 +47,6 @@ describe('the port, against unzip', { skip: SKIP }, () => {
       const r = random(seed)
       let compared = 0
       let refused = 0
-      let failed = 0
       for (let i = 0; i < 300; i++) {
         const one = { ...await caseOf(r), flatten: false }
         const expected = unzipExtract(one)
@@ -60,14 +56,13 @@ describe('the port, against unzip', { skip: SKIP }, () => {
         } catch (error) {
           if (!(error instanceof DeptreeError)) throw error
           refused++
-          if (expected.error !== undefined) failed++
           continue
         }
-        assert.equal(expected.error, undefined, `unzip exits with ${expected.error} on what the port takes: ${expected.output} ${JSON.stringify(one)}`)
+        assert.equal(expected.error, undefined, `unzip fails on what the port takes: ${expected.error} ${JSON.stringify(one)}`)
         assert.deepEqual(sorted(ours), sorted(expected.entries), JSON.stringify(one))
         compared++
       }
-      assert.ok(compared > 100 && refused > 20, `compared ${compared}, refused ${refused}, of which unzip failed on ${failed}`)
+      assert.ok(compared > 100 && refused > 20, `compared ${compared}, refused ${refused}`)
     })
   }
 })

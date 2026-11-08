@@ -135,8 +135,7 @@
     "src/yarn1/requests.js",
     "src/yarn1/resolve.js",
     "src/yarn1/settings.js",
-    "src/yarn1/tree.js",
-    "src/zip.js"
+    "src/yarn1/tree.js"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -165,7 +164,7 @@
   "dependencies": {
     "@chalker/queue": "^1.0.1",
     "@exodus/bytes": "^1.16.0",
-    "@preventive/archive": "^1.2.2",
+    "@preventive/archive": "^1.4.0",
     "@preventive/compare": "^1.2.11",
     "@preventive/diff": "^1.1.0",
     "@preventive/lockfile": "^1.2.0",

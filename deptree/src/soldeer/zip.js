@@ -4,36 +4,31 @@
 // every directory is 0o755, and a file's mode its Unix mode as the zip crate
 // reads it, or 0o644 where it reads none; a symlink is a file of its target.
 
-import { utf8fromStringLoose, utf8toStringLoose } from '@exodus/bytes/utf8.js'
+import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
 import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
 import { MAX_BYTES } from '../tarball.js'
-import { centralRecords, extraFields } from '../zip.js'
 
 const UTF8 = 0x0800
+const NON_ASCII = /[^\u0020-\u007E]/u
 const S_IFLNK = 0o120000
 const [NTFS, TIMESTAMP, UNICODE_COMMENT, AES] = [0x000a, 0x5455, 0x6375, 0x9901]
-
-// As the archive reader decodes a name: a leading U+FEFF is part of it.
 
 const ones = (byte) => [...byte.toString(2)].filter((bit) => bit === '1').length
 
 // Why the zip crate would fail on an entry's extra fields, or undefined; an
 // AES or a Unicode comment field is refused here.
 function extraRefusal(extra) {
-  for (const { id, body } of extraFields(extra)) {
-    const view = new DataView(body.buffer, body.byteOffset, body.byteLength)
-    if (id === NTFS && (body.length !== 32 || view.getUint16(4, true) !== 1 || view.getUint16(6, true) !== 24)) return 'an NTFS extra field the zip crate does not read'
-    if (id === TIMESTAMP && (body.length === 0 || (body.length !== 5 && body.length !== 1 + 4 * ones(body[0])))) return 'an extended timestamp the zip crate does not read'
+  for (const { id, data } of extra) {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    if (id === NTFS && (data.length !== 32 || view.getUint16(4, true) !== 1 || view.getUint16(6, true) !== 24)) return 'an NTFS extra field the zip crate does not read'
+    if (id === TIMESTAMP && (data.length === 0 || (data.length !== 5 && data.length !== 1 + 4 * ones(data[0])))) return 'an extended timestamp the zip crate does not read'
     if (id === AES) return 'an AES extra field, which has the zip crate decrypt the entry'
     if (id === UNICODE_COMMENT) return 'a Unicode comment extra field, which the zip crate checks'
   }
   return undefined
 }
-
-// What the zip crate reads of each entry that unzip does not hand out.
-const recordsOf = (bytes) => centralRecords(bytes).map((record) => ({ ...record, extra: extraRefusal(record.extra) }))
 
 // The zip crate's ZipFileData::unix_mode; system 0 is MS-DOS, and 3 Unix.
 function unixMode({ system, attributes }) {
@@ -62,16 +57,14 @@ export async function extractZip(bytes, checksum, where) {
     if (error instanceof ArchiveError) throw new DeptreeError(`its zip cannot be read: ${error.message}`, where, { cause: error })
     throw error
   }
-  const records = recordsOf(bytes)
   // The zip crate keys entries by their names' bytes, here the stored names:
   // of two of one name, the later is extracted where the first was.
   const last = new Map()
   for (const [index, entry] of entries.entries()) {
-    const record = records[index]
-    if (utf8toStringLoose(record.name) !== entry.storedName) throw new Error('unreachable: unzip lists entries out of the central directory\'s order')
     const here = `${where}: ${quote(entry.storedName)}`
-    if (record.extra !== undefined) throw new DeptreeError(`${record.extra}, which Soldeer fails on`, here)
-    if (!(record.flags & UTF8) && record.name.some((byte) => byte >= 0x80)) throw new DeptreeError('a name not flagged UTF-8, which Soldeer reads as CP437, is not supported', here)
+    const refusal = extraRefusal(entry.extra)
+    if (refusal !== undefined) throw new DeptreeError(`${refusal}, which Soldeer fails on`, here)
+    if (!(entry.flags & UTF8) && NON_ASCII.test(entry.storedName)) throw new DeptreeError('a name not flagged UTF-8, which Soldeer reads as CP437, is not supported', here)
     last.set(entry.storedName, index)
   }
   const dirs = new Set()
@@ -87,7 +80,7 @@ export async function extractZip(bytes, checksum, where) {
       dirs.add(entry.name)
       continue
     }
-    const mode = unixMode(records[index])
+    const mode = unixMode(entry)
     const data = entry.type === 'symlink' ? utf8fromStringLoose(entry.linkname) : entry.data
     // A file written again keeps its mode where the zip crate reads none.
     const kept = mode === undefined || (mode & S_IFLNK) === S_IFLNK ? files.get(entry.name)?.mode ?? 0o644 : mode & 0o777 & ~0o022

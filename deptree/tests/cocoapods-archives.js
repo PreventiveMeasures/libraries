@@ -1,11 +1,6 @@
 // Archives made at random, as GitHub or a release might hold one, for
-// RemoteFile to extract and the port to read alike: tars, most of them one
-// directory, some of modes a user's tar keeps, drops or is refused here, with
-// links and hard links, gzipped or not, whatever their type says; zips as
-// Info-ZIP's zip writes one, of a Unix maker; and zips with every field as
-// given, of the makers unzip reads attributes by, with the names it writes
-// otherwise, the versions it refuses, repeats and all. Each flattened by
-// default, or as :flatten says.
+// RemoteFile to extract and the port to read alike: tars, zips as zip
+// writes one, and zips with every field as given.
 import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { zip } from '@preventive/archive/zip.js'
@@ -25,17 +20,15 @@ export function random(seed) {
 export const NAMES = ['a', 'A', 'Sources', 'sources', 'Source', 'Classes', 'Res', 'res.bundle', 'x.m', 'X.M', 'y.h', 'z.swift', 'img.png', 'README.md', 'readme', 'LICENSE', 'License.md', '.hidden', 'foo.', 'mod.modulemap', 'pre.pch', 'lib.a', 'F.framework', 'Tests', 'S', 'So', '._res']
 export const DIRS = ['a', 'Sources', 'sources', 'Source', 'Classes', 'Res', 'res.bundle', 'Tests', 'S', 'F.framework', 'sub', '.hid', 'd.', '__MACOSX']
 const TOPS = ['Pod-1.0', 'pod', 'v1.2.3', 'x.tmp', 'v1;2']
-// Those refused here, a special bit or what the owner cannot read, list or
-// write in, now and then.
+// Now and then a special bit, or what the owner cannot read, list or write in.
 const FILE_MODES = [0o644, 0o644, 0o644, 0o755, 0o444, 0o600, 0o664, 0o777, 0o700, 0o640]
 const DIR_MODES = [0o755, 0o755, 0o755, 0o700, 0o775, 0o777]
 const fileMode = (r) => (r.next(97) < 2 ? r.pick([0o4755, 0o200, 0o1644, 0o2644]) : r.pick(FILE_MODES))
 const dirMode = (r) => (r.next(97) < 2 ? r.pick([0o555, 0o2755, 0o311]) : r.pick(DIR_MODES))
 const LINK_TARGETS = ['x.m', 'README.md', 'nowhere', 'a']
 
-// A tree at random, as entries for pack or zip: each path's kind in `kinds`,
-// a directory's whether or not an entry names it; a hard link now and then
-// where `hardlinks`, which a tar alone holds.
+// Entries for pack or zip; `kinds` has every path's, a directory's whether or
+// not an entry names it.
 function treeOf(r, hardlinks) {
   const kinds = new Map()
   const entries = []
@@ -90,25 +83,21 @@ export async function tarCaseOf(r) {
   return { archive: base64(archive), type, ...flattenOf(r) }
 }
 
-// As Info-ZIP's zip writes one: a Unix maker, each mode as given.
 export async function zipCaseOf(r) {
   const { entries } = treeOf(r, false)
   const archive = await zip(entries, { method: r.pick(['deflate', 'store']) })
   return { archive: base64(archive), type: 'zip', ...flattenOf(r) }
 }
 
-// The makers unzip reads attributes by: MS-DOS, Unix, NTFS, VMS, BeOS, QDOS
-// and one it does not know; Amiga and THEOS, refused here, now and then.
+// MS-DOS, Unix, NTFS, VMS, BeOS, QDOS and an unknown maker; Amiga and THEOS
+// now and then.
 const SYSTEMS = [0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 11, 2, 16, 12, 99]
 const systemOf = (r) => (r.next(97) < 2 ? 1 : r.next(97) < 2 ? 18 : r.pick(SYSTEMS))
 const TYPE_BITS = { directory: 0o040000, symlink: 0o120000, file: 0o100000 }
 const UT = Buffer.from([0x55, 0x54, 5, 0, 1, 0, 0, 0, 0])
 const ASI = Buffer.concat([Buffer.from([0x6e, 0x75, 14, 0]), Buffer.alloc(14)])
 
-// The external attributes, as a maker on `system` might write them: a Unix
-// mode in the upper half, with the type bits or without, or none; the DOS
-// bits in the lower, the directory bit for a directory mostly, read-only or
-// archive now and then.
+// A Unix mode above, with or without the type bits, or none; DOS bits below.
 function attributesOf(r, system, type, mode) {
   const dos = type === 'directory' ? (r.next(97) < 7 ? 0x11 : r.pick([0x10, 0x10, 0x10, 0x10, 0])) : r.pick([0, 0, 0, 0, 1, 0x20, 0x21])
   const typed = TYPE_BITS[type] | mode
@@ -117,9 +106,7 @@ function attributesOf(r, system, type, mode) {
   return upper * 0x10000 + dos
 }
 
-// A name as a maker might write it, and unzip otherwise than it is stored:
-// `./` ahead, which both drop; `;` and digits, which unzip drops; a `.`
-// segment, which it writes as `_`; one outside ASCII, by the locale.
+// Names unzip writes otherwise than stored, or the archive reader refuses.
 const ODD_NAMES = ['x;1', 'y;', 'z;2a', './dot', 'sub/.', 'ü', 'a\u0001b', './sub/dot']
 
 export function rawZipCaseOf(r) {
@@ -134,9 +121,6 @@ export function rawZipCaseOf(r) {
     return out
   }
   const entries = made.map(entryOf)
-  // A directory entry after what is in it; an entry again; a name unzip
-  // writes otherwise, first, ahead of anything else refused; the archive
-  // root.
   if (entries.length > 1 && r.next(53) < 13) entries.push(entries.splice(r.next(entries.length), 1)[0])
   if (entries.length > 0 && r.next(61) < 4) entries.push({ ...r.pick(entries) })
   if (r.next(71) < 7) {
@@ -149,8 +133,7 @@ export function rawZipCaseOf(r) {
 
 export const sorted = (entries) => entries.map((entry) => JSON.stringify(entry)).sort()
 
-// The port's extraction of a case, as the reference lists it, every
-// directory on the way to a path among them; or what it refuses.
+// As the reference lists an extraction, every directory on the way included.
 export async function portExtract({ archive, type, flatten }) {
   const source = { archive: type, file: `file.${type}`, flatten: flatten === undefined ? type !== 'zip' : flatten !== null && flatten !== false }
   const out = await archiveOf(Buffer.from(archive, 'base64'), source, 'pod')
