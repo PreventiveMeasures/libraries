@@ -4,7 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
-import { PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
+import { PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, encodeSegment, isNotFound, recover, request } from '../http.js'
 import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
@@ -73,14 +73,15 @@ async function fetchGemRepo(name) {
 // PyPI's JSON for the newest version asked, not the project's, which lists
 // every release's files (3 MB for boto3). Its links by their labels, as PyPI
 // normalizes them for its page: a project's source's first, then its
-// homepage's, `home_page` among them, then the rest.
+// homepage's, `home_page` among them, then the rest. A version's `+` and
+// `!` (`1.13.0+cpu`, `1!2.0`) are escaped, as a path segment takes them.
 const LABELS = ['source', 'sourcecode', 'repository', 'code', 'github', 'homepage']
 const rank = ([label]) => {
   const at = LABELS.indexOf(label.toLowerCase().replaceAll(/[^\da-z]/gu, ''))
   return at === -1 ? LABELS.length : at
 }
 async function fetchPypiRepo(name, version) {
-  const answer = await request(buildUrl(PYPI, ['pypi', name, version, 'json']), { as: 'json' }).catch(recover(isNotFound, null))
+  const answer = await request(buildUrl(PYPI, ['pypi', name, version, 'json'].map(encodeSegment)), { as: 'json' }).catch(recover(isNotFound, null))
   if (answer === null) return null
   const info = answer?.info
   assert.ok(typeof info?.name === 'string' && normalName(info.name) === normalName(name), `advisories: PyPI answered for ${show(info?.name)}, not ${name}`)

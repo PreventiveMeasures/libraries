@@ -141,6 +141,13 @@ describe('pypi, with a GitHub client', () => {
     ])
   })
 
+  it("asks PyPI of a local version and an epoch's, escaped, as of any other", async () => {
+    const calls = stubAll({ projects: { 'torch/1.13.0+cpu': { project_urls: { Source: 'https://github.com/pytorch/pytorch' } } }, listings: { 'pytorch/pytorch': [] } })
+    assert.deepEqual(await advisories([pkg('torch', ['1.13.0+cpu']), pkg('epochal', ['1!2.0'])], options), [])
+    assert.deepEqual(calls.filter(({ url }) => url.startsWith(PYPI)).map(({ url }) => url).toSorted(), [`${PYPI}epochal/1%212.0/json`, `${PYPI}torch/1.13.0%2Bcpu/json`])
+    assert.ok(calls.some(({ url }) => url === listing('pytorch/pytorch')))
+  })
+
   it('throws where PyPI fails, or answers for another package', async () => {
     stubAll({ projects: { 'django/4.2': Response.json({}, { status: 500 }) } })
     await assert.rejects(advisories([pkg('django', ['4.2'])], options), { name: 'HttpError', status: 500 })
