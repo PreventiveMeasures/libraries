@@ -8,6 +8,7 @@ import { boundRange as boundGemRange, compareVersions as compareGemVersions, rea
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { bySemver, withRepositories } from './github.js'
+import { packagistRows } from './packagist.js'
 import { composerRepos, crateRepos, gemRepos, pypiRepos } from './repos.js'
 import { rubysecRows, sameIds } from './rubysec.js'
 
@@ -32,8 +33,7 @@ export const CARGO = {
   assertVersion: assertCrateVersion,
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }
-// TODO: packagist.org's API, what `composer audit` reads, has the
-// FriendsOfPHP advisories OSV lacks; it needs Composer range matching.
+// OSV, and Packagist's own, which has the FriendsOfPHP advisories OSV lacks.
 export const COMPOSER = {
   osv: 'Packagist',
   github: 'composer',
@@ -45,7 +45,10 @@ export const COMPOSER = {
     const plain = version.replace(/^v/iu, '')
     return !isExactVersion(plain) || inRange(plain, range)
   }),
-  advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
+  advisories: async (asked, options) => {
+    const [osv, packagist] = await Promise.all([osvRows(COMPOSER, asked, options), packagistRows(asked)])
+    return await withRepositories([...osv, ...sameIds(packagist, osv)], asked, options, COMPOSER)
+  },
 }
 
 // OSV, and with a GitHub client ruby-advisory-db, which OSV lacks.

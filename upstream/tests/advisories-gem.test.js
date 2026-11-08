@@ -71,6 +71,8 @@ function stubAll({ hits = {}, records = {}, gems = {}, listings = {}, rubysec = 
   const calls = []
   globalThis.fetch = (url, init = {}) => {
     url = String(url)
+    // Packagist's advisories, for the one composer package asked: none.
+    if (url === 'https://packagist.org/api/security-advisories/') return Promise.resolve(Response.json({ advisories: [] }))
     const body = init.body && JSON.parse(init.body)
     calls.push({ url, body, at: Date.now() })
     const fromDb = rubysecAnswer(url, rubysec)
