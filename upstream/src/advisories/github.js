@@ -26,7 +26,7 @@ export const assertClient = assertion('a GitHub client from createClient', (valu
 // A range given only its lower bound, with the version that fixed it apart
 // (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`), ends below that version.
 function boundedRange(range, patched, isVersion) {
-  if (patched === undefined || !isVersion(patched) || range.includes('<')) return range
+  if (!isVersion(patched) || range.includes('<')) return range
   return range.trim() === '' ? `< ${patched}` : `${range.trim()}, < ${patched}`
 }
 
@@ -97,7 +97,7 @@ async function listAdvisories(github, repo, cache) {
 // these unreviewed: none, or one semver can't read, covers every version.
 export const bySemver = (covers) => (asked, range) => covered(asked, range.replaceAll(',', ' '), covers)
 
-function fromRepository(repo, name, advisory, range, asked, { versionsIn, details }) {
+function fromRepository(repo, name, advisory, range, versions, details) {
   return {
     name,
     source: 'repository',
@@ -109,7 +109,7 @@ function fromRepository(repo, name, advisory, range, asked, { versionsIn, detail
     ...(details && detailsOf(advisory.description, advisory.ghsa)),
     ...metrics({ severity: advisory.severity, score: advisory.cvss, vector: advisory.cvssVector, cwe: advisory.cwe }),
     range,
-    versions: versionsIn(asked, range),
+    versions,
   }
 }
 
@@ -125,7 +125,7 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
       for (const { range: given, patched, ...pkg } of advisory.ranges) {
         const range = boundedRange(given, patched, isVersion)
         for (const name of names.filter((candidate) => takes(candidate, pkg))) {
-          rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, asked.get(name), { versionsIn, details }))
+          rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, versionsIn(asked.get(name), range), details))
         }
       }
     }

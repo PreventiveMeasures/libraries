@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readdir } from 'node:fs/promises'
 import { delimiter, join, resolve } from 'node:path'
 
-import { assertGem, assertSha256, assertion, matches, printable } from '../args.js'
+import { assertGem, assertSha256, assertion, isSha256, printable } from '../args.js'
 import { absolute, home } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { RUBYGEMS, RUBYGEMS_INDEX, buildUrl, encodeSegment, request } from '../http.js'
@@ -13,8 +13,8 @@ import { isGemPlatform } from './platform.js'
 const DIR = 'rubygems/gems'
 
 const assertPlatform = assertion('`ruby` or a platform as RubyGems writes one', (value) => value === 'ruby' || isGemPlatform(value))
-const assertChecksum = assertion('a sha256 in lowercase hex, bare or after `sha256=`', matches(/^(?:sha256=)?[\da-f]{64}$/u))
 const hexOf = (checksum) => checksum.replace(/^sha256=/u, '')
+const assertChecksum = assertion('a sha256 in lowercase hex, bare or after `sha256=`', (value) => typeof value === 'string' && isSha256(hexOf(value)))
 
 // The cache entry, `<name>@<version>[-<platform>]`, can't collide: a name
 // has no `@`, a version no `-`.
@@ -22,7 +22,7 @@ function gemOf(method, name, version, platform) {
   assertGem(method, name, version)
   assertPlatform(method, 'platform', platform)
   const suffix = platform === 'ruby' ? '' : `-${platform}`
-  return { what: `${name}@${version}${suffix}`, file: `${name}-${version}${suffix}.gem` }
+  return { name, version, platform, what: `${name}@${version}${suffix}`, file: `${name}-${version}${suffix}.gem` }
 }
 
 // `<version>[-<platform>] <deps>|<key:value,...>`, split at the first `-`
@@ -30,12 +30,12 @@ function gemOf(method, name, version, platform) {
 const LINE = /^(?<version>[^\s|-]+)(?:-(?<platform>[^\s|]+))? [^|]*\|(?<metadata>.*)$/u
 
 // The compact index, as Bundler reads it: every line after the first `---`.
-async function getChecksum(method, name, version, platform, what) {
+async function getChecksum(method, { name, version, platform, what }) {
   const lines = (await request(buildUrl(RUBYGEMS_INDEX, ['info', name]), { as: 'text' })).split('\n')
   while (lines.at(-1) === '') lines.pop()
   const parse = (line) => {
     const match = LINE.exec(line)
-    assert.ok(match, `${method}: the index for ${name} has a line that is not a version's: ${printable(line.slice(0, 200))}`)
+    if (match === null) assert.fail(`${method}: the index for ${name} has a line that is not a version's: ${printable(line.slice(0, 200))}`)
     return { ...match.groups, platform: match.groups.platform ?? 'ruby' }
   }
   const found = lines.slice(lines.indexOf('---') + 1).map(parse).filter((entry) => entry.version === version && entry.platform === platform)
@@ -69,16 +69,17 @@ async function localPaths(file) {
 }
 
 export async function verifyChecksum(name, version, platform, checksum) {
-  const { what } = gemOf('verifyChecksum', name, version, platform)
+  const gem = gemOf('verifyChecksum', name, version, platform)
   assertChecksum('verifyChecksum', 'checksum', checksum)
-  const indexed = await getChecksum('verifyChecksum', name, version, platform, what)
-  assert.ok(indexed === hexOf(checksum), `verifyChecksum: ${what} is ${indexed} on rubygems.org, not ${hexOf(checksum)}`)
+  const hex = hexOf(checksum)
+  const indexed = await getChecksum('verifyChecksum', gem)
+  assert.ok(indexed === hex, `verifyChecksum: ${gem.what} is ${indexed} on rubygems.org, not ${hex}`)
 }
 
 export async function getGem(name, version, platform, checksum) {
-  const { what, file } = gemOf('getGem', name, version, platform)
+  const gem = gemOf('getGem', name, version, platform)
   if (checksum !== undefined) assertChecksum('getGem', 'checksum', checksum)
-  const expected = checksum === undefined ? await getChecksum('getGem', name, version, platform, what) : hexOf(checksum)
-  const locate = () => buildUrl(RUBYGEMS, ['gems', encodeSegment(file)])
-  return await verifiedDownload({ method: 'getGem', dir: DIR, what, ext: 'gem', algorithm: 'sha256', expected, local: await localPaths(file), locate })
+  const expected = checksum === undefined ? await getChecksum('getGem', gem) : hexOf(checksum)
+  const locate = () => buildUrl(RUBYGEMS, ['gems', encodeSegment(gem.file)])
+  return await verifiedDownload({ method: 'getGem', dir: DIR, what: gem.what, ext: 'gem', algorithm: 'sha256', expected, local: await localPaths(gem.file), locate })
 }

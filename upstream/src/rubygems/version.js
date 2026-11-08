@@ -24,7 +24,6 @@ const partition = (version) => (version.match(/\d+|[A-Za-z]+/gu) ?? []).map((par
 // match: one pass, not regexes retried from every place.
 const zeroRuns = (text) => Array.from(text.matchAll(/[.0]+/gu), (m) => [m.index, m.index + m[0].length])
 
-// The first place in a run whose preceding character `follows` takes.
 function startIn(text, [from, to], follows) {
   for (let at = from; at < to; at++) if (follows(text[at - 1])) return at
   return undefined
@@ -99,12 +98,11 @@ function satisfies(version, [operator, against]) {
   return OPERATORS[operator](compareVersions(version, against))
 }
 
-// GitHub's `>= 1.0.0, < 1.2.6` for a gem: each comma-separated part a
-// requirement. Undefined where a part isn't one Gem::Requirement reads.
-export function parseRange(text) {
-  if (typeof text !== 'string') return undefined
-  const requirements = text.split(',').map((part) => REQUIREMENT.exec(part))
-  return requirements.every((match) => match !== null) ? requirements.map((match) => [match[1] ?? '=', match[2]]) : undefined
+// A test of `>= 1.0.0, < 1.2.6`, each comma-separated part a requirement;
+// undefined where a part isn't one Gem::Requirement reads.
+export function readRange(text) {
+  const parts = text.split(',').map((part) => REQUIREMENT.exec(part))
+  if (parts.some((match) => match === null)) return undefined
+  const requirements = parts.map((match) => [match[1] ?? '=', match[2]])
+  return (version) => requirements.every((requirement) => satisfies(version, requirement))
 }
-
-export const satisfiesAll = (version, requirements) => requirements.every((requirement) => satisfies(version, requirement))

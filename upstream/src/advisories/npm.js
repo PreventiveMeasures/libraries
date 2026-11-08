@@ -137,12 +137,14 @@ async function osvOfPublic(asked, options) {
 // What `npm audit` asks the registry, one row per vulnerable range, and
 // with `osv`, OSV's records of the public packages.
 export const NPM = {
+  github: 'npm',
+  lookUp: npmRepos,
   assertName: assertPackageName,
   assertVersion: assertPackageVersion,
   compare: compareVersions,
   advisories: async (asked, options) => {
     const [registry, osv] = await Promise.all([registryAdvisories(asked), options.osv ? osvOfPublic(asked, options) : []])
     const rows = withOsv(registry, osv)
-    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { github: 'npm', lookUp: npmRepos })
+    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, NPM)
   },
 }

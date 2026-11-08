@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import { isVersion as isGemVersion } from './rubygems/version.js'
 import { isExactVersion } from './semver.js'
 
 const isControl = (char) => char < ' ' || (char >= '\u007F' && char <= '\u009F')
@@ -106,10 +107,10 @@ const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?
 // Pod::Version's pattern, as Podfile.lock writes a version.
 const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
 // Gem::SpecificationPolicy#validate_name's rule; the 256 cap is ours.
-export const assertGemName = assertion('a gem name', (value) => matches(/^(?=.{1,256}$)[A-Za-z\d][\w.-]*$/u)(value) && /[A-Za-z]/u.test(value))
+export const assertGemName = assertion('a gem name', matches(/^(?=.{1,256}$)(?=[\w.-]*[A-Za-z])[A-Za-z\d][\w.-]*$/u))
 // As Gemfile.lock writes one: no `-`, which Bundler reads as the start of a
 // platform.
-export const assertGemVersion = assertion('a RubyGems version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z]+)*$/u))
+export const assertGemVersion = assertion('a RubyGems version', (value) => isGemVersion(value) && value.length <= 256 && !value.includes('-'))
 // A package's name and version, as a registry's getters take them.
 const assertNameVersion = (assertName, assertVersion) => (method, name, version) => {
   assertName(method, 'name', name)
@@ -121,6 +122,7 @@ export const assertSoldeerPackage = assertNameVersion(assertSoldeerName, assertS
 export const assertPod = assertNameVersion(assertPodName, assertPodVersion)
 export const assertGem = assertNameVersion(assertGemName, assertGemVersion)
 // As Cargo.lock and soldeer.lock write a checksum.
-export const assertSha256 = assertion('a sha256 in lowercase hex', matches(/^[\da-f]{64}$/u))
+export const isSha256 = matches(/^[\da-f]{64}$/u)
+export const assertSha256 = assertion('a sha256 in lowercase hex', isSha256)
 // As Podfile.lock writes a podspec's checksum.
 export const assertSha1 = assertion('a sha1 in lowercase hex', isSha1)

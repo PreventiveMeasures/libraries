@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
-import { compareVersions as compareGemVersions, isVersion as isGemVersion, parseRange, satisfiesAll } from '../rubygems/version.js'
+import { compareVersions as compareGemVersions, isVersion as isGemVersion, readRange as readGemRange } from '../rubygems/version.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { bySemver, withRepositories } from './github.js'
@@ -63,8 +63,8 @@ export const GEM = {
   isVersion: isGemVersion,
   // A range Gem::Requirement can't read covers every version.
   versionsIn: (asked, range) => {
-    const requirements = parseRange(range)
-    return requirements === undefined ? [...asked] : asked.filter((version) => satisfiesAll(version, requirements))
+    const test = readGemRange(range)
+    return test === undefined ? [...asked] : asked.filter(test)
   },
   advisories: (asked, options) => osvAdvisories(GEM, asked, options),
 }

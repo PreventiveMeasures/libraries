@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { compareVersions, isVersion, parseRange, satisfiesAll } from '../src/rubygems/version.js'
+import { compareVersions, isVersion, readRange } from '../src/rubygems/version.js'
 
 // Gem::Version and Gem::Requirement as RubyGems 3.5 has them: every case
 // below is what `Gem::Version.new(a) <=> Gem::Version.new(b)` and
@@ -93,19 +93,21 @@ describe('Gem::Requirement, in GitHub\'s ranges', () => {
   ]
 
   it('meets each comma-separated part, as satisfied_by? does', () => {
-    for (const [range, version, met] of MET) assert.equal(satisfiesAll(version, parseRange(range)), met, `${version} in ${range}`)
+    for (const [range, version, met] of MET) assert.equal(readRange(range)(version), met, `${version} in ${range}`)
   })
 
   it('reads each part as Gem::Requirement::PATTERN does, space and all, an operator `=` where there is none', () => {
-    assert.deepEqual(parseRange('>= 1.0.0, < 1.2.6'), [['>=', '1.0.0'], ['<', '1.2.6']])
-    assert.deepEqual(parseRange(' >=1.0.0 ,\t<1.2.6 '), [['>=', '1.0.0'], ['<', '1.2.6']])
-    assert.deepEqual(parseRange('1.0.0'), [['=', '1.0.0']])
-    assert.deepEqual(parseRange('~> 7.0.4.3'), [['~>', '7.0.4.3']])
+    for (const [range, version, met] of [
+      ['>= 1.0.0, < 1.2.6', '1.2.5', true], ['>= 1.0.0, < 1.2.6', '1.2.6', false],
+      [' >=1.0.0 ,\t<1.2.6 ', '1.0.0', true], [' >=1.0.0 ,\t<1.2.6 ', '0.9', false],
+      ['1.0.0', '1.0', true], ['1.0.0', '1.0.1', false],
+      ['~> 7.0.4.3', '7.0.4.9', true], ['~> 7.0.4.3', '7.0.5', false],
+    ]) assert.equal(readRange(range)(version), met, `${version} in ${range}`)
   })
 
   it('reads no range with a part it cannot, or none', () => {
-    for (const range of ['', ' ', '>= 1.0.0,', ', < 2', '>= 1.0.0 < 2.0.0', '=> 1.0', '== 1.0', '^1.0', '1.x.*', '*', '< v2', '>= 1.0.0 || < 0.5', '<\u00A01.0', 42, undefined]) {
-      assert.equal(parseRange(range), undefined, String(range))
+    for (const range of ['', ' ', '>= 1.0.0,', ', < 2', '>= 1.0.0 < 2.0.0', '=> 1.0', '== 1.0', '^1.0', '1.x.*', '*', '< v2', '>= 1.0.0 || < 0.5', '<\u00A01.0']) {
+      assert.equal(readRange(range), undefined, range)
     }
   })
 })
