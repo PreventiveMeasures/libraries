@@ -25,8 +25,8 @@ export const assertClient = assertion('a GitHub client from createClient', (valu
 
 // A range given only its lower bound, with the version that fixed it apart
 // (`>= 5.0.0-beta.1`, patched in `5.0.0-rc.2`), ends below that version.
-function boundedRange(range, patched, isVersion) {
-  if (!isVersion(patched) || range.includes('<')) return range
+function boundedRange(range, patched) {
+  if (!isExactVersion(patched) || range.includes('<')) return range
   return range.trim() === '' ? `< ${patched}` : `${range.trim()}, < ${patched}`
 }
 
@@ -113,9 +113,9 @@ function fromRepository(repo, name, advisory, range, versions, details) {
   }
 }
 
-// A row per name `takes` a range's package for, advisory and range. Versions
-// are read, and ranges matched, as the asking ecosystem has them.
-async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), isVersion = isExactVersion, details, cache }) {
+// A row per name `takes` a range's package for, advisory and range. Ranges
+// are bounded, and matched, as the asking ecosystem reads them.
+async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), bound = boundedRange, details, cache }) {
   // GitHub's names are case-insensitive: one spelling asks for all.
   const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
   const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ names, ...(await listAdvisories(github, repoOf(names[0]), cache)) }))
@@ -123,7 +123,7 @@ async function repositoryAdvisories(github, asked, { repoOf, takes = () => true,
   for (const { repo, names, advisories } of listed) {
     for (const advisory of advisories) {
       for (const { range: given, patched, ...pkg } of advisory.ranges) {
-        const range = boundedRange(given, patched, isVersion)
+        const range = bound(given, patched)
         for (const name of names.filter((candidate) => takes(candidate, pkg))) {
           rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, versionsIn(asked.get(name), range), details))
         }
@@ -145,12 +145,12 @@ async function reposOf(asked, known, lookUp, cache) {
 // each package's repository, `known` or else looked up, adds what it
 // publishes for GitHub's `ecosystem` entries naming the package, for the
 // versions `rows` do not already report under that GHSA.
-export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { github: ecosystem, lookUp, versionsIn, isVersion }) {
+export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { github: ecosystem, lookUp, versionsIn, bound }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
   const repoOf = await reposOf(asked, known, lookUp, cache)
   const takes = (name, pkg) => pkg.ecosystem === ecosystem && pkg.name === name
-  const added = await repositoryAdvisories(github, asked, { repoOf, takes, versionsIn, isVersion, details, cache })
+  const added = await repositoryAdvisories(github, asked, { repoOf, takes, versionsIn, bound, details, cache })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
 }
 

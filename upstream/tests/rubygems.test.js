@@ -131,8 +131,22 @@ describe('getGem', () => {
     assert.deepEqual(calls, [INDEX])
   })
 
+  it('counts a line of a platform RubyGems reads as the one asked, as Bundler would take the later', async () => {
+    stubRubygems({ versions: [{ version: '1.0.0', platform: 'x86-linux' }, { version: '1.0.0', platform: 'i686-linux', checksum: sha256(OTHER) }] })
+    await assert.rejects(getGem('gem', '1.0.0', 'x86-linux'), { message: 'getGem: the index has gem@1.0.0-x86-linux on 2 lines' })
+    await assert.rejects(verifyChecksum('gem', '1.0.0', 'x86-linux', sha256(BYTES)), { message: 'verifyChecksum: the index has gem@1.0.0-x86-linux on 2 lines' })
+    stubRubygems({ versions: [{ version: '1.0.0', platform: 'universal-darwin16', checksum: sha256(OTHER) }, { version: '1.0.0', platform: 'universal-darwin-16' }] })
+    await assert.rejects(getGem('gem', '1.0.0', 'universal-darwin-16'), { message: 'getGem: the index has gem@1.0.0-universal-darwin-16 on 2 lines' })
+  })
+
+  it('refuses an index too long to be one, before reading a line of it', async () => {
+    const calls = stubRubygems({ index: `---\n${lineOf({ version: '1.0.0' })}\n${'x'.repeat(16 * 1024 * 1024)}` })
+    await assert.rejects(getGem('gem', '1.0.0', 'ruby'), { message: `getGem: the index for gem is over ${16 * 1024 * 1024} characters` })
+    assert.deepEqual(calls, [INDEX])
+  })
+
   it("refuses a line that is not a version's, whichever version it is of, and says so printably", async () => {
-    for (const line of ['1.0.1', '1.0.1 rack:>= 1', '', ' 1.0.1 |checksum:x', '-java |checksum:x', '1.0.1- |checksum:x', `${lineOf({ version: '1.0.1' })}\r`, '1.0.1\t|checksum:x']) {
+    for (const line of ['1.0.1', '1.0.1 rack:>= 1', '', ' 1.0.1 |checksum:x', '-java |checksum:x', '1.0.1- |checksum:x', `${lineOf({ version: '1.0.1' })}\r`, '1.0.1\t|checksum:x', '1.0.1_x |checksum:x', '1.0.1\u0000 |checksum:x', '1.0.1-current |checksum:x']) {
       const calls = stubRubygems({ versions: [{ version: '1.0.0' }, line, { version: '1.0.2' }] })
       await assert.rejects(getGem('gem', '1.0.0', 'ruby'), /^AssertionError \[ERR_ASSERTION\]: getGem: the index for gem has a line that is not a version's: /u, JSON.stringify(line))
       assert.deepEqual(calls, [INDEX])

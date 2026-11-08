@@ -104,7 +104,7 @@ function platformParts(text, rubygems) {
 }
 
 // Gem::Platform#to_s: RubyGems 4 puts no `-` in a platform without a CPU.
-function platformOf(text, rubygems) {
+export function platformOf(text, rubygems) {
   const parts = platformParts(text, rubygems)
   return parts.filter((part) => part !== undefined).join(rubygems === 4 && parts[0] === undefined ? '' : '-')
 }

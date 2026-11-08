@@ -21,10 +21,11 @@ export function verifyChecksum(name: string, version: string, platform: string, 
 // RubyGems names `<name>-<version>.gem` for `ruby`, and
 // `<name>-<version>-<platform>.gem` for any other. `checksum` is its
 // sha256; without one, the compact index, index.rubygems.org/info/<name>,
-// is read for it on every call, cached gem or not, and an index with a
-// line that is not a version's, with none or two for that version and
-// platform, or with a checksum there not one sha256 in lowercase hex,
-// throws. Either way the bytes are checked against it, whether they were
+// is read for it on every call, cached gem or not, and an index over 16
+// MiB, with a line that is not of a version Gem::Version reads or is of the
+// `current` platform, with none or two for that version and platform (as
+// RubyGems 3 or 4 reads each line's: `i686-linux` is `x86-linux`), or with
+// a checksum there not one sha256 in lowercase hex, throws. Either way the bytes are checked against it, whether they were
 // downloaded from rubygems.org/gems/ (before they are cached), where a
 // redirect is not followed, or read from a cache. A yanked version's file
 // is gone from rubygems.org, and its line from the index, but a copy kept

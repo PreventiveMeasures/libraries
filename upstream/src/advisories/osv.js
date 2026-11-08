@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
 import { OSV_API, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
-import { compareVersions as compareGemVersions, isVersion as isGemVersion, readRange as readGemRange } from '../rubygems/version.js'
+import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { bySemver, withRepositories } from './github.js'
@@ -60,7 +60,7 @@ export const GEM = {
   assertVersion: assertGemVersion,
   // `1.0` and `1.0.0` are equal, so are ordered by their text.
   compare: (a, b) => compareGemVersions(a, b) || order(a, b),
-  isVersion: isGemVersion,
+  bound: boundGemRange,
   // A range Gem::Requirement can't read covers every version.
   versionsIn: (asked, range) => {
     const test = readGemRange(range)

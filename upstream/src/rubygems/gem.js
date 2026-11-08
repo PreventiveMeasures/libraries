@@ -6,7 +6,8 @@ import { assertGem, assertSha256, assertion, isSha256, matches, printable } from
 import { absolute, home } from '../cache.js'
 import { verifiedDownload } from '../download.js'
 import { RUBYGEMS, RUBYGEMS_INDEX, buildUrl, encodeSegment, request } from '../http.js'
-import { isGemPlatform } from './platform.js'
+import { isGemPlatform, platformOf } from './platform.js'
+import { isVersion } from './version.js'
 
 // No expiry: a yanked version keeps its number, so is never pushed again,
 // and an unyank restores the same file.
@@ -29,19 +30,27 @@ function gemOf(method, name, version, platform) {
 // as Bundler does.
 const LINE = /^(?<version>[^\s|-]+)(?:-(?<platform>[^\s|]+))? [^|]*\|(?<metadata>.*)$/u
 
-// The compact index, as Bundler reads it: every line after the first `---`.
+// The compact index, as Bundler reads it: every line after the first `---`,
+// each of a version Gem::Version reads, and of a platform as RubyGems 3 or 4
+// reads it, so `i686-linux` is `x86-linux` too. grpc's, of 1,500, is 340 KB.
+const MAX_INDEX = 16 * 1024 * 1024
+const readsAs = (written, platform) => written === platform || (written !== 'ruby' && platform !== 'ruby' && (platformOf(written, 3) === platform || platformOf(written, 4) === platform))
 async function getChecksum(method, { name, version, platform, what }) {
-  const lines = (await request(buildUrl(RUBYGEMS_INDEX, ['info', name]), { as: 'text' })).split('\n')
+  const text = await request(buildUrl(RUBYGEMS_INDEX, ['info', name]), { as: 'text' })
+  assert.ok(text.length <= MAX_INDEX, `${method}: the index for ${name} is over ${MAX_INDEX} characters`)
+  const lines = text.split('\n')
   while (lines.at(-1) === '') lines.pop()
-  const parse = (line) => {
+  const found = []
+  for (const line of lines.slice(lines.indexOf('---') + 1)) {
     const match = LINE.exec(line)
-    if (match === null) assert.fail(`${method}: the index for ${name} has a line that is not a version's: ${printable(line.slice(0, 200))}`)
-    return { ...match.groups, platform: match.groups.platform ?? 'ruby' }
+    if (match === null || !isVersion(match.groups.version) || match.groups.platform === 'current') {
+      assert.fail(`${method}: the index for ${name} has a line that is not a version's: ${printable(line.slice(0, 200))}`)
+    }
+    if (match.groups.version === version && readsAs(match.groups.platform ?? 'ruby', platform)) found.push(match.groups.metadata)
   }
-  const found = lines.slice(lines.indexOf('---') + 1).map(parse).filter((entry) => entry.version === version && entry.platform === platform)
   assert.ok(found.length > 0, `${method}: the index has no ${what}`)
   assert.ok(found.length === 1, `${method}: the index has ${what} on ${found.length} lines`)
-  const checksums = found[0].metadata.split(',').filter((pair) => pair.startsWith('checksum:'))
+  const checksums = found[0].split(',').filter((pair) => pair.startsWith('checksum:'))
   assert.ok(checksums.length === 1, `${method}: the index has ${checksums.length} checksums for ${what}`)
   const checksum = checksums[0].slice('checksum:'.length)
   assertSha256(method, 'the index checksum', checksum)

@@ -10,7 +10,8 @@ const SPACE = String.raw`[\t\n\v\f\r ]` // Ruby's \s, ASCII alone.
 const REQUIREMENT = new RegExp(`^${SPACE}*(?:(>=|<=|!=|~>|=|>|<)${SPACE}*)?(${VERSION})${SPACE}*$`, 'u')
 const ANCHORED = new RegExp(`^${VERSION}$`, 'u')
 
-export const isVersion = (text) => typeof text === 'string' && ANCHORED.test(text)
+// 256 at most, as assertGemVersion takes one, before any regex runs.
+export const isVersion = (text) => typeof text === 'string' && text.length <= 256 && ANCHORED.test(text)
 
 // Gem::Version reads `-` as `.pre.`.
 const read = (version) => version.replaceAll('-', '.pre.')
@@ -91,17 +92,34 @@ const OPERATORS = {
   '<=': (cmp) => cmp <= 0,
 }
 
-// A test of `>= 1.0.0, < 1.2.6`, each version read once; undefined where a
-// part isn't a requirement or names a version over 256. A prerelease meets
-// one as any version does: only Gem::Dependency sets them apart.
-export function readRange(text) {
+// Each `[operator, version]` of `>= 1.0.0, < 1.2.6`; undefined where a part
+// isn't a requirement, or the range is too long to be one, before any regex.
+function requirementsOf(text) {
+  if (text.length > 1024) return undefined
   const parts = text.split(',').map((part) => REQUIREMENT.exec(part))
   if (parts.some((match) => match === null || match[2].length > 256)) return undefined
-  const requirements = parts.map(([, operator = '=', against]) => ({ operator, at: canonical(read(against)), below: operator === '~>' ? canonical(bump(read(against))) : undefined }))
+  return parts.map(([, operator = '=', against]) => [operator, against])
+}
+
+// A test of a range, each version read once. A prerelease meets one as any
+// version does: only Gem::Dependency sets them apart.
+export function readRange(text) {
+  const parts = requirementsOf(text)
+  if (parts === undefined) return undefined
+  const requirements = parts.map(([operator, against]) => ({ operator, at: canonical(read(against)), below: operator === '~>' ? canonical(bump(read(against))) : undefined }))
   return (version) => {
     const [own, released] = [canonical(read(version)), canonical(release(read(version)))]
     return requirements.every(({ operator, at, below }) => (operator === '~>'
       ? compareSegments(own, at) >= 0 && compareSegments(released, below) < 0
       : OPERATORS[operator](compareSegments(own, at))))
   }
+}
+
+// A range of lower bounds alone, with the one version that fixed it above each
+// of them, ends below that version; any other is as given, never emptied.
+export function boundRange(range, patched) {
+  if (!isVersion(patched)) return range
+  if (range.trim() === '') return `< ${patched}`
+  const open = requirementsOf(range)?.every(([operator, against]) => operator === '!=' || ((operator === '>=' || operator === '>') && compareVersions(against, patched) < 0))
+  return open ? `${range.trim()}, < ${patched}` : range
 }

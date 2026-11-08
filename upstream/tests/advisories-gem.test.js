@@ -179,6 +179,27 @@ describe('gem, with a GitHub client', () => {
     assert.deepEqual(calls.filter(({ url }) => url.startsWith(GEMS)).map(({ url }) => url), [`${GEMS}actionpack.json`])
   })
 
+  it('ends a range below its patched version only where that leaves out none of the versions it names', async () => {
+    stubAll({
+      gems: { rack: { source_code_uri: 'https://github.com/rack/rack' } },
+      listings: {
+        'rack/rack': [
+          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [vuln('rack', '~> 3.1', '3.1.3')]),
+          repoAdvisory('GHSA-bbbb-bbbb-bbbb', [vuln('rack', '= 3.1.2', '3.1.2')]),
+          repoAdvisory('GHSA-cccc-cccc-cccc', [vuln('rack', '>= 3.0', '2.2.9')]),
+          repoAdvisory('GHSA-dddd-dddd-dddd', [vuln('rack', '>= 3.0, != 3.0.5', '3.1.3')]),
+        ],
+      },
+    })
+    const found = await advisories([gem('rack', ['3.0.0', '3.1.2', '3.2.0'])], options)
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', '~> 3.1', ['3.1.2', '3.2.0']],
+      ['GHSA-bbbb-bbbb-bbbb', '= 3.1.2', ['3.1.2']],
+      ['GHSA-cccc-cccc-cccc', '>= 3.0', ['3.0.0', '3.1.2', '3.2.0']],
+      ['GHSA-dddd-dddd-dddd', '>= 3.0, != 3.0.5, < 3.1.3', ['3.0.0', '3.1.2']],
+    ])
+  })
+
   it("takes the gem's source_code_uri, else its homepage_uri, each a repository or a page in its tree; none, or no such gem, asks no repository", async () => {
     const calls = stubAll({
       gems: {
