@@ -43,8 +43,8 @@ export function assetDestPath(asset, scale, platform) {
   return join(asset.httpServerLocation.slice(1).replaceAll('../', '_'), scaledName(asset.name, scale, asset.type))
 }
 
-// Each file to copy (a file reached twice goes where it last goes), plus Android's raw/keep.xml.
-// A scale is kept by its value, so each file of a kept scale is copied.
+// Each file to copy, plus Android's raw/keep.xml; a file reached twice goes where it last goes.
+// Scales are kept by value, so each file of a kept scale is copied.
 export function assetsDestFiles(assets, platform) {
   const copies = new Map()
   for (const asset of assets) {

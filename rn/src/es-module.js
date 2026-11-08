@@ -1,10 +1,8 @@
-// An ES module's record of its imports by name and its exports, as Babel's AST has them, types (TS's,
-// Flow's) left out: babel-transformer.js's IMPORTS takes it as the plugins leave the program, else as it
-// is entered; esm-imports.js checks the imports against the exports.
+// An ES module's named imports and exports, read from Babel's AST without types, for esm-imports.js to
+// check each import against what its module exports.
 
 const TYPE_KINDS = new Set(['type', 'typeof'])
 const nameOf = (node) => (node.type === 'StringLiteral' ? node.value : node.name)
-// The names a pattern binds.
 const boundBy = (node) => {
   if (node == null) return []
   if (node.type === 'Identifier') return [node.name]
@@ -13,16 +11,15 @@ const boundBy = (node) => {
   if (node.type === 'AssignmentPattern') return boundBy(node.left)
   return node.type === 'RestElement' ? boundBy(node.argument) : []
 }
-// The values a declaration exports: not a type's (TS's or Flow's), which has no value.
+// Declarations of values; TS and Flow type declarations export none.
 const VALUE_DECLARATIONS = new Set(['FunctionDeclaration', 'ClassDeclaration', 'TSEnumDeclaration', 'EnumDeclaration', 'TSModuleDeclaration'])
 function declaredBy(declaration) {
   if (declaration.type === 'VariableDeclaration') return declaration.declarations.flatMap(({ id }) => boundBy(id))
   return VALUE_DECLARATIONS.has(declaration.type) && !declaration.declare && declaration.id?.type === 'Identifier' ? [declaration.id.name] : []
 }
 
-// An ES module's { imports: [{ specifier, names }], exports, stars }: the names it imports of each module
-// (`default` of a default import; none of a namespace import), those it exports, and the modules it
-// exports all of; null of a script (sourceType unambiguous), or of a file of no import or export of a value.
+// -> { imports: [{ specifier, names }], exports, stars } (`stars`: the modules of `export *`), or null for a
+// script or a file with no value import or export. A namespace import names nothing.
 export function esModuleOf(program) {
   if (program.sourceType === 'script') return null
   const imports = []

@@ -31,7 +31,6 @@ export function newState(run, read = new Set(), made = () => {}) {
     read,
     graph,
     before: run.runBeforeMain ?? [],
-    // Resolves an import as importResolution() does, recording it in `graph`; returns resolvedModule() of it.
     resolveImport(importer, specifier, kind, pluginData) {
       const resolved = resolution(importer, specifier, kind, pluginData)
       if (!graph.has(importer)) graph.set(importer, new Map())
@@ -47,9 +46,8 @@ export function newState(run, read = new Set(), made = () => {}) {
     assets: () => [...assets.keys()].toSorted().map((path) => assets.get(path)),
     // A file given by its path from the project root (a polyfill), as resolvedModule() has one.
     fileOf: (path) => ({ kind: 'file', key: resolve(projectRoot, path) }),
-    // The errors of rn.config.json's restrictions (run.restrict, restrictions.js) of each file of a module,
-    // resolvedModule()'s or fileOf()'s, by its real path and package: of an asset, each the build takes for the
-    // platform (assetRecord()). A file a custom resolveRequest gives, or a polyfill, may be a link.
+    // The errors of rn.config.json's restrictions for each file of a module, by real path: for an asset, each
+    // file the build takes for the platform. A file from a custom resolveRequest, or a polyfill, may be a link.
     forbidden(found) {
       if (restrict === null || found === null || found.kind === 'empty') return []
       packageOf ??= packagesOf(host)
@@ -64,9 +62,8 @@ export function newState(run, read = new Set(), made = () => {}) {
   return state
 }
 
-// (importer, specifier, kind, pluginData) => Metro's resolution of an import, by esbuild's kind, or null.
-// pluginData is the importer's loadFile() data: `imports`, the specifiers of its ES imports, which a require
-// call Babel made of one resolves as; `aliases`, module-resolver's Babel left (load.js), else `aliases`.
+// -> (importer, specifier, kind, pluginData) => Metro's resolution of an import, or null. A require Babel made
+// of an ES import (in pluginData.imports) resolves as one; pluginData.aliases, if any, replaces `aliases`.
 export function importResolution(resolveModule, { platform, aliases = null }) {
   return (importer, specifier, kind, { imports = [], aliases: mapped = null } = {}) => {
     const isESMImport = kind === 'import-statement' || kind === 'dynamic-import' || (kind === 'require-call' && imports.includes(specifier))

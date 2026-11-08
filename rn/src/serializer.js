@@ -4,17 +4,17 @@
 
 import { jsval } from './jsval.js'
 
-// Newest first: react-native 0.87's, then those of before.
+// Newest first: react-native 0.87's, then older ones.
 const SETUP = ['react-native/setup-env', 'react-native/Libraries/Core/InitializeCore']
 const ASSET_REGISTRY = ['react-native/asset-registry', 'react-native/Libraries/Image/AssetRegistry']
 // The global object, as Metro passes it to a polyfill.
 export const GLOBAL = "typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this"
 
-// Metro's getPreludeCode, with only the globals metro-runtime's require reads. `dev` is __DEV__'s value.
+// Metro's getPreludeCode, with only the globals metro-runtime's require reads.
 export const prelude = (dev, nodeEnv) => `var __BUNDLE_START_TIME__=globalThis.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=${dev},process=globalThis.process||{},__METRO_GLOBAL_PREFIX__='';process.env=process.env||{};process.env.NODE_ENV=process.env.NODE_ENV||${jsval(nodeEnv)};`
 
-// The module to run before the entry and the asset registry of the react-native the entry resolves, the first
-// of each that resolves. Without react-native, none to run and the old registry, for an error to name.
+// The setup module and asset registry of the react-native the entry resolves. Without react-native, the
+// old registry path, for the resulting error to name.
 export function reactNativeOf(resolveModule, host, entryPath, platform) {
   let entry
   try {

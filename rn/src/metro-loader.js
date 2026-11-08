@@ -1,8 +1,6 @@
-// Metro's resolution and transformation of each module, for an esbuild build of another tool's (a test
-// runner's): metroGraph()'s onResolve and onLoad (bundle.js), without its module graph, its polyfills, the
-// modules run before the entry or the prelude, which are the build's own. It reads no rn.config.json: its
-// restrictions (allowedPaths and the rest, restrictions.js) are of the app's bundles, not of another tool's
-// build, which takes files the app doesn't (tests, and what they import).
+// Metro's resolution and transforms for another tool's esbuild build (a test runner's): metroGraph()'s
+// onResolve and onLoad, without its graph, polyfills or prelude. It reads no rn.config.json, whose
+// restrictions are for the app's bundles, not tests and what they import.
 
 import { isAbsolute, join, resolve } from 'node:path'
 
@@ -33,20 +31,19 @@ export function createMetroLoader(options) {
   if (aliases !== null && typeof aliases !== 'function') refuse("aliases is babel-aliases.js's createAliases() of the aliases")
   if (assetSource !== null && typeof assetSource !== 'function') refuse("assetSource is a function of an asset's path to its module's source")
   const project = peers(projectRoot, fail)
-  // As rn-bundle's: Metro's caller and env, workers warmed for react-native's own Libraries. Files are taken
-  // not to change Babel's config while it lives, as within a build: a .babelrc made later isn't seen.
+  // As in rn-bundle. Babel's config is taken not to change while the loader lives: a .babelrc made later
+  // isn't seen.
   const target = projectBabel(projectRoot, project, fail, { sourceMaps: sourcemap, transformProfile, oneBuild: true, warm: aliases === null && bigBuild(project) })?.({ platform, dev }) ?? null
   if (target !== null && aliases !== null) {
     target.babel.close()
     fail("aliases map the imports where no Babel runs: the project's Babel config has its aliases")
   }
-  // Each file as last loaded, reused while its contents are the same, across the builds it serves; each
-  // resolution, as createMetroResolver() keeps it, for as long.
+  // Loaded files and resolutions are cached across the builds the loader serves.
   const run = withDefaults({ projectRoot, esbuild, stripFlow: flowStripper(project, target !== null), babel: target?.babel, babelPlugins: target?.babelPlugins, sourcemap, cache: new Map() })
   const resolveModule = createMetroResolver({ ...resolver, host: diskHost, dev })
   const resolution = importResolution(resolveModule, { platform, aliases })
   const assetOf = assetSource ?? metroAssets(resolveModule, projectRoot, platform)
-  // Each file Metro resolved while it lives, which alone load() loads, as metroGraph() loads only those.
+  // As in metroGraph(), load() takes only files Metro resolved.
   const resolved = new Set()
   const file = (path) => {
     resolved.add(path)
@@ -55,11 +52,9 @@ export function createMetroLoader(options) {
   let supported = null
   return {
     define: defines(dev, [], fail),
-    // As bundle.js's buildOptions(): Babel's output of a TS file loads as TS, keeping each import and field.
     tsconfigRaw: target === null ? undefined : TS_AS_JS,
-    // As bundle.js's loweredOf(), for a file at the project's root.
     supported: () => (supported ??= loweredAt(run.babelPlugins, join(projectRoot, 'index.js')).then((lowered) => supportedOf(run.babel, lowered))),
-    // An entry point as a path; an import of a file of another namespace (stdin's) from resolveDir, as from a file in it.
+    // An import from another namespace (stdin's) resolves as from a file in resolveDir.
     resolve({ path, importer, namespace, resolveDir, kind, pluginData }) {
       const dir = resolveDir || projectRoot
       if (kind === 'entry-point') {
@@ -86,7 +81,6 @@ export function createMetroLoader(options) {
   }
 }
 
-// Metro's module of an asset, registering it with the asset registry of the project's react-native.
 function metroAssets(resolveModule, projectRoot, platform) {
   let registry = null
   return (path) => {

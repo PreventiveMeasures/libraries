@@ -18,7 +18,7 @@ const named = (node) => (node.type === 'Identifier' ? node.name : node.type === 
 // The extensions a config's AST adds to assetExts; what it spreads in is taken as Metro's defaults.
 export function metroAssetExts(program) {
   const declarators = []
-  // What assetExts is set to, and what is pushed to it, as an array of those elements.
+  // Each value assigned to assetExts, and each push() or unshift() to it as an array of its arguments.
   const lists = []
   walk(program, (node) => {
     if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init) declarators.push(node)

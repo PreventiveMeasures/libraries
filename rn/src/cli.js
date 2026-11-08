@@ -92,11 +92,9 @@ function babelConfigOf(cwd, project) {
 // Metro's transform profiles, as `react-native bundle --unstable-transform-profile` takes them.
 export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 
-// The project's Babel config, run by the @babel/core of Metro's transformer: a function of
-// { platform, dev, inlineRequires } to bundle()'s Babel options, with workers per target. Null
-// without a config, or with only the preset and no @babel/core. ownPlugins(dev): [path, options]
-// run on the project's own files after the config's (rn-serve's Fast Refresh). `fingerprinter`:
-// the module the workers fingerprint with (babel-worker.js), for a cache of their output.
+// The project's Babel config, run by the @babel/core of Metro's transformer: ({ platform, dev, inlineRequires })
+// => bundle()'s Babel options, with workers per target; null without a config. ownPlugins(dev) run after the
+// config's on the project's own files (rn-serve's Fast Refresh).
 export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, eager = false, switches = () => [] } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
