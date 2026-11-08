@@ -458,3 +458,88 @@ patched_versions:
     assert.ok(calls.some(({ url }) => url.includes('/contents/')))
   })
 })
+
+describe('ruby, from ruby-advisory-db', () => {
+  // As rubies/ruby has CVE-2026-46727: Ruby 3.4 and earlier are unaffected.
+  const RUBY_NEW = `---
+engine: ruby
+cve: 2026-46727
+ghsa: jfc8-2xw7-c79m
+url: https://nvd.nist.gov/vuln/detail/CVE-2026-46727
+title: Use-after-free in pthread-based getaddrinfo timeout handler
+date: 2026-05-20
+description: |
+  A race condition leading to a use-after-free.
+cvss_v3: 8.1
+unaffected_versions:
+  - "< 4.0"
+patched_versions:
+  - ">= 4.0.5"
+`
+  // An old one, fixed by patchlevel, its CVSS v2 score `.17` as mrubyc's
+  // CVE-2025-13397 has it.
+  const RUBY_OLD = `---
+engine: ruby
+cve: 2008-2664
+url: https://www.ruby-lang.org/en/news/2008/06/20/arbitrary-code-execution-vulnerabilities/
+title: Arbitrary code execution vulnerabilities
+date: 2008-06-20
+description: |
+  Multiple vulnerabilities in Ruby.
+cvss_v2: .17
+patched_versions:
+  - "~> 1.8.7.22"
+  - ">= 1.9.0.2"
+`
+  const JRUBY = `---
+engine: jruby
+osvdb: 94644
+url: https://www.jruby.org/2011/05/24/jruby-1-6-2.html
+title: JRuby Null Byte Request Arbitrary File Access
+date: 2010-05-26
+description: |
+  JRuby fails to check for null bytes in certain file operations.
+patched_versions:
+  - ">= 1.6.2"
+`
+  const rubysec = {
+    'gems/rack/CVE-1.yml': '---\ngem: rack\ncve: 2011-5036\nurl: https://x\ntitle: t\ndate: 2011-12-28\ndescription: d\npatched_versions:\n  - ">= 1.4.0"\n',
+    'rubies/jruby/OSVDB-94644.yml': JRUBY,
+    'rubies/ruby/CVE-2008-2664.yml': RUBY_OLD,
+    'rubies/ruby/CVE-2026-46727.yml': RUBY_NEW,
+  }
+  const ruby = (name, versions) => ({ ecosystem: 'ruby', name, versions })
+  const contents = (path) => `${DB}contents/${path}?ref=${DB_SHA}`
+  const fromDb = (calls) => calls.filter(({ url }) => url.startsWith(DB)).map(({ url }) => url)
+
+  it("lists the database once for gems and Rubies alike, reads the asked engine's files alone, and matches a version with its patchlevel", async () => {
+    const calls = stubAll({ rubysec })
+    const found = await advisories([ruby('ruby', ['4.0.4p0', '4.0.5p10', '3.4.1p1', '1.8.7p21', '1.8.7p22', '3.0.0.preview1p-1']), gem('rack', ['1.0.0'])], { github })
+    const db = fromDb(calls)
+    assert.equal(db.filter((url) => url.includes('/trees/')).length, 1)
+    assert.deepEqual(db.filter((url) => url.includes('/contents/')).toSorted(), [contents('gems/rack/CVE-1.yml'), contents('rubies/ruby/CVE-2008-2664.yml'), contents('rubies/ruby/CVE-2026-46727.yml')])
+    assert.deepEqual(found.filter(({ ecosystem }) => ecosystem === 'ruby').map(({ name, source, id, url, aliases, severity, cvss, versions }) => [name, source, id, url, aliases, severity, cvss, versions]), [
+      // 1.8.7p21 is 1.8.7.21, below `~> 1.8.7.22`.
+      ['ruby', 'rubysec', 'CVE-2008-2664', 'https://www.ruby-lang.org/en/news/2008/06/20/arbitrary-code-execution-vulnerabilities/', [], 'low', 0.17, ['1.8.7p21']],
+      ['ruby', 'rubysec', 'GHSA-jfc8-2xw7-c79m', 'https://github.com/advisories/GHSA-jfc8-2xw7-c79m', ['CVE-2026-46727'], 'high', 8.1, ['4.0.4p0']],
+    ])
+  })
+
+  it('asks another engine by its own version', async () => {
+    stubAll({ rubysec })
+    const found = await advisories([ruby('jruby', ['1.6.1', '9.4.5.0'])], { github })
+    assert.deepEqual(found.map(({ name, id, aliases, versions }) => [name, id, aliases, versions]), [['jruby', 'OSVDB-94644', [], ['1.6.1']]])
+  })
+
+  it('refuses a Ruby without a GitHub client, or a malformed engine or version, before any request', async () => {
+    const calls = stubAll({ rubysec })
+    await assert.rejects(advisories([ruby('ruby', ['3.3.6p108'])]), /advisories: ruby packages need a github client/u)
+    for (const name of ['Ruby', 'j ruby', '', 'ruby/jruby', '1ruby', undefined]) {
+      await assert.rejects(advisories([ruby(name, ['3.3.6'])], { github }), /advisories: package\.name must be a Ruby engine/u, String(name))
+    }
+    for (const version of ['ruby 3.3.6p108', 'v3.3.6', '3.3', '3.3.6-p108', '3.3.6p', '3.3.6p01', '3.3.6p-2', '', undefined]) {
+      await assert.rejects(advisories([ruby('ruby', [version])], { github }), /advisories: package\.versions must be a Ruby version as Bundler writes one/u, String(version))
+    }
+    assert.deepEqual(calls, [])
+  })
+})
