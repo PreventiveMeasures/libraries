@@ -29,8 +29,7 @@ describe('globRegExp', () => {
     assert.ok(matches('src/**/*.{ts,tsx}', 'src/a/b.tsx'))
     assert.ok(!matches('src/**/*.{ts,tsx}', 'src/a/b.js'))
     assert.ok(matches('{src,lib}/{a,b{1,2}}.js', 'lib/b2.js'))
-    assert.ok(matches('app/[id]/(group)+.js', 'app/[id]/(group)+.js'))
-    assert.ok(!matches('app/[id].js', 'app/i.js'))
+    assert.ok(matches('app/(group)/+not-found@!.js', 'app/(group)/+not-found@!.js'))
     assert.ok(matches('a,b.js', 'a,b.js'))
   })
 
@@ -40,7 +39,8 @@ describe('globRegExp', () => {
     for (const glob of ['src/{a,b', 'src/a}', '}{']) assert.equal(globRegExp(glob), null, glob)
   })
 
-  it('is null of what Node\'s glob reads otherwise: an extglob, a brace of no list, a ** within a name', () => {
+  it('is null of what Node\'s glob reads otherwise: a class, an extglob, a brace of no list, a ** within a name', () => {
+    for (const glob of ['app/[id].tsx', 'app/[...slug].tsx', 'x]y', 'a[[:digit:]]']) assert.equal(globRegExp(glob), null, glob)
     for (const glob of ['@(a|b).js', 'src/+(a).js', '!(a)', 'x/?(a)', '*(a).js']) assert.equal(globRegExp(glob), null, glob)
     // One braces form, as Node's glob expands them first: `{@,x}(a)` is `@(a)` or `x(a)`.
     for (const glob of ['{@,x}(a)', '@{,x}(a)', 'x/{a,b@}{(c),d}']) assert.equal(globRegExp(glob), null, glob)

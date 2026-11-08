@@ -21,7 +21,7 @@ const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== ''
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
 const globs = [listOf((value) => typeof value === 'string' && isPathGlob(value)), 'a list of globs of paths from the project root, each a directory\'s files too ("src", "src/**/*.js", "node_modules")']
-const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/]+\/[^/]+|[^@/.][^/]*)$/u.test(value) && !value.includes('\\') && globRegExp(value) !== null), 'a list of globs of packages\' names ("react-native", "@react-native/*")']
+const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/]+\/[^/]+|[^@/.][^/]*)$/u.test(value) && globRegExp(value) !== null), 'a list of globs of packages\' names ("react-native", "@react-native/*")']
 // What `development` and `production` may set; the first three in place of the top level's (OVERRIDDEN).
 const MODE = { babel: switches, esm: boolean, inlineRequires: boolean, allowedPaths: globs, disallowedPaths: globs, allowedModules: packages, disallowedModules: packages }
 const OVERRIDDEN = ['babel', 'esm', 'inlineRequires']
