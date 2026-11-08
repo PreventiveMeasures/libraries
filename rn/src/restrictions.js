@@ -9,12 +9,38 @@ const RN_CONFIG = 'rn.config.json'
 // A glob less a leading `./` and a trailing `/`.
 const trimmed = (glob) => glob.replace(/^(?:\.\/)+/u, '').replace(/\/+$/u, '')
 
-// A path glob as a RegExp, or null where its braces don't pair. `**` matches dot files too, unlike Node's
-// path.matchesGlob, which would miss pnpm's node_modules/.pnpm. With `within`, a glob also matches what is
-// inside a directory it matches (`secrets` matches all of secrets/).
+// Whether each brace is of a balanced `{...}` holding a `,` of its own, none after a `$`: the lists Node's glob
+// expands, where it takes `{a}` and `${a,b}` as themselves, `{1..3}` for a range and expands `{{a,b}}` within.
+function bracesListed(glob) {
+  const listed = []
+  for (let i = 0; i < glob.length; i++) {
+    if (glob[i] === '{') {
+      if (glob[i - 1] === '$') return false
+      listed.push(false)
+    } else if (glob[i] === ',' && listed.length > 0) {
+      listed[listed.length - 1] = true
+    } else if (glob[i] === '}' && listed.pop() !== true) {
+      return false
+    }
+  }
+  return listed.length === 0
+}
+
+// Whether `glob` holds an extglob (`@(a|b)`), or may once its braces expand, as Node's glob expands them first
+// (`{@,x}(a)` is `@(a)` or `x(a)`): an operator and a `(` each touching a brace, taken as forming one.
+const extglob = (glob) => /[!*+?@]\(/u.test(glob) || (/[!*+?@][,{}]/u.test(glob) && /[,{}]\(/u.test(glob))
+
+// Whether each `**` is a whole name: Node's glob takes `a**` for `a*`, where this would cross a `/`.
+const globstarsWhole = (glob) => [...glob.matchAll(/\*{2,}/gu)].every(({ 0: stars, index }) =>
+  stars.length === 2 && (index === 0 || glob[index - 1] === '/') && (index + 2 === glob.length || glob[index + 2] === '/'))
+
+// A path glob as a RegExp, or null where Node's glob would read it otherwise: an extglob (`@(a|b)`), a brace of no
+// list, a `**` within a name. `[...]` is itself (app/[id].js); `**` matches dot files too (Node's misses pnpm's
+// .pnpm). With `within`, a glob also matches what is inside a directory it matches (`secrets` all of secrets/).
 export function globRegExp(glob, within = false) {
+  const bare = trimmed(glob)
+  if (extglob(bare) || !bracesListed(bare) || !globstarsWhole(bare)) return null
   let depth = 0
-  let paired = true
   const token = (part) => {
     if (part === '**/') return '(?:.*/)?'
     if (part === '**') return '.*'
@@ -26,14 +52,12 @@ export function globRegExp(glob, within = false) {
       return '(?:'
     }
     if (part === '}') {
-      paired &&= depth > 0
       depth--
       return ')'
     }
     return RegExp.escape(part)
   }
-  const source = trimmed(glob).replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, token)
-  if (!paired || depth !== 0) return null
+  const source = bare.replaceAll(/\*\*\/|\*\*|[*?{},]|[^*?{},]+/gu, token)
   // `s`: a name may hold a line break, which `.*` (`**`, a directory's paths) must match too.
   return new RegExp(within ? `^(?:${source})(?:/.*)?$` : `^${source}$`, 'su')
 }
