@@ -25,12 +25,11 @@ describe('globRegExp', () => {
     assert.ok(globRegExp('secrets', true).test('secrets/key\n.js'))
   })
 
-  it('has {a,b} either, and the rest as it is', () => {
+  it('has {a,b} either, and ? matches a character no glob may name', () => {
     assert.ok(matches('src/**/*.{ts,tsx}', 'src/a/b.tsx'))
     assert.ok(!matches('src/**/*.{ts,tsx}', 'src/a/b.js'))
-    assert.ok(matches('{src,lib}/{a,b{1,2}}.js', 'lib/b2.js'))
-    assert.ok(matches('app/(group)/+not-found@!.js', 'app/(group)/+not-found@!.js'))
-    assert.ok(matches('a,b.js', 'a,b.js'))
+    assert.ok(matches('{src,lib}/{a,b1,b2}.js', 'lib/b2.js'))
+    assert.ok(matches('app/?group?/+not-found@1.js', 'app/(group)/+not-found@1.js'))
   })
 
   it('takes a leading ./ for the project root, drops a trailing /, and is null of braces that do not pair', () => {
@@ -39,14 +38,15 @@ describe('globRegExp', () => {
     for (const glob of ['src/{a,b', 'src/a}', '}{']) assert.equal(globRegExp(glob), null, glob)
   })
 
-  it('is null of what Node\'s glob reads otherwise: a class, an extglob, a brace of no list, a ** within a name', () => {
-    for (const glob of ['app/[id].tsx', 'app/[...slug].tsx', 'x]y', 'a[[:digit:]]']) assert.equal(globRegExp(glob), null, glob)
-    for (const glob of ['@(a|b).js', 'src/+(a).js', '!(a)', 'x/?(a)', '*(a).js']) assert.equal(globRegExp(glob), null, glob)
-    // One braces form, as Node's glob expands them first: `{@,x}(a)` is `@(a)` or `x(a)`.
-    for (const glob of ['{@,x}(a)', '@{,x}(a)', 'x/{a,b@}{(c),d}']) assert.equal(globRegExp(glob), null, glob)
-    for (const glob of ['{a}', 'v{1..3}', '{a..c}.js', 'x${a,b}', '{{a,b}}', '{a,b}}']) assert.equal(globRegExp(glob), null, glob)
-    for (const glob of ['a**', '**b/c', 'src/a**/b', 'a/***/b', '{**,x}']) assert.equal(globRegExp(glob), null, glob)
-    for (const glob of ['{a,{b,c}}', 'app/+not-found.tsx', 'app/(group)/**', '**', './**/', 'a/**/b', 'app/{(tabs),(auth)}/**', 'app/(tabs)/*{.ts,.tsx}']) assert.notEqual(globRegExp(glob), null, glob)
+  it('is null but of a simple glob: names of letters, digits and _.@+-, *, ?, a whole ** and {a,b} lists, none nested', () => {
+    const unsupported = [
+      'app/[id].tsx', 'app/[...slug].tsx', 'x]y', 'a[[:digit:]]', 'src\\x', // a class, an escape
+      '@(a|b).js', '!(a)', '{@,x}(a)', 'app/(group)/**', 'a$b', 'a b', 'a,b.js', // an extglob, and what one is made of
+      'v{1..3}', '{a}', 'x${a,b}', '{{a,b}}', '{a,{b,c}}', '{a,b}}', // a range, a lone or nested brace
+      'a**', '**b/c', 'src/a**/b', 'a/***/b', '{**,x}', // a `**` within a name
+    ]
+    for (const glob of unsupported) assert.equal(globRegExp(glob), null, glob)
+    for (const glob of ['app/+not-found.tsx', 'app/?tabs?/**', '**', './**/', 'a/**/b', '{1..3,4}', '@scope/*', 'ünï/**']) assert.notEqual(globRegExp(glob), null, glob)
   })
 
   it('has, `within`, each path in a directory it matches too', () => {
