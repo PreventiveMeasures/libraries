@@ -103,9 +103,9 @@ export const assertSoldeerVersion = assertion('letters, digits, `.`, `_`, `+` an
 // A root's name as Podfile.lock has it, and @preventive/lockfile reads it:
 // printable ASCII but for spaces, parentheses, slashes and backslashes, no
 // `.` first, which the spec linter refuses, and 1024 characters at most.
-const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?!\.)[!-'*-.0-[\]-~]+$/u))
+export const assertPodName = assertion('a pod\'s root name', matches(/^(?=.{1,1024}$)(?!\.)[!-'*-.0-[\]-~]+$/u))
 // Pod::Version's pattern, as Podfile.lock writes a version.
-const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
+export const assertPodVersion = assertion('a CocoaPods version', matches(/^(?=.{1,256}$)\d+(?:\.[\dA-Za-z-]+)*(?:\+[\dA-Za-z.-]+)?$/u))
 // Gem::SpecificationPolicy#validate_name's rule; the 256 cap is ours.
 export const assertGemName = assertion('a gem name', matches(/^(?=.{1,256}$)(?=[\w.-]*[A-Za-z])[A-Za-z\d][\w.-]*$/u))
 // As Gemfile.lock writes one: no `-`, which Bundler reads as the start of a

@@ -4,7 +4,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
-import { PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, encodeSegment, isNotFound, recover, request } from '../http.js'
+import { specPath } from '../cocoapods.js'
+import { COCOAPODS_CDN, PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, encodeSegment, isNotFound, recover, request } from '../http.js'
 import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
@@ -45,6 +46,19 @@ async function fetchSoldeerRepo(name) {
   return githubRepoOfUrl(answer.data[0]?.github_url) ?? null
 }
 
+// The repo the podspec of a pod's newest version asked names: its `source`
+// by :git, else by :http on GitHub, else its `homepage`. Trunk's CDN
+// redirects to jsDelivr, which is followed; a podspec it does not have, a
+// pod of another spec repo or of an external source, names none.
+async function fetchPodRepo(name, version) {
+  const url = buildUrl(COCOAPODS_CDN, specPath(name, version).map(encodeSegment))
+  const podspec = await request(url, { as: 'json', redirect: 'follow' }).catch(recover(isNotFound, null))
+  if (podspec === null) return null
+  assert.ok(podspec?.name === name && podspec.version === version, `advisories: trunk answered for ${show(podspec?.name)} ${show(podspec?.version)}, not ${name} ${version}`)
+  const { git, http } = podspec.source ?? {}
+  return [git, http, podspec.homepage].map(repoOfLink).find((repo) => repo !== undefined) ?? null
+}
+
 // rubygems.org's API takes 10 requests a second from one address, whichever
 // call asks.
 const GEM_PACE_MS = 100
@@ -56,8 +70,9 @@ async function pacedForGems() {
   if (at > now) await sleep(at - now)
 }
 
-// Rails' gems link a page in the repo's tree, not the repo itself.
-const TREE_PAGE = /^(?<repo>(?i:https?:\/\/github\.com)\/[\w-]+\/[\w.-]+)\/(?:tree|blob)\//u
+// Rails' gems link a page in the repo's tree, not the repo itself, and a
+// pod's :http source an archive of a tag or a release's asset.
+const TREE_PAGE = /^(?<repo>(?i:https?:\/\/github\.com)\/[\w-]+\/[\w.-]+)\/(?:tree|blob|archive|releases\/download)\//u
 const repoOfLink = (url) => githubRepoOfUrl(url) ?? githubRepoOfUrl(TREE_PAGE.exec(typeof url === 'string' ? url : '')?.groups.repo)
 
 // `source_code_uri` has the gemspec's metadata, or what the owners set on
@@ -103,5 +118,6 @@ export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', n
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
 export const gemRepos = (names, { cache }) => cachedRepos('rubygems/repos', names, (missing) => fetchEach(missing, fetchGemRepo), cache)
 export const pypiRepos = (names, { asked, cache }) => cachedRepos('pypi/repos', names, (missing) => fetchEach(missing, (name) => fetchPypiRepo(name, asked.get(name).at(-1))), cache)
+export const podRepos = (names, { asked, cache }) => cachedRepos('cocoapods/repos', names, (missing) => fetchEach(missing, (name) => fetchPodRepo(name, asked.get(name).at(-1))), cache)
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)
