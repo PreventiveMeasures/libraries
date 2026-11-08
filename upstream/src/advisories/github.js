@@ -148,11 +148,11 @@ async function reposOf(asked, known, lookUp, cache) {
 // each package's repository, `known` or else looked up, adds what it
 // publishes for GitHub's `ecosystem` entries naming the package, for the
 // versions `rows` do not already report under that GHSA.
-export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { github: ecosystem, lookUp, versionsIn, bound }) {
+export async function withRepositories(rows, asked, { github, repoAdvisories, known, details, cache }, { github: ecosystem, lookUp, versionsIn, bound, nameKey = (name) => name }) {
   if (!repoAdvisories) return rows
   const reported = new Set(rows.flatMap((row) => [row.id, row.ghsa, ...row.aliases].filter(isGhsa).flatMap((id) => row.versions.map((version) => `${row.name} ${id} ${version}`))))
   const repoOf = await reposOf(asked, known, lookUp, cache)
-  const takes = (name, pkg) => pkg.ecosystem === ecosystem && pkg.name === name
+  const takes = (name, pkg) => pkg.ecosystem === ecosystem && typeof pkg.name === 'string' && nameKey(pkg.name) === nameKey(name)
   const added = await repositoryAdvisories(github, asked, { repoOf, takes, versionsIn, bound, details, cache })
   return [...rows, ...added.map((row) => ({ ...row, versions: row.versions.filter((version) => !reported.has(`${row.name} ${row.id} ${version}`)) }))]
 }
@@ -166,6 +166,7 @@ const coversPlaceholder = (version, range) => version === '0.0.0' || mayBeInRang
 export const GITHUB = {
   repositoryOnly: true,
   assertName: assertRepo,
+  nameKey: (repo) => repo.toLowerCase(),
   assertVersion: assertion('a version or a branch name', isRefName),
   advisories: (asked, { github, details, cache }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, versionsIn: bySemver(coversPlaceholder), details, cache }),
 }

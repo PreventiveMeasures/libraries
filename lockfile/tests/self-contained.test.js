@@ -38,6 +38,8 @@ const files = [
   new URL('pnpm.d.ts', PKG_DIR),
   new URL('poetry.js', PKG_DIR),
   new URL('poetry.d.ts', PKG_DIR),
+  new URL('pep440.js', PKG_DIR),
+  new URL('pep440.d.ts', PKG_DIR),
   new URL('pylock.js', PKG_DIR),
   new URL('pylock.d.ts', PKG_DIR),
   new URL('rust-semver.js', PKG_DIR),

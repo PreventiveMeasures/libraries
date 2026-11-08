@@ -4,10 +4,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { show } from '../args.js'
 import { addRepos, readRepos } from '../cache.js'
 import { lookUpCrateRepos } from '../cargo/repos.js'
-import { PACKAGIST_REPO, RUBYGEMS, SOLDEER_API, buildUrl, isNotFound, recover, request } from '../http.js'
+import { PACKAGIST_REPO, PYPI, RUBYGEMS, SOLDEER_API, buildUrl, encodeSegment, isNotFound, recover, request } from '../http.js'
 import { getVersionDocument } from '../npm/versions.js'
 import { getRepo } from '../package.js'
 import { pool } from '../pool.js'
+import { normalName } from '../pypi/version.js'
 import { githubRepoOfUrl } from '../remote.js'
 
 const PACKAGES_AT_ONCE = 8
@@ -69,6 +70,25 @@ async function fetchGemRepo(name) {
   return [answer.source_code_uri, answer.homepage_uri].map(repoOfLink).find((repo) => repo !== undefined) ?? null
 }
 
+// PyPI's JSON for the newest version asked, not the project's, which lists
+// every release's files (3 MB for boto3). Its links by their labels, as PyPI
+// normalizes them for its page: a project's source's first, then its
+// homepage's, `home_page` among them, then the rest. A version's `+` and
+// `!` (`1.13.0+cpu`, `1!2.0`) are escaped, as a path segment takes them.
+const LABELS = ['source', 'sourcecode', 'repository', 'code', 'github', 'homepage']
+const rank = ([label]) => {
+  const at = LABELS.indexOf(label.toLowerCase().replaceAll(/[^\da-z]/gu, ''))
+  return at === -1 ? LABELS.length : at
+}
+async function fetchPypiRepo(name, version) {
+  const answer = await request(buildUrl(PYPI, ['pypi', name, version, 'json'].map(encodeSegment)), { as: 'json' }).catch(recover(isNotFound, null))
+  if (answer === null) return null
+  const info = answer?.info
+  assert.ok(typeof info?.name === 'string' && normalName(info.name) === normalName(name), `advisories: PyPI answered for ${show(info?.name)}, not ${name}`)
+  const links = [...Object.entries(info.project_urls ?? {}), ['home_page', info.home_page]].toSorted((a, b) => rank(a) - rank(b))
+  return links.map(([, url]) => repoOfLink(url)).find((repo) => repo !== undefined) ?? null
+}
+
 // The repo the newest version asked of each package names, from that
 // version's document, kept for good (getVersionDocument): null where the
 // registry does not have that version, or it names no GitHub repo.
@@ -82,5 +102,6 @@ async function npmRepo(name, version, cache) {
 export const crateRepos = (names, { cache }) => lookUpCrateRepos('advisories', names, { cache })
 export const composerRepos = (names, { cache }) => cachedRepos('composer/repos', names, (missing) => fetchEach(missing, fetchComposerRepo), cache)
 export const gemRepos = (names, { cache }) => cachedRepos('rubygems/repos', names, (missing) => fetchEach(missing, fetchGemRepo), cache)
+export const pypiRepos = (names, { asked, cache }) => cachedRepos('pypi/repos', names, (missing) => fetchEach(missing, (name) => fetchPypiRepo(name, asked.get(name).at(-1))), cache)
 export const npmRepos = (names, { asked, cache }) => fetchEach(names, (name) => npmRepo(name, asked.get(name).at(-1), cache))
 export const soldeerRepos = (names, { cache }) => cachedRepos('soldeer/repos', names, (missing) => fetchEach(missing, fetchSoldeerRepo), cache)

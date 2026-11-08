@@ -108,6 +108,7 @@
     "src/npm/versions.js",
     "src/package.js",
     "src/pool.js",
+    "src/pypi/version.js",
     "src/remote.js",
     "src/rubygems/gem.js",
     "src/rubygems/platform.js",

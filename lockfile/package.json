@@ -36,6 +36,10 @@
       "types": "./poetry.d.ts",
       "default": "./poetry.js"
     },
+    "./pep440.js": {
+      "types": "./pep440.d.ts",
+      "default": "./pep440.js"
+    },
     "./pylock.js": {
       "types": "./pylock.d.ts",
       "default": "./pylock.js"
@@ -88,6 +92,8 @@
     "pnpm.js",
     "poetry.d.ts",
     "poetry.js",
+    "pep440.d.ts",
+    "pep440.js",
     "pylock.d.ts",
     "pylock.js",
     "rust-semver.d.ts",
