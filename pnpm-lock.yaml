@@ -68,7 +68,7 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
       '@preventive/archive':
-        specifier: ^1.4.0
+        specifier: ^1.2.2
         version: link:../archive
       '@preventive/compare':
         specifier: ^1.2.11
@@ -155,7 +155,7 @@ importers:
   rn-serve:
     dependencies:
       '@preventive/rn':
-        specifier: 1.0.0-alpha.6
+        specifier: workspace:*
         version: link:../rn
     devDependencies:
       '@babel/core':
@@ -200,9 +200,6 @@ importers:
       '@preventive/archive':
         specifier: ^1.2.0
         version: link:../archive
-      '@preventive/lockfile':
-        specifier: ^1.2.0
-        version: link:../lockfile
 
   vfs:
     devDependencies:
