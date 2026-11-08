@@ -6,8 +6,9 @@ import { SEVERITIES, isMalware, order } from './common.js'
 import { COCOAPODS, GITHUB, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
 import { CARGO, COMPOSER, GEM, PYPI, SWIFT } from './osv.js'
+import { RUBY } from './rubysec.js'
 
-const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, gem: GEM, pypi: PYPI, swift: SWIFT, cocoapods: COCOAPODS, soldeer: SOLDEER, github: GITHUB }
+const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, gem: GEM, ruby: RUBY, pypi: PYPI, swift: SWIFT, cocoapods: COCOAPODS, soldeer: SOLDEER, github: GITHUB }
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)

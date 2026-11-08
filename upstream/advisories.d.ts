@@ -4,24 +4,25 @@ import type { CacheStore } from './npm.js'
 export { HttpError } from './npm.js'
 export type { CacheStore } from './npm.js'
 
-// purl's package types.
-export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'pypi' | 'swift' | 'cocoapods' | 'soldeer' | 'github'
+// purl's package types, and `ruby` for Ruby interpreters.
+export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'ruby' | 'pypi' | 'swift' | 'cocoapods' | 'soldeer' | 'github'
 
 export interface Package {
   ecosystem: Ecosystem
-  // As its lockfile names it. A pod by its root (`Firebase`, not `Firebase/Core`),
-  // a Swift package by its repository in any case (`github.com/vapor/vapor`),
-  // a `github` package by `owner/name`.
+  // As its lockfile names it: a pod by its root (`Firebase`), a Swift package
+  // by its repository in any case (`github.com/vapor/vapor`), a `github`
+  // package by `owner/name`, a Ruby by its engine (`ruby`, `jruby`).
   name: string
   // Its repository, where known, so `repoAdvisories` needn't look it up.
   github?: RepoName
-  // As its lockfile writes them, matched by the ecosystem's own rules. A
-  // `github` package also takes a branch name; a Swift pin without a version is refused.
+  // As its lockfile writes them, matched by the ecosystem's own rules: Ruby's as
+  // Bundler writes it (`3.3.6p108`), another engine's its own (`9.4.5.0`). A
+  // `github` package also takes a branch name; an unversioned Swift pin is refused.
   versions: string[]
 }
 
 export interface AdvisoryOptions {
-  // Required for `cocoapods`, `soldeer` and `github` packages and for
+  // Required for `ruby`, `cocoapods`, `soldeer` and `github` packages and for
   // `repoAdvisories`. With it, gems are also checked against ruby-advisory-db.
   github?: Client
   // Also reads advisories each package's repository has published that
