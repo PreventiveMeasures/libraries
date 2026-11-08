@@ -40,9 +40,9 @@ export interface AdvisoryOptions {
 export interface Advisory {
   ecosystem: Ecosystem
   name: string
-  // npm's registry, OSV, ruby-advisory-db, or the package's repository (the
-  // only source for `cocoapods`, `soldeer` and `github`).
-  source: 'registry' | 'osv' | 'rubysec' | 'repository'
+  // npm's registry, OSV, Packagist, ruby-advisory-db, or the package's
+  // repository (the only source for `cocoapods`, `soldeer` and `github`).
+  source: 'registry' | 'osv' | 'packagist' | 'rubysec' | 'repository'
   // The GHSA where there is one, else its source's (RUSTSEC-..., PYSEC-...,
   // MAL-..., CVE-...), or npm:<id>.
   id: string

@@ -6,8 +6,8 @@ import { describe, it } from 'node:test'
 // `upstream/` is a package of its own, and the point of it is that it is
 // minimal: nothing in it may reach outside itself but node: builtins,
 // @preventive/archive, which reads the tarballs it verifies as every reader
-// of them reads them, and @preventive/lockfile's YAML reader and PEP 440,
-// which read ruby-advisory-db's advisories and Python's versions as strictly -- the registry and the API
+// of them reads them, and @preventive/lockfile's YAML, PEP 440 and Composer
+// constraint readers, which read advisories as strictly -- the registry and the API
 // are fetched with the platform's fetch, and even semver is borrowed from
 // the npm that ships beside node rather than installed. Its one optional
 // peer, semver, is required only where there is no npm to borrow it from.
@@ -43,7 +43,7 @@ const PEERS = { 'src/semver-peer.cjs': ['semver'], 'src/semver.js': ['semver'] }
 // The dependencies, and the entry points of them a module may import.
 const ARCHIVE = '@preventive/archive'
 const LOCKFILE = '@preventive/lockfile'
-const isDependency = (spec) => [`${ARCHIVE}/tar.js`, `${ARCHIVE}/compression.js`, `${LOCKFILE}/yaml.js`, `${LOCKFILE}/pep440.js`].includes(spec)
+const isDependency = (spec) => [`${ARCHIVE}/tar.js`, `${ARCHIVE}/compression.js`, `${LOCKFILE}/yaml.js`, `${LOCKFILE}/pep440.js`, `${LOCKFILE}/composer-semver.js`].includes(spec)
 
 const specifiersOf = (source) => [SPECIFIER_RE, TEMPLATE_RE].flatMap((re) => [...source.matchAll(re)].map((m) => m.groups.spec))
 

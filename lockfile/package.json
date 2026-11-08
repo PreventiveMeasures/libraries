@@ -16,6 +16,10 @@
       "types": "./composer.d.ts",
       "default": "./composer.js"
     },
+    "./composer-semver.js": {
+      "types": "./composer-semver.d.ts",
+      "default": "./composer-semver.js"
+    },
     "./foundry.js": {
       "types": "./foundry.d.ts",
       "default": "./foundry.js"
@@ -84,6 +88,8 @@
     "cocoapods.js",
     "composer.d.ts",
     "composer.js",
+    "composer-semver.d.ts",
+    "composer-semver.js",
     "foundry.d.ts",
     "foundry.js",
     "npm.d.ts",

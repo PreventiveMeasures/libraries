@@ -30,6 +30,8 @@ const files = [
   new URL('cocoapods.d.ts', PKG_DIR),
   new URL('composer.js', PKG_DIR),
   new URL('composer.d.ts', PKG_DIR),
+  new URL('composer-semver.js', PKG_DIR),
+  new URL('composer-semver.d.ts', PKG_DIR),
   new URL('foundry.js', PKG_DIR),
   new URL('foundry.d.ts', PKG_DIR),
   new URL('npm.js', PKG_DIR),

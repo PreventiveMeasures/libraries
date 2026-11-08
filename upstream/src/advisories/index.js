@@ -37,7 +37,7 @@ function collect(packages) {
 }
 
 // Which of an advisory's rows stands for it, first to last.
-const SOURCES = ['registry', 'osv', 'rubysec', 'repository']
+const SOURCES = ['registry', 'osv', 'packagist', 'rubysec', 'repository']
 const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
 // An advisory's rows as one: the first by source, filled from the rest,
