@@ -9,6 +9,7 @@ import { matches, printable } from './args.js'
 export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
 export const OSV_API = 'https://api.osv.dev'
+export const OSV_EXPORTS = 'https://osv-vulnerabilities.storage.googleapis.com'
 export const CRATES_API = 'https://crates.io'
 export const PACKAGIST_REPO = 'https://repo.packagist.org'
 export const PACKAGIST = 'https://packagist.org'
@@ -23,7 +24,7 @@ export const PYPI = 'https://pypi.org'
 export const GITHUB_WEB = 'https://github.com'
 export const MAX_BYTES = 512 * 1024 * 1024
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, PACKAGIST, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, PYPI, GITHUB_WEB])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, OSV_EXPORTS, CRATES_API, PACKAGIST_REPO, PACKAGIST, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, PYPI, GITHUB_WEB])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)

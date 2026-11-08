@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 
 import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isRepo, isStrings, matches, show } from '../args.js'
-import { OSV_API, buildUrl, request } from '../http.js'
+import { readJSON, writeJSON } from '../cache.js'
+import { OSV_API, OSV_EXPORTS, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
 import { assertPypiName, assertPypiVersion, boundRange as boundPypiRange, compareVersions as comparePypiVersions, normalName, readRange as readPypiRange } from '../pypi/version.js'
 import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
@@ -71,7 +72,7 @@ export const GEM = {
   },
 }
 
-// As OSV's SwiftURL names it, `github.com/vapor/vapor`, case and all.
+// As OSV's SwiftURL names it, `github.com/vapor/vapor`, in any case.
 const SWIFT_NAME = /^(?=.{1,512}$)[a-z\d-]+(?:\.[a-z\d-]+)+(?:\/(?!\.\.?(?:\/|$))[\w.~-]+)+(?<!\.git)$/u
 // TSCUtility.Version: SemVer, but an identifier may be empty, or a number
 // have a leading zero.
@@ -81,13 +82,48 @@ const swiftRepo = (name) => {
   return isRepo(repo) ? repo : null
 }
 
+// How late a package OSV adds is asked in its spelling.
+const NAMES_TTL_MS = 90 * 60 * 1000
+const LISTED = /^(?<modified>[^,]{1,64}),(?<id>[^,]+)$/u
+const namesIn = (record, ecosystem) => (Array.isArray(record.affected) ? record.affected : []).map((entry) => entry?.package)
+  .filter((pkg) => pkg?.ecosystem === ecosystem && typeof pkg.name === 'string').map((pkg) => pkg.name)
+const isKept = (value) => value && typeof value === 'object' && typeof value.at === 'number' && value.records && typeof value.records === 'object'
+  && Object.values(value.records).every((record) => typeof record?.modified === 'string' && isStrings(record.names))
+
+// Each package name OSV has in `ecosystem`: from its list of records, each
+// record read again only once it is modified.
+async function osvNames(ecosystem, cache) {
+  const kept = await readJSON('osv/names', ecosystem, cache)
+  const records = isKept(kept) ? kept.records : {}
+  const age = isKept(kept) ? Date.now() - kept.at : Number.NaN
+  if (!(age >= 0 && age <= NAMES_TTL_MS)) {
+    const list = (await request(buildUrl(OSV_EXPORTS, [ecosystem, 'modified_id.csv']), { as: 'text' })).split('\n').filter(Boolean).map((line) => LISTED.exec(line)?.groups)
+    assert.ok(list.every((entry) => entry && isOsvId(entry.id)), `advisories: malformed list of OSV's ${ecosystem} records`)
+    const changed = list.filter(({ id, modified }) => records[id]?.modified !== modified)
+    const read = new Map((await pool(changed.map(({ id }) => id), RECORDS_AT_ONCE, getVuln)).map((record) => [record.id, namesIn(record, ecosystem)]))
+    const fresh = Object.fromEntries(list.map(({ id, modified }) => [id, { modified, names: read.get(id) ?? records[id].names }]))
+    await writeJSON('osv/names', ecosystem, { at: Date.now(), records: fresh }, cache)
+    return Object.values(fresh).flatMap(({ names }) => names)
+  }
+  return Object.values(records).flatMap(({ names }) => names)
+}
+
 export const SWIFT = {
   osv: 'SwiftURL',
   github: 'swift',
   lookUp: (names) => new Map(names.map((name) => [name, swiftRepo(name)])),
-  assertName: assertion("a Swift package's repository as OSV names it, `github.com/owner/name`", matches(SWIFT_NAME)),
+  assertName: assertion("a Swift package's repository, `github.com/owner/name`", matches(SWIFT_NAME)),
   assertVersion: assertion('a version as SwiftPM writes one', matches(SWIFT_VERSION)),
-  advisories: (asked, options) => osvAdvisories(SWIFT, asked, options),
+  // GitHub's URLs are case-insensitive.
+  nameKey: (name) => name.toLowerCase(),
+  advisories: async (asked, options) => {
+    // OSV matches a Swift package only as it spells it, case and all.
+    const spelling = new Map((await osvNames('SwiftURL', options.cache)).map((name) => [name.toLowerCase(), name]))
+    const osvName = (name) => spelling.get(name.toLowerCase()) ?? name
+    const askedAs = new Map([...asked.keys()].map((name) => [osvName(name), name]))
+    const rows = await osvRows(SWIFT, new Map([...asked].map(([name, versions]) => [osvName(name), versions])), options)
+    return await withRepositories(rows.map((row) => ({ ...row, name: askedAs.get(row.name) })), asked, options, SWIFT)
+  },
 }
 
 // What `pip-audit` reads. OSV takes a name in any spelling PEP 503

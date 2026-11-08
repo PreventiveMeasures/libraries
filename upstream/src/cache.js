@@ -10,7 +10,7 @@ import { assertCacheName, assertDirectoryPath, assertion, isRepo } from './args.
 import { MAX_BYTES, decode } from './http.js'
 import { pool } from './pool.js'
 
-const DIRS = new Set(['npm/repos', 'npm/public', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'rubygems/repos', 'rubygems/gems', 'pypi/repos', 'cocoapods/podspecs', 'cocoapods/archives', 'cocoapods/repos', 'github/trees', 'github/advisories', 'rubysec/index', 'rubysec/advisories'])
+const DIRS = new Set(['npm/repos', 'npm/public', 'npm/tarballs', 'npm/versions', 'cargo/repos', 'cargo/crates', 'composer/repos', 'soldeer/repos', 'soldeer/zips', 'rubygems/repos', 'rubygems/gems', 'pypi/repos', 'cocoapods/podspecs', 'cocoapods/archives', 'cocoapods/repos', 'github/trees', 'github/advisories', 'osv/names', 'rubysec/index', 'rubysec/advisories'])
 const RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000 // A link only moves on a transfer or rename, and GitHub redirects those.
 const RECORDS_AT_ONCE = 8
 // JSON filed gzipped, as `<name>.json.gz`: a listing carries each
