@@ -56,9 +56,15 @@ const LIST = [
 
 // Answers each URL in `answers`, a Response as is and anything else as
 // JSON, and refuses any other; `calls` is every URL asked.
+// OSV, asked of GitHub Actions alone, has no record of them unless given,
+// and isn't counted among the calls.
+const OSV_BATCH = 'https://api.osv.dev/v1/querybatch'
+const actionsOnly = (init) => JSON.parse(init?.body ?? '{}').queries?.every((query) => query.package.ecosystem === 'GitHub Actions')
+
 function stubUrls(answers) {
   const calls = []
-  globalThis.fetch = (url) => {
+  globalThis.fetch = (url, init) => {
+    if (String(url) === OSV_BATCH && !Object.hasOwn(answers, OSV_BATCH) && actionsOnly(init)) return Promise.resolve(Response.json({ results: JSON.parse(init.body).queries.map(() => ({})) }))
     calls.push(String(url))
     const answer = answers[String(url)]
     if (answer === undefined) return Promise.reject(new Error(`unexpected request: ${url}`))

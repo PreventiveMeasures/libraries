@@ -145,6 +145,32 @@ export const PYPI = {
   advisories: (asked, options) => osvAdvisories(PYPI, asked, options),
 }
 
+// The ids OSV answers each query with, a thousand queries a request.
+async function idsOf(queries, what) {
+  const ids = []
+  for (const chunk of chunks(queries, QUERIES_PER_REQUEST)) {
+    const answer = await request(QUERY_URL, { method: 'POST', body: { queries: chunk }, as: 'json' })
+    assert.ok(Array.isArray(answer?.results) && answer.results.length === chunk.length, 'advisories: expected one OSV result per query')
+    for (const result of answer.results) {
+      const vulns = result?.vulns ?? []
+      assert.ok(result && result.next_page_token === undefined && Array.isArray(vulns) && vulns.every((vuln) => isOsvId(vuln?.id)), `advisories: malformed OSV result for ${what(ids.length)}`)
+      ids.push(vulns.map(({ id }) => id))
+    }
+  }
+  return ids
+}
+
+// Every record OSV has of each name, for an ecosystem whose versions it
+// can't match: [{ record, names }], withdrawn ones left out.
+export async function packageRecords(osv, names) {
+  const byId = new Map()
+  for (const [j, ids] of (await idsOf(names.map((name) => ({ package: { name, ecosystem: osv } })), (at) => names[at])).entries()) {
+    for (const id of ids) (byId.get(id) ?? byId.set(id, new Set()).get(id)).add(names[j])
+  }
+  const records = await pool([...byId.keys()], RECORDS_AT_ONCE, getVuln)
+  return records.filter((record) => !record.withdrawn).map((record) => ({ record, names: byId.get(record.id) }))
+}
+
 export async function getVuln(id) {
   const record = await request(buildUrl(OSV_API, ['v1', 'vulns', id]), { as: 'json' })
   assert.ok(record?.id === id, `advisories: OSV answered for ${show(record?.id)}, not ${id}`)
@@ -153,7 +179,7 @@ export async function getVuln(id) {
   return { ...record, aliases: (record.aliases ?? []).filter(isOsvId) }
 }
 
-function toAdvisory(ecosystem, name, versions, record, details) {
+export function toAdvisory(ecosystem, name, versions, record, details) {
   const { aliases } = record
   const ghsas = aliases.filter(isGhsa)
   const ghsa = isGhsa(record.id) ? record.id : (ghsas.length === 1 ? ghsas[0] : undefined)
@@ -181,18 +207,12 @@ function toAdvisory(ecosystem, name, versions, record, details) {
 export async function osvRows({ osv }, asked, { details }) {
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id -> name -> versions, in `list` order
-  for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
-    const body = { queries: chunk.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })) }
-    const answer = await request(QUERY_URL, { method: 'POST', body, as: 'json' })
-    assert.ok(Array.isArray(answer?.results) && answer.results.length === chunk.length, 'advisories: expected one OSV result per query')
-    for (const [j, result] of answer.results.entries()) {
-      const { name, version } = chunk[j]
-      const vulns = result?.vulns ?? []
-      assert.ok(result && result.next_page_token === undefined && Array.isArray(vulns) && vulns.every((vuln) => isOsvId(vuln?.id)), `advisories: malformed OSV result for ${name}@${version}`)
-      for (const { id } of vulns) {
-        const byName = hits.get(id) ?? hits.set(id, new Map()).get(id)
-        byName.set(name, (byName.get(name) ?? new Set()).add(version))
-      }
+  const found = await idsOf(list.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })), (j) => `${list[j].name}@${list[j].version}`)
+  for (const [j, ids] of found.entries()) {
+    const { name, version } = list[j]
+    for (const id of ids) {
+      const byName = hits.get(id) ?? hits.set(id, new Map()).get(id)
+      byName.set(name, (byName.get(name) ?? new Set()).add(version))
     }
   }
   const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)

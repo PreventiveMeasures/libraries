@@ -10,14 +10,14 @@ export type Ecosystem = 'npm' | 'cargo' | 'composer' | 'gem' | 'ruby' | 'pypi' |
 export interface Package {
   ecosystem: Ecosystem
   // As its lockfile names it: a pod by its root (`Firebase`), a Swift package
-  // by its repository in any case (`github.com/vapor/vapor`), a `github`
-  // package by `owner/name`, a Ruby by its engine (`ruby`, `jruby`).
+  // by its repository in any case (`github.com/vapor/vapor`), a `github` package
+  // by `owner/name` as GitHub spells it, a Ruby by its engine (`ruby`, `jruby`).
   name: string
   // Its repository, where known, so `repoAdvisories` needn't look it up.
   github?: RepoName
   // As its lockfile writes them, matched by the ecosystem's own rules: Ruby's as
-  // Bundler writes it (`3.3.6p108`), another engine's its own (`9.4.5.0`). A
-  // `github` package also takes a branch name; an unversioned Swift pin is refused.
+  // Bundler writes it (`3.3.6p108`). A `github` package takes a tag (`v4` its
+  // whole line), a branch or a commit; an unversioned Swift pin is refused.
   versions: string[]
 }
 
@@ -42,7 +42,7 @@ export interface Advisory {
   ecosystem: Ecosystem
   name: string
   // npm's registry, OSV, Packagist, ruby-advisory-db, or the package's
-  // repository (the only source for `cocoapods`, `soldeer` and `github`).
+  // repository (the only source for `cocoapods` and `soldeer`).
   source: 'registry' | 'osv' | 'packagist' | 'rubysec' | 'repository'
   // The GHSA where there is one, else its source's (RUSTSEC-..., PYSEC-...,
   // MAL-..., CVE-...), or npm:<id>.
