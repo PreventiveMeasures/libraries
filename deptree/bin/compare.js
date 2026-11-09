@@ -30,10 +30,11 @@ export function projectView(root) {
 }
 
 // What deptree never builds: the .bin directories, each package manager's
-// record of its install, the .git of a dependency Soldeer clones, and what
-// CocoaPods generates in Pods beside the pods but its record, Manifest.lock:
-// the podspecs of pods by :path, headers, support files and the projects.
-const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)|^Pods\/(?:Local Podspecs|Headers|Target Support Files|\.project_cache|[^/]+\.xcodeproj)(?:\/|$)/u
+// record of its install and pnpm 11's unread package map, the .git of a
+// dependency Soldeer clones, and what CocoaPods generates in Pods beside the
+// pods but its record, Manifest.lock: the podspecs of pods by :path, headers,
+// support files and the projects.
+const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.package-map\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)|^Pods\/(?:Local Podspecs|Headers|Target Support Files|\.project_cache|[^/]+\.xcodeproj)(?:\/|$)/u
 
 // Everything under each of `dirs` as `view` has it, the disk's projectView
 // or the tree's Vfs: links not followed, every file read whole, and a

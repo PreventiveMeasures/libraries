@@ -113,6 +113,13 @@ describe('checkProjects', () => {
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile }), /dependencies\.q resolved to "1\.2\.0", which is not in "\^2\.0\.0"/u)
   })
 
+  // pnpm resolves `*` to a prerelease `latest`, writing this lockfile.
+  it('takes a prerelease for a range of `*`, but not for another', () => {
+    const locked = (spec) => parsePnpmLockfile(`lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      q:\n        specifier: '${spec}'\n        version: 1.3.0-beta.1\n\npackages:\n\n  q@1.3.0-beta.1:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  q@1.3.0-beta.1: {}\n`).lockfile
+    for (const spec of ['*', 'x', '']) check({ dependencies: { q: spec } }, { lockfile: locked(spec) })
+    assert.throws(() => check({ dependencies: { q: '>=1.0.0' } }, { lockfile: locked('>=1.0.0') }), /dependencies\.q resolved to "1\.3\.0-beta\.1", which is not in ">=1\.0\.0"/u)
+  })
+
   // A package.json is a plain object, with Object.prototype's names in it.
   it('reads a dependency by a name Object.prototype has as package.json lists it', () => {
     const importer = (kind, version) => parsePnpmLockfile(`lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    ${kind}:\n      constructor:\n        specifier: ${version}\n        version: ${version}\n${version.startsWith('link:') ? '' : `\npackages:\n\n  constructor@1.0.0:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  constructor@1.0.0: {}\n`}`).lockfile

@@ -1445,13 +1445,14 @@ describe('buildPnpmTree into a given Vfs', () => {
       const locked = async (fooSnapshot = '    dependencies:\n      p: 1.0.0\n', { fooEntry, overrides = '', withP = true } = {}) => small(dep('app') + dep('foo', 'file:vendor/foo'), await pkgs(fooEntry, withP), `  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  foo@file:vendor/foo:\n${fooSnapshot}${withP ? '\n  p@1.0.0: {}\n' : ''}`, `  foo: file:./vendor/foo\n${overrides}`)
       const foo = (fields, more = {}) => ({ ...vendored, 'vendor/foo/package.json': JSON.stringify({ name: 'foo', version: '1.5.0', bin: { foo: 'cli.js' }, ...fields }), ...more })
       // pnpm 10 reads its overrides from package.json.
-      const built = async (pnpm, fields, { lockfile: given, overrides = {}, more, fields: rootFields = {} } = {}) => {
+      const built = async (pnpm, fields, { lockfile: given, overrides = {}, more, fields: rootFields = {}, autoInstallPeers = true } = {}) => {
         stubRegistry(await served())
         const all = { foo: 'file:./vendor/foo', ...overrides }
         const early = pnpm.startsWith('10.')
-        const manifest = rootWith({ ...rootFields, ...early ? { pnpm: { overrides: all } } : {} })
-        const workspace = early ? undefined : `overrides:\n${Object.entries(all).map(([name, spec]) => `  ${name}: ${spec}\n`).join('')}`
-        return buildPnpmTree({ lockfile: given ?? await locked(), manifests: { '.': manifest }, workspace, host: at(pnpm), project: createVfs({ 'package.json': manifest, ...foo(fields, more) }) })
+        const manifest = rootWith({ ...rootFields, ...early ? { pnpm: { overrides: all, autoInstallPeers } } : {} })
+        const workspace = early ? undefined : `autoInstallPeers: ${autoInstallPeers}\noverrides:\n${Object.entries(all).map(([name, spec]) => `  ${name}: ${spec}\n`).join('')}`
+        const written = (given ?? await locked()).replace('autoInstallPeers: true', `autoInstallPeers: ${autoInstallPeers}`)
+        return buildPnpmTree({ lockfile: written, manifests: { '.': manifest }, workspace, host: at(pnpm), project: createVfs({ 'package.json': manifest, ...foo(fields, more) }) })
       }
       const escape = (text) => text.replaceAll(/[.*+?^${}()|[\]\\/]/gu, '\\$&')
       const PHRASES = {
@@ -1489,7 +1490,7 @@ describe('buildPnpmTree into a given Vfs', () => {
         await assert.rejects(built('11.28.7', { dependencies: { p: '1.0.0' }, engines: { runtime: { name: 'node', version: '24.0.0', onFail: 'download' } } }), /^DeptreeError: "foo@file:vendor\/foo": a node runtime pnpm 11 would hold it to is not supported$/u)
       })
 
-      // pnpm 11 lets a peer that is also a dependency go unrecorded; pnpm 12 does not.
+      // A peer that is also a dependency may go unrecorded; for pnpm 12, but where it installs the peer.
       it('holds its peers to the lockfile\'s as pnpm 11 does', async () => {
         const peered = await locked(undefined, { fooEntry: '    peerDependencies:\n      q: ^1.0.0\n    peerDependenciesMeta:\n      q:\n        optional: true\n' })
         const optionalQ = { dependencies: { p: '1.0.0' }, peerDependencies: { q: '^1.0.0' }, peerDependenciesMeta: { q: { optional: true } } }
@@ -1501,6 +1502,28 @@ describe('buildPnpmTree into a given Vfs', () => {
           await built(pnpm, { dependencies: { p: '1.0.0' }, peerDependencies: { p: '*' } })
         }
         await assert.rejects(built('12.8.1', { dependencies: { p: '1.0.0' }, peerDependencies: { p: '*' } }), refused('12.8.1', 'its peerDependencies are not the lockfile\'s: "p" is "*" in its package.json and nothing in the lockfile', { by: 12 }))
+        await built('12.8.1', { dependencies: { p: '1.0.0' }, peerDependencies: { p: '*' }, peerDependenciesMeta: { p: { optional: true } } })
+        await built('12.8.1', { dependencies: { p: '1.0.0' }, peerDependencies: { p: '*' } }, { autoInstallPeers: false })
+      })
+
+      // pnpm 12 before 12.9.0 and 12.15.0 refuses some of the lockfiles it writes here.
+      it('takes the lockfile pnpm 12 writes of an optional peer, or of a dependency in both lists', async () => {
+        const OPTIONAL_Q = "    peerDependencies:\n      q: '*'\n    peerDependenciesMeta:\n      q:\n        optional: true\n"
+        const metaOnly = await locked(undefined, { fooEntry: OPTIONAL_Q })
+        const meta = { dependencies: { p: '1.0.0' }, peerDependenciesMeta: { q: { optional: true } } }
+        const peers = (why) => refused('12.8.1', `its peerDependencies are not the lockfile's: ${why}`, { by: 12 })
+        await built('12.8.1', meta, { lockfile: metaOnly })
+        await assert.rejects(built('12.8.1', meta, { lockfile: metaOnly.replace("q: '*'", 'q: ^1.0.0') }), peers('"q" is "*" in its package.json and "^1.0.0" in the lockfile'))
+        await assert.rejects(built('12.8.1', meta), peers('"q" is "*" in its package.json and nothing in the lockfile'))
+        // A peer the root provides, among the optional dependencies.
+        const [, p1, q1] = await served()
+        const provided = small(`${dep('foo', 'file:vendor/foo(q@1.0.0)', 'file:vendor/foo')}${dep('q')}`, `${DIRECTORY}    hasBin: true\n${OPTIONAL_Q}\n${entry(q1)}\n`, '  foo@file:vendor/foo(q@1.0.0):\n    optionalDependencies:\n      q: 1.0.0\n\n  q@1.0.0: {}\n', '  foo: file:./vendor/foo\n')
+        for (const pnpm of ['10.33.4', '11.28.11', '12.8.1']) await built(pnpm, { peerDependencies: { q: '*' }, peerDependenciesMeta: { q: { optional: true } } }, { lockfile: provided, fields: { dependencies: { foo: '^1.0.0', q: '1.0.0' } } })
+        // Optional, at the dependency's range.
+        const inBoth = small(dep('app') + dep('foo', 'file:vendor/foo'), `${entry(await app)}\n${DIRECTORY}    hasBin: true\n\n${entry(p1)}\n`, '  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  foo@file:vendor/foo:\n    optionalDependencies:\n      p: 1.0.0\n\n  p@1.0.0:\n    optional: true\n', '  foo: file:./vendor/foo\n')
+        for (const pnpm of ['10.33.4', '11.28.11', '12.8.1']) await built(pnpm, { dependencies: { p: '^1.0.0' }, optionalDependencies: { p: '^2.0.0' } }, { lockfile: inBoth })
+        await assert.rejects(built('12.8.1', { dependencies: { p: '^2.0.0' }, optionalDependencies: { p: '^1.0.0' } }, { lockfile: inBoth }), refused('12.8.1', 'optionalDependencies.p is not resolved as it asks', { by: 12 }))
+        await assert.rejects(built('12.8.1', { dependencies: { p: '1.0.0' }, optionalDependencies: { p: '1.0.0' } }), refused('12.8.1', 'dependencies.p is not one it asks for', { by: 12 }))
       })
 
       it('walks into a directory a directory asks for by file:', async () => {

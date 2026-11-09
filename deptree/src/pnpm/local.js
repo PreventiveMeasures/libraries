@@ -74,18 +74,23 @@ function resolvesTo(name, spec, target, packages) {
   return validRange(range) === null || version === null || satisfies(version, range)
 }
 
+const partition = (items, test) => [items.filter(test), items.filter((item) => !test(item))]
 const optionalPeers = (meta) => Object.entries(meta ?? {}).filter(([, item]) => item?.optional === true).map(([name]) => name).sort()
 
-// `read` is the hooked package.json. A peer may be among the snapshot's
-// dependencies and an optional one missing; a `file:` or `link:` one is left to
-// package.js's checkDependencies.
-function checkFresh(read, pkg, packages, where) {
+// `read` is the hooked package.json. A peer only in peerDependenciesMeta is one
+// at `*`, and an optional peer may be among the optional dependencies too; one
+// in both lists is optional, at the dependency's range.
+function checkFresh(read, pkg, { packages, autoInstallPeers }, where) {
   const outdated = (why) => new DeptreeError(`the lockfile is not up to date with its package.json, which a frozen install of pnpm 12 refuses: ${why}`, where)
-  const wanted = { dependencies: read.dependencies ?? {}, optionalDependencies: read.optionalDependencies ?? {} }
-  const peers = read.peerDependencies ?? {}
-  for (const [kind, others] of [['dependencies', peers], ['optionalDependencies', {}]]) {
+  const optional = read.optionalDependencies ?? {}
+  const [both, deps] = partition(Object.entries(read.dependencies ?? {}), ([name]) => Object.hasOwn(optional, name))
+  const wanted = { dependencies: Object.fromEntries(deps), optionalDependencies: { ...optional, ...Object.fromEntries(both) } }
+  const optionalNames = optionalPeers(read.peerDependenciesMeta)
+  const peers = { ...Object.fromEntries(optionalNames.map((name) => [name, '*'])), ...read.peerDependencies }
+  const others = { dependencies: read.peerDependencies ?? {}, optionalDependencies: Object.fromEntries(optionalNames.map((name) => [name, peers[name]])) }
+  for (const kind of ['dependencies', 'optionalDependencies']) {
     for (const name of Object.keys(pkg[kind])) {
-      if (!Object.hasOwn(wanted[kind], name) && !Object.hasOwn(others, name)) throw outdated(`${kind}.${name} is not one it asks for`)
+      if (!Object.hasOwn(wanted[kind], name) && !Object.hasOwn(others[kind], name)) throw outdated(`${kind}.${name} is not one it asks for`)
     }
     for (const [name, spec] of Object.entries(wanted[kind])) {
       const target = pkg[kind][name]
@@ -98,15 +103,18 @@ function checkFresh(read, pkg, packages, where) {
       if (localOf(spec, where) !== undefined || !resolvesTo(name, spec, target, packages)) throw outdated(`${kind}.${name} is not resolved as it asks`)
     }
   }
-  const peersDiffer = difference(peers, pkg.peerDependencies, ['its package.json', 'the lockfile'])
+  // A peer that is its own dependency too may go unrecorded, but where pnpm installs it.
+  const unrecorded = (name) => !Object.hasOwn(pkg.peerDependencies, name) && Object.hasOwn(read.dependencies ?? {}, name) && !(autoInstallPeers && !optionalNames.includes(name))
+  const recorded = Object.fromEntries(Object.entries(peers).filter(([name]) => !unrecorded(name)))
+  const peersDiffer = difference(recorded, pkg.peerDependencies, ['its package.json', 'the lockfile'])
   if (peersDiffer !== undefined) throw outdated(`its peerDependencies are not the lockfile's: ${peersDiffer}`)
-  if (JSON.stringify(optionalPeers(read.peerDependenciesMeta)) !== JSON.stringify(optionalPeers(pkg.peerDependenciesMeta))) throw outdated('which of its peers are optional is not the lockfile\'s')
+  if (JSON.stringify(optionalNames.filter((name) => Object.hasOwn(recorded, name))) !== JSON.stringify(optionalPeers(pkg.peerDependenciesMeta))) throw outdated('which of its peers are optional is not the lockfile\'s')
 }
 
 // pnpm 12's check, before it installs, of each snapshot a project depends on by
 // a `file:` specifier to a directory. Before 12.17.0 it reads the package.json
 // without its extensions, refusing the lockfile it wrote of one extended.
-export function createFreshnessCheck(lockfile, { pnpm, major }, extensions = []) {
+export function createFreshnessCheck(lockfile, { pnpm, major }, extensions = [], autoInstallPeers = true) {
   if (major < 12) return undefined
   const unextended = compareVersions(pnpm, '12.17.0') < 0
   const direct = new Set()
@@ -121,6 +129,6 @@ export function createFreshnessCheck(lockfile, { pnpm, major }, extensions = [])
     if (!direct.has(node.key)) return
     const where = quote(node.key)
     if (unextended && extensionsOf(extensions, read, where).length > 0) throw new DeptreeError('a package extension names it, and pnpm 12 before 12.17.0 holds a directory to its package.json without one, which is not supported', where)
-    checkFresh(read, lockfile.packages[node.key], lockfile.packages, where)
+    checkFresh(read, lockfile.packages[node.key], { packages: lockfile.packages, autoInstallPeers }, where)
   }
 }
