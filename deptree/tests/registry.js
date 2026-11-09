@@ -143,8 +143,10 @@ export const paths = (vfs) => [...vfs.walk('/')].map(({ path, type }) => `${path
 
 export const HOST = Object.freeze({ pnpm: '10.33.4', node: '24.15.0', os: 'linux', cpu: 'x64', libc: 'glibc' })
 
-// A zip with every field as given, as one from Soldeer's registry may have
-// it, repeats and all; `size` is the size declared, whatever the data's.
+// A zip with every field as given, as one from Soldeer's registry or a
+// GitHub release may have it, repeats and all; `size` is the size declared,
+// whatever the data's, `version` the one needed to extract, 2.0 unless
+// given, and `internal` the internal attributes.
 export function rawZip(entries) {
   const locals = []
   const centrals = []
@@ -159,14 +161,15 @@ export function rawZip(entries) {
     const body = entry.deflate ? deflateRawSync(data) : data
     const method = entry.deflate ? 8 : 0
     const size = entry.size ?? data.length
+    const version = entry.version ?? 20
     const local = Buffer.alloc(30)
-    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(entry.flags ?? 0, 6); local.writeUInt16LE(method, 8)
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(version, 4); local.writeUInt16LE(entry.flags ?? 0, 6); local.writeUInt16LE(method, 8)
     local.writeUInt16LE(0x21, 12); local.writeUInt32LE(crc, 14); local.writeUInt32LE(body.length, 18); local.writeUInt32LE(size, 22)
     local.writeUInt16LE(name.length, 26); local.writeUInt16LE(extra.length, 28)
     const central = Buffer.alloc(46)
-    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE((system << 8) | 30, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(entry.flags ?? 0, 8); central.writeUInt16LE(method, 10)
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE((system << 8) | 30, 4); central.writeUInt16LE(version, 6); central.writeUInt16LE(entry.flags ?? 0, 8); central.writeUInt16LE(method, 10)
     central.writeUInt16LE(0x21, 14); central.writeUInt32LE(crc, 16); central.writeUInt32LE(body.length, 20); central.writeUInt32LE(size, 24)
-    central.writeUInt16LE(name.length, 28); central.writeUInt16LE(extra.length, 30); central.writeUInt32LE(attributes >>> 0, 38); central.writeUInt32LE(offset, 42)
+    central.writeUInt16LE(name.length, 28); central.writeUInt16LE(extra.length, 30); central.writeUInt16LE(entry.internal ?? 0, 36); central.writeUInt32LE(attributes >>> 0, 38); central.writeUInt32LE(offset, 42)
     const whole = Buffer.concat([local, name, extra, body])
     locals.push(whole)
     centrals.push(Buffer.concat([central, name, extra]))

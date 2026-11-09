@@ -251,34 +251,52 @@ export interface CocoaPodsTree {
 //
 // An archive by :http has to be on GitHub, over https: its URL
 // https://github.com/<owner>/<repo>/ and a path under it, such as GitHub's
-// archive of a tag or a release's asset, with no query, fragment,
-// credentials or port, each segment of the path letters, digits, `_`, `.`,
-// `~`, `@`, `-` or a %-escape in capitals. The podspec has to hold it to
-// its :sha256, in lowercase hex, as RemoteFile checks one before a :sha1,
-// and does: so the lockfile's checksum of the podspec is the archive's as
-// well. One held to a :sha1 alone, which two archives can be made to share,
-// is refused. It is fetched with upstream's getPodArchive, which
-// follows GitHub's redirects and holds the bytes to that hash. It has to be
-// of a type RemoteFile extracts with `tar xf`, by :type or else by the end
-// of its URL's path -- tgz, tar, tbz or txz; and is read by what it is, as
-// `tar xf` reads it, a tar gzipped or not, as GNU tar and bsdtar extract
-// one for a user other than root, under a umask of 0o022: each file of its
-// mode but the group's and others' write, each symlink to its target, a
-// hard link a copy of what it links to, as CocoaPods' copies into its cache
-// and into Pods/ make it. It is then flattened as RemoteFile flattens it,
-// by :flatten where that is given, as Ruby reads a value, and else always:
-// where it holds one thing, and that a directory, its contents in its
-// place. What one machine's tar would make otherwise than another's is
-// refused: another compression than gzip, which `tar xf` would read; a
-// setuid, setgid or sticky bit; a directory its owner cannot list and write
-// in, or a file it cannot read, which CocoaPods' cleaner and copy would
-// fail on; a name starting with `._`, which bsdtar on macOS reads as the
-// extended attributes of another; a `.git` in a path; a FIFO or a device.
-// So is what RemoteFile's moves would meet: the name it downloads the
-// archive under, `file.<type>`, at its root; the one thing to flatten a
+// archive of a tag, `archive/refs/tags/<tag>.tar.gz` or `.zip`, or a
+// release's asset, with no query, fragment, credentials or port, each
+// segment of the path letters, digits, `_`, `.`, `~`, `@`, `-` or a
+// %-escape in capitals. The podspec has to hold it to its :sha256, in
+// lowercase hex, as RemoteFile checks one before a :sha1, and does: so the
+// lockfile's checksum of the podspec is the archive's as well. One held to
+// a :sha1 alone, which two archives can be made to share, is refused. It is
+// fetched with upstream's getPodArchive, which follows GitHub's redirects
+// and holds the bytes to that hash. Its type is RemoteFile's, by :type or
+// else by the end of its URL's path: tgz, tar, tbz or txz, which it
+// extracts with `tar xf`, or zip, with `unzip`; a dmg is refused.
+//
+// A tar is read by what it is, as `tar xf` reads it, gzipped or not, as GNU
+// tar and bsdtar extract one for a user other than root, under a umask of
+// 0o022: each file of its mode but the group's and others' write, each
+// symlink to its target, a hard link a copy of what it links to, as
+// CocoaPods' copies into its cache and into Pods/ make it. What one
+// machine's tar would make otherwise than another's is refused: another
+// compression than gzip, or a zip, which bsdtar reads and GNU tar does not;
+// a setuid, setgid or sticky bit; a directory its owner cannot list and
+// write in, or a file it cannot read, which CocoaPods' cleaner and copy
+// would fail on; a name starting with `._`, which bsdtar on macOS reads as
+// the extended attributes of another; a `.git` in a path; a FIFO or a
+// device.
+//
+// A zip is read as Info-ZIP's unzip 6.0 extracts one under that umask: a
+// file of the mode a Unix maker stored, but for a setuid, setgid or sticky
+// bit, and of 0o644, or 0o444 by the DOS read-only bit, from any other
+// maker, unless it stored a Unix mode that agrees with those bits, which is
+// kept; a symlink by its mode, from a Unix maker; an MS-DOS volume label
+// left out, as unzip skips one. Refused is what unzip would stop and ask
+// about, which fails `pod install`, or write otherwise
+// than @preventive/archive/zip.js reads it, beside what that reader
+// refuses: an empty archive; a name again; an entry that needs PKZIP past
+// 4.5, or is marked as stored in VMS format; an Amiga or THEOS maker; a
+// name outside ASCII, or ending in a `.` segment or in `;` and digits; a
+// directory its owner cannot list and write in, or a file it cannot read;
+// a `.git` in a path.
+//
+// Either is then flattened as RemoteFile flattens it, by :flatten where
+// that is given, as Ruby reads a value, and else a tar always and a zip
+// never: where it holds one thing, and that a directory, its contents in
+// its place. What its moves would meet is refused: the name it downloads
+// the archive under, `file.<type>`, at its root; the one thing to flatten a
 // link, or of a name ending in `.`, or holding its name and `.tmp`. An
-// :http source with :headers, which curl sends, is refused, and so is a
-// zip and a dmg.
+// :http source with :headers, which curl sends, is refused.
 //
 // Every podspec is fetched and held to all that it says, below as here,
 // before any tarball or archive is fetched, so that a pod refused costs no

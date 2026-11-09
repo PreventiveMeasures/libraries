@@ -1,7 +1,9 @@
 // The fixture the CocoaPods tests share: a repo's tarball as GitHub serves
 // it, its podspec as trunk would, and lockfiles as CocoaPods writes them.
 import { createHash } from 'node:crypto'
-import { commitOf } from './registry.js'
+import { decompress } from '@preventive/archive/compression.js'
+import { unpack } from '@preventive/archive/tar.js'
+import { commitOf, rawZip } from './registry.js'
 
 export const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
@@ -48,6 +50,19 @@ export const coreLock = (podspec = PODSPEC, podfile = PODFILE) => `PODS:\n  - Ac
 // a podspec of Acme by :http, held to its sha256 unless `source` says.
 export const ACME_ARCHIVE = 'https://github.com/acme/acme/archive/refs/tags/v1.2.0.tar.gz'
 export const httpPodspecOf = (source = {}, rest = {}) => podspecOf({ source: { http: ACME_ARCHIVE, sha256: sha256(ACME.tarball), ...source }, ...rest })
+
+// GitHub's zip of the tag, as `git archive --format=zip` writes one of that
+// tree: a plain file or a directory by its MS-DOS attributes alone, an
+// executable or a symlink by its Unix mode, each file deflated.
+export const ACME_ZIP = 'https://github.com/acme/acme/archive/refs/tags/v1.2.0.zip'
+export async function acmeZip() {
+  return rawZip(unpack(await decompress(ACME.tarball, 'gzip')).map((entry) => {
+    if (entry.type === 'directory') return { name: `${entry.name}/`, system: 0, attributes: 0x10 }
+    if (entry.type === 'symlink') return { name: entry.name, data: entry.linkname, system: 3, attributes: 0o120777 * 0x10000 }
+    const unix = (entry.mode & 0o111) !== 0
+    return { name: entry.name, data: entry.data, system: unix ? 3 : 0, attributes: unix ? 0o100755 * 0x10000 : 0, deflate: entry.data.length > 0 }
+  }))
+}
 
 // Acme/Core by :podspec, as CocoaPods writes the lockfile of a Podfile that
 // asks for it so, `podspec` the JSON it wrote under Pods/Local Podspecs;

@@ -31,7 +31,7 @@ function entry(name, data, over = {}) {
   const central = (offset) => concat([record([
     [4, 0x02014b50], [2, over.madeBy ?? UNIX | 20], [2, 10], [2, flags], [2, method], [2, over.time ?? DOS.time], [2, over.date ?? DOS.date],
     [4, crc], [4, over.csize ?? body.length], [4, over.usize ?? data.length], [2, rawName.length], [2, (over.centralExtra ?? extra).length], [2, 0],
-    [2, over.disk ?? 0], [2, 0], [4, over.attributes ?? 0o100644 * 0x10000], [4, over.offset ?? offset],
+    [2, over.disk ?? 0], [2, over.internal ?? 0], [4, over.attributes ?? 0o100644 * 0x10000], [4, over.offset ?? offset],
   ]), rawName, over.centralExtra ?? extra])
   return { local, central }
 }
@@ -179,6 +179,15 @@ describe('what it reads', () => {
     assert.equal((await unzip(archive([entry('d/', new Uint8Array(0), { attributes: 0o40755 * 0x10000 })]), { limit: 0 })).length, 1)
     assert.deepEqual(await unzip(archive([]), { limit: 0 }), [])
   })
+  it('the central directory\'s fields beside: the maker, the version needed, the flags, the attributes and the extra fields', async () => {
+    const [plain, odd] = await unzip(archive([entry('a', utf8('x')), entry('b', utf8('y'), { madeBy: 20, flags: 0x800, internal: 5, attributes: 0x21, extra: concat([ut(T), record([[2, 0x6375], [2, 1], [1, 7]])]) })]))
+    assert.deepEqual([plain.system, plain.version, plain.flags, plain.internalAttributes, plain.attributes, plain.extra], [3, 10, 0, 0, 0o100644 * 0x10000, []])
+    assert.deepEqual([odd.system, odd.version, odd.flags, odd.internalAttributes, odd.attributes, odd.mode, odd.mtime], [0, 10, 0x800, 5, 0x21, 0o644, T])
+    assert.deepEqual(odd.extra.map(({ id, data }) => [id, [...data]]), [[0x5455, [1, ...new Uint8Array(new Uint32Array([T]).buffer)]], [0x6375, [7]]])
+    const [written] = await unzip(await zip([{ name: 'a', data: utf8('x'), mode: 0o600, mtime: T }]))
+    assert.deepEqual([written.system, written.version, written.attributes, written.extra.map(({ id }) => id)], [3, 10, 0o100600 * 0x10000, [0x5455]])
+  })
+
   it('stored data as a view over the archive', async () => {
     const bytes = archive([entry('a', utf8('x'))])
     assert.equal((await unzip(bytes))[0].data.buffer, bytes.buffer)
