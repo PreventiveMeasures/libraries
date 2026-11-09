@@ -1435,21 +1435,15 @@ describe('buildPnpmTree into a given Vfs', () => {
       await assert.rejects(buildPnpmTree({ ...options, project: changed({ peerDependencies: { p: '*' } }) }), /^DeptreeError: "foo@file:vendor\/foo": the lockfile is not up to date with its package\.json, which a frozen install of pnpm 12 refuses: its peerDependencies are not the lockfile's: "p" is "\*" in its package\.json and nothing in the lockfile$/u)
     })
 
-    // pnpm 11 from 11.28.7 holds the snapshot of a directory a project
-    // depends on by `file:` to its package.json, overridden, before a frozen
-    // install (localDirectoryDepIsUpToDate). As real installs have it, 11.28.6
-    // installs a lockfile that still records a dependency its package.json
-    // has dropped, and 11.28.7 to 11.28.11 refuse it, as pnpm 12 does by a
-    // check of its own. What no lockfile pnpm writes has is refused here for
-    // any pnpm, and the lockfile each writes is taken.
+    // As real installs have it, 11.28.6 installs a stale directory snapshot and
+    // 11.28.7 to 11.28.11 refuse it. Refused here for any pnpm.
     describe('held to its package.json', () => {
       const at = (pnpm) => ({ ...HOST, pnpm })
       const served = async () => [await app, await tarball('p', '1.0.0'), await tarball('q', '1.0.0')]
       const pkgs = async (fooEntry = '') => `${entry(await app)}\n${DIRECTORY}    hasBin: true\n${fooEntry}\n${entry((await served())[1])}\n`
       const locked = async (fooSnapshot = '    dependencies:\n      p: 1.0.0\n', { fooEntry, overrides = '' } = {}) => small(dep('app') + dep('foo', 'file:vendor/foo'), await pkgs(fooEntry), `  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  foo@file:vendor/foo:\n${fooSnapshot}\n  p@1.0.0: {}\n`, `  foo: file:./vendor/foo\n${overrides}`)
       const foo = (fields, more = {}) => ({ ...vendored, 'vendor/foo/package.json': JSON.stringify({ name: 'foo', version: '1.5.0', bin: { foo: 'cli.js' }, ...fields }), ...more })
-      // pnpm 10 reads its overrides from package.json, 11 and 12 from
-      // pnpm-workspace.yaml.
+      // pnpm 10 reads its overrides from package.json.
       const built = async (pnpm, fields, { lockfile: given, overrides = {}, more, fields: rootFields = {} } = {}) => {
         stubRegistry(await served())
         const all = { foo: 'file:./vendor/foo', ...overrides }
@@ -1459,8 +1453,6 @@ describe('buildPnpmTree into a given Vfs', () => {
         return buildPnpmTree({ lockfile: given ?? await locked(), manifests: { '.': manifest }, workspace, host: at(pnpm), project: createVfs({ 'package.json': manifest, ...foo(fields, more) }) })
       }
       const escape = (text) => text.replaceAll(/[.*+?^${}()|[\]\\/]/gu, '\\$&')
-      // By pnpm 11's own check from 11.28.7, by pnpm 12's, or as no lockfile
-      // pnpm writes is.
       const PHRASES = {
         pnpm: (pnpm) => `which a frozen install of pnpm ${pnpm} refuses`,
         12: () => 'which a frozen install of pnpm 12 refuses',
@@ -1482,8 +1474,6 @@ describe('buildPnpmTree into a given Vfs', () => {
         await assert.rejects(built('12.8.1', {}), refused('12.8.1', 'dependencies.p is not one it asks for', { by: 12 }))
       })
 
-      // A range, an `npm:` alias's package, and where it is optional, as
-      // pnpm 11 holds them; a tag by the name alone.
       it('holds each dependency to what it asks for', async () => {
         for (const pnpm of ['11.28.6', ...PNPM_11]) {
           await assert.rejects(built(pnpm, { dependencies: { p: '^2.0.0' } }), refused(pnpm, 'dependencies.p resolved to "p@1.0.0", which is not in "^2.0.0"'), pnpm)
@@ -1491,15 +1481,12 @@ describe('buildPnpmTree into a given Vfs', () => {
           await assert.rejects(built(pnpm, { optionalDependencies: { p: '1.0.0' } }), refused(pnpm, 'optionalDependencies.p is among the lockfile\'s dependencies'), pnpm)
           for (const spec of ['^1.0.0', 'latest', 'npm:p@1']) await built(pnpm, { dependencies: { p: spec } })
         }
-        // Where pnpm walks, another sort of specifier is not supported, and
-        // passed over where it does not.
         await assert.rejects(built('11.28.7', { dependencies: { p: 'github:p/p' } }), /^DeptreeError: "foo@file:vendor\/foo": dependencies\.p is "github:p\/p", which is no version, range or tag, and a directory's dependency of another sort that pnpm 11 holds to the lockfile is not supported$/u)
         await built('11.28.6', { dependencies: { p: 'github:p/p' } })
+        await assert.rejects(built('11.28.7', { dependencies: { p: '1.0.0' }, engines: { runtime: { name: 'node', version: '24.0.0', onFail: 'download' } } }), /^DeptreeError: "foo@file:vendor\/foo": a node runtime pnpm 11 would hold it to is not supported$/u)
       })
 
-      // A peer recorded, of its range and optional or not, as pnpm 11 holds
-      // it; one that is also a dependency it lets the lockfile leave out,
-      // which pnpm 12 does not.
+      // pnpm 11 lets a peer that is also a dependency go unrecorded; pnpm 12 does not.
       it('holds its peers to the lockfile\'s as pnpm 11 does', async () => {
         const peered = await locked(undefined, { fooEntry: '    peerDependencies:\n      q: ^1.0.0\n    peerDependenciesMeta:\n      q:\n        optional: true\n' })
         const optionalQ = { dependencies: { p: '1.0.0' }, peerDependencies: { q: '^1.0.0' }, peerDependenciesMeta: { q: { optional: true } } }
@@ -1513,8 +1500,6 @@ describe('buildPnpmTree into a given Vfs', () => {
         await assert.rejects(built('12.8.1', { dependencies: { p: '1.0.0' }, peerDependencies: { p: '*' } }), refused('12.8.1', 'its peerDependencies are not the lockfile\'s: "p" is "*" in its package.json and nothing in the lockfile', { by: 12 }))
       })
 
-      // A directory foo asks for by `file:`, as an override has it, is
-      // walked into: by pnpm 11 from 11.28.7, and here for any pnpm.
       it('walks into a directory a directory asks for by file:', async () => {
         const two = small(dep('app') + dep('foo', 'file:vendor/foo'), `${await pkgs()}\n  bar@file:vendor/bar:\n    resolution: {directory: vendor/bar, type: directory}\n`, '  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  bar@file:vendor/bar:\n    dependencies:\n      p: 1.0.0\n\n  foo@file:vendor/foo:\n    dependencies:\n      bar: file:vendor/bar\n\n  p@1.0.0: {}\n', '  foo: file:./vendor/foo\n  bar: file:./vendor/bar\n')
         const bar = (fields) => ({ lockfile: two, overrides: { bar: 'file:./vendor/bar' }, more: { 'vendor/bar/package.json': JSON.stringify({ name: 'bar', version: '1.0.0', ...fields }) } })
@@ -1524,8 +1509,6 @@ describe('buildPnpmTree into a given Vfs', () => {
         }
       })
 
-      // From 11.28.10 pnpm holds a directory only a registry package depends
-      // on as well, as real installs of 11.28.9 and 11.28.10 have it.
       it('holds a directory only a registry package depends on, as pnpm does from 11.28.10', async () => {
         const nested = small(dep('app'), await pkgs(), '  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  foo@file:vendor/foo:\n    dependencies:\n      p: 1.0.0\n\n  p@1.0.0: {}\n', '  foo: file:./vendor/foo\n')
         const options = { lockfile: nested, fields: { dependencies: { app: '1.0.0' } } }
@@ -1535,10 +1518,8 @@ describe('buildPnpmTree into a given Vfs', () => {
         }
       })
 
-      // pnpm 11 from 11.28.7 holds a path alone, neither `link:` nor `file:`,
-      // to a package, and so refuses the lockfile it writes of a dependency
-      // an override gives one; before, and for pnpm 10, the link has to be
-      // where the path leads, as real installs have it.
+      // From 11.28.7 pnpm refuses even the lockfile it writes for this; before,
+      // the link has to be where the path leads.
       it('refuses a link to a path alone an override gives, as pnpm does from 11.28.7', async () => {
         const linked = async (pnpm, spec) => {
           const written = (await locked('    dependencies:\n      p: link:vendor/p\n', { overrides: `  p: ${spec}\n` })).replace(/\n {2}p@1\.0\.0:\n.*\n/u, '\n').replace('\n  p@1.0.0: {}\n', '\n')
@@ -1552,8 +1533,6 @@ describe('buildPnpmTree into a given Vfs', () => {
         }
       })
 
-      // pnpm 11 reads the package.json through the hook, its package
-      // extensions and all.
       it('holds a directory to what a package extension adds to it', async () => {
         stubRegistry(await served())
         const workspace = 'overrides:\n  foo: file:./vendor/foo\npackageExtensions:\n  foo:\n    dependencies:\n      app: 1.0.0\n'
@@ -1565,10 +1544,7 @@ describe('buildPnpmTree into a given Vfs', () => {
         }
       })
 
-      // A dependency its package.json also has as an optional peer, which
-      // pnpm leaves out of the snapshot before 11.28.0 where it installs
-      // peers, and in some graphs until 11.28.6, is taken left out for those;
-      // pnpm 11 from 11.28.7 holds the snapshot to it.
+      // Where createPeerDrop has it that pnpm leaves such a dependency out.
       it('takes a dependency that is an optional peer too left out where pnpm may leave it out', async () => {
         const peered = await locked(undefined, { fooEntry: '    peerDependencies:\n      q: ^1.0.0\n    peerDependenciesMeta:\n      q:\n        optional: true\n' })
         const fields = { dependencies: { p: '1.0.0', q: '1.0.0' }, peerDependencies: { q: '^1.0.0' }, peerDependenciesMeta: { q: { optional: true } } }
@@ -1577,12 +1553,8 @@ describe('buildPnpmTree into a given Vfs', () => {
         for (const pnpm of PNPM_11) await assert.rejects(built(pnpm, fields, { lockfile: peered }), refused(pnpm, 'dependencies.q is not in the lockfile'), pnpm)
       })
 
-      // From 11.28.9 one walk from every dependency of a project takes a
-      // directory once for each set of the peers in its scope, by whichever
-      // path pnpm comes to it first: as real installs of 11.28.8 and
-      // 11.28.9 have it, d's dependency on p, a peer of it too, is held to
-      // its range only by way of b, whose snapshot has no p, and 11.28.9
-      // walks by way of b or not as it happens to read the directories.
+      // d's `p` is held to its range only by way of b. As real installs have it,
+      // 11.28.8 always walks that way and 11.28.9 does or not by read order.
       it('refuses what pnpm refuses or not by the order it walks in, as from 11.28.9', async () => {
         const walked = small(`${dep('a', 'file:vendor/a')}${dep('b', 'file:vendor/b')}`, `${['a', 'b', 'c', 'd'].map((name) => `  ${name}@file:vendor/${name}:\n    resolution: {directory: vendor/${name}, type: directory}\n`).join('\n')}\n${entry((await served())[1])}\n`, `  a@file:vendor/a:
     dependencies:

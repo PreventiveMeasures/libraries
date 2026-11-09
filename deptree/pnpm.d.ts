@@ -567,26 +567,8 @@ export interface PnpmLazyTree extends PnpmTree {
 // where its version is in range, and a patch hash in a snapshot's peers to
 // the patch; it lets an optional dependency the importer has no specifier
 // for go unresolved, and takes two spellings of one git commit alike. From
-// 11.28.7 it holds each directory a project depends on by `file:`, and on
-// from it each directory its package.json asks for by `file:`, to that
-// package.json as the read-package hook has it; from 11.28.10, each a
-// package not from a directory depends on as well, where a project's
-// dependencies reach that package. Each dependency the snapshot has is one
-// the package.json asks for, or a peer of it; each it asks for, but a
-// dependency that is a peer too where pnpm installs peers or one above
-// provides it, and a bundled one, is in the snapshot -- an optional one
-// there or not, though not among its dependencies -- and is what it asks
-// for: a range by the version resolved, a tag by the name, an `npm:` alias
-// by its package, and a `link:` or `file:` path, read from the directory, by
-// where it leads; a path alone, as an override gives one, is held to a
-// package, and so refused even as pnpm wrote it. Each peer of it not among
-// its dependencies is recorded, and each recorded is one of its peers, of
-// its range, and optional or not as it is. A dependency of a directory by
-// `workspace:`, or by a git or tarball URL, is not supported there. pnpm
-// walks the directories concurrently, taking each once for each set of the
-// aliases above it that may be peers, by whichever path it comes to it
-// first, and before 11.28.9 afresh from each dependency of a project; a
-// lockfile it refuses by one path and not by another is refused. A
+// 11.28.7 it holds each directory snapshot a project reaches by `file:` (from
+// 11.28.10, through a registry package too) to the directory's package.json. A
 // devEngines.packageManager is refused unless its onFail, or pmOnFail, is
 // to warn or ignore, as pnpm 11 installs with the pnpm the lockfile pins
 // for it; and a root engines.runtime whose onFail is `error` has to take
@@ -631,14 +613,10 @@ export interface PnpmLazyTree extends PnpmTree {
 // every dependency the snapshot has, those package extensions add among
 // them, but one its package.json also has as an optional peer where pnpm
 // may leave that out: before 11.28.0 with autoInstallPeers, and in some
-// graphs until 11.28.6 and 12.14.0; and, whatever the pnpm, each directory
-// a project reaches, by every path pnpm 11 may take from 11.28.10, held to
-// its package.json as pnpm 11 holds one from 11.28.7, but that where pnpm
-// does not walk a path alone is held to the link the lockfile has, a
-// dependency of a sort not supported there is passed over, and one such an
-// optional peer may be left out. On macOS, two names in one directory that
-// differ only in case or normalization are refused, as they would be one
-// name there.
+// graphs until 11.28.6 and 12.14.0; and, for any pnpm, each directory snapshot
+// held so by every path, as no lockfile pnpm writes fails. On macOS, two names
+// in one directory that differ only in case or normalization are refused, as
+// they would be one name there.
 //
 // Packages come from https://registry.npmjs.org/ alone, fetched through
 // @preventive/upstream, and each tarball is held to the lockfile's

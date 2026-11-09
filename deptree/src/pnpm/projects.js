@@ -214,9 +214,7 @@ function dependsOn(manifest, ignored) {
 }
 
 // pnpm extends a project's package.json too, which is refused: not every
-// place one is read in here is read through the hook. `directories` holds
-// the directories each project reaches to their package.json
-// (directories.js).
+// place one is read in here is read through the hook.
 export function checkProjects(lockfile, manifests, { hook, extensions = [], host, settings, env, directories }) {
   checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
@@ -241,7 +239,7 @@ export function checkProjects(lockfile, manifests, { hook, extensions = [], host
       index ??= indexProjects(manifests)
       checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
     }
-    directories?.(hooked, importer, where)
+    directories?.(hooked, importer)
   }
 }
 
