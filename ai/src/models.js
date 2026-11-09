@@ -167,17 +167,12 @@ export function canDisableThink(model) {
 //
 // Exported because a caller's --help text renders it -- one set to read, rather than prose about
 // the membership that has to be kept in step with this table.
-//
-// Fable 5.1 is here on the strength of the docs listing it, which hedge the entry pending launch.
-// Unlike the fallback registry's unverified row, a wrong guess here is not free: this gate is what
-// a caller checks before accepting a task-budget request, so a model wrongly listed is waved
-// through and 400s on every request instead of being refused up front. Drop the row if the beta
-// turns out not to cover it.
 export const TASK_BUDGET_MODELS = new Set([
   'anthropic/claude-opus-5.5',
-  'anthropic/claude-fable-5.1',
+  'anthropic/claude-fable-5.2',
   'anthropic/claude-sonnet-5.5',
   'anthropic/claude-haiku-5.5',
+  'anthropic/claude-fable-5.1',
   'anthropic/claude-fable-5',
   'anthropic/claude-opus-5',
   'anthropic/claude-sonnet-5',

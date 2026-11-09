@@ -516,6 +516,15 @@ describe('buildRequestBody — provider-specific shapes', () => {
     })
   })
 
+  it('fable 5.2 goes out hyphenated too — claude-fable-5-2', () => {
+    withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
+      const body = buildRequestBody('anthropic/claude-fable-5.2', 1000, 'sys', messages, { think: true, effort: 'max' })
+      assert.equal(body.model, 'claude-fable-5-2')
+      assert.deepEqual(body.thinking, { type: 'adaptive' })
+      assert.deepEqual(body.output_config, { effort: 'max' })
+    })
+  })
+
   it('opus 5.5 goes out hyphenated too, and carries no thinking field when think is off', () => {
     withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
       const body = buildRequestBody('anthropic/claude-opus-5.5', 1000, 'sys', messages, { think: true, effort: 'xhigh' })
@@ -559,7 +568,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
       // The first three because an absent field already means "off"; the
       // fable rows for the opposite reason — they think anyway, but reject
       // the disabled form, so omitting is their only legal request.
-      for (const model of ['anthropic/claude-opus-4.8', 'anthropic/claude-opus-4.7', 'anthropic/claude-sonnet-4.5', 'anthropic/claude-fable-5', 'anthropic/claude-fable-5.1']) {
+      for (const model of ['anthropic/claude-opus-4.8', 'anthropic/claude-opus-4.7', 'anthropic/claude-sonnet-4.5', 'anthropic/claude-fable-5', 'anthropic/claude-fable-5.1', 'anthropic/claude-fable-5.2']) {
         assert.equal(buildRequestBody(model, 1000, 'sys', messages).thinking, undefined, model)
       }
     })

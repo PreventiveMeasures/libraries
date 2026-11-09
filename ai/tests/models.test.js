@@ -182,6 +182,7 @@ describe('resolveThinkEffort', () => {
 
 describe('canTaskBudget', () => {
   it('true for the models on the task-budgets-2026-03-13 beta', () => {
+    assert.equal(canTaskBudget('anthropic/claude-fable-5.2'), true)
     assert.equal(canTaskBudget('anthropic/claude-fable-5.1'), true)
     assert.equal(canTaskBudget('anthropic/claude-sonnet-5.5'), true)
     assert.equal(canTaskBudget('anthropic/claude-haiku-5.5'), true)
@@ -393,6 +394,7 @@ describe('no-think wire form', () => {
     ['anthropic/claude-opus-5.5', false, false],
     ['anthropic/claude-fable-5', false, false],
     ['anthropic/claude-fable-5.1', false, false],
+    ['anthropic/claude-fable-5.2', false, false],
     // Sonnet 5.5's off switch is between_tools, on the Messages API alone:
     // OpenRouter marks its reasoning mandatory.
     ['anthropic/claude-sonnet-5.5', false, true],
@@ -459,6 +461,34 @@ describe('no-think wire form', () => {
   it('fable 5 is adaptive-capable — only the opt-out sets it apart from opus 5', () => {
     assert.equal(canAdaptive('anthropic/claude-fable-5'), true)
     assert.equal(canAdaptive('anthropic/claude-fable-5.1'), true)
+    assert.equal(canAdaptive('anthropic/claude-fable-5.2'), true)
+  })
+})
+
+describe('claude fable 5.2', () => {
+  const FABLE52 = 'anthropic/claude-fable-5.2'
+
+  it('registers 5.2\'s published $8 / $40 per Mtok, under 5.1\'s $10 / $50, and a 128,000 max_tokens', () => {
+    const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
+    assert.equal(calculateCost(FABLE52, usage), 8 + 40)
+    assert.equal(calculateCost('anthropic/claude-fable-5.1', usage), 10 + 50)
+    assert.equal(getMaxTokens(FABLE52), 128_000)
+  })
+
+  it('bills cache reads at the published $0.20 per Mtok, the 0.025x of input that 5.1 takes', () => {
+    const usage = { ...emptyUsage(), cacheRead: 1_000_000 }
+    assert.equal(calculateCost(FABLE52, usage), 0.2)
+  })
+
+  it('takes the published $10 5-minute and $16 1-hour cache writes as multiples of base input', () => {
+    assert.equal(calculateCost(FABLE52, { ...emptyUsage(), cacheWrite5m: 1_000_000 }), 10)
+    assert.equal(calculateCost(FABLE52, { ...emptyUsage(), cacheWrite1h: 1_000_000 }), 16)
+  })
+
+  it('thinks always, on all five effort levels, and accepts the task-budgets beta', () => {
+    assert.equal(canDisableThink(FABLE52), false)
+    assert.deepEqual(effortsFor(FABLE52), ['low', 'medium', 'high', 'xhigh', 'max'])
+    assert.equal(canTaskBudget(FABLE52), true)
   })
 })
 
@@ -694,6 +724,7 @@ describe('long-context tier', () => {
   // the standard rate, which a million-token prompt pins for every one of
   // them — the same request that bills an OpenAI row at twice its input rate.
   for (const [model, input, output] of [
+    ['anthropic/claude-fable-5.2', 8, 40],
     ['anthropic/claude-fable-5.1', 10, 50],
     ['anthropic/claude-fable-5', 10, 50],
     // The row a review asked to price higher past 200k: Anthropic bills
