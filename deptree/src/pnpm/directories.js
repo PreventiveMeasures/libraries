@@ -8,7 +8,7 @@ import { DeptreeError, quote } from '../error.js'
 import { own } from '../manifest.js'
 import { KINDS, specPath } from './frozen.js'
 import { manifestAt } from './local.js'
-import { catalogEntry, catalogOf, validForOldPackages } from './overrides.js'
+import { catalogEntry, catalogOf } from './overrides.js'
 
 const TARBALL = /\.(?:tgz|tar\.gz|tar|tar\.bz2|tbz2|tbz)$/u
 const BARE_PATH = /^(?:[./]|~\/)/u
@@ -32,21 +32,20 @@ function fromCatalog(catalogs, alias, spec) {
 
 // getPeerSet, leaving out `others` too: an optional peer only in
 // peerDependenciesMeta is one at `*`.
-function peersOf(read, others, where) {
+function peersOf(read, others = []) {
   const peers = new Map()
   const ownDeps = new Set([...(read.name == null ? [] : [read.name]), ...others, ...keysOf(read.optionalDependencies)])
   for (const [name, range] of Object.entries(read.peerDependencies ?? {})) if (!ownDeps.has(name)) peers.set(name, { range, optional: false })
   for (const [name, meta] of Object.entries(read.peerDependenciesMeta ?? {})) {
-    if (meta === null) throw new DeptreeError(`its peerDependenciesMeta has null for ${quote(name)}, which pnpm 11 fails on`, where)
     if (!ownDeps.has(name) && meta?.optional === true) peers.set(name, { range: peers.get(name)?.range ?? '*', optional: true })
   }
   return peers
 }
 
 // recordedPeersMatch.
-function peersDiffer(read, pkg, catalogs, where) {
-  const declared = peersOf(read, [], where)
-  const unrecorded = [...peersOf(read, keysOf(read.dependencies), where).keys()].find((name) => !Object.hasOwn(pkg.peerDependencies, name))
+function peersDiffer(read, pkg, catalogs) {
+  const declared = peersOf(read)
+  const unrecorded = [...peersOf(read, keysOf(read.dependencies)).keys()].find((name) => !Object.hasOwn(pkg.peerDependencies, name))
   if (unrecorded !== undefined) return `its peer ${quote(unrecorded)} is not in the lockfile`
   for (const [name, recorded] of Object.entries(pkg.peerDependencies)) {
     const peer = declared.get(name)
@@ -69,8 +68,6 @@ function childrenOf(ctx, read, scope, where) {
   const runtime = [read.engines?.runtime ?? []].flat().find((item) => RUNTIMES.has(item?.name) && item.onFail === 'download' && typeof item.version === 'string' && !own(deps, item.name))
   if (!ctx.strict && runtime !== undefined) throw new DeptreeError(`a ${runtime.name} runtime pnpm 11 would hold it to is not supported`, where)
   const optional = read.optionalDependencies ?? {}
-  const invalid = [...keysOf(deps), ...keysOf(optional)].find((alias) => !validForOldPackages(alias))
-  if (invalid !== undefined) throw new DeptreeError(`it depends on ${quote(invalid)}, which is no package name, and which pnpm 11 fails on`, where)
   let bundled = read.bundledDependencies ?? read.bundleDependencies
   if (bundled === true) bundled = keysOf(deps)
   const left = new Set(Array.isArray(bundled) ? bundled : [])
@@ -127,7 +124,7 @@ function outdated(why, { pnpm, strict }, where) {
 function walkChildren(ctx, { key, pkg, dir, read }, scope, visited) {
   const where = quote(key)
   const children = childrenOf(ctx, read, scope, where)
-  const expected = new Set([...children.map(({ alias }) => alias), ...peersOf(read, [], where).keys(), ...keysOf(read.peerDependencies)])
+  const expected = new Set([...children.map(({ alias }) => alias), ...peersOf(read).keys(), ...keysOf(read.peerDependencies)])
   for (const kind of ['dependencies', 'optionalDependencies']) {
     const unasked = keysOf(pkg[kind]).find((name) => !expected.has(name))
     if (unasked !== undefined) throw outdated(`${kind}.${unasked} is not one it asks for`, ctx, where)
@@ -166,27 +163,14 @@ function walk(ctx, key, scope, visited) {
   const scopes = visited.get(key) ?? new Set()
   if (scopes.has(taken)) return
   visited.set(key, scopes.add(taken))
-  const why = peersDiffer(read, pkg, ctx.catalogs, quote(key))
+  const why = peersDiffer(read, pkg, ctx.catalogs)
   if (why !== undefined) throw outdated(why, ctx, quote(key))
   walkChildren(ctx, { key, pkg, dir, read }, scope, visited)
 }
 
 // pnpm keys a visit by the aliases above that are its peers or any recorded;
 // keying by those that are any directory's peers holds every path it may take.
-const among = (scope, names) => [...names].filter((name) => scope.has(name)).sort().join('\0')
-function keyings(ctx) {
-  let every
-  const everyPeer = () => {
-    every ??= new Set([...ctx.recordedPeers, ...Object.entries(ctx.packages)
-      .filter(([, pkg]) => pkg.resolution.type === 'directory' && ctx.installed.has(pkg.resolution.directory))
-      .flatMap(([key, pkg]) => keysOf(readOf(ctx, key, pkg.resolution.directory).peerDependencies))])
-    return every
-  }
-  return {
-    pnpm: (read, scope) => among(scope, new Set([...keysOf(read.peerDependencies), ...ctx.recordedPeers])),
-    every: (read, scope) => among(scope, everyPeer()),
-  }
-}
+const among = (scope, names) => [...new Set(names)].filter((name) => scope.has(name)).sort().join('\0')
 
 // findNestedDirectoryPackages: each directory a package not from a directory
 // depends on, with the packages above it and the aliases they depend by.
@@ -218,7 +202,7 @@ function nestedOf(packages) {
 
 // Each directory a project depends on by `file:`, then each a dependency
 // reaches through a package not from a directory.
-function startsOf(ctx, manifest, importer) {
+function startsOf(manifest, importer, nested) {
   const scope = new Set(KINDS.flatMap((kind) => keysOf(manifest[kind])))
   const starts = []
   for (const kind of KINDS) {
@@ -228,9 +212,8 @@ function startsOf(ctx, manifest, importer) {
       if (own(manifest[kind], alias) && !to.startsWith('link:') && direct) starts.push({ key: to, scope, direct: true })
     }
   }
-  ctx.nested ??= nestedOf(ctx.packages)
   const reached = new Set(KINDS.flatMap((kind) => Object.values(importer[kind])))
-  for (const { key, above, aliases } of ctx.nested) {
+  for (const { key, above, aliases } of nested) {
     if (reached.has(key) || [...above].some((parent) => reached.has(parent))) starts.push({ key, scope: new Set([...aliases, ...scope]), direct: false })
   }
   return starts
@@ -240,19 +223,21 @@ function startsOf(ctx, manifest, importer) {
 export function createDirectoryCheck(lockfile, { host, hook, project, installed, settings, fresh, drops }) {
   const since = (version) => compareVersions(host.pnpm, version) >= 0
   const { packages } = lockfile
-  const ctx = {
-    packages, hook, project, installed, drops, pnpm: host.pnpm, autoInstallPeers: settings.autoInstallPeers, catalogs: settings.catalogs ?? {},
-    recordedPeers: new Set(Object.values(packages).flatMap((pkg) => keysOf(pkg.peerDependencies))), reads: new Map(), plain: new Map(),
-  }
-  const keyOf = keyings(ctx)
+  const ctx = { packages, hook, project, installed, drops, pnpm: host.pnpm, autoInstallPeers: settings.autoInstallPeers, catalogs: settings.catalogs ?? {}, reads: new Map(), plain: new Map() }
+  const recorded = Object.values(packages).flatMap((pkg) => keysOf(pkg.peerDependencies))
+  const directories = Object.entries(packages).filter(([, pkg]) => pkg.resolution.type === 'directory' && installed.has(pkg.resolution.directory))
+  let everyPeer, nested
+  const everyPeerOf = () => (everyPeer ??= [...recorded, ...directories.flatMap(([key, pkg]) => keysOf(readOf(ctx, key, pkg.resolution.directory).peerDependencies))])
+  const pnpmWalk = { ...ctx, keyOf: (read, scope) => among(scope, [...keysOf(read.peerDependencies), ...recorded]) }
+  const strictWalk = { ...ctx, strict: true, keyOf: (read, scope) => among(scope, everyPeerOf()) }
   return (manifest, importer) => {
-    const starts = startsOf(ctx, manifest, importer)
+    nested ??= nestedOf(packages)
+    const starts = startsOf(manifest, importer, nested)
     if (host.major === 11 && since('11.28.7')) {
       // Before 11.28.9 each dependency of a project has a walk of its own.
       const shared = new Map()
-      const walking = { ...ctx, keyOf: keyOf.pnpm }
       for (const { key, scope, direct } of starts) {
-        if (direct || since('11.28.10')) walk(walking, key, scope, direct && !since('11.28.9') ? new Map() : shared)
+        if (direct || since('11.28.10')) walk(pnpmWalk, key, scope, direct && !since('11.28.9') ? new Map() : shared)
       }
     }
     for (const { key, direct } of fresh === undefined ? [] : starts) {
@@ -260,7 +245,6 @@ export function createDirectoryCheck(lockfile, { host, hook, project, installed,
       if (direct && resolution.type === 'directory' && installed.has(resolution.directory)) fresh({ key }, readOf(ctx, key, resolution.directory, true))
     }
     const every = new Map()
-    const strict = { ...ctx, keyOf: keyOf.every, strict: true }
-    for (const { key, scope } of starts) walk(strict, key, scope, every)
+    for (const { key, scope } of starts) walk(strictWalk, key, scope, every)
   }
 }

@@ -1439,9 +1439,10 @@ describe('buildPnpmTree into a given Vfs', () => {
     // 11.28.7 to 11.28.11 refuse it. Refused here for any pnpm.
     describe('held to its package.json', () => {
       const at = (pnpm) => ({ ...HOST, pnpm })
-      const served = async () => [await app, await tarball('p', '1.0.0'), await tarball('q', '1.0.0')]
-      const pkgs = async (fooEntry = '') => `${entry(await app)}\n${DIRECTORY}    hasBin: true\n${fooEntry}\n${entry((await served())[1])}\n`
-      const locked = async (fooSnapshot = '    dependencies:\n      p: 1.0.0\n', { fooEntry, overrides = '' } = {}) => small(dep('app') + dep('foo', 'file:vendor/foo'), await pkgs(fooEntry), `  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  foo@file:vendor/foo:\n${fooSnapshot}\n  p@1.0.0: {}\n`, `  foo: file:./vendor/foo\n${overrides}`)
+      const tarballs = Promise.all([app, tarball('p', '1.0.0'), tarball('q', '1.0.0')])
+      const served = () => tarballs
+      const pkgs = async (fooEntry = '', withP = true) => `${entry(await app)}\n${DIRECTORY}    hasBin: true\n${fooEntry}\n${withP ? `${entry((await tarballs)[1])}\n` : ''}`
+      const locked = async (fooSnapshot = '    dependencies:\n      p: 1.0.0\n', { fooEntry, overrides = '', withP = true } = {}) => small(dep('app') + dep('foo', 'file:vendor/foo'), await pkgs(fooEntry, withP), `  app@1.0.0:\n    dependencies:\n      foo: file:vendor/foo\n\n  foo@file:vendor/foo:\n${fooSnapshot}${withP ? '\n  p@1.0.0: {}\n' : ''}`, `  foo: file:./vendor/foo\n${overrides}`)
       const foo = (fields, more = {}) => ({ ...vendored, 'vendor/foo/package.json': JSON.stringify({ name: 'foo', version: '1.5.0', bin: { foo: 'cli.js' }, ...fields }), ...more })
       // pnpm 10 reads its overrides from package.json.
       const built = async (pnpm, fields, { lockfile: given, overrides = {}, more, fields: rootFields = {} } = {}) => {
@@ -1524,7 +1525,7 @@ describe('buildPnpmTree into a given Vfs', () => {
       // the link has to be where the path leads.
       it('refuses a link to a path alone an override gives, as pnpm does from 11.28.7', async () => {
         const linked = async (pnpm, spec) => {
-          const written = (await locked('    dependencies:\n      p: link:vendor/p\n', { overrides: `  p: ${spec}\n` })).replace(/\n {2}p@1\.0\.0:\n.*\n/u, '\n').replace('\n  p@1.0.0: {}\n', '\n')
+          const written = await locked('    dependencies:\n      p: link:vendor/p\n', { overrides: `  p: ${spec}\n`, withP: false })
           return built(pnpm, { dependencies: { p: '1.0.0' } }, { lockfile: written, overrides: { p: spec }, more: { 'vendor/p/package.json': '{"name":"p","version":"3.0.0"}' } })
         }
         const linkOf = (result) => result.vfs.readlink('/node_modules/.pnpm/foo@file+vendor+foo/node_modules/p')
