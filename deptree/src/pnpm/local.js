@@ -105,8 +105,7 @@ function checkFresh(read, pkg, packages, where) {
 
 // pnpm 12's check, before it installs, of each snapshot a project depends on by
 // a `file:` specifier to a directory. Before 12.17.0 it reads the package.json
-// without its package extensions, and so refuses the lockfile it wrote of one
-// an extension adds to.
+// without its extensions, refusing the lockfile it wrote of one extended.
 export function createFreshnessCheck(lockfile, { pnpm, major }, extensions = []) {
   if (major < 12) return undefined
   const unextended = compareVersions(pnpm, '12.17.0') < 0
@@ -121,8 +120,7 @@ export function createFreshnessCheck(lockfile, { pnpm, major }, extensions = [])
   return (node, read) => {
     if (!direct.has(node.key)) return
     const where = quote(node.key)
-    const [extension] = unextended ? extensionsOf(extensions, read, where) : []
-    if (extension !== undefined) throw new DeptreeError(`the package extension ${quote(extension.selector)} names it, and pnpm 12 before 12.17.0 holds a directory to its package.json without one, which is not supported`, where)
+    if (unextended && extensionsOf(extensions, read, where).length > 0) throw new DeptreeError('a package extension names it, and pnpm 12 before 12.17.0 holds a directory to its package.json without one, which is not supported', where)
     checkFresh(read, lockfile.packages[node.key], lockfile.packages, where)
   }
 }

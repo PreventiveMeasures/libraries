@@ -60,11 +60,7 @@ export async function checkUpToDate(lockfile, settings, { overrides, extensions 
   const overridden = difference(lockfile.overrides, Object.fromEntries(overrides.map(({ selector, spec }) => [selector, spec])), SIDES)
   if (overridden !== undefined) throw outdated('overrides', `the overrides differ: ${overridden}`)
   const extended = await extensionsChecksum(extensions, major)
-  if (lockfile.packageExtensionsChecksum !== extended) {
-    throw outdated('packageExtensionsChecksum', extended === undefined ? 'the lockfile was resolved with package extensions, and the settings have none'
-      : lockfile.packageExtensionsChecksum === undefined ? 'the settings have package extensions, and the lockfile was resolved with none'
-      : 'the package extensions in the settings are not those the lockfile was resolved with')
-  }
+  if (lockfile.packageExtensionsChecksum !== extended) throw outdated('packageExtensionsChecksum', extended === undefined ? 'the lockfile was resolved with package extensions, and the settings have none' : 'the package extensions in the settings are not those the lockfile was resolved with')
   const ignored = (list) => JSON.stringify([...list].sort())
   if (ignored(lockfile.ignoredOptionalDependencies) !== ignored(settings.ignoredOptionalDependencies)) throw outdated('ignoredOptionalDependencies', 'the optional dependencies left out differ')
   checkPatches(lockfile.patchedDependencies, hashes, major)

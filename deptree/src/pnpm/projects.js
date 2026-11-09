@@ -213,8 +213,8 @@ function dependsOn(manifest, ignored) {
   return names(manifest.devDependencies).length > 0 || [...names(manifest.dependencies), ...names(manifest.optionalDependencies)].some((name) => !optional.has(name))
 }
 
-// pnpm extends a project's package.json too, wherever it reads it, which is
-// refused: not every place it is read in here is read through the hook.
+// pnpm extends a project's package.json too, which is refused: not every
+// place one is read in here is read through the hook.
 export function checkProjects(lockfile, manifests, { hook, extensions = [], host, settings, env }) {
   checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
@@ -222,8 +222,7 @@ export function checkProjects(lockfile, manifests, { hook, extensions = [], host
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`
     const root = id === '.'
-    const [extension] = extensionsOf(extensions, manifest, where)
-    if (extension !== undefined) throw new DeptreeError(`the package extension ${quote(extension.selector)} names this project, whose package.json pnpm extends too, which is not supported`, where)
+    if (extensionsOf(extensions, manifest, where).length > 0) throw new DeptreeError('a package extension names this project, whose package.json pnpm extends too, which is not supported', where)
     checkProject(manifest, where, { host, settings, root })
     checkRuntimes(manifest, where, { host, root, onFail: root ? settings.runtimeOnFail : undefined })
     const importer = lockfile.importers[id]

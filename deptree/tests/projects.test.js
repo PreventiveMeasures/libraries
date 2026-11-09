@@ -189,7 +189,7 @@ describe('checkProjects with package extensions', () => {
     const named = { name: 'app', version: '1.2.0', ...MANIFEST }
     for (const host of HOSTS) {
       for (const selector of ['app', 'app@^1', 'app@1.2.0']) {
-        assert.throws(() => extended(named, { [selector]: { dependencies: { z: '1.0.0' } } }, host), new RegExp(`^DeptreeError: manifests\\["\\."\\]: the package extension "${RegExp.escape(selector)}" names this project, whose package\\.json pnpm extends too, which is not supported$`, 'u'))
+        assert.throws(() => extended(named, { [selector]: { dependencies: { z: '1.0.0' } } }, host), /^DeptreeError: manifests\["\."\]: a package extension names this project, whose package\.json pnpm extends too, which is not supported$/u, selector)
       }
       extended(named, { 'app@^2': { dependencies: { z: '1.0.0' } }, q: { dependencies: { z: '1.0.0' } } }, host)
       extended(MANIFEST, { app: { dependencies: { z: '1.0.0' } } }, host)

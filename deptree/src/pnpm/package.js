@@ -96,12 +96,9 @@ const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledD
 // and npm publishes none.
 const listed = (bundled) => (bundled === false || (Array.isArray(bundled) && bundled.length === 0) ? undefined : bundled)
 
-// Whether pnpm `host` may leave a dependency of a package.json, as the hook
-// has it, out of its snapshot. pnpm takes one the package.json also has as a
-// peer for the peer alone where it installs peers by itself, and leaves the
-// peer unresolved where it is optional and nothing above provides it. From
-// 11.28.0, and in pnpm 12, it keeps such a dependency of an optional peer,
-// though not in every graph until 11.28.6 and 12.14.0.
+// Whether pnpm may leave a dependency out of a snapshot: one its package.json
+// also has as an optional peer, before 11.28.0 where it installs peers by
+// itself, and until 11.28.6 and 12.14.0 in some graphs.
 export function createPeerDrop({ pnpm, major }, autoInstallPeers) {
   const since = (version) => compareVersions(pnpm, version) >= 0
   const drops = major >= 12 ? !since('12.14.0') : !since('11.28.6') && (autoInstallPeers || since('11.28.0'))
@@ -110,7 +107,7 @@ export function createPeerDrop({ pnpm, major }, autoInstallPeers) {
 
 // `read` is the package.json as hook.js's hook has it, and `packages` the
 // lockfile's, by which a `file:` target is the directory it resolves to.
-function checkDependencies(manifest, read, pkg, packages, where, drops = () => false) {
+function checkDependencies(manifest, read, pkg, packages, where, drops) {
   const bundled = bundledOf(manifest)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
   for (const name of [...names(read.dependencies).filter((dependency) => !drops(read, dependency)), ...names(read.optionalDependencies)]) {

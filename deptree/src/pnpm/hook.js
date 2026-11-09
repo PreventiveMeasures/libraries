@@ -1,8 +1,7 @@
-// pnpm's read-package hook (@pnpm/hooks.read-package-hook), less a
-// pnpmfile's readPackage, refused elsewhere, and Yarn's compatibility
-// database, not reproduced: package extensions (extensions.js), then the
-// overrides, then the optional dependencies left out. pnpm runs it on every
-// package and on each project's package.json before holding it to its importer.
+// pnpm's read-package hook (@pnpm/hooks.read-package-hook), less a pnpmfile's
+// readPackage, refused elsewhere, and Yarn's compatibility database, not
+// reproduced. pnpm runs it on every package and on each project's
+// package.json before holding it to its importer.
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
 import { relative } from '@preventive/vfs/path.js'
@@ -48,7 +47,7 @@ export function createHook({ overrides, extensions = [], ignored, major = 10 }) 
   return (manifest, where, { dir } = {}) => {
     checkFields(manifest, where)
     const copy = structuredClone(checkNesting(manifest, where))
-    extend(copy, extensionsOf(extensions, copy, where), where)
+    extend(copy, extensionsOf(extensions, copy, where))
     if (overrides.length > 0) {
       const scoped = byName(withParent.filter(({ parent }) => parent.name === copy.name && (!parent.range || inRange(copy.version, parent.range, where, 'an override'))))
       const pick = (list, spec) => mostSpecific((list ?? []).filter(({ target }) => meets(target.range, spec)))

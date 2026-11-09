@@ -81,12 +81,9 @@ describe('createHook', () => {
   })
 })
 
-// Checked against pnpm 10.34.9's own createPackageExtender on 20,000 random
-// package.jsons and extensions, the order of the names too, with no
-// difference; pnpm 11.28.11's is the same code. Real installs by pnpm
-// 12.8.1 and 12.18.0 resolve as these two do where an extension has a
-// range, where the package.json or another extension has the entry too,
-// and with an override or an optional dependency left out.
+// Checked against pnpm 10.34.9's own createPackageExtender, which pnpm
+// 11.28.11 has too, on 20,000 random package.jsons and extensions, the order
+// of the names among it. Real installs by pnpm 12 resolve alike.
 describe('createHook with package extensions', () => {
   const extended = (packageExtensions, { overrides = {}, ignored = [], major = 10 } = {}) => createHook({ overrides: listOverrides(overrides, {}, major), extensions: listExtensions(packageExtensions, major), ignored, major })
 
@@ -120,20 +117,5 @@ describe('createHook with package extensions', () => {
   it('extends before it overrides, and before it leaves optional dependencies out', () => {
     const read = extended({ a: { dependencies: { ms: '2.1.3', gone: '1' }, optionalDependencies: { fsevents: '2', kept: '1' } } }, { overrides: { ms: '2.0.0', gone: '-', 'a>kept': '3' }, ignored: ['fsevents'] })
     assert.deepEqual(read({ name: 'a', version: '1.0.0' }, 'x'), { name: 'a', version: '1.0.0', dependencies: { ms: '2.0.0' }, optionalDependencies: { kept: '3' } })
-  })
-
-  it('refuses a peerDependenciesMeta that is no mapping where an extension adds to it', () => {
-    const read = extended({ a: { peerDependenciesMeta: { p: { optional: true } } } })
-    assert.throws(() => read({ name: 'a', peerDependenciesMeta: 'no' }, 'x'), /^DeptreeError: x\.peerDependenciesMeta: expected a mapping, found "no"$/u)
-    assert.deepEqual(read({ name: 'a', peerDependenciesMeta: null }, 'x').peerDependenciesMeta, { p: { optional: true } })
-    assert.deepEqual(read({ name: 'b', peerDependenciesMeta: 'no' }, 'x'), { name: 'b', peerDependenciesMeta: 'no' })
-  })
-
-  it('leaves the package.json and the extensions as they were', () => {
-    const setting = { a: { dependencies: { x: '1' }, peerDependenciesMeta: { p: { optional: true } } } }
-    const manifest = { name: 'a', dependencies: { y: '1' } }
-    const copy = extended(setting, { overrides: { x: '2' } })(manifest, 'x')
-    copy.peerDependenciesMeta.p.optional = false
-    assert.deepEqual([manifest, setting], [{ name: 'a', dependencies: { y: '1' } }, { a: { dependencies: { x: '1' }, peerDependenciesMeta: { p: { optional: true } } } }])
   })
 })

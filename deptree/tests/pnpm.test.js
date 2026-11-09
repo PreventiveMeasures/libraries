@@ -762,7 +762,7 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ workspace: 'dedupePeers: true\n' }, /^settings\.dedupePeers:/u)
     await refuses({ npmrc: 'peers-suffix-max-length=100\n' }, /^settings\.peersSuffixMaxLength:/u)
     await refuses({ workspace: 'ignoredOptionalDependencies: [mac]\n' }, /^ignoredOptionalDependencies: the optional dependencies left out differ/u)
-    await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensionsChecksum: the settings have package extensions, and the lockfile was resolved with none, which a frozen install refuses$/u)
+    await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensionsChecksum: the package extensions in the settings are not those the lockfile was resolved with, which a frozen install refuses$/u)
   })
 
   // NPM_TOKEN is taken to be set, so the rest of the file is read, and the
@@ -1309,7 +1309,7 @@ describe('buildPnpmTree into a given Vfs', () => {
         assert.equal(vfs.realpath('/node_modules/.pnpm/foo@file+vendor+foo/node_modules/app'), '/node_modules/.pnpm/app@1.0.0/node_modules/app', host.pnpm)
       }
       for (const pnpm of ['12.8.1', '12.16.1']) {
-        await assert.rejects(extended({ ...HOST, pnpm }), /^DeptreeError: "foo@file:vendor\/foo": the package extension "foo" names it, and pnpm 12 before 12\.17\.0 holds a directory to its package\.json without one, which is not supported$/u, pnpm)
+        await assert.rejects(extended({ ...HOST, pnpm }), /^DeptreeError: "foo@file:vendor\/foo": a package extension names it, and pnpm 12 before 12\.17\.0 holds a directory to its package\.json without one, which is not supported$/u, pnpm)
       }
     })
 
@@ -1927,7 +1927,7 @@ describe('buildPnpmTree with package extensions', () => {
       await refuses({ host, workspace: EXTENDED.replace('2.0.0', '^2.0.0') }, outdated)
       await refuses({ host, workspace: `${EXTENDED}  c:\n    peerDependencies:\n      e: '*'\n` }, outdated)
       await refuses({ host, workspace: undefined }, /^packageExtensionsChecksum: the lockfile was resolved with package extensions, and the settings have none, which a frozen install refuses$/u)
-      await refuses({ host, lockfile: await locked() }, /^packageExtensionsChecksum: the settings have package extensions, and the lockfile was resolved with none, which a frozen install refuses$/u)
+      await refuses({ host, lockfile: await locked() }, outdated)
     }
     const { vfs } = await extended({ workspace: `hoist: false\n${EXTENDED}` })
     assert.ok(vfs.isSymlink('/node_modules/.pnpm/e@1.0.0/node_modules/c'), 'whatever else the settings say')
@@ -1944,7 +1944,7 @@ describe('buildPnpmTree with package extensions', () => {
   it('refuses an extension it does not read as every pnpm does', async () => {
     await refuses({ workspace: 'packageExtensions:\n  e:\n    devDependencies:\n      c: 2.0.0\n' }, /^packageExtensions\["e"\]: "devDependencies" is not supported/u)
     await refuses({ workspace: 'packageExtensions:\n  e:\n    dependencies:\n      c: 2\n' }, /^packageExtensions\["e"\]\.dependencies\["c"\]: expected a string, found 2$/u)
-    await refuses({ workspace: 'packageExtensions:\n  e@:\n    dependencies:\n      c: 2.0.0\n', host: HOST_12 }, /^packageExtensions\["e@"\]: pnpm 12 fails on its range, "", or may read it otherwise than npm's semver, which is not supported$/u)
+    await refuses({ workspace: 'packageExtensions:\n  e@:\n    dependencies:\n      c: 2.0.0\n', host: HOST_12 }, /^packageExtensions\["e@"\]: pnpm 12 fails on the range "", or may read it otherwise than npm's semver, which is not supported$/u)
     await refuses({ workspace: 'packageExtensions: [e]\n' }, /^pnpm-workspace\.yaml: packageExtensions: expected a mapping, found a list$/u)
   })
 
