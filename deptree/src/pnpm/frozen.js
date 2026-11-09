@@ -70,7 +70,7 @@ export function checkCatalogResolutions(importer, catalogs, where) {
 }
 
 // Relative to the lockfile's directory, as the lockfile's links are.
-function specPath(dir, path, where) {
+export function specPath(dir, path, where) {
   const clean = path.startsWith('./') ? path.slice(2) : path
   if (/^(?:~[/\\]|[/\\]|[A-Za-z]:)/u.test(clean) || clean.includes('\\')) throw new DeptreeError(`${quote(path)} is not a path from the project, which is not supported`, where)
   return join(dir, clean.replace(/\/+$/u, ''))
@@ -153,7 +153,8 @@ export function checkLinkedPackages({ manifest, importer, index: { projects, byN
       if (!spec) continue
       const workspaceRange = spec.startsWith('workspace:') && !isWorkspacePath(spec.slice('workspace:'.length))
       const linked = target.startsWith('link:')
-      // pnpm 11's frozen install skips a local directory or tarball.
+      // A local directory pnpm 11 holds to its package.json otherwise, and
+      // only from 11.28.7 (directories.js); a tarball is refused elsewhere.
       if (importer.specifiers[alias].startsWith('file:') || packageKeyOf(target).includes('@file:')) continue
       if (linked && pathOf(spec) !== undefined) continue
       const { name, range } = parseSpec(spec, alias)

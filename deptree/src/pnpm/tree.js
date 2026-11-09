@@ -27,6 +27,7 @@ import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { lazyUnpacker } from './lazy.js'
 import { checkFetched, createPeerDrop, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
+import { createDirectoryCheck } from './directories.js'
 import { listExtensions } from './extensions.js'
 import { createHook } from './hook.js'
 import { productionLockfile } from './production.js'
@@ -289,13 +290,16 @@ export async function buildPnpmTree(options) {
   const installed = checkLocalOverrides(overrides, project)
   const patched = await checkUpToDate(lockfile, settings, { overrides, extensions }, patchesOf(inputs, settings.patchedDependencies), major)
   const hook = createHook({ overrides, extensions, ignored: settings.ignoredOptionalDependencies, major })
-  checkProjects(lockfile, manifests, { hook, extensions, host, settings, env })
+  const fresh = createFreshnessCheck(lockfile, host, extensions)
+  const drops = createPeerDrop(host, settings.autoInstallPeers)
+  const directories = createDirectoryCheck(lockfile, { host, hook, project, installed, settings, fresh, drops })
+  checkProjects(lockfile, manifests, { hook, extensions, host, settings, env, directories })
   checkOptional(lockfile)
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { walked, installing } = production ? productionLockfile(lockfile, { ...host, resolvePeersFromWorkspaceRoot: settings.resolvePeersFromWorkspaceRoot }) : { walked: lockfile, installing: lockfile }
   const { skipped, incompatible } = skippedSnapshots(walked, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const checks = { lockfile, hook, fresh: createFreshnessCheck(lockfile, host, extensions), drops: createPeerDrop(host, settings.autoInstallPeers) }
+  const checks = { lockfile, hook, fresh, drops }
   const { byDir, links, fixes, reads, builds, early, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile: installing, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()

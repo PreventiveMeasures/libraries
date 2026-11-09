@@ -91,6 +91,7 @@
     "src/pnpm/bins.js",
     "src/pnpm/checks.js",
     "src/pnpm/commands.js",
+    "src/pnpm/directories.js",
     "src/pnpm/extensions.js",
     "src/pnpm/filename.js",
     "src/pnpm/frozen.js",
