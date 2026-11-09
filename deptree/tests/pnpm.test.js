@@ -1479,7 +1479,9 @@ describe('buildPnpmTree into a given Vfs', () => {
           await assert.rejects(built(pnpm, { dependencies: { p: '^2.0.0' } }), refused(pnpm, 'dependencies.p resolved to "p@1.0.0", which is not in "^2.0.0"'), pnpm)
           await assert.rejects(built(pnpm, { dependencies: { p: 'npm:q@1.0.0' } }), refused(pnpm, 'dependencies.p resolved to "p@1.0.0", which is not "q"'), pnpm)
           await assert.rejects(built(pnpm, { optionalDependencies: { p: '1.0.0' } }), refused(pnpm, 'optionalDependencies.p is among the lockfile\'s dependencies'), pnpm)
-          for (const spec of ['^1.0.0', 'latest', 'npm:p@1']) await built(pnpm, { dependencies: { p: spec } })
+          for (const spec of ['^1.0.0', 'latest', 'npm:p@1', '^01.0.0']) await built(pnpm, { dependencies: { p: spec } })
+          // pnpm checks only a range strict semver reads.
+          await assert.rejects(built(pnpm, { dependencies: { p: '^02.0.0' } }), refused(pnpm, 'dependencies.p resolved to "p@1.0.0", which is not in "^02.0.0"', { by: 'strict' }), pnpm)
         }
         await assert.rejects(built('11.28.7', { dependencies: { p: 'github:p/p' } }), /^DeptreeError: "foo@file:vendor\/foo": dependencies\.p is "github:p\/p", which is no version, range or tag, and a directory's dependency of another sort that pnpm 11 holds to the lockfile is not supported$/u)
         await built('11.28.6', { dependencies: { p: 'github:p/p' } })

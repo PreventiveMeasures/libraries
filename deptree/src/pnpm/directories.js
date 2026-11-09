@@ -77,9 +77,9 @@ function childrenOf(ctx, read, scope, where) {
   return Object.entries({ ...optional, ...deps }).filter(([alias]) => !left.has(alias)).map(([alias, spec]) => ({ alias, spec, optional: Boolean(own(optional, alias)) }))
 }
 
-// lockedVersionSatisfies. pnpm holds a path alone to a package, refusing even
-// the link it wrote for one an override gives; pnpm 10 reads such a path from
-// the lockfile's directory.
+// lockedVersionSatisfies, which checks only a range strict semver reads; the
+// strict walk checks a loose one too. pnpm refuses even the link it wrote for a
+// path alone an override gives; pnpm 10 reads that path from the lockfile's.
 function registryChild(ctx, { kind, alias }, spec, to, { dir, where }) {
   if (to.startsWith('link:')) {
     if (!ctx.strict) return `${kind}.${alias} is linked to ${quote(to.slice(5))}, and pnpm 11 holds ${quote(spec)}, which is neither link: nor file:, to a package the lockfile resolves, refusing even the lockfile it writes`
@@ -96,7 +96,7 @@ function registryChild(ctx, { kind, alias }, spec, to, { dir, where }) {
   }
   const locked = ctx.packages[to]
   if (locked.name !== wanted.name) return `${kind}.${alias} resolved to ${quote(to)}, which is not ${quote(wanted.name)}`
-  if (validRange(wanted.range) === null) return undefined
+  if (validRange(wanted.range, { loose: ctx.strict === true }) === null) return undefined
   return typeof locked.version === 'string' && satisfies(locked.version, wanted.range, { loose: true }) ? undefined : `${kind}.${alias} resolved to ${quote(to)}, which is not in ${quote(wanted.range)}`
 }
 
