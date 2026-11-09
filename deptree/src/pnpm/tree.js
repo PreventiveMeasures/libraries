@@ -290,7 +290,7 @@ export async function buildPnpmTree(options) {
   const installed = checkLocalOverrides(overrides, project)
   const patched = await checkUpToDate(lockfile, settings, { overrides, extensions }, patchesOf(inputs, settings.patchedDependencies), major)
   const hook = createHook({ overrides, extensions, ignored: settings.ignoredOptionalDependencies, major })
-  const fresh = createFreshnessCheck(lockfile, host, extensions)
+  const fresh = createFreshnessCheck(lockfile, host, extensions, settings.autoInstallPeers)
   const drops = createPeerDrop(host, settings.autoInstallPeers)
   const directories = createDirectoryCheck(lockfile, { host, hook, project, installed, settings, fresh, drops })
   checkProjects(lockfile, manifests, { hook, extensions, host, settings, env, directories })

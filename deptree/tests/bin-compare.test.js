@@ -155,11 +155,11 @@ describe('leftOut', () => {
 
   it('takes what deptree never builds on disk alone, and nothing like it', () => {
     const alone = (path, mark = '-') => leftOut([{ mark, path }], side({ [path]: file('x') })).size === 1
-    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git', 'Pods/Headers', 'Pods/Target Support Files', 'Pods/Local Podspecs', 'Pods/Pods.xcodeproj', 'Pods/Acme.xcodeproj', 'Pods/.project_cache']) {
+    for (const path of ['node_modules/.bin', 'packages/w/node_modules/.bin', 'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json', 'node_modules/.package-lock.json', 'node_modules/.package-map.json', 'node_modules/.yarn-integrity', 'dependencies/acme-lib-1.0.0/.git', 'Pods/Headers', 'Pods/Target Support Files', 'Pods/Local Podspecs', 'Pods/Pods.xcodeproj', 'Pods/Acme.xcodeproj', 'Pods/.project_cache']) {
       assert.equal(alone(path), true, path)
       assert.equal(alone(path, '~'), false, path)
     }
-    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github', 'Pods/Acme', 'Pods/Manifest.lock', 'Pods/Acme/Headers', 'Pods/Acme/Manifest.lock', 'ios/Pods/Headers', 'Pods/Headers.txt']) assert.equal(alone(path), false, path)
+    for (const path of ['node_modules/a/.bin', 'node_modules/.binary', 'node_modules/a/.package-lock.json', 'node_modules/a/.package-map.json', 'dependencies/.git', 'dependencies/acme-lib-1.0.0/src/.git', 'lib/dependencies/acme-lib-1.0.0/.git', 'dependencies/acme-lib-1.0.0/.github', 'Pods/Acme', 'Pods/Manifest.lock', 'Pods/Acme/Headers', 'Pods/Acme/Manifest.lock', 'ios/Pods/Headers', 'Pods/Headers.txt']) assert.equal(alone(path), false, path)
   })
 })
 

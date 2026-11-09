@@ -61,7 +61,8 @@ function checkKind(importer, kinds, kind, unresolved, major) {
   for (const name of names) {
     if (!locked[name] || !sameSpecifier(importer.specifiers[name], wanted[name], major)) return `${kind}.${name} is not what package.json asks for`
     const spec = importer.specifiers[name]
-    if (validRange(spec) === null) continue
+    // pnpm resolves `*` to a prerelease `latest`, and checks no such range.
+    if (validRange(spec) === null || validRange(spec) === '*') continue
     const version = resolvedOf(name, locked[name])
     if (valid(version) !== null && !satisfies(version, spec)) return `${kind}.${name} resolved to ${quote(version)}, which is not in ${quote(spec)}`
   }

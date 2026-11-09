@@ -97,8 +97,9 @@ export interface PnpmProject {
 // Each project is held to its importer as --frozen-lockfile holds it: its
 // dependencies, devDependencies, optionalDependencies and, with
 // autoInstallPeers, the peers it lists nowhere else, have to be what the
-// importer records, and in the ranges they ask for. The projects' names
-// are what hoistWorkspacePackages hoists them by.
+// importer records, and in the ranges they ask for, but `*`, which pnpm
+// resolves to a prerelease `latest` too. The projects' names are what
+// hoistWorkspacePackages hoists them by.
 //
 // Settings are read as `pnpm install` 10 reads them, each source over the
 // one before: the .npmrc, then pnpm-workspace.yaml, then what the
@@ -587,9 +588,12 @@ export interface PnpmLazyTree extends PnpmTree {
 // pnpm 12 makes none of pnpm 11's further checks of a lockfile, but holds
 // a directory a project depends on by `file:` to it: each dependency the
 // snapshot has is one its package.json, overridden, asks for, a peer among
-// them; each it asks for is resolved as it asks, an optional one there or
-// not; and its peers, and which are optional, are what the lockfile
-// records. A project the lockfile has no importer for is held to none
+// them, an optional peer among its optional dependencies too; each it asks
+// for is resolved as it asks, an optional one there or not, and one in both
+// lists as optional at the dependency's range; and its peers, one only in
+// peerDependenciesMeta at `*`, and which are optional, are what the lockfile
+// records, but one that is a dependency too and that pnpm does not install
+// itself. A project the lockfile has no importer for is held to none
 // where it has no dependencies but peers, and refused otherwise. It checks
 // of the projects only the root's engines.node, with engineStrict, and
 // with engineStrict refuses whatever it installs that the host cannot run,
