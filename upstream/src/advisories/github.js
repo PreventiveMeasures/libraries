@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { assertPodName, assertPodVersion, assertRepo, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa, isRefName, isRepo, isStrings } from '../args.js'
+import { assertPodName, assertPodVersion, assertSoldeerName, assertSoldeerVersion, assertion, isGhsa, isRepo, isStrings } from '../args.js'
 import { readRecord, writeRecord } from '../cache.js'
 import { isGone } from '../github/client.js'
 import { HttpError, recover } from '../http.js'
@@ -109,7 +109,7 @@ function fromRepository(repo, name, advisory, range, versions, details) {
 }
 
 // A row per advisory, range and asked name `takes` it for.
-async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), bound = boundedRange, details, cache }) {
+export async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), bound = boundedRange, details, cache }) {
   const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
   const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ names, ...(await listAdvisories(github, repoOf(names[0]), cache)) }))
   const rows = new Map()
@@ -144,17 +144,7 @@ export async function withRepositories(rows, asked, { github, repoAdvisories, kn
 
 // stasis versions a repository without versions by its branch, or 0.0.0:
 // every range covers those.
-const coversPlaceholder = (version, range) => version === '0.0.0' || mayBeInRange(version, range)
-
-// GitHub repositories as dependencies: every range their advisories list
-// counts, whichever package it names.
-export const GITHUB = {
-  repositoryOnly: true,
-  assertName: assertRepo,
-  nameKey: (repo) => repo.toLowerCase(),
-  assertVersion: assertion('a version or a branch name', isRefName),
-  advisories: (asked, { github, details, cache }) => repositoryAdvisories(github, asked, { repoOf: (repo) => repo, versionsIn: bySemver(coversPlaceholder), details, cache }),
-}
+export const coversPlaceholder = (version, range) => version === '0.0.0' || mayBeInRange(version, range)
 
 // No database has Soldeer packages: their repository's advisories are the
 // only source, every range counting.

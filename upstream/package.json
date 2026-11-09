@@ -80,6 +80,7 @@
     "soldeer.js",
     "weak-edges.d.ts",
     "weak-edges.js",
+    "src/advisories/actions.js",
     "src/advisories/common.js",
     "src/advisories/github.js",
     "src/advisories/index.js",
