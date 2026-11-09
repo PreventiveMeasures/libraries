@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
+import { listExtensions } from '../src/pnpm/extensions.js'
 import { createHook } from '../src/pnpm/hook.js'
 import { listOverrides } from '../src/pnpm/overrides.js'
 import { checkProjects, readManifests } from '../src/pnpm/projects.js'
@@ -172,6 +173,28 @@ describe('checkProjects for pnpm 11', () => {
     check11(manifest(undefined), { lockfile })
     assert.throws(() => check11(manifest(false), { lockfile }), /linkDirectory is true in the lockfile and publishConfig\.linkDirectory false/u)
     check(manifest(false), { lockfile })
+  })
+})
+
+// pnpm 10.34.9, 11.28.11, 12.8.1 and 12.18.0 all add what such an extension
+// has to the project's own dependencies, and so to its importer.
+describe('checkProjects with package extensions', () => {
+  const HOSTS = [{ ...HOST, major: 10 }, { ...HOST, pnpm: '11.28.2', major: 11 }, { ...HOST, pnpm: '12.8.1', major: 12 }]
+  const extended = (manifest, packageExtensions, host = HOSTS[0]) => {
+    const extensions = listExtensions(packageExtensions, host.major)
+    checkProjects(LOCKFILE, new Map([['.', manifest]]), { hook: createHook({ overrides: [], extensions, ignored: [], major: host.major }), extensions, host, settings: SETTINGS })
+  }
+
+  it('refuses an extension that names a project, in its version', () => {
+    const named = { name: 'app', version: '1.2.0', ...MANIFEST }
+    for (const host of HOSTS) {
+      for (const selector of ['app', 'app@^1', 'app@1.2.0']) {
+        assert.throws(() => extended(named, { [selector]: { dependencies: { z: '1.0.0' } } }, host), new RegExp(`^DeptreeError: manifests\\["\\."\\]: the package extension "${RegExp.escape(selector)}" names this project, whose package\\.json pnpm extends too, which is not supported$`, 'u'))
+      }
+      extended(named, { 'app@^2': { dependencies: { z: '1.0.0' } }, q: { dependencies: { z: '1.0.0' } } }, host)
+      extended(MANIFEST, { app: { dependencies: { z: '1.0.0' } } }, host)
+    }
+    assert.throws(() => extended({ ...named, version: 1 }, { 'app@^1': {} }), /^DeptreeError: manifests\["\."\]\.version: not a string, which pnpm fails on where an extension names this package with a range$/u)
   })
 })
 

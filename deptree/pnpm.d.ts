@@ -145,6 +145,30 @@ export interface PnpmProject {
 // the lockfile has as `file:` and an empty path, as pnpm 10 and 11
 // write it, is refused for pnpm 12, which fails on that lockfile.
 //
+// Package extensions, the settings' `packageExtensions`, are read as pnpm
+// reads them: each adds its dependencies, optionalDependencies,
+// peerDependencies and peerDependenciesMeta to the package.json of every
+// package its selector names, by name and, where it has a range, version,
+// before the overrides are read; the package.json's own entry in a field
+// wins, and of two extensions the first. The lockfile is held to them by
+// their checksum, as pnpm holds it and by nothing else: object-hash's
+// sha256 of the setting for pnpm 10 and 11, and pnpm 12's own port of it,
+// which sorts names by code point. pnpm 12 hashes an extension as it parses
+// it, and pnpm 11 fails on what it does not expect from 11.22, so only
+// what all three hash alike is taken: those four fields and no other, the
+// first three mappings of names to strings and peerDependenciesMeta one
+// of names to nothing but `optional`, true or false. Refused too are a
+// selector that names no package; for pnpm 12, a range it fails on or is
+// not seen to read as npm's semver does -- anything but comparators of
+// `<`, `>`, `=`, `^` and `~`, x-ranges and plain hyphen ranges, joined by
+// spaces and `||` -- and a name of digits alone, which a mapping lists
+// first wherever it is written, as pnpm 12 applies them in the order they
+// are written; an extension that names a project, in its version, whose
+// package.json pnpm extends too; and, for pnpm 12 before 12.17.0, one that
+// names a directory a project depends on by `file:`, which that pnpm
+// holds to its package.json without the extension, refusing, frozen, the
+// lockfile it wrote of it.
+//
 // Of the .npmrc, only what pnpm reads for an install is read: its settings
 // by their kebab-case names, those that can change the tree held to what
 // is built here, and all else -- npm's own settings, publishing's,
@@ -592,9 +616,15 @@ export interface PnpmLazyTree extends PnpmTree {
 // gzipped, every file under one directory, no link or device in it, and
 // a package.json for exactly its name and version, whose os, cpu, libc,
 // bins and bundled dependencies are what the lockfile recorded and whose
-// every dependency the snapshot has. On macOS, two names in one directory
-// that differ only in case or normalization are refused, as they would be
-// one name there.
+// every dependency the snapshot has, those the package extensions add to
+// it among them: pnpm installs a snapshot that leaves one out as it is.
+// One the package.json also has as an optional peer may be left out, where
+// pnpm may leave it out: before 11.28.0 it takes such a dependency for the
+// peer alone, where it installs peers by itself, which nothing above may
+// provide; from 11.28.0, and in pnpm 12, it keeps the dependency, though
+// not in every graph before 11.28.6 and 12.14.0. On macOS, two names in
+// one directory that differ only in case or normalization are refused, as
+// they would be one name there.
 //
 // Packages come from https://registry.npmjs.org/ alone, fetched through
 // @preventive/upstream, and each tarball is held to the lockfile's
@@ -605,17 +635,17 @@ export interface PnpmLazyTree extends PnpmTree {
 // one of the env document pnpm 11 writes alone before anything is
 // installed, a setting this does not know or does not build for, overrides
 // pnpm cannot read, a lockfile not resolved with these settings, a package
-// from anywhere but the registry, a pnpmfile, package extensions, an
-// injected dependency, a lockfile not up to date with a package.json,
-// another package manager, a runtime to download, two projects of one
-// name, a patch that does not hash or apply, a check above that fails,
-// text that is not well-formed where it is hashed, a patch that would
-// change a bin's file between two times pnpm links it, a file whose mode
-// would turn on the order a directory is read in -- each is refused with a
-// DeptreeError that says where: where the lockfile reader or the YAML
-// parser refused pnpm-lock.yaml or pnpm-workspace.yaml, it names the file,
-// and its cause is their LockfileError or YamlError. A TypeError is thrown
-// for options of the wrong type.
+// from anywhere but the registry, a pnpmfile, a package extension not
+// read as above, an injected dependency, a lockfile not up to date with a
+// package.json, another package manager, a runtime to download, two
+// projects of one name, a patch that does not hash or apply, a check above
+// that fails, text that is not well-formed where it is hashed, a patch
+// that would change a bin's file between two times pnpm links it, a file
+// whose mode would turn on the order a directory is read in -- each is
+// refused with a DeptreeError that says where: where the lockfile reader
+// or the YAML parser refused pnpm-lock.yaml or pnpm-workspace.yaml, it
+// names the file, and its cause is their LockfileError or YamlError. A
+// TypeError is thrown for options of the wrong type.
 export function buildPnpmTree(options: PnpmLayoutOptions): Promise<PnpmLayout>
 export function buildPnpmTree(options: PnpmLazyOptions): Promise<PnpmLazyTree>
 export function buildPnpmTree(options: PnpmTreeOptions): Promise<PnpmTree>

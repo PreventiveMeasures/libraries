@@ -5,6 +5,7 @@
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
 import { sha256Hex } from '../hash.js'
+import { extensionsChecksum } from './extensions.js'
 import { sameSpecifier } from './frozen.js'
 import { catalogEntry } from './overrides.js'
 import { checkPatchUse, checkPeerPatches } from './patches.js'
@@ -48,7 +49,7 @@ function checkPatches(locked, hashes, major) {
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
 
-export async function checkUpToDate(lockfile, settings, overrides, given, major) {
+export async function checkUpToDate(lockfile, settings, { overrides, extensions }, given, major) {
   const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
   for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {
@@ -58,9 +59,12 @@ export async function checkUpToDate(lockfile, settings, overrides, given, major)
   }
   const overridden = difference(lockfile.overrides, Object.fromEntries(overrides.map(({ selector, spec }) => [selector, spec])), SIDES)
   if (overridden !== undefined) throw outdated('overrides', `the overrides differ: ${overridden}`)
-  // pnpm checksums them with object-hash, which is not reproduced here.
-  if (settings.packageExtensions !== undefined && Object.keys(settings.packageExtensions).length > 0) throw new DeptreeError('package extensions are not supported: their checksum cannot be checked against the lockfile\'s here', 'packageExtensions')
-  if (lockfile.packageExtensionsChecksum !== undefined) throw outdated('packageExtensionsChecksum', 'the lockfile was resolved with package extensions, and the settings have none')
+  const extended = await extensionsChecksum(extensions, major)
+  if (lockfile.packageExtensionsChecksum !== extended) {
+    throw outdated('packageExtensionsChecksum', extended === undefined ? 'the lockfile was resolved with package extensions, and the settings have none'
+      : lockfile.packageExtensionsChecksum === undefined ? 'the settings have package extensions, and the lockfile was resolved with none'
+      : 'the package extensions in the settings are not those the lockfile was resolved with')
+  }
   const ignored = (list) => JSON.stringify([...list].sort())
   if (ignored(lockfile.ignoredOptionalDependencies) !== ignored(settings.ignoredOptionalDependencies)) throw outdated('ignoredOptionalDependencies', 'the optional dependencies left out differ')
   checkPatches(lockfile.patchedDependencies, hashes, major)

@@ -762,7 +762,7 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ workspace: 'dedupePeers: true\n' }, /^settings\.dedupePeers:/u)
     await refuses({ npmrc: 'peers-suffix-max-length=100\n' }, /^settings\.peersSuffixMaxLength:/u)
     await refuses({ workspace: 'ignoredOptionalDependencies: [mac]\n' }, /^ignoredOptionalDependencies: the optional dependencies left out differ/u)
-    await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensions: package extensions are not supported/u)
+    await refuses({ workspace: 'packageExtensions:\n  a:\n    dependencies:\n      b: 1.0.0\n' }, /^packageExtensionsChecksum: the settings have package extensions, and the lockfile was resolved with none, which a frozen install refuses$/u)
   })
 
   // NPM_TOKEN is taken to be set, so the rest of the file is read, and the
@@ -1294,6 +1294,22 @@ describe('buildPnpmTree into a given Vfs', () => {
         const { vfs } = await buildPnpmTree({ lockfile: await copied(), manifests: { '.': manifest }, workspace, host, project })
         assert.deepEqual(['cli.js', 'index.js', 'package.json', 'tool.sh'].map((path) => vfs.stat(`${FOO}/${path}`).mode), [mode, 0o664, 0o664, 0o775], host.pnpm)
         assert.equal(vfs.readText(`${FOO}/cli.js`), text, host.pnpm)
+      }
+    })
+
+    // As real installs have it: pnpm 12.8.1 and 12.16.1 refuse, frozen, the
+    // lockfile they wrote of one, and 12.17.0 and 12.18.0 install it.
+    it('extends a directory, but for pnpm 12 before 12.17.0, which holds it to its package.json without the extension', async () => {
+      stubRegistry([await app])
+      const workspace = 'overrides:\n  foo: file:./vendor/foo\npackageExtensions:\n  foo:\n    dependencies:\n      app: 1.0.0\n'
+      const locked = (await copied()).replace('  foo@file:vendor/foo: {}\n', '  foo@file:vendor/foo:\n    dependencies:\n      app: 1.0.0\n').replace('\nimporters:\n', '\npackageExtensionsChecksum: sha256-U/+Ow0dcju0RusOvTeXCpsV2MEkAumq8ugy5MllMp5I=\n\nimporters:\n')
+      const extended = (host) => buildPnpmTree({ lockfile: locked, manifests: { '.': rootWith() }, workspace, host, project: createVfs({ 'package.json': rootWith(), ...vendored }) })
+      for (const host of [HOST, HOST_11, { ...HOST, pnpm: '12.17.0' }]) {
+        const { vfs } = await extended(host)
+        assert.equal(vfs.realpath('/node_modules/.pnpm/foo@file+vendor+foo/node_modules/app'), '/node_modules/.pnpm/app@1.0.0/node_modules/app', host.pnpm)
+      }
+      for (const pnpm of ['12.8.1', '12.16.1']) {
+        await assert.rejects(extended({ ...HOST, pnpm }), /^DeptreeError: "foo@file:vendor\/foo": the package extension "foo" names it, and pnpm 12 before 12\.17\.0 holds a directory to its package\.json without one, which is not supported$/u, pnpm)
       }
     })
 
@@ -1869,5 +1885,121 @@ describe('buildPnpmTree with lazy', () => {
     await assert.rejects(unpack(['node_modules/my-lodash']), /^TypeError: "node_modules\/my-lodash" is not the path of a package the tree installs$/u)
     await assert.rejects(unpack([1]), /^TypeError: "1" is not the path of a package the tree installs$/u)
     assert.equal((await buildResult()).unpack, undefined)
+  })
+})
+
+// Each checksum is the one pnpm 10.34.9, 11.28.11, 12.8.1 and 12.18.0 write
+// for the setting. Real installs by them link what an extension adds, and
+// refuse, frozen, wherever the settings' extensions are not the lockfile's.
+describe('buildPnpmTree with package extensions', () => {
+  const EXTENDED = 'packageExtensions:\n  e:\n    dependencies:\n      c: 2.0.0\n'
+  const CHECKSUM = 'sha256-bM2WVsTo4gGHM9iXkKUcZlw6W9mfbRmsjA6C+XxLXw0='
+  const SERVED = Promise.all([tarball('c', '2.0.0'), tarball('e', '1.0.0')])
+  const ROOT = JSON.stringify({ name: 'root', dependencies: { e: '1.0.0' } })
+  const checksummed = (text, checksum) => text.replace('\nimporters:\n', `\npackageExtensionsChecksum: ${checksum}\n\nimporters:\n`)
+  const locked = async ({ given = true } = {}) => {
+    const [c, e] = await SERVED
+    return small(dep('e'), `${(given ? [c, e] : [e]).map((t) => entry(t)).join('\n')}\n`, given ? '  c@2.0.0: {}\n\n  e@1.0.0:\n    dependencies:\n      c: 2.0.0\n' : '  e@1.0.0: {}\n')
+  }
+  const extended = async (options) => {
+    stubRegistry(await SERVED)
+    return buildPnpmTree({ lockfile: checksummed(await locked(), CHECKSUM), manifests: { '.': ROOT }, workspace: EXTENDED, host: HOST, ...options })
+  }
+  const refuses = (options, pattern) => assert.rejects(extended(options), (error) => error instanceof DeptreeError && pattern.test(error.message))
+
+  it('links a package to what an extension adds to it, as pnpm 10, 11 and 12 do', async () => {
+    for (const host of [HOST, HOST_11, HOST_12]) {
+      const { vfs } = await extended({ host })
+      assert.equal(vfs.readlink('/node_modules/.pnpm/e@1.0.0/node_modules/c'), '../../c@2.0.0/node_modules/c', host.pnpm)
+    }
+  })
+
+  it('reads them from the package.json\'s `pnpm` field for pnpm 10, and not for pnpm 11', async () => {
+    const manifest = JSON.stringify({ ...JSON.parse(ROOT), pnpm: { packageExtensions: { e: { dependencies: { c: '2.0.0' } } } } })
+    const { vfs } = await extended({ manifests: { '.': manifest }, workspace: undefined })
+    assert.ok(vfs.isSymlink('/node_modules/.pnpm/e@1.0.0/node_modules/c'))
+    await refuses({ manifests: { '.': manifest }, workspace: undefined, host: HOST_11 }, /^packageExtensionsChecksum: the lockfile was resolved with package extensions, and the settings have none, which a frozen install refuses$/u)
+  })
+
+  it('refuses a lockfile resolved with other extensions, as a frozen install does', async () => {
+    const outdated = /^packageExtensionsChecksum: the package extensions in the settings are not those the lockfile was resolved with, which a frozen install refuses$/u
+    for (const host of [HOST, HOST_11, HOST_12]) {
+      await refuses({ host, workspace: EXTENDED.replace('2.0.0', '^2.0.0') }, outdated)
+      await refuses({ host, workspace: `${EXTENDED}  c:\n    peerDependencies:\n      e: '*'\n` }, outdated)
+      await refuses({ host, workspace: undefined }, /^packageExtensionsChecksum: the lockfile was resolved with package extensions, and the settings have none, which a frozen install refuses$/u)
+      await refuses({ host, lockfile: await locked() }, /^packageExtensionsChecksum: the settings have package extensions, and the lockfile was resolved with none, which a frozen install refuses$/u)
+    }
+    const { vfs } = await extended({ workspace: `hoist: false\n${EXTENDED}` })
+    assert.ok(vfs.isSymlink('/node_modules/.pnpm/e@1.0.0/node_modules/c'), 'whatever else the settings say')
+  })
+
+  // pnpm installs it all the same: it reads no package.json of a registry
+  // package where it installs from a lockfile.
+  it('refuses a snapshot without what an extension adds to its package.json, which pnpm does not', async () => {
+    for (const host of [HOST, HOST_11, HOST_12]) {
+      await refuses({ host, lockfile: checksummed(await locked({ given: false }), CHECKSUM) }, /^"e@1\.0\.0": package\.json asks for "c", which the lockfile does not give it$/u)
+    }
+  })
+
+  it('refuses an extension it does not read as every pnpm does', async () => {
+    await refuses({ workspace: 'packageExtensions:\n  e:\n    devDependencies:\n      c: 2.0.0\n' }, /^packageExtensions\["e"\]: "devDependencies" is not supported/u)
+    await refuses({ workspace: 'packageExtensions:\n  e:\n    dependencies:\n      c: 2\n' }, /^packageExtensions\["e"\]\.dependencies\["c"\]: expected a string, found 2$/u)
+    await refuses({ workspace: 'packageExtensions:\n  e@:\n    dependencies:\n      c: 2.0.0\n', host: HOST_12 }, /^packageExtensions\["e@"\]: pnpm 12 fails on its range, "", or may read it otherwise than npm's semver, which is not supported$/u)
+    await refuses({ workspace: 'packageExtensions: [e]\n' }, /^pnpm-workspace\.yaml: packageExtensions: expected a mapping, found a list$/u)
+  })
+
+  // As pnpm 10.34.9 resolves valibot, whose typescript is an optional peer,
+  // with typescript added to its dependencies, and ajv-formats, which has
+  // ajv as both itself: with neither. pnpm 11.28.11 and 12.18.0 keep both.
+  describe('of a dependency the package.json has as an optional peer too', () => {
+    const PEER = { peerDependencies: { c: '^2.0.0' }, peerDependenciesMeta: { c: { optional: true } } }
+    const FIELDS = '    peerDependencies:\n      c: ^2.0.0\n    peerDependenciesMeta:\n      c:\n        optional: true\n'
+    const without = async (manifest, { fields = FIELDS, auto = true, ...options } = {}) => {
+      const a = await tarball('a', '1.0.0', {}, { manifest })
+      stubRegistry([a])
+      const bare = small(dep('a'), `${entry(a, fields)}\n`, '  a@1.0.0: {}\n').replace('autoInstallPeers: true', `autoInstallPeers: ${auto}`)
+      return buildPnpmTree({ lockfile: bare, manifests: { '.': JSON.stringify({ name: 'root', dependencies: { a: '1.0.0' } }) }, workspace: `autoInstallPeers: ${auto}\n`, host: HOST, ...options })
+    }
+    const asks = /^DeptreeError: "a@1\.0\.0": package\.json asks for "c", which the lockfile does not give it$/u
+    const BOTH = { dependencies: { c: '^2.0.0' }, ...PEER }
+
+    it('takes a snapshot without it where pnpm drops it for the peer, installing peers by itself', async () => {
+      for (const pnpm of ['10.33.4', '11.27.1']) {
+        assert.equal((await without(BOTH, { host: { ...HOST, pnpm } })).stats.installed, 1, pnpm)
+        await assert.rejects(without(BOTH, { host: { ...HOST, pnpm }, auto: false }), asks, pnpm)
+      }
+    })
+
+    // By pnpm's changelog: 11.28.0 and 12.7.0 keep it, and 11.28.6 and 12.14.0
+    // fix the graphs in which neither the dependency nor the peer was left.
+    it('takes one where pnpm keeps it but not in every graph, and none from 11.28.6 and 12.14.0', async () => {
+      for (const pnpm of ['11.28.0', '11.28.5', '12.8.1', '12.13.0']) {
+        for (const auto of [true, false]) assert.equal((await without(BOTH, { host: { ...HOST, pnpm }, auto })).stats.installed, 1, pnpm)
+      }
+      for (const pnpm of ['11.28.6', '11.28.11', '12.14.0', '12.18.0']) await assert.rejects(without(BOTH, { host: { ...HOST, pnpm } }), asks, pnpm)
+    })
+
+    it('takes none without it where the peer is not optional or is in peerDependenciesMeta alone, or the dependency is optional', async () => {
+      const required = '    peerDependencies:\n      c: ^2.0.0\n'
+      await assert.rejects(without({ dependencies: { c: '^2.0.0' }, peerDependencies: { c: '^2.0.0' } }, { fields: required }), asks)
+      await assert.rejects(without({ optionalDependencies: { c: '^2.0.0' }, ...PEER }), asks)
+      await assert.rejects(without({ dependencies: { c: '^2.0.0' }, peerDependenciesMeta: PEER.peerDependenciesMeta }, { fields: '' }), asks)
+    })
+
+    it('takes one where an extension adds the dependency, or the peer', async () => {
+      const added = (workspace, checksum) => async (manifest, options) => {
+        const a = await tarball('a', '1.0.0', {}, { manifest })
+        stubRegistry([a])
+        const bare = checksummed(small(dep('a'), `${entry(a, FIELDS)}\n`, '  a@1.0.0: {}\n'), checksum)
+        return buildPnpmTree({ lockfile: bare, manifests: { '.': JSON.stringify({ name: 'root', dependencies: { a: '1.0.0' } }) }, workspace, host: HOST, ...options })
+      }
+      const dependency = added('packageExtensions:\n  a:\n    dependencies:\n      c: 2.0.0\n', 'sha256-qXzcen5HMqr57Ivv8Z9nLwmjo7meFor5ZmZQ+WvHlho=')
+      assert.equal((await dependency(PEER)).stats.installed, 1)
+      await assert.rejects(dependency(PEER, { host: { ...HOST, pnpm: '11.28.11' } }), asks)
+      await assert.rejects(dependency({}), asks, 'no peer of the package.json\'s, as the lockfile says it has')
+      const peer = added('packageExtensions:\n  a:\n    peerDependencies:\n      c: ^2.0.0\n    peerDependenciesMeta:\n      c:\n        optional: true\n', 'sha256-bivUUABQUXAHLyybvia8VKCTGdkkXgQkM9K+ims3zZI=')
+      assert.equal((await peer({ dependencies: { c: '^2.0.0' } })).stats.installed, 1)
+      await assert.rejects(peer({ dependencies: { c: '^2.0.0' } }, { host: { ...HOST, pnpm: '11.28.11' } }), asks)
+    })
   })
 })
