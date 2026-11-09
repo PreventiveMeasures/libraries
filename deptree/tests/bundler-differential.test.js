@@ -8,6 +8,7 @@ import { after, describe, it } from 'node:test'
 import { DeptreeError, buildBundlerTree } from '../bundler.js'
 import { bundlerNotBuilt, difference, projectView, readSide } from '../bin/compare.js'
 import { installGem } from '../src/bundler/extract.js'
+import { checkHost } from '../src/bundler/inputs.js'
 import { readGem } from '../src/bundler/gem.js'
 import { parsePsych } from '../src/bundler/yaml.js'
 import { readSpec } from '../src/bundler/spec.js'
@@ -25,7 +26,16 @@ import { rawTar } from './registry.js'
 // fixed.
 
 const host = bundlerVersion()
-const SKIP = host === undefined ? 'no ruby with Bundler' : host.engine === 'ruby' ? false : `${host.engine}, not CRuby`
+function unsupported() {
+  try {
+    checkHost({ ...host, os: process.platform })
+    return false
+  } catch (error) {
+    if (error instanceof DeptreeError) return error.message
+    throw error
+  }
+}
+const SKIP = host === undefined ? 'no ruby with Bundler' : host.engine === 'ruby' ? unsupported() : `${host.engine}, not CRuby`
 
 function random(seed) {
   let state = seed
@@ -235,12 +245,12 @@ describe('a bundle install, against the tree built from its lockfile', { skip: S
     try {
       tree = await buildBundlerTree(options)
     } catch (error) {
-      // ffi's gems of a platform are for Rubies before 3.4, and Bundler
-      // before 2.5.12 is not taken.
-      if (error instanceof DeptreeError && /requires Ruby|host\.(?:bundler|rubygems|ruby|platform)|none of PLATFORMS/u.test(error.message)) return t.skip(error.message)
+      // ffi's gems of a platform are for Rubies before 3.4.
+      if (error instanceof DeptreeError && /requires Ruby|none of PLATFORMS/u.test(error.message)) return t.skip(error.message)
       throw error
     }
-    const r = spawnSync('bundle', ['install', '--quiet'], { cwd: root, encoding: 'utf8', env: { ...process.env, BUNDLE_GEMFILE: join(root, 'Gemfile') }, timeout: 300_000 })
+    // Under the umask the tree is built for, whatever this one's is.
+    const r = spawnSync('sh', ['-c', 'umask 022 && exec bundle install --quiet'], { cwd: root, encoding: 'utf8', env: { ...process.env, BUNDLE_GEMFILE: join(root, 'Gemfile') }, timeout: 300_000 })
     assert.equal(r.status, 0, r.stderr + r.stdout)
     const notBuilt = bundlerNotBuilt('vendor/bundle')
     const changes = difference(readSide(projectView(root), ['vendor/bundle'], notBuilt), readSide(tree.vfs, ['vendor/bundle'], notBuilt))
