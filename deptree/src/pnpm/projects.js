@@ -9,6 +9,7 @@ import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstre
 import { DeptreeError, difference, quote } from '../error.js'
 import { own, readManifest } from '../manifest.js'
 import { createMatcher } from '../matcher.js'
+import { extensionsOf } from './extensions.js'
 import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
@@ -212,13 +213,16 @@ function dependsOn(manifest, ignored) {
   return names(manifest.devDependencies).length > 0 || [...names(manifest.dependencies), ...names(manifest.optionalDependencies)].some((name) => !optional.has(name))
 }
 
-export function checkProjects(lockfile, manifests, { hook, host, settings, env }) {
+// pnpm extends a project's package.json too, which is refused: not every
+// place one is read in here is read through the hook.
+export function checkProjects(lockfile, manifests, { hook, extensions = [], host, settings, env }) {
   checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
   let index
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`
     const root = id === '.'
+    if (extensionsOf(extensions, manifest, where).length > 0) throw new DeptreeError('a package extension names this project, whose package.json pnpm extends too, which is not supported', where)
     checkProject(manifest, where, { host, settings, root })
     checkRuntimes(manifest, where, { host, root, onFail: root ? settings.runtimeOnFail : undefined })
     const importer = lockfile.importers[id]

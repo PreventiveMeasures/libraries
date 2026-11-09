@@ -14,6 +14,8 @@ function utf8(text, where) {
 
 export const sha256Hex = async (text, where) => toHex(await digest('SHA-256', utf8(text, where)))
 
+export const sha256Base64 = async (text, where) => toBase64(await digest('SHA-256', utf8(text, where)))
+
 export const matchesIntegrity = async (bytes, integrity) => integrity === `sha512-${toBase64(await digest('SHA-512', bytes))}`
 
 // As yarn 1 records a tarball's after the `#` of its URL.

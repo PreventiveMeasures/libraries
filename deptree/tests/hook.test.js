@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { listExtensions } from '../src/pnpm/extensions.js'
 import { createHook } from '../src/pnpm/hook.js'
 import { listOverrides } from '../src/pnpm/overrides.js'
 
@@ -77,5 +78,44 @@ describe('createHook', () => {
     let deep = {}
     for (let i = 0; i < 20_000; i++) deep = { x: deep }
     assert.throws(() => hook({})({ name: 'a', deep }, 'x'), /^DeptreeError: x: nested more than 100 deep, which is not supported$/u)
+  })
+})
+
+// Checked against pnpm 10.34.9's own createPackageExtender, which pnpm
+// 11.28.11 has too, on 20,000 random package.jsons and extensions, the order
+// of the names among it. Real installs by pnpm 12 resolve alike.
+describe('createHook with package extensions', () => {
+  const extended = (packageExtensions, { overrides = {}, ignored = [], major = 10 } = {}) => createHook({ overrides: listOverrides(overrides, {}, major), extensions: listExtensions(packageExtensions, major), ignored, major })
+
+  it('adds what an extension has to a package.json of the name it gives', () => {
+    const read = extended({ a: { dependencies: { typescript: '5.9.3' }, peerDependencies: { react: '*' }, peerDependenciesMeta: { react: { optional: true } } }, b: { optionalDependencies: { x: '1' } } })
+    assert.deepEqual(read({ name: 'a', version: '1.0.0' }, 'x'), { name: 'a', version: '1.0.0', dependencies: { typescript: '5.9.3' }, peerDependencies: { react: '*' }, peerDependenciesMeta: { react: { optional: true } } })
+    assert.deepEqual(read({ name: 'b' }, 'x'), { name: 'b', optionalDependencies: { x: '1' } })
+    assert.deepEqual(read({ name: 'c', dependencies: { y: '1' } }, 'x'), { name: 'c', dependencies: { y: '1' } })
+    assert.deepEqual(read({ dependencies: { y: '1' } }, 'x'), { dependencies: { y: '1' } }, 'none has no name')
+  })
+
+  it('keeps a package.json\'s own entry in a field, and of two extensions the first\'s', () => {
+    const read = extended({ 'a@1': { dependencies: { x: '1.1.0', y: '1.0.0' } }, a: { dependencies: { x: '2.0.0', z: '3.0.0' }, optionalDependencies: { y: '4.0.0' } } })
+    const both = read({ name: 'a', version: '1.5.0', dependencies: { y: '9.9.9' }, devDependencies: { z: '0.0.1' } }, 'x')
+    assert.deepEqual(both, { name: 'a', version: '1.5.0', dependencies: { x: '1.1.0', z: '3.0.0', y: '9.9.9' }, optionalDependencies: { y: '4.0.0' }, devDependencies: { z: '0.0.1' } })
+    assert.deepEqual(Object.keys(both.dependencies), ['x', 'z', 'y'], 'in the order pnpm has them')
+    assert.deepEqual(read({ name: 'a', version: '2.0.0' }, 'x').dependencies, { x: '2.0.0', z: '3.0.0' })
+  })
+
+  // An empty range is `*`, and one that is no range takes nothing.
+  it('extends by a selector with a range the versions semver has in it', () => {
+    const read = extended({ 'a@^1': { dependencies: { x: '1' } }, 'a@': { dependencies: { any: '1' } }, 'a@latest': { dependencies: { never: '1' } } })
+    const added = (version) => Object.keys(read({ name: 'a', version }, 'x').dependencies ?? {})
+    assert.deepEqual([added('1.5.0'), added('2.0.0'), added('1.0.0-beta.1'), added(undefined), added(''), added('nope')], [['any', 'x'], ['any'], [], [], [], []])
+    for (const version of [1, { major: 1 }, true]) {
+      assert.throws(() => read({ name: 'a', version }, 'x'), /^DeptreeError: x\.version: not a string, which pnpm fails on where an extension names this package with a range$/u)
+    }
+    assert.deepEqual(read({ name: 'b', version: 1 }, 'x'), { name: 'b', version: 1 })
+  })
+
+  it('extends before it overrides, and before it leaves optional dependencies out', () => {
+    const read = extended({ a: { dependencies: { ms: '2.1.3', gone: '1' }, optionalDependencies: { fsevents: '2', kept: '1' } } }, { overrides: { ms: '2.0.0', gone: '-', 'a>kept': '3' }, ignored: ['fsevents'] })
+    assert.deepEqual(read({ name: 'a', version: '1.0.0' }, 'x'), { name: 'a', version: '1.0.0', dependencies: { ms: '2.0.0' }, optionalDependencies: { kept: '3' } })
   })
 })

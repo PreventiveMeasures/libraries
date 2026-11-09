@@ -145,6 +145,22 @@ export interface PnpmProject {
 // the lockfile has as `file:` and an empty path, as pnpm 10 and 11
 // write it, is refused for pnpm 12, which fails on that lockfile.
 //
+// Package extensions, `packageExtensions`, add to the package.json of each
+// package a selector names, by its name and the versions in its range,
+// before the overrides are read: the package.json's own entry in a field
+// wins, and of two extensions the first. The lockfile is held to their
+// checksum, as pnpm holds it: object-hash's sha256 of the setting, its
+// names sorted by code point for pnpm 12. Only what pnpm 10, 11 and 12
+// hash alike is taken: dependencies, optionalDependencies and
+// peerDependencies of names to strings, and peerDependenciesMeta of names
+// to `optional` alone. Refused too: a selector that names no package; an
+// extension that names a project, whose package.json pnpm extends too;
+// for pnpm 12, a range other than comparators and x-ranges joined by
+// spaces and `||`, as it fails on some that npm's semver reads, and a name
+// of digits alone, as it applies them in the order written; and, for pnpm
+// 12 before 12.17.0, an extension of a directory a project depends on by
+// `file:`, which that pnpm holds to its package.json without it.
+//
 // Of the .npmrc, only what pnpm reads for an install is read: its settings
 // by their kebab-case names, those that can change the tree held to what
 // is built here, and all else -- npm's own settings, publishing's,
@@ -592,7 +608,10 @@ export interface PnpmLazyTree extends PnpmTree {
 // gzipped, every file under one directory, no link or device in it, and
 // a package.json for exactly its name and version, whose os, cpu, libc,
 // bins and bundled dependencies are what the lockfile recorded and whose
-// every dependency the snapshot has. On macOS, two names in one directory
+// every dependency the snapshot has, those package extensions add among
+// them, but one its package.json also has as an optional peer where pnpm
+// may leave that out: before 11.28.0 with autoInstallPeers, and in some
+// graphs until 11.28.6 and 12.14.0. On macOS, two names in one directory
 // that differ only in case or normalization are refused, as they would be
 // one name there.
 //
@@ -605,7 +624,7 @@ export interface PnpmLazyTree extends PnpmTree {
 // one of the env document pnpm 11 writes alone before anything is
 // installed, a setting this does not know or does not build for, overrides
 // pnpm cannot read, a lockfile not resolved with these settings, a package
-// from anywhere but the registry, a pnpmfile, package extensions, an
+// from anywhere but the registry, a pnpmfile, some package extensions, an
 // injected dependency, a lockfile not up to date with a package.json,
 // another package manager, a runtime to download, two projects of one
 // name, a patch that does not hash or apply, a check above that fails,

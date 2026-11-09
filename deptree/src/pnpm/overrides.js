@@ -19,7 +19,7 @@ export function validForOldPackages(name) {
 }
 
 // @pnpm/parse-wanted-dependency.
-function parseWanted(raw) {
+export function parseWanted(raw) {
   const at = raw.indexOf('@', 1)
   const name = at === -1 ? raw : raw.slice(0, at)
   return validForOldPackages(name) ? { name, range: at === -1 ? undefined : raw.slice(at + 1) } : undefined

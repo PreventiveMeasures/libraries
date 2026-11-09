@@ -1,13 +1,14 @@
-// pnpm's read-package hook (@pnpm/hooks.read-package-hook), less package
-// extensions and a pnpmfile's readPackage, refused elsewhere, and Yarn's
-// compatibility database, not reproduced. pnpm runs it on every package and on
-// each project's package.json before holding it to its importer.
+// pnpm's read-package hook (@pnpm/hooks.read-package-hook), less a pnpmfile's
+// readPackage, refused elsewhere, and Yarn's compatibility database, not
+// reproduced. pnpm runs it on every package and on each project's
+// package.json before holding it to its importer.
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
 import { relative } from '@preventive/vfs/path.js'
 import { DeptreeError } from '../error.js'
 import { checkNesting } from '../manifest.js'
 import { createMatcher } from '../matcher.js'
+import { extend, extensionsOf, inRange } from './extensions.js'
 
 const KINDS = ['dependencies', 'optionalDependencies', 'devDependencies']
 
@@ -35,16 +36,9 @@ function checkFields(manifest, where) {
   }
 }
 
-// semver's satisfies, which throws a TypeError on a version that is neither
-// a string nor falsy, as pnpm then fails.
-function inParentRange(version, range, where) {
-  if (version && typeof version !== 'string') throw new DeptreeError('not a string, which pnpm fails on where an override names this package with a range', `${where}.version`)
-  return satisfies(version, range)
-}
-
 // The hook's `dir` is a project's directory, which directory overrides are
 // written relative to; undefined for a package.
-export function createHook({ overrides, ignored, major = 10 }) {
+export function createHook({ overrides, extensions = [], ignored, major = 10 }) {
   const byName = (list) => Map.groupBy(list, ({ target }) => target.name)
   const withParent = overrides.filter(({ parent }) => parent !== undefined)
   const generic = byName(overrides.filter(({ parent, converge }) => parent === undefined && !converge))
@@ -53,8 +47,9 @@ export function createHook({ overrides, ignored, major = 10 }) {
   return (manifest, where, { dir } = {}) => {
     checkFields(manifest, where)
     const copy = structuredClone(checkNesting(manifest, where))
+    extend(copy, extensionsOf(extensions, copy, where))
     if (overrides.length > 0) {
-      const scoped = byName(withParent.filter(({ parent }) => parent.name === copy.name && (!parent.range || inParentRange(copy.version, parent.range, where))))
+      const scoped = byName(withParent.filter(({ parent }) => parent.name === copy.name && (!parent.range || inRange(copy.version, parent.range, where, 'an override'))))
       const pick = (list, spec) => mostSpecific((list ?? []).filter(({ target }) => meets(target.range, spec)))
       const override = (deps, peers) => {
         const given = peers ?? deps

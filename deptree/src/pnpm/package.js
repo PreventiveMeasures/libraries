@@ -4,6 +4,7 @@
 // find it wherever it is hoisted, if anywhere.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
+import { compareVersions } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkNesting } from '../manifest.js'
@@ -95,12 +96,21 @@ const bundledOf = (manifest) => manifest.bundleDependencies ?? manifest.bundledD
 // and npm publishes none.
 const listed = (bundled) => (bundled === false || (Array.isArray(bundled) && bundled.length === 0) ? undefined : bundled)
 
+// Whether pnpm may leave a dependency out of a snapshot: one its package.json
+// also has as an optional peer, before 11.28.0 where it installs peers by
+// itself, and until 11.28.6 and 12.14.0 in some graphs.
+export function createPeerDrop({ pnpm, major }, autoInstallPeers) {
+  const since = (version) => compareVersions(pnpm, version) >= 0
+  const drops = major >= 12 ? !since('12.14.0') : !since('11.28.6') && (autoInstallPeers || since('11.28.0'))
+  return (read, name) => drops && Object.hasOwn(read.peerDependencies ?? {}, name) && read.peerDependenciesMeta?.[name]?.optional === true
+}
+
 // `read` is the package.json as hook.js's hook has it, and `packages` the
 // lockfile's, by which a `file:` target is the directory it resolves to.
-function checkDependencies(manifest, read, pkg, packages, where) {
+function checkDependencies(manifest, read, pkg, packages, where, drops) {
   const bundled = bundledOf(manifest)
   const given = new Set([...names(pkg.dependencies), ...names(pkg.optionalDependencies)])
-  for (const name of [...names(read.dependencies), ...names(read.optionalDependencies)]) {
+  for (const name of [...names(read.dependencies).filter((dependency) => !drops(read, dependency)), ...names(read.optionalDependencies)]) {
     if (bundled === true || (Array.isArray(bundled) && bundled.includes(name)) || given.has(name)) continue
     throw new DeptreeError(`package.json asks for ${quote(name)}, which the lockfile does not give it`, where)
   }
@@ -122,10 +132,10 @@ function checkDependencies(manifest, read, pkg, packages, where) {
 // What is held of a package's files once fetched, for one of its snapshots:
 // its package.json, as the hook has it, asks for what the snapshot gives it,
 // as `lockfile` has it, though the tree has fewer of its edges.
-export function checkFetched(node, got, { lockfile, hook, fresh }) {
+export function checkFetched(node, got, { lockfile, hook, fresh, drops }) {
   if (got.manifest === undefined) return
   got.read ??= hook(got.manifest, `${quote(packageKeyOf(node.key))}: package.json`)
-  checkDependencies(got.manifest, got.read, lockfile.packages[node.key], lockfile.packages, quote(node.key))
+  checkDependencies(got.manifest, got.read, lockfile.packages[node.key], lockfile.packages, quote(node.key), drops)
   fresh?.(node, got.read)
 }
 
