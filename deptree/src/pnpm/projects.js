@@ -214,8 +214,10 @@ function dependsOn(manifest, ignored) {
 }
 
 // pnpm extends a project's package.json too, which is refused: not every
-// place one is read in here is read through the hook.
-export function checkProjects(lockfile, manifests, { hook, extensions = [], host, settings, env }) {
+// place one is read in here is read through the hook. `directories` holds
+// the directories each project reaches to their package.json
+// (directories.js).
+export function checkProjects(lockfile, manifests, { hook, extensions = [], host, settings, env, directories }) {
   checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
   let index
@@ -234,10 +236,12 @@ export function checkProjects(lockfile, manifests, { hook, extensions = [], host
     const reason = mismatch(importer, hooked, settings.autoInstallPeers, host.major, where)
     if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${reason}`, where)
     checkLinkTargets({ id, manifest: hooked, importer }, where)
-    if (host.major !== 11) continue
-    checkCatalogResolutions(importer, lockfile.catalogs, where)
-    index ??= indexProjects(manifests)
-    checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
+    if (host.major === 11) {
+      checkCatalogResolutions(importer, lockfile.catalogs, where)
+      index ??= indexProjects(manifests)
+      checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
+    }
+    directories?.(hooked, importer, where)
   }
 }
 

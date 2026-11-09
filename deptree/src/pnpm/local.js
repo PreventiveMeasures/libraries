@@ -12,7 +12,7 @@ import { localOf } from './overrides.js'
 import { checkManifest } from './package.js'
 import { packDirectory } from './packlist.js'
 
-function manifestAt(project, dir, where) {
+export function manifestAt(project, dir, where) {
   const text = readText(project, `/${dir}/package.json`, where)
   if (text === undefined) throw new DeptreeError(`${quote(dir)} ${typeOf(project, `/${dir}`) === undefined ? 'is not in' : 'holds no package.json in'} the project given`, where)
   return readManifest(text, where)
