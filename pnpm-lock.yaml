@@ -68,7 +68,7 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
       '@preventive/archive':
-        specifier: ^1.2.2
+        specifier: ^1.4.0
         version: link:../archive
       '@preventive/compare':
         specifier: ^1.2.11
@@ -198,7 +198,7 @@ importers:
   upstream:
     dependencies:
       '@preventive/archive':
-        specifier: ^1.2.0
+        specifier: ^1.4.0
         version: link:../archive
       '@preventive/lockfile':
         specifier: ^1.2.0
