@@ -43,6 +43,8 @@ describe('babelWorkers', () => {
     'inject.cjs': "module.exports = ({ types: t }) => ({ name: 'inject', visitor: { Identifier(path) { if (path.node.name === '__DEP__') path.replaceWith(t.callExpression(t.identifier('require'), [t.stringLiteral('#lib/b')])) } } })\n",
     // The worker's thread, by which file it transforms.
     'thread.cjs': "module.exports = ({ types: t }) => ({ name: 'thread', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').threadId))) } } } })\n",
+    // NODE_ENV, BABEL_ENV and the thread, as the plugin reads them as it runs.
+    'env.cjs': "module.exports = ({ types: t }) => ({ name: 'env', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral([process.env.NODE_ENV, process.env.BABEL_ENV, require('node:worker_threads').threadId].join(' ')))) } } } })\n",
     // The young generation of the worker's heap, in MB.
     'young.cjs': "module.exports = ({ types: t }) => ({ name: 'young', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.numericLiteral(require('node:worker_threads').resourceLimits.maxYoungGenerationSizeMb))) } } } })\n",
     'mark.cjs': "module.exports = ({ types: t }) => ({ name: 'mark', visitor: { Program: { exit(path) { path.pushContainer('body', t.expressionStatement(t.stringLiteral('marked'))) } } } })\n",
@@ -102,6 +104,25 @@ describe('babelWorkers', () => {
       return new Set(await Promise.all(Array.from({ length: 4 }, () => threadOf()))).size
     }
     assert.deepEqual([await threads(true), await threads(false)], [2, 1])
+  })
+
+  it("runs its workers with the processEnv given, as its plugins read it, and none in band where this process's differs", async () => {
+    const options = { babelrc: false, configFile: false, compact: false, plugins: [join(root, 'env.cjs')] }
+    const seen = async (processEnv) => (await babelWorkers(CORE, { ...options, processEnv }, null, 1)('a()', join(root, 'a.js'))).code.match(/"([^"]*)";$/u)[1].split(' ')
+    const [node, babel, thread] = await seen({ NODE_ENV: 'production', BABEL_ENV: 'staging' })
+    assert.deepEqual([node, babel], ['production', 'staging'])
+    assert.notEqual(thread, '0')
+    // Where this process has the same, a build's first files in band, as of none given.
+    const before = { NODE_ENV: process.env.NODE_ENV, BABEL_ENV: process.env.BABEL_ENV }
+    Object.assign(process.env, { NODE_ENV: 'development', BABEL_ENV: 'development' })
+    try {
+      assert.deepEqual(await seen({ NODE_ENV: 'development', BABEL_ENV: 'development' }), ['development', 'development', '0'])
+    } finally {
+      for (const [name, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
   })
 
   it('makes each of its workers at once, eager, as a build is past its files in band, but none of a few files', async () => {

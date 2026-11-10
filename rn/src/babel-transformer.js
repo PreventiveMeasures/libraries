@@ -16,7 +16,7 @@ const LET = /\b(?:let|const)\b/u
 // -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, module?,
 // uncacheable?, spent? } or { error, loc? }. The options are Babel's plus cli.js's projectBabel() ones.
 export function transformerOf({ corePath, options, profile, fingerprintOf = null }) {
-  const { ownPlugins = [], keepPlugins = false, inlineRequires = null, fingerprinter: _fingerprinter, oneBuild = false, switches = [], ...given } = options
+  const { ownPlugins = [], keepPlugins = false, inlineRequires = null, fingerprinter: _fingerprinter, oneBuild = false, switches = [], processEnv: _processEnv, ...given } = options
   const core = createRequire(corePath)(corePath)
   memoizeHelpers(core)
   const cwd = given.cwd ?? process.cwd()

@@ -94,8 +94,9 @@ export const TRANSFORM_PROFILES = ['default', 'hermes-stable', 'hermes-canary']
 
 // The project's Babel config, run by the @babel/core of Metro's transformer: ({ platform, dev, inlineRequires })
 // => bundle()'s Babel options, with workers per target; null without a config. ownPlugins(dev) run after the
-// config's on the project's own files (rn-serve's Fast Refresh).
-export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, eager = false, switches = () => [] } = {}) {
+// config's on the project's own files (rn-serve's Fast Refresh). envFor(dev), where given: the NODE_ENV and
+// BABEL_ENV a target's Babel runs with, its envName that BABEL_ENV (rn-serve's, of dev and release at once).
+export function projectBabel(cwd, project, fail, { sourceMaps = false, profile = false, ownPlugins = () => [], transformProfile = 'default', babelRCLookup = true, babelRuntime = true, keepPlugins = false, maxWorkers = null, fingerprinter = null, oneBuild = false, warm = false, eager = false, switches = () => [], envFor = null } = {}) {
   const config = babelConfigOf(cwd, project)
   if (config === null) return null
   const corePath = ofTransformer(project, '@babel/core')
@@ -113,7 +114,8 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     // as Hermes V1's, which leaves classes.
     const caller = { name: 'metro', bundler: 'metro', platform, inlinePlatform: true, unstable_transformProfile: transformProfile }
     // Plugins read it for release builds: react-native-worklets omits worklets' locations and maps.
-    const envName = dev ? 'development' : process.env.BABEL_ENV || 'production'
+    const processEnv = envFor?.(dev) ?? null
+    const envName = processEnv?.BABEL_ENV ?? (dev ? 'development' : process.env.BABEL_ENV || 'production')
     // What Metro's transformer gives the preset: 0.78's reads the profile from these, not the caller.
     const presetOptions = { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
     // sourceType unambiguous: a file without import or export is a script, as in Metro's transformer.
@@ -124,7 +126,7 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     const maps = sourceMaps ? { sourceMaps: 'inline', sourceRoot: '' } : { inputSourceMap: false }
     // rn.config.json's Babel plugins switched on and off for the build (babel-switches.js).
     const switched = switches(dev)
-    const workerOptions = { ...options, compact: false, ...maps, ownPlugins: ownPlugins(dev), keepPlugins, inlineRequires, switches: switched }
+    const workerOptions = { ...options, compact: false, ...maps, ownPlugins: ownPlugins(dev), keepPlugins, inlineRequires, switches: switched, ...(processEnv !== null && { processEnv }) }
     const babel = babelWorkers(corePath, { ...workerOptions, fingerprinter, oneBuild }, timed, maxWorkers, { warm, eager })
     let switchedKeys = null
     return {

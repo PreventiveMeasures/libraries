@@ -589,6 +589,38 @@ const runApp = (code) => {
   return { context, inject: ({ added, modified }) => [...added, ...modified].forEach(({ module: [, text] }) => runInNewContext(text, context)) }
 }
 
+describe('rn-serve, of a Babel config that reads NODE_ENV and BABEL_ENV', () => {
+  // What the config reads of them as it is loaded (and Babel's env), and its plugin as it runs, each file's.
+  const { root, cleanup } = writeTree({
+    'package.json': { name: 'app' },
+    'babel.config.js': [
+      'module.exports = (api) => {',
+      // As a config that reads them keys Babel's cache by them.
+      '  api.cache.using(() => `${process.env.NODE_ENV} ${process.env.BABEL_ENV}`)',
+      '  const config = [process.env.NODE_ENV, process.env.BABEL_ENV, api.env()]',
+      "  const seen = ({ types: t }) => ({ visitor: { Program(path) { path.unshiftContainer('body', t.expressionStatement(t.assignmentExpression('=', t.memberExpression(t.identifier('globalThis'), t.identifier('seen')), t.valueToNode({ config, plugin: [process.env.NODE_ENV, process.env.BABEL_ENV] })))) } } })",
+      '  return { plugins: [seen] }',
+      '}',
+      '',
+    ].join('\n'),
+    'index.js': 'globalThis.result = globalThis.seen\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  after(cleanup)
+
+  it("has them as each bundle's Babel needs them, none set by hand: a dev one's development, a release one's production, BABEL_ENV the shell's", async () => {
+    // The shell's, which a dev bundle's are over.
+    const server = await serve(root, [], TMP, { env: { NODE_ENV: 'production', BABEL_ENV: 'staging' } })
+    try {
+      const seenOf = async (query) => run(String((await fetchRaw(`${server.url}/index.bundle?platform=ios${query}`)).body)).result
+      assert.deepEqual(await seenOf(''), { config: ['development', 'development', 'development'], plugin: ['development', 'development'] })
+      assert.deepEqual(await seenOf('&dev=false'), { config: ['production', 'staging', 'staging'], plugin: ['production', 'staging'] })
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
 describe('rn-serve, with Fast Refresh', () => {
   const HOT_APP = {
     ...APP,

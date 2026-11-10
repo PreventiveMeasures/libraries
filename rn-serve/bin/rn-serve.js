@@ -74,6 +74,14 @@ const log = (line) => {
 if (values.port !== undefined && (!/^\d+$/u.test(values.port) || Number(values.port) > 65_535)) fail(`--port takes a port, not ${values.port}`)
 defines(true, values.define, fail)
 
+// NODE_ENV and BABEL_ENV as each target's Babel, its config and plugins read them: a dev bundle's development,
+// as its envName; a release bundle's production, BABEL_ENV the shell's if set, as Metro's transformer names
+// its envName. This process's are a dev bundle's, for the project's code it loads (the Metro and Babel
+// configs), as `react-native bundle --dev` sets NODE_ENV: none is to be set by hand.
+const shellBabelEnv = process.env.BABEL_ENV
+const envFor = (dev) => ({ NODE_ENV: dev ? 'development' : 'production', BABEL_ENV: dev ? 'development' : shellBabelEnv || 'production' })
+Object.assign(process.env, envFor(true))
+
 // The project: its rn.config.json, Metro config, peers, Babel config and cache.
 const projectRoot = realpathSync(process.cwd())
 const rnConfig = readRnConfig(projectRoot, fail)
@@ -97,7 +105,7 @@ const last = cacheDir === null ? null : lastBuilds(cacheDir, projectRoot, { laun
 const ownPlugins = (dev) => (dev && runtime !== null && refreshPlugin !== null ? [[refreshPlugin, { skipEnvCheck: true }]] : [])
 // The cache's fingerprint of Babel's workers, which they make with this module.
 const fingerprinter = cacheDir === null ? null : fileURLToPath(new URL('../src/fingerprint.js', import.meta.url))
-const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, ownPlugins, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprinter, eager: true, switches: (dev) => babelSwitchesOf(rnConfig, dev) })
+const babelFor = projectBabel(projectRoot, project, fail, { sourceMaps: true, ownPlugins, babelRCLookup: metro.babelRCLookup, babelRuntime: metro.babelRuntime, maxWorkers: maxWorkersOf(values['max-workers'], metro, fail), fingerprinter, eager: true, switches: (dev) => babelSwitchesOf(rnConfig, dev), envFor })
 for (const dev of babelFor === null ? [true, false] : []) {
   const esm = esmOf(dev)
   if (esm.on) fail(`${esm.by} keeps ES modules through the project's Babel config, and it has none`)

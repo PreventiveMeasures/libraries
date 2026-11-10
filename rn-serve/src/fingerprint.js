@@ -27,7 +27,8 @@ const attempt = (run) => {
     return null
   }
 }
-export const envOf = () => [process.env.NODE_ENV ?? null, process.env.BABEL_ENV ?? null]
+// NODE_ENV and BABEL_ENV, as a target's workers run with them (its options' processEnv), else as this process does.
+export const envOf = (env = process.env) => [env.NODE_ENV ?? null, env.BABEL_ENV ?? null]
 export const fileDigest = (path) => attempt(() => digest(readFileSync(path)))
 // A JSON replacer that keeps functions and RegExps by their source.
 const shown = (_, value) => (typeof value === 'function' || value instanceof RegExp ? String(value) : value)
@@ -143,7 +144,7 @@ function inputsOf(modules, options, reads, look) {
   const looked = [...own].toSorted().map((path) => [path, look(path)])
   const others = [...reads].filter(([path]) => !own.has(path)).map(([path, read]) => [path, stateOf(path, read)])
   const fallback = looked.some(([, value]) => value === null) ? lockfilesOf(options.cwd ?? process.cwd()) : null
-  return [options, envOf(), looked, others.toSorted(([a], [b]) => (a < b ? -1 : 1)), fallback]
+  return [options, envOf(options.processEnv), looked, others.toSorted(([a], [b]) => (a < b ? -1 : 1)), fallback]
 }
 
 // The digests of the lockfiles of the first directory up from `dir` that has any.
