@@ -87,15 +87,27 @@ function checkStaticDependencies(aggregates) {
   }
 }
 
+// The targets CocoaPods puts a phase in that embeds the pods' frameworks: TargetIntegrator's
+// EMBED_FRAMEWORK_TARGET_TYPES, those user-project.js has no name of by their own.
+const EMBEDS = new Set(['application', 'unit_test_bundle', 'ui_test_bundle', 'watch2_extension', 'com.apple.product-type.application.on-demand-install-capable', 'com.apple.product-type.application.messages'])
+
 // The two scripts of an app's target that CocoaPods writes for the phases it puts in the app's project, which
-// copy the pods' resources and embed their frameworks: a phase that runs one has to find it. CocoaPods takes
-// the phase out of the project when the target has no more use for the script; the project is not changed
-// here, and would run what is not there. A script of another's, as Expo's, is not looked at.
+// copy the pods' resources and embed their frameworks. CocoaPods puts the phase in where the script is
+// written, but for the resources of a static library and the frameworks of a target that embeds none, and
+// takes it out where it is written no more. The project is not changed here, so it has to be as CocoaPods
+// would leave it: a phase that runs a script finds it, and a script that is written is run. A script of
+// another's, as Expo's, is not looked at.
 function checkIntegration(aggregates, files) {
   for (const { label, userTarget } of aggregates) {
-    const own = ['resources', 'frameworks'].map((kind) => `${label}/${label}-${kind}.sh`)
-    const missing = own.filter((path) => userTarget.scripts.includes(path) && !files.has(`Target Support Files/${path}`)).map((path) => posix.basename(path))
-    if (missing.length > 0) throw new PodError(`a phase of it in the app's project runs ${missing.join(', ')}, which its pods have no more use for and is not written: the project is integrated for other pods than the lockfile has, and has to be integrated again, or the phase taken out of it`, `targets[${JSON.stringify(userTarget.name)}]`)
+    const where = `targets[${JSON.stringify(userTarget.name)}]`
+    const again = 'the project is integrated for other pods than the lockfile has, and has to be integrated again'
+    const phased = { resources: userTarget.productType !== 'static_library', frameworks: EMBEDS.has(userTarget.productType) }
+    for (const [kind, what] of [['resources', 'resources to copy'], ['frameworks', 'frameworks to embed']]) {
+      const path = `${label}/${label}-${kind}.sh`
+      const [written, run] = [files.has(`Target Support Files/${path}`), userTarget.scripts.includes(path)]
+      if (run && !written) throw new PodError(`a phase of it in the app's project runs ${label}-${kind}.sh, which its pods have no more use for and is not written: ${again}, or the phase taken out of it`, where)
+      if (written && !run && phased[kind]) throw new PodError(`its pods have ${what}, and no phase of it in the app's project runs ${label}-${kind}.sh, which does it: ${again}`, where)
+    }
   }
 }
 

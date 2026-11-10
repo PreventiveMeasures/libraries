@@ -135,9 +135,11 @@ describe('generate, of a library\'s module map', () => {
 })
 
 describe('generate, of the compiled resources of a pod with nothing to build', () => {
+  // The app's project as CocoaPods integrates it for these pods: each target with the phase that copies them.
   const resourcesOf = async (fixture) => {
     const input = await load(join(FIXTURES, fixture, 'project'))
     input.pods.find((pod) => pod.name === 'Local').root.attributes.source_files = 'src/*.h'
+    for (const target of input.user.targets) target.scripts = [...new Set([...target.scripts, `${target.label}/${target.label}-resources.sh`])]
     const text = Buffer.from(generate(input).files.get('Target Support Files/Pods-defaults-App/Pods-defaults-App-resources.sh')).toString('utf8')
     return [...new Set(text.split('\n').filter((line) => line.includes('Main.storyboard')).map((line) => line.trim()))]
   }
@@ -164,6 +166,27 @@ describe('generate, with what is said of one pod over what is said of all', () =
     const flags = Buffer.from(files.get('Target Support Files/Pods-App/Pods-App.debug.xcconfig')).toString('utf8')
     assert.equal(flags.includes('Scripted.modulemap'), false)
     assert.equal(flags.includes('-fmodule-map-file="${PODS_ROOT}/Headers/Public/Local/Local.modulemap"'), true)
+  })
+})
+
+describe('generate, for a project that has no phase for what is written now', () => {
+  it('refuses, as nothing would copy the resources or embed the frameworks, which CocoaPods adds a phase for', async () => {
+    // Local with nothing to build under dynamic frameworks has resources for the app to copy, and the app's
+    // project has only the phase that embeds frameworks: `pod install` puts the other in, and nothing here does.
+    const input = await load(join(FIXTURES, 'dynamic/project'))
+    input.pods.find((pod) => pod.name === 'Local').root.attributes.source_files = 'src/*.h'
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'targets["App"]: its pods have resources to copy, and no phase of it in the app\'s project runs Pods-defaults-App-resources.sh, which does it: the project is integrated for other pods than the lockfile has, and has to be integrated again')
+    // An extension embeds no frameworks and a static library copies no resources: neither has such a phase.
+    const hosted = await load(join(FIXTURES, 'libraries/project'))
+    const ext = hosted.user.targets.find((target) => target.name === 'Ext')
+    Object.assign(ext, { productType: 'static_library', scripts: [] })
+    assert.ok(generate(hosted).files.has('Target Support Files/Pods-Ext/Pods-Ext-resources.sh'))
+    Object.assign(ext, { productType: 'app_extension' })
+    assert.throws(() => generate(hosted), /^PodError: targets\["Ext"\]: its pods have resources to copy, and no phase of it in the app's project runs Pods-Ext-resources\.sh/u)
+    const app = hosted.user.targets.find((target) => target.name === 'App')
+    Object.assign(ext, { scripts: ['Pods-Ext/Pods-Ext-resources.sh'] })
+    app.scripts = app.scripts.filter((path) => !path.endsWith('-frameworks.sh'))
+    assert.throws(() => generate(hosted), /^PodError: targets\["App"\]: its pods have frameworks to embed, and no phase of it in the app's project runs Pods-App-frameworks\.sh/u)
   })
 })
 

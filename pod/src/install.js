@@ -53,6 +53,8 @@ export async function install(dir, github) {
   const input = await load(dir)
   await removeStale(input)
   const downloaded = await fetchPods(input, github)
+  // PodSourceInstaller#install!: a local pod is not downloaded, and its prepare_command is run all the same,
+  // where the pod is, at each installation.
   for (const pod of input.pods) {
     const command = pod.root.attributes.prepare_command
     if (pod.local && typeof command === 'string') runPrepare(pod.name, command, pod.dir, input.config, input.lock.cocoapods)
