@@ -19,6 +19,10 @@ export interface Package {
   // Bundler writes it (`3.3.6p108`). A `github` package takes a tag (`v4` its
   // whole line), a branch or a commit; an unversioned Swift pin is refused.
   versions: string[]
+  // A `github` package: false to ask its repository alone, its name sent to
+  // no other source (OSV), as for one not everyone may read. Any spelling
+  // saying so holds for all. Not for other ecosystems.
+  external?: boolean
 }
 
 export interface AdvisoryOptions {
