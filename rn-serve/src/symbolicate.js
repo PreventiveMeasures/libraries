@@ -25,6 +25,8 @@ const INTERNAL_CALLSITES = new RegExp([
   '/node_modules/scheduler/.+\\.js$',
   '^\\[native code\\]$',
 ].map((pattern) => pattern.replaceAll('/', '[/\\\\]')).join('|'), 'u')
+// INTERNAL_CALLSITES is quadratic in the length of a name that doesn't match (26 s for 900 KB); no path is this long.
+const MAX_FILE = 4096
 const NEWLINE = /\r\n|[\n\r\u2028\u2029]/u
 const FIELDS = [['file', 'string'], ['methodName', 'string'], ['lineNumber', 'number'], ['column', 'number']]
 
@@ -52,7 +54,7 @@ export function symbolicate(stack, maps, readSource) {
     const position = map === undefined || frame.lineNumber == null || frame.column == null ? null : map.originalPositionFor(frame.lineNumber, frame.column)
     const file = position === null ? undefined : map.sources[position.source]
     const out = file === undefined ? frame : { ...frame, file, lineNumber: position.line1, column: position.column0 }
-    return { ...out, collapse: out.file != null && INTERNAL_CALLSITES.test(out.file) }
+    return { ...out, collapse: out.file != null && out.file.length <= MAX_FILE && INTERNAL_CALLSITES.test(out.file) }
   })
   // A code frame of the first frame not collapsed (any, if all are) in a source we have.
   const allCollapsed = symbolicated.every(({ collapse }) => collapse)

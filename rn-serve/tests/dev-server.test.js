@@ -277,6 +277,12 @@ describe('symbolication', () => {
     assert.deepEqual(stack[1], { file: 'http://h/other.bundle', lineNumber: 3, column: 4, methodName: 'm', collapse: false })
     assert.equal(codeFrame, null)
   })
+
+  // Its patterns take time quadratic in a name's length.
+  it("tests no name longer than a path for React Native's own", () => {
+    const { stack } = symbolicate([{ file: `${'a'.repeat(4096)}/Libraries/Core/x.js` }], new Map(), () => null)
+    assert.equal(stack[0].collapse, false)
+  })
 })
 
 describe('watching', () => {
