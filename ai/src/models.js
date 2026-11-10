@@ -17,10 +17,11 @@ const LISTING_PROVIDERS = ['anthropic', 'openai', 'openrouter', 'ollama', 'chrom
 const OWN_NAMESPACE = { anthropic: 'anthropic/', openai: 'openai/', moonshot: 'moonshotai/' }
 
 // The models a provider serves, each with the effort levels it takes there; every model when no
-// provider is named. OpenRouter serves the main list, and Anthropic, OpenAI and Moonshot its rows
-// under their own namespace, bar the few only OpenRouter still reaches. Ollama serves the rows its
-// tag table maps, in that table's order, and Chrome its on-device ones, found by the lookup its
-// adapter makes. `manual` is Anthropic's alone, so no other provider lists it.
+// provider is named. OpenRouter serves the main list bar the rows only their vendor reaches, and
+// Anthropic, OpenAI and Moonshot its rows under their own namespace, bar the few only OpenRouter
+// still reaches. Ollama serves the rows its tag table maps, in that table's order, and Chrome its
+// on-device ones, found by the lookup its adapter makes. `manual` is Anthropic's alone, so no other
+// provider lists it.
 //
 // `free` works the way validateModel's does: the free endpoints with it, which are OpenRouter's, and
 // everything else without, so a listing is exactly what that mode accepts.
@@ -28,7 +29,7 @@ function servedRows(provider, free) {
   if (free) return provider === undefined || provider === 'openrouter' ? FREE_MODELS : []
   const rows = [...MAIN_MODELS, ...LOCAL_MODELS]
   if (provider === undefined) return rows
-  if (provider === 'openrouter') return MAIN_MODELS
+  if (provider === 'openrouter') return MAIN_MODELS.filter(([, row]) => !row.vendorOnly)
   if (provider === 'ollama') return ollamaModels().map((id) => [id, MODELS.get(id)])
   if (provider === 'chrome') return rows.filter(([id]) => baseModelFor(id))
   return MAIN_MODELS.filter(([id, row]) => id.startsWith(OWN_NAMESPACE[provider]) && !row.openRouterOnly)
@@ -170,10 +171,13 @@ export function canDisableThink(model) {
 export const TASK_BUDGET_MODELS = new Set([
   'anthropic/claude-opus-5.5',
   'anthropic/claude-fable-5.2',
+  'anthropic/claude-mythos-5.2',
   'anthropic/claude-sonnet-5.5',
   'anthropic/claude-haiku-5.5',
   'anthropic/claude-fable-5.1',
+  'anthropic/claude-mythos-5.1',
   'anthropic/claude-fable-5',
+  'anthropic/claude-mythos-5',
   'anthropic/claude-opus-5',
   'anthropic/claude-opus-4.7',
   'anthropic/claude-opus-4.8',

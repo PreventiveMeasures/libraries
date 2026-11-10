@@ -184,6 +184,9 @@ describe('canTaskBudget', () => {
   it('true for the models on the task-budgets-2026-03-13 beta', () => {
     assert.equal(canTaskBudget('anthropic/claude-fable-5.2'), true)
     assert.equal(canTaskBudget('anthropic/claude-fable-5.1'), true)
+    assert.equal(canTaskBudget('anthropic/claude-mythos-5.2'), true)
+    assert.equal(canTaskBudget('anthropic/claude-mythos-5.1'), true)
+    assert.equal(canTaskBudget('anthropic/claude-mythos-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-sonnet-5.5'), true)
     assert.equal(canTaskBudget('anthropic/claude-haiku-5.5'), true)
     assert.equal(canTaskBudget('anthropic/claude-fable-5'), true)
@@ -397,6 +400,9 @@ describe('no-think wire form', () => {
     ['anthropic/claude-fable-5', false, false],
     ['anthropic/claude-fable-5.1', false, false],
     ['anthropic/claude-fable-5.2', false, false],
+    ['anthropic/claude-mythos-5.2', false, false],
+    ['anthropic/claude-mythos-5.1', false, false],
+    ['anthropic/claude-mythos-5', false, false],
     // Sonnet 5.5's off switch is between_tools, on the Messages API alone:
     // OpenRouter marks its reasoning mandatory.
     ['anthropic/claude-sonnet-5.5', false, true],
@@ -492,6 +498,37 @@ describe('claude fable 5.2', () => {
     assert.deepEqual(effortsFor(FABLE52), ['low', 'medium', 'high', 'xhigh', 'max'])
     assert.equal(canTaskBudget(FABLE52), true)
   })
+})
+
+// Each Mythos row is its Fable twin, served only to organizations Anthropic
+// has verified: the same model, priced the same on every leg, with the same
+// limits and thinking rules.
+describe('claude mythos', () => {
+  for (const [mythos, fable, input, output, cacheRead] of [
+    ['anthropic/claude-mythos-5.2', 'anthropic/claude-fable-5.2', 8, 40, 0.2],
+    ['anthropic/claude-mythos-5.1', 'anthropic/claude-fable-5.1', 10, 50, 0.25],
+    ['anthropic/claude-mythos-5', 'anthropic/claude-fable-5', 10, 50, 1],
+  ]) {
+    it(`${mythos}: bills the published $${input} / $${output}, $${cacheRead} cache reads and both cache writes, as ${fable} does`, () => {
+      const leg = (name) => ({ ...emptyUsage(), [name]: 1_000_000 })
+      assert.equal(calculateCost(mythos, leg('input')), input)
+      assert.equal(calculateCost(mythos, leg('output')), output)
+      assert.equal(calculateCost(mythos, leg('cacheRead')), cacheRead)
+      assert.equal(calculateCost(mythos, leg('cacheWrite5m')), input * 1.25)
+      assert.equal(calculateCost(mythos, leg('cacheWrite1h')), input * 2)
+      for (const name of ['input', 'output', 'cacheRead', 'cacheWrite5m', 'cacheWrite1h']) {
+        assert.equal(calculateCost(mythos, leg(name)), calculateCost(fable, leg(name)), name)
+      }
+    })
+
+    it(`${mythos}: thinks always, on all five effort levels, with a 128,000 cap and the task-budgets beta`, () => {
+      assert.equal(getMaxTokens(mythos), 128_000)
+      assert.equal(canAdaptive(mythos), true)
+      assert.equal(canDisableThink(mythos), false)
+      assert.deepEqual(effortsFor(mythos), ['low', 'medium', 'high', 'xhigh', 'max'])
+      assert.equal(canTaskBudget(mythos), true)
+    })
+  }
 })
 
 describe('claude fable 5.1', () => {
@@ -1452,6 +1489,9 @@ describe('effortsFor / EFFORT_LEVELS', () => {
 describe('supportedModels', () => {
   const ids = (provider, free) => supportedModels({ provider, free }).map((m) => m.id)
   const entry = (id, provider) => supportedModels({ provider }).find((m) => m.id === id)
+  // The rows only their vendor serves: Mythos needs Anthropic's verification,
+  // and OpenRouter carries none of it.
+  const VENDOR_ONLY = ['anthropic/claude-mythos-5.2', 'anthropic/claude-mythos-5.1', 'anthropic/claude-mythos-5']
 
   it('is re-exported from index.js', () => {
     assert.equal(ai.supportedModels, supportedModels)
@@ -1488,17 +1528,25 @@ describe('supportedModels', () => {
   it('gives anthropic and openai their own namespace, less what only OpenRouter still reaches', () => {
     const anthropic = ids('anthropic')
     assert.ok(anthropic.length > 0)
-    assert.deepEqual(anthropic, ids('openrouter').filter((id) => id.startsWith('anthropic/')))
+    assert.deepEqual(anthropic.filter((id) => !VENDOR_ONLY.includes(id)), ids('openrouter').filter((id) => id.startsWith('anthropic/')))
     const openai = ids('openai')
     assert.ok(openai.length > 0 && openai.every((id) => id.startsWith('openai/')))
     assert.ok(openai.includes('openai/gpt-6-sol-pro'))
     for (const id of ['openai/gpt-oss-120b', 'openai/gpt-oss-120b:free']) assert.equal(openai.includes(id), false, id)
   })
 
-  it('keeps each direct provider inside the main list', () => {
+  it('keeps each direct provider inside the main list, bar the rows only their vendor serves', () => {
     const main = ids('openrouter')
     for (const provider of ['anthropic', 'openai']) {
-      for (const id of ids(provider)) assert.ok(main.includes(id), `${provider}: ${id}`)
+      for (const id of ids(provider)) assert.ok(main.includes(id) || VENDOR_ONLY.includes(id), `${provider}: ${id}`)
+    }
+  })
+
+  it('lists the Mythos rows on anthropic and with no provider named, and leaves them off openrouter', () => {
+    for (const id of VENDOR_ONLY) {
+      assert.ok(ids('anthropic').includes(id), id)
+      assert.ok(ids().includes(id), id)
+      assert.equal(ids('openrouter').includes(id), false, id)
     }
   })
 

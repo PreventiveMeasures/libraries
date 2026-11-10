@@ -31,18 +31,22 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // first-party API.
 const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 
-// Prices in dollars per million tokens. The main list is every paid model OpenRouter serves; its free
-// endpoints have a list of their own, and the local models run on this machine. Within each vendor,
-// rows run in the order a picker should offer them.
+// Prices in dollars per million tokens. The main list is every paid model OpenRouter serves, plus the
+// `vendorOnly` rows that only their maker's own API reaches; OpenRouter's free endpoints have a list
+// of their own, and the local models run on this machine. Within each vendor, rows run in the order
+// a picker should offer them.
 export const MAIN_MODELS = [
   // Thinking is always on: `disabled` and a manual `budget_tokens` both 400. Cache reads are 0.05x
   // input rather than the usual 0.10x, so the row names them.
   ['anthropic/claude-opus-5.5', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
   ['anthropic/claude-fable-5.2', { input: 8, output: 40, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
+  ['anthropic/claude-mythos-5.2', { input: 8, output: 40, cacheReadPrice: 0.2, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported', vendorOnly: true }],
   ['anthropic/claude-sonnet-5.5', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 128_000, canThink: 'adaptive', noThink: 'between_tools' }],
   ['anthropic/claude-haiku-5.5', { input: 0.1, output: 0.5, longContext: { above: 100_000, input: 5, output: 5 }, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-fable-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
-  ['anthropic/claude-fable-5',{ input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
+  ['anthropic/claude-mythos-5.1', { input: 10, output: 50, cacheReadPrice: 0.25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported', vendorOnly: true }],
+  ['anthropic/claude-fable-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported' }],
+  ['anthropic/claude-mythos-5', { input: 10, output: 50, maxTokens: 128_000, canThink: 'adaptive', noThink: 'unsupported', vendorOnly: true }],
   ['anthropic/claude-opus-5', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-sonnet-5', { input: 2, output: 10, maxTokens: 128_000, canThink: 'adaptive', noThink: 'explicit' }],
   ['anthropic/claude-opus-4.8', { input: 5, output: 25, maxTokens: 128_000, canThink: 'adaptive' }],
