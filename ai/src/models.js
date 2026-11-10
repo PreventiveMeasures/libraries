@@ -175,7 +175,6 @@ export const TASK_BUDGET_MODELS = new Set([
   'anthropic/claude-fable-5.1',
   'anthropic/claude-fable-5',
   'anthropic/claude-opus-5',
-  'anthropic/claude-sonnet-5',
   'anthropic/claude-opus-4.7',
   'anthropic/claude-opus-4.8',
 ])
