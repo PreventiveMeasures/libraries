@@ -45,9 +45,10 @@ export class SourceRefusal extends DeptreeError {}
 // `tar xf` or `unzip` extracts, and the hash the podspec holds it to. A
 // tag is refused, as the lockfile holds no commit for one and GitHub can
 // move it. A prepare_command, a script CocoaPods runs in the download, is
-// refused, as is any other source, each with a SourceRefusal.
-export function sourceOf(podspec, where) {
-  if (given(podspec.attributes.prepare_command)) throw new SourceRefusal('a prepare_command, a script CocoaPods runs in the download, is not supported', where)
+// refused unless `prepares`, where the caller runs it, as is any other
+// source, each with a SourceRefusal.
+export function sourceOf(podspec, where, prepares = false) {
+  if (given(podspec.attributes.prepare_command) && !prepares) throw new SourceRefusal('a prepare_command, a script CocoaPods runs in the download, is not supported', where)
   const source = podspec.attributes.source
   if (!isObject(source)) throw new SourceRefusal('its podspec has no source to download it from', where)
   const strategies = STRATEGIES.filter((strategy) => Object.hasOwn(source, strategy))

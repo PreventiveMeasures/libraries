@@ -108,6 +108,13 @@ importers:
       '@preventive/lockfile':
         specifier: ^1.3.0
         version: link:../lockfile
+      '@preventive/upstream':
+        specifier: ^1.7.0
+        version: link:../upstream
+    devDependencies:
+      '@preventive/archive':
+        specifier: ^1.4.0
+        version: link:../archive
 
   publishers: {}
 

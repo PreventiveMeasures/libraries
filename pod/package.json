@@ -3,24 +3,31 @@
   "version": "0.0.0",
   "description": "React Native iOS dependencies without CocoaPods",
   "type": "module",
+  "bin": {
+    "pod-install": "bin/pod-install.js"
+  },
   "files": [
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "bin/pod-install.js",
     "src/binaries.js",
     "src/config.js",
     "src/error.js",
     "src/files.js",
     "src/generate.js",
     "src/headers.js",
+    "src/install.js",
     "src/load.js",
     "src/pbxproj.js",
     "src/plist.js",
+    "src/prepare.js",
     "src/project-aggregate.js",
     "src/project-pods.js",
     "src/project.js",
     "src/settings-aggregate.js",
     "src/settings-pod.js",
     "src/settings.js",
+    "src/sources.js",
     "src/spec.js",
     "src/support.js",
     "src/targets.js",
@@ -59,6 +66,10 @@
   },
   "dependencies": {
     "@preventive/deptree": "^1.4.0",
-    "@preventive/lockfile": "^1.3.0"
+    "@preventive/lockfile": "^1.3.0",
+    "@preventive/upstream": "^1.7.0"
+  },
+  "devDependencies": {
+    "@preventive/archive": "^1.4.0"
   }
 }

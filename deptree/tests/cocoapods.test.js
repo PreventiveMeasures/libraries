@@ -238,6 +238,23 @@ describe('buildCocoaPodsTree', () => {
     }
   })
 
+  it('runs a prepare_command through `prepare`, and cleans what it leaves', async () => {
+    const podspec = podspecOf({ prepare_command: 'mv Sources Src', subspecs: [{ name: 'Core', source_files: 'Src/Core' }, { name: 'UI', source_files: 'Src/UI/**/*.swift' }] })
+    const seen = []
+    const moved = (path) => path.replace(/^Sources(?=\/|$)/u, 'Src')
+    const prepare = ({ name, version, command, contents }) => {
+      seen.push([name, version, command, contents.files.has('Sources/Core/Acme.m')])
+      return { dirs: [...contents.dirs].map(moved), files: new Map([...contents.files].map(([path, file]) => [moved(path), file])), links: contents.links }
+    }
+    const { vfs } = await build({ lockfile: coreLock(podspec), podspec, prepare })
+    assert.deepEqual(seen, [['Acme', '1.2.0', 'mv Sources Src', true]])
+    assert.deepEqual(listing(vfs), Object.fromEntries(Object.entries(CORE).map(([path, entry]) => [path.replace('Pods/Acme/Sources', 'Pods/Acme/Src'), entry])))
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, prepare: () => ({ dirs: [], files: new Map([['a', 'text']]), links: new Map() }) }), /prepare must give the download back/u)
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, prepare: true }), /prepare must be a function/u)
+    const untyped = podspecOf({ prepare_command: ['make'] })
+    await assert.rejects(build({ lockfile: coreLock(untyped), podspec: untyped, prepare }), /its prepare_command is not text/u)
+  })
+
   it('refuses a pod from another spec repo or an external source but :path, before fetching anything', async () => {
     const other = coreLock().replace('  trunk:\n', '  https://github.com/acme/specs.git:\n')
     const calls = stubPods()
