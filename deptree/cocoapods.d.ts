@@ -182,11 +182,12 @@ export interface CocoaPodsInstalledHttp extends CocoaPodsInstalledPod {
 
 // A pod `partial` skips: `name` and `version` the lockfile's, of the root;
 // `reason` the refusal's message, as the call throws it without `partial`,
-// leading with `pods["<name>"]`.
+// leading with `pods["<name>"]`; `paths`, its directory in Pods.
 export interface CocoaPodsSkipped {
   name: string
   version: string
   reason: string
+  paths: string[]
 }
 
 // `vfs` is the one given, the tree mounted into it, or a new one.

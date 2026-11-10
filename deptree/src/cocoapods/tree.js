@@ -179,6 +179,6 @@ export async function buildCocoaPodsTree(options) {
   for (const { name } of downloaded) writeFiles(vfs, `Pods/${name}`, contents.get(name), stats)
   if (manifest) writeManifest(vfs, inputs.lockfile, stats)
   const installed = downloaded.map((root) => installedOf(root, plans.get(root.name)))
-  const left = roots.filter(({ name }) => skipped?.has(name)).map(({ name, version }) => ({ name, version, reason: skipped.get(name) }))
+  const left = roots.filter(({ name }) => skipped?.has(name)).map(({ name, version }) => ({ name, version, reason: skipped.get(name), paths: [`Pods/${name}`] }))
   return { vfs: mount(vfs, into, folded, checkNoPods), stats, installed, skipped: left }
 }

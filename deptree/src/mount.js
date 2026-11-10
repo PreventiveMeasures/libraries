@@ -21,14 +21,17 @@ export function checkNoModules(vfs, folded) {
   }
 }
 
-// The same for a directory of `name` at the root alone, as Soldeer's
-// dependencies and cargo's vendor: `what` it is called.
-export const checkNoDir = (name, what) => (vfs, folded) => {
-  for (const there of vfs.readdir('/')) {
-    if (there === name || (folded && fold(there) === fold(name))) {
-      throw new DeptreeError(`${what} is there already, which is neither kept beside the tree nor removed`, where(`/${there}`))
-    }
+// The same for a directory at `path` from the root, as Soldeer's
+// dependencies, cargo's vendor or Bundler's path: `what` it is called.
+export const checkNoDir = (path, what, why = 'which is neither kept beside the tree nor removed') => (vfs, folded) => {
+  let at = ''
+  for (const segment of path.split('/')) {
+    const dir = at || '/'
+    const there = vfs.isDirectory(dir) ? vfs.readdir(dir).find((name) => name === segment || (folded && fold(name) === fold(segment))) : undefined
+    if (there === undefined) return
+    at = `${at}/${there}`
   }
+  throw new DeptreeError(`${what} is there already, ${why}`, where(at))
 }
 
 function checkCollisions(vfs) {

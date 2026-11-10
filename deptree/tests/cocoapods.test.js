@@ -125,8 +125,8 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(stats, { pods: 3, downloaded: 1, files: 10, bytes: 147 + Buffer.byteLength(MIXED_LOCK), links: 0 })
     assert.deepEqual(installed.map(({ name }) => name), ['Acme'])
     assert.deepEqual(skipped, [
-      { name: 'Local', version: '0.1.0', reason: 'pods["Local"]: a pod from an external source by :git is not supported: only those from trunk, by :podspec and by :path are' },
-      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: an :http source from "https://example.com/other.zip", not https://github.com/<owner>/<repo>/ and a path of letters, digits and `_.~@-%` under it, is not supported' },
+      { name: 'Local', version: '0.1.0', reason: 'pods["Local"]: a pod from an external source by :git is not supported: only those from trunk, by :podspec and by :path are', paths: ['Pods/Local'] },
+      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: an :http source from "https://example.com/other.zip", not https://github.com/<owner>/<repo>/ and a path of letters, digits and `_.~@-%` under it, is not supported', paths: ['Pods/Other'] },
     ])
     // Other's podspec is fetched, to know where it is from; nothing more of it.
     assert.deepEqual(calls.trunk.map((at) => at.split('/').at(-1)).sort(), ['Acme.podspec.json', 'Other.podspec.json'])

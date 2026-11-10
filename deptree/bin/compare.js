@@ -36,11 +36,16 @@ export function projectView(root) {
 // support files and the projects.
 const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.package-map\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)|^Pods\/(?:Local Podspecs|Headers|Target Support Files|\.project_cache|[^/]+\.xcodeproj)(?:\/|$)/u
 
+// The same of Bundler's path, `folder`: what Bundler and RubyGems generate
+// in each scope beside the gems and their .gem files, and .bundle/config,
+// which is in `folder` where that is .bundle.
+export const bundlerNotBuilt = (folder) => new RegExp(`^(?:${RegExp.escape(folder)}/[^/]+/[^/]+/(?:specifications|bin|extensions|build_info|plugins|doc)|\\.bundle/config)(?:/|$)`, 'u')
+
 // Everything under each of `dirs` as `view` has it, the disk's projectView
 // or the tree's Vfs: links not followed, every file read whole, and a
 // folder not there left out. A directory deptree never builds is one entry,
-// not entered, as only it is ever listed.
-export function readSide(view, dirs) {
+// not entered, as only it is ever listed; `notBuilt` says which.
+export function readSide(view, dirs, notBuilt = NOT_BUILT) {
   const entries = new Map()
   const stack = dirs.filter((dir) => typeOf(view, dir, false) !== undefined)
   while (stack.length > 0) {
@@ -50,7 +55,7 @@ export function readSide(view, dirs) {
     if (type === 'file') entry.data = view.readFile(path)
     if (type === 'symlink') entry.target = view.readlink(path)
     entries.set(path, entry)
-    if (type === 'directory' && !NOT_BUILT.test(path)) for (const name of view.readdir(path)) stack.push(`${path}/${name}`)
+    if (type === 'directory' && !notBuilt.test(path)) for (const name of view.readdir(path)) stack.push(`${path}/${name}`)
   }
   return entries
 }
@@ -59,11 +64,11 @@ export function readSide(view, dirs) {
 // builds, and directories of nothing else, as pnpm leaves a node_modules of a
 // .bin of links to what it removed, a scope once its last package goes, or
 // the hoisted linker's .pnpm of its state alone.
-export function leftOut(changes, disk) {
+export function leftOut(changes, disk, notBuilt = NOT_BUILT) {
   const left = new Set(changes.filter(({ mark }) => mark === '-').map(({ path }) => path))
   for (const [path, { type }] of disk) {
     if (left.size === 0) break
-    if (type === 'directory' || NOT_BUILT.test(path)) continue
+    if (type === 'directory' || notBuilt.test(path)) continue
     // Nothing listed is under another listed, so the first one up is its.
     for (let at = path; at !== '.'; at = dirname(at)) {
       if (left.delete(at)) break
