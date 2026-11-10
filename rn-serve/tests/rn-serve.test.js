@@ -379,12 +379,16 @@ describe('rn-serve', () => {
     android.ws.close()
   })
 
-  it('reloads each app on /reload, as the CLI does, building nothing anew', async () => {
+  it('reloads each app on a POST to /reload, as the CLI does, building nothing anew; on no GET, which a page can have a browser send', async () => {
     const builds = () => server.output().match(/rn-serve: built /gu)?.length ?? 0
     await fetchRaw(bundleUrl())
     const built = builds()
     const message = await socket(`${server.url}/message`)
-    assert.equal(String((await fetchRaw(`${server.url}/reload`)).body), 'OK')
+    for (const method of ['GET', 'HEAD', 'PUT']) {
+      const r = await fetchRaw(`${server.url}/reload`, { method })
+      assert.deepEqual([r.status, r.headers.allow], [405, 'POST'], method)
+    }
+    assert.equal(String((await fetchRaw(`${server.url}/reload`, { method: 'POST' })).body), 'OK')
     await until(() => message.messages.length === 1, 'a reload')
     message.ws.close()
     assert.equal((await fetchRaw(bundleUrl())).status, 200)

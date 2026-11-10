@@ -50,7 +50,6 @@ describe('the gate', () => {
     for (const [origin, address] of [['http://127.0.0.1:8081', '127.0.0.1'], ['http://127.0.0.1:8081', '::ffff:127.0.0.1'], ['http://[::1]:8081', '::1']]) assert.equal(via('localhost:8081', origin, address), null, `${origin} on ${address}`)
     for (const [host, origin, address] of [
       ['localhost:8081', 'http://127.0.0.1:8081', '::1'],
-      ['localhost:8081', 'http://127.0.0.1:8081', undefined],
       ['localhost:8081', 'http://127.0.0.2:8081', '127.0.0.1'],
       ['localhost:8081', 'http://127.0.0.1:8082', '127.0.0.1'],
       ['localhost:8081', 'https://127.0.0.1:8081', '127.0.0.1'],
@@ -61,6 +60,8 @@ describe('the gate', () => {
       ['127.0.0.1:8081', 'http://localhost:8081', '127.0.0.1'],
       ['[::1]:8081', 'http://127.0.0.1:8081', '127.0.0.1'],
     ]) assert.match(via(host, origin, address), /request from/u, `${host} ${origin} on ${address}`)
+    // An upgrade's refusal isn't caught: none throws.
+    for (const socket of [undefined, null, {}, { localAddress: null, localPort: 8081 }]) assert.match(gate({ headers: { host: 'localhost:8081', origin: 'http://127.0.0.1:8081' }, socket }), /request from/u, JSON.stringify(socket))
   })
 
   it("takes the machine's own names as a Host only of a server listening beyond loopback: a name the network answers for could be rebound", () => {

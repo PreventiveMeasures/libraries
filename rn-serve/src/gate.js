@@ -37,10 +37,11 @@ const NOWHERE = /^(?:0\.0\.0\.0|\[::\]|\[::ffff:[\da-f]+:[\da-f]+\])$/u
 // Argent sends Origin http://127.0.0.1:8081 to ws://localhost:8081. Fine where that address and port are
 // the ones the connection came in on: a page there is this server's. No other loopback address is taken:
 // 127.0.0.1, [::1] and 127.0.0.2 on one port may be three servers.
-function cameInOn(from, host, { localAddress = '', localPort } = {}) {
+function cameInOn(from, host, socket) {
+  // Must not throw, whatever the socket: an upgrade's handler catches nothing.
   // On a dual-stack socket an IPv4 address is IPv4-mapped (::ffff:127.0.0.1).
-  const address = localAddress.replace(/^::ffff:(?=\d+\.)/u, '')
-  return host.hostname === 'localhost' && from.port === host.port && Number(from.port || 80) === localPort && isLoopback(address) && unbracketed(from.hostname) === address
+  const address = String(socket?.localAddress).replace(/^::ffff:(?=\d+\.)/u, '')
+  return host.hostname === 'localhost' && from.port === host.port && Number(from.port || 80) === socket?.localPort && isLoopback(address) && unbracketed(from.hostname) === address
 }
 
 // BlockList also matches IPv4-mapped IPv6 addresses (::ffff:127.0.0.1) against the IPv4 rule.
