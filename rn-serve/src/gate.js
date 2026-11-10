@@ -17,6 +17,7 @@ export function createGate({ hostnames = [] } = {}) {
     if (host === null) return 'a request needs a Host'
     // Against DNS rebinding: no page can rebind an IP literal, localhost or the names we were given.
     if (isIP(unbracketed(host.hostname)) === 0 && !names.has(host.hostname)) return `Host ${host.hostname} isn't this server's`
+    if (NOWHERE.test(host.hostname)) return `Host ${host.hostname} isn't this server's`
     // Anything but same-origin (a page we served) or none (the user's own navigation).
     const site = headers['sec-fetch-site']
     if (site !== undefined && site !== 'same-origin' && site !== 'none') return `a ${site} request`
@@ -27,6 +28,11 @@ export function createGate({ hostnames = [] } = {}) {
     return from.protocol === 'http:' && (from.host === host.host || cameInOn(from, host, socket)) ? null : `a request from ${origin}`
   }
 }
+
+// 0.0.0.0, [::] and IPv4-mapped addresses (as URL writes them) reach this machine, but aren't localhost to a
+// browser: it sends them no Sec-Fetch-Site and, on a GET, no Origin, so a page's <img> or navigation
+// there would pass as a tool's request. No client of ours uses them.
+const NOWHERE = /^(?:0\.0\.0\.0|\[::\]|\[::ffff:[\da-f]+:[\da-f]+\])$/u
 
 // Argent sends Origin http://127.0.0.1:8081 to ws://localhost:8081. Fine where that address and port are
 // the ones the connection came in on: a page there is this server's. No other loopback address is taken:

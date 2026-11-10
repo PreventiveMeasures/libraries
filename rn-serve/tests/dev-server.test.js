@@ -40,8 +40,8 @@ describe('the gate', () => {
 
   it("refuses an IP address as Origin but the server's own (webpack-dev-server's CVE-2025-30360), and a page reaching it at 0.0.0.0", () => {
     for (const origin of ['http://192.168.1.5', 'http://192.168.1.5:8081', 'http://10.0.2.2:8081', 'http://[::1]:8081', 'http://0.0.0.0:8081', 'http://127.0.0.1']) assert.match(asks({ host: '127.0.0.1:8081', origin }), /request from/u, origin)
-    assert.match(asks({ host: '0.0.0.0:8081', origin: 'https://evil.example' }), /request from/u)
-    assert.match(asks({ host: '0.0.0.0:8081', 'sec-fetch-site': 'cross-site' }), /cross-site request/u)
+    // With no Origin or Sec-Fetch-Site too, as a browser sends an <img> or a navigation there.
+    for (const host of ['0.0.0.0:8081', '0:8081', '[::]:8081', '[::ffff:127.0.0.1]:8081']) assert.match(asks({ host }), /isn't this server's/u, host)
   })
 
   // Argent's debugger: Origin http://127.0.0.1:8081 to ws://localhost:8081.
