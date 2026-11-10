@@ -42,6 +42,8 @@ export function isDynamic(path) {
 
 // Xcode::XCFramework: `dir` is the .xcframework's directory, `specName` the spec that vends it, which its
 // intermediate directory is named after. Its slices come sorted by their identifiers; its type is its first's.
+// Its name is its directory's, as XCFramework#name is, and CocoaPods links and embeds a framework of it by that
+// name: one that holds a framework of another name is written no differently, and does not link there either.
 export function readXcframework(dir, specName, where) {
   let plist
   try {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
@@ -66,6 +67,29 @@ describe('generate, with build settings of pod.config.json', () => {
         assert.equal(one.CODE_SIGNING_ALLOWED, 'NO', name)
         assert.deepEqual(one.HEADER_SEARCH_PATHS, name === 'Alpha' ? ['$(inherited)', '$(SRCROOT)/..'] : undefined, name)
       }
+    }
+  })
+})
+
+describe('generate, with the app\'s project in another directory than the Podfile\'s', () => {
+  it('gives the app its paths from its project\'s directory, as CocoaPods does, and nothing else is other', async () => {
+    // `project '../App/App.xcodeproj'`: `pod install` 1.16.2 writes the same Pods/ but for these two paths.
+    const root = mkdtempSync(join(tmpdir(), 'pod-generate-test-'))
+    try {
+      cpSync(join(FIXTURES, 'frameworks/project'), join(root, 'ios'), { recursive: true })
+      mkdirSync(join(root, 'App'))
+      renameSync(join(root, 'ios/App.xcodeproj'), join(root, 'App/App.xcodeproj'))
+      const config = JSON.parse(readFileSync(join(root, 'ios/pod.config.json'), 'utf8'))
+      writeFileSync(join(root, 'ios/pod.config.json'), JSON.stringify({ ...config, project: '../App/App.xcodeproj' }))
+      const { files } = generate(await load(join(root, 'ios')))
+      const expected = join(FIXTURES, 'frameworks/expected')
+      const moved = (text) => text.replace('PODS_PODFILE_DIR_PATH = ${SRCROOT}/.', 'PODS_PODFILE_DIR_PATH = ${SRCROOT}/../ios').replace('PODS_ROOT = ${SRCROOT}/Pods', 'PODS_ROOT = ${SRCROOT}/../ios/Pods')
+      const written = [...files.keys()].filter((path) => !path.startsWith('Pods.xcodeproj/'))
+      for (const path of written) assert.equal(Buffer.from(files.get(path)).toString('utf8'), moved(readFileSync(join(expected, path), 'utf8')), path)
+      assert.equal(written.filter((path) => Buffer.from(files.get(path)).toString('utf8').includes('${SRCROOT}/../ios/Pods')).length, 4)
+      assert.deepEqual(treeOf(files.get('Pods.xcodeproj/project.pbxproj')), treeOf(readFileSync(join(expected, 'Pods.xcodeproj/project.pbxproj'), 'utf8')))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

@@ -4,7 +4,7 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 
 import { parsePodfileLock } from '@preventive/lockfile/cocoapods.js'
 
@@ -22,10 +22,11 @@ const posixOf = (path) => path.split(sep).join('/')
 function projectOf(dir, config) {
   const names = config.project === undefined ? readdirSync(dir).filter((name) => name.endsWith('.xcodeproj') && name !== 'Pods.xcodeproj') : [config.project]
   if (names.length !== 1) throw new PodError(names.length === 0 ? 'the directory has no .xcodeproj' : `the directory has more than one .xcodeproj, ${names.map(quote).join(', ')}: name one as \`project\``, 'pod.config.json')
-  const path = join(dir, names[0], 'project.pbxproj')
-  const text = read(path)
+  const path = resolve(dir, names[0])
+  const text = read(join(path, 'project.pbxproj'))
   if (text === undefined) throw new PodError('has no project.pbxproj', names[0])
-  return { name: names[0], dir, ...readUserProject(text.toString('utf8'), names[0]) }
+  // Its own directory is its targets' SRCROOT, which need not be the Podfile's: what they are given paths from.
+  return { name: names[0], dir: dirname(path), ...readUserProject(text.toString('utf8'), names[0]) }
 }
 
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
