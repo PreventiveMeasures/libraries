@@ -129,26 +129,26 @@ describe('github, from OSV of GitHub Actions', () => {
   })
 })
 
-describe('github, asked of its repository alone', () => {
-  it('asks a repository given `external: false` of its own advisories alone, its name sent to no other source', async () => {
+describe('github, internal', () => {
+  it('asks a repository given `internal: true` of its own advisories alone, its name sent to no other source', async () => {
     const own = { ghsa_id: 'GHSA-aaaa-aaaa-aaaa', state: 'published', summary: 'From the repository', severity: 'high', vulnerabilities: [{ package: { ecosystem: 'actions', name: 'acme/secret' }, vulnerable_version_range: '< 2.0.0' }] }
     const calls = stubAll({ records: { 'GHSA-mrrh-fwg8-r2c3': record('GHSA-mrrh-fwg8-r2c3', 'acme/open', fixedIn('2.0.0')) }, listings: { 'acme/open': [], 'acme/secret': [own] } })
-    const found = await advisories([repo('acme/open', ['v1.0.0']), { ...repo('acme/secret', ['v1.0.0']), external: false }], { github })
+    const found = await advisories([repo('acme/open', ['v1.0.0']), { ...repo('acme/secret', ['v1.0.0']), internal: true }], { github })
     assert.deepEqual(calls.filter(({ url }) => url === BATCH).flatMap(({ body }) => body.queries.map(({ package: { name } }) => name)), ['acme/open'])
     assert.deepEqual(found.map(({ name, source, id, versions }) => [name, source, id, versions]), [
       ['acme/open', 'osv', 'GHSA-mrrh-fwg8-r2c3', ['v1.0.0']],
       ['acme/secret', 'repository', 'GHSA-aaaa-aaaa-aaaa', ['v1.0.0']],
     ])
     const alone = stubAll({ listings: { 'acme/secret': [] } })
-    await advisories([{ ...repo('acme/secret', ['v1']), external: false }], { github })
+    await advisories([{ ...repo('acme/secret', ['v1']), internal: true }], { github })
     assert.deepEqual(alone.map(({ url }) => url), [listing('acme/secret')], 'none asked of OSV')
   })
 
-  it('asks a repository alone where any spelling of it says so, and refuses `external` on another ecosystem', async () => {
+  it('takes a repository as internal where any spelling of it is, and refuses `internal` on another ecosystem', async () => {
     const calls = stubAll({ listings: { 'Acme/Secret': [], 'acme/other': [] } })
-    await advisories([repo('Acme/Secret', ['v1']), { ...repo('acme/secret', ['v2']), external: false }, { ...repo('acme/other', ['v1']), external: true }], { github })
+    await advisories([repo('Acme/Secret', ['v1']), { ...repo('acme/secret', ['v2']), internal: true }, { ...repo('acme/other', ['v1']), internal: false }], { github })
     assert.deepEqual(calls.filter(({ url }) => url === BATCH).flatMap(({ body }) => body.queries.map(({ package: { name } }) => name)), ['acme/other'])
-    await assert.rejects(advisories([{ ecosystem: 'npm', name: 'left-pad', versions: ['1.3.0'], external: false }]), /only a github package takes package\.external/u)
-    await assert.rejects(advisories([{ ...repo('acme/x', ['v1']), external: 'no' }], { github }), /package\.external must be a boolean/u)
+    await assert.rejects(advisories([{ ecosystem: 'npm', name: 'left-pad', versions: ['1.3.0'], internal: true }]), /only a github package takes package\.internal/u)
+    await assert.rejects(advisories([{ ...repo('acme/x', ['v1']), internal: 'yes' }], { github }), /package\.internal must be a boolean/u)
   })
 })
