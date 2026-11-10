@@ -188,12 +188,14 @@ describe('canTaskBudget', () => {
     assert.equal(canTaskBudget('anthropic/claude-haiku-5.5'), true)
     assert.equal(canTaskBudget('anthropic/claude-fable-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-opus-5'), true)
-    assert.equal(canTaskBudget('anthropic/claude-sonnet-5'), true)
     assert.equal(canTaskBudget('anthropic/claude-opus-4.7'), true)
     assert.equal(canTaskBudget('anthropic/claude-opus-4.8'), true)
   })
 
   it('false for every other Anthropic model', () => {
+    // Sonnet 5 sits between Sonnet 5.5 and Opus 4.7, both on the beta, but
+    // the task-budgets page lists it as not supported.
+    assert.equal(canTaskBudget('anthropic/claude-sonnet-5'), false)
     assert.equal(canTaskBudget('anthropic/claude-opus-4.6'), false)
     assert.equal(canTaskBudget('anthropic/claude-opus-4.5'), false)
     assert.equal(canTaskBudget('anthropic/claude-sonnet-4.6'), false)
