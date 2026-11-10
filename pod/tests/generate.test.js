@@ -27,7 +27,7 @@ function treeOf(text) {
   return { ...rest, root: expand(rootObject, undefined) }
 }
 
-for (const name of ['frameworks', 'libraries']) {
+for (const name of ['frameworks', 'libraries', 'dynamic']) {
   describe(`generate, of the ${name} fixture`, async () => {
     const expected = join(FIXTURES, name, 'expected')
     const { files, links } = generate(await load(join(FIXTURES, name, 'project')))
@@ -67,5 +67,27 @@ describe('generate, with build settings of pod.config.json', () => {
         assert.deepEqual(one.HEADER_SEARCH_PATHS, name === 'Alpha' ? ['$(inherited)', '$(SRCROOT)/..'] : undefined, name)
       }
     }
+  })
+})
+
+describe('generate, of dynamic frameworks', () => {
+  const staticFramework = (input, name, value) => {
+    input.pods.find((pod) => pod.name === name).root.attributes.static_framework = value
+  }
+
+  it('refuses a dynamic framework with a pod linked statically under it, as CocoaPods does', async () => {
+    // Beta, built dynamic, on Alpha, built static: `pod install` 1.16.2 fails on it, with the same words.
+    const input = await load(join(FIXTURES, 'dynamic/project'))
+    staticFramework(input, 'Alpha', true)
+    staticFramework(input, 'Beta', false)
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'targets["App"]: has transitive dependencies that include statically linked binaries: Alpha')
+    // And one that is not built itself, but is static all the same.
+    const headers = await load(join(FIXTURES, 'dynamic/project'))
+    staticFramework(headers, 'Delta', true)
+    assert.throws(() => generate(headers), /has transitive dependencies that include statically linked binaries: Delta/u)
+    // A static one on a dynamic one is as the fixture has it; and with no dynamic framework, nothing is refused.
+    const frameworks = await load(join(FIXTURES, 'frameworks/project'))
+    staticFramework(frameworks, 'Delta', true)
+    assert.ok(generate(frameworks).files.has('Pods.xcodeproj/project.pbxproj'))
   })
 })

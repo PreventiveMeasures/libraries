@@ -10,7 +10,7 @@ import { headersOf } from './headers.js'
 import { writeProject } from './pbxproj.js'
 import { addAggregateTarget, wireDependencies } from './project-aggregate.js'
 import { addPodFiles, addPodTarget } from './project-pods.js'
-import { newGroup, newProject, normalizeSettings, pathFrom, sortProject } from './project.js'
+import { addSystemFramework, newGroup, newProject, normalizeSettings, pathFrom, sortProject } from './project.js'
 import { aggregateConfig } from './settings-aggregate.js'
 import { podSettings } from './settings-pod.js'
 import { deploymentTarget } from './spec.js'
@@ -64,11 +64,28 @@ function headerLinks(targets, sandbox) {
   return links
 }
 
+// TargetValidator#verify_no_static_framework_transitive_dependencies: a pod built as a dynamic framework may
+// have nothing linked statically under it, which would be in it and in whatever else has it too. CocoaPods
+// refuses the installation, and so is it refused here: a pod of binaries that are static, or one built static.
+function checkStaticDependencies(aggregates) {
+  for (const aggregate of aggregates) {
+    const dynamic = aggregate.podTargets.filter((target) => target.shouldBuild && !target.static)
+    const under = new Set(dynamic.flatMap((target) => target.dependencies))
+    const binaries = aggregate.podTargets.filter((target) => !target.shouldBuild && under.has(target)).flatMap(({ settings }) => [
+      ...settings.vendored.staticFrameworks, ...settings.vendored.staticLibraries, ...settings.xcframeworks.filter((one) => !one.dynamic).map((one) => one.name),
+    ])
+    const built = [...new Set(dynamic.flatMap((target) => target.recursiveDependencies))].filter((target) => target.static).map((target) => target.name)
+    const found = binaries.length > 0 ? binaries : built
+    if (found.length > 0) throw new PodError(`has transitive dependencies that include statically linked binaries: ${found.join(', ')}`, `targets[${JSON.stringify(aggregate.userTarget.name)}]`)
+  }
+}
+
 // `input` is load.js's. The files come by their paths from Pods/, each as text; the links as headerLinks'.
 export function generate(input) {
   const { dir, sandbox, config, user } = input
   const { podTargets, aggregates, configurations } = analyze(input.pods, user, config)
   for (const target of podTargets) prepare(target, podTargets)
+  checkStaticDependencies(aggregates)
   for (const target of podTargets) target.configText = configText(target.settings.config)
   const lowest = aggregates.map((aggregate) => aggregate.platform.target).reduce((least, target) => (compareVersions(target, least) < 0 ? target : least))
   if (lowest === undefined) throw new PodError('no deployment target is given, by `platform` or by the app\'s targets', 'pod.config.json')
@@ -97,6 +114,11 @@ export function generate(input) {
   }
   for (const target of podTargets) addPodFiles(project, target, sandbox)
   for (const target of podTargets) addPodTarget(project, target, context)
+  // PodsProjectGenerator#add_system_framework_dependencies: a pod built as a dynamic framework is linked with
+  // the frameworks of the system its podspec names, which a static one leaves to the app.
+  for (const target of podTargets.filter((one) => one.shouldBuild && !one.static)) {
+    for (const name of target.consumers.flatMap((consumer) => consumer.frameworks)) addSystemFramework(project, target.native, name)
+  }
   for (const aggregate of aggregates) addAggregateTarget(project, aggregate, context)
   wireDependencies(project, podTargets, aggregates)
   // What a post_install hook set: on every target of the project, and on one pod's own.

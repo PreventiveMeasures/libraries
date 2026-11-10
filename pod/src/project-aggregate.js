@@ -122,7 +122,12 @@ export function addAggregateTarget(project, aggregate, context) {
 // bundles' and on those of the pods it depends on itself; an app's Pods target on every pod it takes.
 export function wireDependencies(project, pods, aggregates) {
   for (const pod of pods) {
-    for (const bundle of pod.bundles) addDependency(project, pod.native, bundle)
+    // A dynamic framework has its bundles in it, as resources of its own; the app copies none of them.
+    const dynamic = pod.shouldBuild && pod.framework && !pod.static
+    for (const bundle of pod.bundles) {
+      addDependency(project, pod.native, bundle)
+      if (dynamic) addFile(pod.native, 'Resources', bundle.productReference)
+    }
     for (const other of pod.dependencies) addDependency(project, pod.native, other.native)
   }
   for (const aggregate of aggregates) for (const pod of aggregate.podTargets) addDependency(project, aggregate.native, pod.native)

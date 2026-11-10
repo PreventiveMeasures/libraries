@@ -1,0 +1,11 @@
+platform :ios, '16.4'
+use_frameworks! :linkage => :dynamic
+abstract_target 'defaults' do
+  pod 'Alpha', :path => 'local/Alpha'
+  pod 'Beta', :path => 'local/Beta'
+  pod 'Delta', :path => 'local/Delta', :modular_headers => true
+  pod 'Gamma', :podspec => 'specs/Gamma.podspec.json'
+  pod 'Gamma/Extra', :podspec => 'specs/Gamma.podspec.json'
+  target 'App'
+  target 'Ext'
+end

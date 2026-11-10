@@ -1,0 +1,11 @@
+{
+  "platform": {
+    "ios": "16.4"
+  },
+  "frameworks": "dynamic",
+  "pods": {
+    "Delta": {
+      "modularHeaders": true
+    }
+  }
+}

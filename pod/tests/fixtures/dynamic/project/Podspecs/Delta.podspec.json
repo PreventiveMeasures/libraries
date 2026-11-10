@@ -1,0 +1,17 @@
+{
+  "name": "Delta",
+  "version": "0.3.0",
+  "summary": "Delta",
+  "homepage": "https://example.com/delta",
+  "license": "MIT",
+  "authors": "Fixture",
+  "platforms": {
+    "ios": "13.0"
+  },
+  "source": {
+    "git": "https://example.com/delta.git",
+    "tag": "0.3.0"
+  },
+  "source_files": "include/**/*.h",
+  "header_dir": "delta"
+}
