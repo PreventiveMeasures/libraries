@@ -1,5 +1,6 @@
 // rn-bundle (usage in bin/rn-bundle.js): resolves to its exit code, 1 for a usage error, a failed
-// build or --self-test differences. It stops the Babel workers it made, and sets NODE_ENV.
+// build or --self-test differences. It stops the Babel workers it made; NODE_ENV and BABEL_ENV are the
+// build's while it runs (buildEnvOf()'s), then as they were.
 
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
@@ -8,7 +9,7 @@ import { parseArgs } from 'node:util'
 import { assetCatalogFiles, assetsDestFiles } from './assets-dest.js'
 import { profileReport, timedBefore } from './babel-worker.js'
 import { bundle } from './bundle.js'
-import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
+import { TRANSFORM_PROFILES, babelAliases, bigBuild, buildEnvOf, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
 import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from './rn-config.js'
@@ -61,6 +62,7 @@ function argsOf(argv) {
 export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.stderr } = {}) {
   // Each Babel target's close() for its workers.
   const closing = []
+  const before = { NODE_ENV: process.env.NODE_ENV, BABEL_ENV: process.env.BABEL_ENV }
   try {
     return await run(argsOf(argv), { cwd, stderr, closing })
   } catch (error) {
@@ -69,6 +71,10 @@ export async function rnBundle(argv, { cwd = process.cwd(), stderr = process.std
     return 1
   } finally {
     await Promise.all(closing.map((close) => close()))
+    for (const [name, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
   }
 }
 
@@ -76,10 +82,11 @@ async function run(args, { cwd, stderr, closing }) {
   const { platform, dev, entry } = args
   const sourcemap = args['sourcemap-output'] !== undefined
   const define = defines(dev, args.define, fail)
-  const env = dev ? 'development' : 'production'
-  // Set before Babel's workers start, as `react-native bundle` does: Reanimated 3's plugin
-  // reads it, omitting worklets' locations and maps in production.
-  process.env.NODE_ENV = env
+  // As the bundle's code sees them, which the Metro and Babel configs and Babel's plugins see too, set before
+  // either config loads and Babel's workers start (`react-native bundle` sets NODE_ENV): Reanimated 3's
+  // plugin reads it, omitting worklets' locations and maps in production.
+  const env = buildEnvOf(dev, define, process.env.BABEL_ENV)
+  Object.assign(process.env, env)
   const rnConfig = readRnConfig(cwd, fail)
   const esmOf = (forDev) => flagOf(args.esm, rnConfig, 'esm', forDev)
   const inliningOf = (forDev) => inlineRequiresOf(args['inline-requires'], rnConfig, forDev)
@@ -133,7 +140,7 @@ async function run(args, { cwd, stderr, closing }) {
     define,
     minify: args.minify,
     sourcemap,
-    prelude: prelude(define.__DEV__, env),
+    prelude: prelude(define.__DEV__, env.NODE_ENV),
     polyfills: metro.polyfills(platform),
     aliases: args['babel-aliases'] === undefined ? null : babelAliases(cwd, args['babel-aliases'], fail),
   }

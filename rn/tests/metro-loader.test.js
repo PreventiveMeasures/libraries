@@ -34,7 +34,8 @@ async function bundled(root, args, entry) {
 }
 
 // Each test's loaders closed after it, in the project's directory, as module-resolver's cwd, without the
-// shell's BABEL_ENV, and with the NODE_ENV rn-bundle sets for a release build, which Babel's plugins read.
+// shell's BABEL_ENV, and with a NODE_ENV of neither build's: the loader gives Babel the build's, as rn-bundle
+// does.
 function project(tree) {
   const { root, cleanup } = writeTree(tree)
   const was = { cwd: process.cwd(), BABEL_ENV: process.env.BABEL_ENV, NODE_ENV: process.env.NODE_ENV }
@@ -42,7 +43,7 @@ function project(tree) {
   before(() => {
     process.chdir(root)
     delete process.env.BABEL_ENV
-    process.env.NODE_ENV = 'production'
+    process.env.NODE_ENV = 'test'
   })
   after(async () => {
     await Promise.all(loaders.map((loader) => loader.close()))

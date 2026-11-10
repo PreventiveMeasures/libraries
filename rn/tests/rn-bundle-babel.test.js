@@ -59,6 +59,17 @@ describe('rn-bundle, with a Babel config', () => {
     assert.equal(await nodeEnv(['--dev'], { NODE_ENV: 'production' }), 'development')
   })
 
+  it("has the Babel config, as it loads, and its plugins see NODE_ENV and BABEL_ENV as the bundle's code does: its process.env.NODE_ENV, as --define sets it too, and Babel's env", async () => {
+    const seen = async (args, env) => {
+      const { configEnv, nodeEnv, babelEnv, env: code } = await envBuild(args, env)
+      return { configEnv, nodeEnv, babelEnv, code }
+    }
+    assert.deepEqual(await seen([]), { configEnv: 'production production', nodeEnv: 'production', babelEnv: 'production', code: 'production' })
+    assert.deepEqual(await seen([], { BABEL_ENV: 'staging' }), { configEnv: 'production staging', nodeEnv: 'production', babelEnv: 'staging', code: 'production' })
+    assert.deepEqual(await seen(['--dev'], { NODE_ENV: 'production', BABEL_ENV: 'production' }), { configEnv: 'development development', nodeEnv: 'development', babelEnv: 'development', code: 'development' })
+    assert.deepEqual(await seen(['--define=process.env.NODE_ENV="staging"']), { configEnv: 'staging production', nodeEnv: 'staging', babelEnv: 'production', code: 'staging' })
+  })
+
   it('makes each TS file JS by esbuild before Babel, lowering the rest after it', async () => {
     const r = await run(['--platform=ios', '--output=modern.out.js', 'modern.js'])
     assert.equal(r.status, 0, r.stderr)

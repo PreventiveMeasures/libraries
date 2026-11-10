@@ -35,7 +35,10 @@ export interface MetroLoaderOptions {
   // The esbuild module the build is made with (0.25 on).
   esbuild: { transform(code: string, options?: object): Promise<{ code: string; map: string }> }
   // __DEV__, and Babel's env: development, else BABEL_ENV or production, as
-  // Metro's transformer names it. Its plugins read the process's NODE_ENV.
+  // Metro's transformer names it. The Babel config and its plugins see
+  // NODE_ENV and BABEL_ENV as rn-bundle's do: NODE_ENV the modules'
+  // process.env.NODE_ENV (`define`'s), BABEL_ENV Babel's env, whatever the
+  // process's.
   dev?: boolean
   // Each module's map to its source, inline, for the build to chain.
   sourcemap?: boolean

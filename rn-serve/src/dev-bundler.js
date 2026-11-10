@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks'
 
 import { metroResolverOf } from '@preventive/rn/src/build-host.js'
 import { utf8 } from '@preventive/rn/src/bundle.js'
+import { nodeEnvOf } from '@preventive/rn/src/cli.js'
 import { defaults, diskHost } from '@preventive/rn/src/defaults.js'
 import { prelude } from '@preventive/rn/src/serializer.js'
 import { createBundler } from './bundler.js'
@@ -197,7 +198,7 @@ function open({ projectRoot, esbuild, targetOptions, host, metro, runtime, injec
     polyfills: metro.polyfills(platform),
     runBeforeMain: metro.runBeforeMain?.(entryPath),
     assetRegistryPath: metro.assetRegistryPath,
-    prelude: prelude(options.define?.__DEV__ ?? String(dev), dev ? 'development' : 'production'),
+    prelude: prelude(options.define?.__DEV__ ?? String(dev), nodeEnvOf(dev, options.define)),
   }
   const bundler = dev && runtime !== null ? createModuleBundler({ ...common, runtime, injected, ids, builds: cached.modules }) : createBundler({ ...common, outfile: 'rn-serve.bundle.js', sourcemap: true })
   return { bundler, store: options.store }
