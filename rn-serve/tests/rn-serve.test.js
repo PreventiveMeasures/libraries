@@ -589,6 +589,69 @@ const runApp = (code) => {
   return { context, inject: ({ added, modified }) => [...added, ...modified].forEach(({ module: [, text] }) => runInNewContext(text, context)) }
 }
 
+describe('rn-serve, of a Babel config that reads NODE_ENV and BABEL_ENV', () => {
+  // What the config reads of them as it is loaded (and Babel's env), and its plugin as it runs, each file's.
+  const seeing = writeTree({
+    'package.json': { name: 'app' },
+    'babel.config.js': [
+      'module.exports = (api) => {',
+      // As a config that reads them keys Babel's cache by them.
+      '  api.cache.using(() => `${process.env.NODE_ENV} ${process.env.BABEL_ENV}`)',
+      '  const config = [process.env.NODE_ENV, process.env.BABEL_ENV, api.env()]',
+      "  const seen = ({ types: t }) => ({ visitor: { Program(path) { path.unshiftContainer('body', t.expressionStatement(t.assignmentExpression('=', t.memberExpression(t.identifier('globalThis'), t.identifier('seen')), t.valueToNode({ config, plugin: [process.env.NODE_ENV, process.env.BABEL_ENV] })))) } } })",
+      '  return { plugins: [seen] }',
+      '}',
+      '',
+    ].join('\n'),
+    'index.js': 'globalThis.result = globalThis.seen\n',
+    'node_modules/@babel/core': linked('@babel/core'),
+  })
+  // module-resolver's aliases of NODE_ENV, the config's only plugin: of a TS entry, which esbuild makes JS
+  // before Babel, they're mapped outside Babel (module-resolver.js's resolverOf()), of the plugins as the
+  // main thread reads them.
+  const aliasing = writeTree({
+    'package.json': { name: 'app' },
+    'babel.config.js': [
+      'module.exports = (api) => {',
+      '  api.cache.using(() => process.env.NODE_ENV)',
+      "  return { plugins: [['module-resolver', { alias: { '@which': process.env.NODE_ENV === 'production' ? './lib/prod.js' : './lib/dev.js' } }]] }",
+      '}',
+      '',
+    ].join('\n'),
+    'index.ts': "import { which } from '@which'\nconst picked: string = which\n;(globalThis as any).result = picked\n",
+    'lib/dev.js': "export const which = 'dev'\n",
+    'lib/prod.js': "export const which = 'prod'\n",
+    'node_modules/@babel/core': linked('@babel/core'),
+    'node_modules/babel-plugin-module-resolver': linked('babel-plugin-module-resolver'),
+  })
+  after(() => {
+    seeing.cleanup()
+    aliasing.cleanup()
+  })
+  // The shell's, which a dev bundle's are over.
+  const SHELL = { NODE_ENV: 'production', BABEL_ENV: 'staging' }
+  const resultOf = async (server, query) => run(String((await fetchRaw(`${server.url}/index.bundle?platform=ios${query}`)).body)).result
+
+  it("has them as each bundle's Babel needs them, none set by hand: a dev one's development, a release one's production, BABEL_ENV the shell's", async () => {
+    const server = await serve(seeing.root, [], TMP, { env: SHELL })
+    try {
+      assert.deepEqual(await resultOf(server, ''), { config: ['development', 'development', 'development'], plugin: ['development', 'development'] })
+      assert.deepEqual(await resultOf(server, '&dev=false'), { config: ['production', 'staging', 'staging'], plugin: ['production', 'staging'] })
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it("maps module-resolver's aliases as the config has them of each bundle's: a release one's production", async () => {
+    const server = await serve(aliasing.root, [], TMP, { env: SHELL })
+    try {
+      assert.deepEqual([await resultOf(server, ''), await resultOf(server, '&dev=false')], ['dev', 'prod'])
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
 describe('rn-serve, with Fast Refresh', () => {
   const HOT_APP = {
     ...APP,

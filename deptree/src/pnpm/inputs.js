@@ -3,7 +3,7 @@
 
 import { LockfileError, YamlError, parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
 import { parseYaml } from '@preventive/lockfile/yaml.js'
-import { compareVersions, valid } from '@preventive/upstream/semver.js'
+import { valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
@@ -36,12 +36,9 @@ function readPatches(project, configured) {
   return texts
 }
 
-// pnpm 12 before 12.8.1 installs otherwise in places, and is refused.
-const SINCE = { 12: '12.8.1' }
 function majorOf(pnpm) {
   const major = Number(valid(pnpm)?.split('.')[0])
   if (major < 10 || major > 12 || !Number.isInteger(major)) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: only pnpm 10, 11 and 12 are`, 'host.pnpm')
-  if (major in SINCE && compareVersions(pnpm, SINCE[major]) < 0) throw new DeptreeError(`pnpm ${quote(pnpm)} is not supported: pnpm ${major} is from ${SINCE[major]} on`, 'host.pnpm')
   return major
 }
 
