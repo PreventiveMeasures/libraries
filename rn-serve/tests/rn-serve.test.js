@@ -1156,6 +1156,22 @@ describe('rn-serve, with @react-native/dev-middleware: its logger', () => {
   })
 })
 
+describe('rn-serve, of a bundle a URL names', () => {
+  const { root, cleanup } = writeTree(APP)
+  after(cleanup)
+
+  it("logs it with the URL's control characters escaped", async () => {
+    const server = await serve(root)
+    try {
+      await fetchRaw(`${server.url}/a%1B%5D0%3Bowned%07%2F..%2Findex.bundle?platform=ios`)
+      await until(() => server.output().includes('rn-serve: built ./a\\x1B]0;owned\\x07/../index for ios in '), 'the build logged')
+      assert.ok(!server.output().includes('\u001B'), server.output())
+    } finally {
+      await server.stop()
+    }
+  })
+})
+
 describe("rn-serve, of rn.config.json's port", () => {
   const { root, cleanup } = writeTree({ ...APP })
   after(cleanup)

@@ -90,5 +90,7 @@ describe('lastBuilds', () => {
 
   it('names a bundle by its entry and platform, and a release or minified one so', () => {
     assert.deepEqual([bundleName(request('./index', 'ios')), bundleName(request('./index', null, { dev: false, minify: true }))], ['./index for ios', './index for no platform, release, minified'])
+    // Both are a URL's own text.
+    assert.equal(bundleName(request('./a\u001B[2J/../index', 'ios\r\n\u001B]52;c;eA==\u0007\nrn-serve: a line')), './a\\x1B[2J/../index for ios\\x0A\\x1B]52;c;eA==\\x07\\x0Arn-serve: a line')
   })
 })
