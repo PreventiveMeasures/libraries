@@ -12,7 +12,7 @@ const unbracketed = (hostname) => (hostname.startsWith('[') ? hostname.slice(1, 
 // Returns (request) => null if it may be served, else why not.
 export function createGate({ hostnames = [] } = {}) {
   const names = new Set(['localhost', ...hostnames.map((name) => name.toLowerCase())])
-  return ({ headers }) => {
+  return ({ headers, socket }) => {
     const host = typeof headers.host === 'string' && HOST.test(headers.host) ? URL.parse(`http://${headers.host}`) : null
     if (host === null) return 'a request needs a Host'
     // Against DNS rebinding: no page can rebind an IP literal, localhost or the names we were given.
@@ -24,8 +24,17 @@ export function createGate({ hostnames = [] } = {}) {
     if (origin === undefined) return null
     const from = URL.parse(origin)
     if (from === null) return `Origin ${origin}`
-    return from.protocol === 'http:' && from.host === host.host ? null : `a request from ${origin}`
+    return from.protocol === 'http:' && (from.host === host.host || cameInOn(from, host, socket)) ? null : `a request from ${origin}`
   }
+}
+
+// Argent sends Origin http://127.0.0.1:8081 to ws://localhost:8081. Fine where that address and port are
+// the ones the connection came in on: a page there is this server's. No other loopback address is taken:
+// 127.0.0.1, [::1] and 127.0.0.2 on one port may be three servers.
+function cameInOn(from, host, { localAddress = '', localPort } = {}) {
+  // On a dual-stack socket an IPv4 address is IPv4-mapped (::ffff:127.0.0.1).
+  const address = localAddress.replace(/^::ffff:(?=\d+\.)/u, '')
+  return host.hostname === 'localhost' && from.port === host.port && Number(from.port || 80) === localPort && isLoopback(address) && unbracketed(from.hostname) === address
 }
 
 // BlockList also matches IPv4-mapped IPv6 addresses (::ffff:127.0.0.1) against the IPv4 rule.

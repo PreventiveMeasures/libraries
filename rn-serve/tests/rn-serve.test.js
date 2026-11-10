@@ -268,7 +268,7 @@ describe('rn-serve', () => {
     const port = new URL(server.url).port
     // Of IP addresses too (webpack-dev-server's CVE-2025-30360), and a page
     // reaching it at 0.0.0.0, as browsers once let one.
-    for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }, { Origin: 'https://evil.example' }, { Origin: `http://localhost:${Number(port) + 1}` }, { Origin: 'http://192.168.1.5' }, { Origin: `http://10.0.2.2:${port}` }, { Origin: 'null' }, { Host: `attacker.example:${port}` }, { Host: `0.0.0.0:${port}`, Origin: 'https://evil.example' }]) {
+    for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }, { Origin: 'https://evil.example' }, { Origin: `http://localhost:${Number(port) + 1}` }, { Origin: 'http://192.168.1.5' }, { Origin: `http://10.0.2.2:${port}` }, { Origin: 'null' }, { Host: `attacker.example:${port}` }, { Host: `0.0.0.0:${port}`, Origin: 'https://evil.example' }, { Host: `localhost:${port}`, Origin: `http://127.0.0.2:${port}` }]) {
       const r = await fetchRaw(bundleUrl(), { headers })
       assert.deepEqual([r.status, r.headers['content-type']], [403, 'text/plain; charset=UTF-8'], JSON.stringify(headers))
       assert.equal((await fetchRaw(`${server.url}/reload`, { method: 'POST', headers })).status, 403)
@@ -276,6 +276,8 @@ describe('rn-serve', () => {
     }
     assert.equal((await fetchRaw(bundleUrl(), { headers: { Origin: server.url, 'Sec-Fetch-Site': 'same-origin' } })).status, 200)
     assert.equal(await upgradeStatus(`${server.url}/message`, { Origin: server.url }), 101)
+    // As Argent's debugger connects: localhost as Host, the address it reached as Origin.
+    assert.equal(await upgradeStatus(`${server.url}/message`, { Host: `localhost:${port}`, Origin: server.url }), 101)
   })
 
   // The Metro of @react-native-community/cli before 20.0.0 listened on every

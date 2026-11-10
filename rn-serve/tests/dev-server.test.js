@@ -44,6 +44,25 @@ describe('the gate', () => {
     assert.match(asks({ host: '0.0.0.0:8081', 'sec-fetch-site': 'cross-site' }), /cross-site request/u)
   })
 
+  // Argent's debugger: Origin http://127.0.0.1:8081 to ws://localhost:8081.
+  it("takes localhost's Origin as the loopback address the connection came in on, and as no other, which may be another server's", () => {
+    const via = (host, origin, localAddress) => gate({ headers: { host, origin }, socket: { localAddress, localPort: 8081 } })
+    for (const [origin, address] of [['http://127.0.0.1:8081', '127.0.0.1'], ['http://127.0.0.1:8081', '::ffff:127.0.0.1'], ['http://[::1]:8081', '::1']]) assert.equal(via('localhost:8081', origin, address), null, `${origin} on ${address}`)
+    for (const [host, origin, address] of [
+      ['localhost:8081', 'http://127.0.0.1:8081', '::1'],
+      ['localhost:8081', 'http://127.0.0.1:8081', undefined],
+      ['localhost:8081', 'http://127.0.0.2:8081', '127.0.0.1'],
+      ['localhost:8081', 'http://127.0.0.1:8082', '127.0.0.1'],
+      ['localhost:8081', 'https://127.0.0.1:8081', '127.0.0.1'],
+      ['localhost:8081', 'http://192.168.1.5:8081', '192.168.1.5'],
+      // A forwarded port: 127.0.0.1:9000 is the forwarding machine's.
+      ['localhost:9000', 'http://127.0.0.1:9000', '127.0.0.1'],
+      // localhost's page may be another address's.
+      ['127.0.0.1:8081', 'http://localhost:8081', '127.0.0.1'],
+      ['[::1]:8081', 'http://127.0.0.1:8081', '127.0.0.1'],
+    ]) assert.match(via(host, origin, address), /request from/u, `${host} ${origin} on ${address}`)
+  })
+
   it("takes the machine's own names as a Host only of a server listening beyond loopback: a name the network answers for could be rebound", () => {
     for (const host of ['127.0.0.1', '127.1.2.3', '::1', '[::1]', '::ffff:127.0.0.1', 'localhost', 'LocalHost']) {
       assert.equal(isLoopback(host), true, host)
