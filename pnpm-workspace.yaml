@@ -31,5 +31,6 @@ packages:
   - "publishers"
   - "rn"
   - "rn-serve"
+  - "pod"
 
 preferWorkspacePackages: true

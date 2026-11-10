@@ -22,7 +22,7 @@
   },
   "scripts": {
     "lint": "node --run lint:js",
-    "lint:js": "oxlint -c .oxlintrc.json ./ai/ ./grid/ ./compare/ ./diff/ ./archive/ ./deptree/ ./lockfile/ ./upstream/ ./vfs/ ./report/ ./sourcemap/ ./publishers/ ./rn/ ./rn-serve/",
+    "lint:js": "oxlint -c .oxlintrc.json ./ai/ ./grid/ ./compare/ ./diff/ ./archive/ ./deptree/ ./lockfile/ ./upstream/ ./vfs/ ./report/ ./sourcemap/ ./publishers/ ./rn/ ./rn-serve/ ./pod/",
     "test": "pnpm -r --no-sort run test"
   },
   "devDependencies": {

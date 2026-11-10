@@ -100,6 +100,12 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
 
+  pod:
+    devDependencies:
+      '@ruby/prism':
+        specifier: ^2.0.0
+        version: 2.1.0
+
   publishers: {}
 
   report: {}
@@ -1208,6 +1214,9 @@ packages:
     engines: {node: ^22.13.0 || ^24.3.0 || >= 26.0.0}
     peerDependencies:
       '@babel/core': '*'
+
+  '@ruby/prism@2.1.0':
+    resolution: {integrity: sha512-+lMGoxR5YQ8HEX7e2EuLn4H9GBpaDIrIkwtaAdTo/+lhzCxijAOhjrNBMFJtFr+DhbX+32CrA+j0R/WsLYrefw==, tarball: https://registry.npmjs.org/@ruby/prism/-/prism-2.1.0.tgz}
 
   '@sinclair/typebox@0.27.12':
     resolution: {integrity: sha512-hhyNJ+nbR6ZR7pToHvllEFun9TL0sbL+tk/ON75lo+Xas054uez98qRbsuNt7MBCyZKK4+8Yli/OAGZhmfBZ/g==, tarball: https://registry.npmjs.org/@sinclair/typebox/-/typebox-0.27.12.tgz}
@@ -2531,6 +2540,8 @@ snapshots:
       nullthrows: 1.1.1
       tinyglobby: 0.2.17
       yargs: 17.7.3
+
+  '@ruby/prism@2.1.0': {}
 
   '@sinclair/typebox@0.27.12': {}
 
