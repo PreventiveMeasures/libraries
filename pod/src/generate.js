@@ -49,19 +49,21 @@ function podfileRef(project, dir) {
   project.mainGroup.children.push({ isa: 'PBXFileReference', explicitFileType: 'text.script.ruby', includeInIndex: '1', indentWidth: '2', lastKnownFileType: 'text', name: 'Podfile', path: pathFrom(project.dir, join(dir, 'Podfile')), sourceTree: 'SOURCE_ROOT', tabWidth: '2', xcLanguageSpecificationIdentifier: 'xcode.lang.ruby' })
 }
 
-// The links of Pods/Headers, each `[path, target]`, the target from the link's own directory.
+// The links of Pods/Headers, each `[path, target]`, the target from the link's own directory. A path is linked
+// once: where more than one header comes to it, of two subspecs that both have the header or of two headers of
+// one name, the last does, as CocoaPods' `ln -sf` of each in turn leaves it.
 function headerLinks(targets, sandbox) {
-  const links = []
+  const links = new Map()
   for (const target of targets) {
     for (const [store, mappings] of [['Private', target.headerLinks.private], ['Public', target.headerLinks.public]]) {
-      for (const [dir, headers] of mappings) for (const header of headers) links.push([posix.join('Headers', store, dir, posix.basename(header)), pathFrom(join(sandbox, 'Headers', store, dir), join(target.dir, header))])
+      for (const [dir, headers] of mappings) for (const header of headers) links.set(posix.join('Headers', store, dir, posix.basename(header)), pathFrom(join(sandbox, 'Headers', store, dir), join(target.dir, header)))
     }
     if (target.shouldBuild && target.definesModule && !target.framework) {
       const dir = posix.dirname(target.moduleMapLink)
-      for (const name of [`${target.label}.modulemap`, `${target.label}-umbrella.h`]) links.push([posix.join(dir, name), pathFrom(join(sandbox, dir), join(sandbox, 'Target Support Files', target.label, name))])
+      for (const name of [`${target.label}.modulemap`, `${target.label}-umbrella.h`]) links.set(posix.join(dir, name), pathFrom(join(sandbox, dir), join(sandbox, 'Target Support Files', target.label, name)))
     }
   }
-  return links
+  return [...links]
 }
 
 // TargetValidator#verify_no_static_framework_transitive_dependencies: a pod built as a dynamic framework may

@@ -35,7 +35,8 @@ function commonDir(paths) {
 }
 
 // The references of an accessor's files: of a local pod's sources and resources, in groups as its directories
-// are, from the directory they share and down to an .lproj; else under `key`'s group of the spec.
+// are, from the directory they share and down to an .lproj; else under `key`'s group of the spec. A file that
+// has one, as of another subspec, keeps it, and no group is made for it.
 function addPaths(project, target, podGroup, accessor, given, key, reflect) {
   const paths = allowablePaths(target.list, given)
   if (paths.length === 0) return []
@@ -43,6 +44,7 @@ function addPaths(project, target, podGroup, accessor, given, key, reflect) {
   const base = structured ? commonDir(paths) : undefined
   const specGroup = groupForSpec(podGroup, target.name, accessor.spec.name, structured ? undefined : key)
   return paths.map((path) => {
+    if (project.refs.has(join(target.dir, path))) return project.refs.get(join(target.dir, path))
     let group = specGroup
     const dirs = posix.dirname(base === undefined ? path : posix.relative(base, path)).split('/').filter((part) => part !== '.')
     let dir = base === undefined ? target.dir : join(target.dir, base)

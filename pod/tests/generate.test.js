@@ -45,6 +45,7 @@ for (const name of ['frameworks', 'libraries', 'dynamic']) {
     }
 
     it('links the headers CocoaPods does', () => {
+      assert.equal(new Set(links.map(([path]) => path)).size, links.length, 'a path is linked once')
       assert.deepEqual(Object.fromEntries([...links].sort(([a], [b]) => (a < b ? -1 : 1))), JSON.parse(readFileSync(join(expected, 'links.json'), 'utf8')))
     })
 
@@ -91,6 +92,22 @@ describe('generate, with the app\'s project in another directory than the Podfil
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('generate, of a header that more than one comes to the path of', () => {
+  it('links the path once, to the last of them, as CocoaPods\' `ln -sf` of each in turn leaves it', async () => {
+    // One header in two subspecs, and another of its name in the second: `pod install` 1.16.2 links the last.
+    const input = await load(join(FIXTURES, 'libraries/project'))
+    const [dyn, stat] = input.pods.find((pod) => pod.name === 'Binary').root.subspecs
+    dyn.attributes.source_files = ['Stat.xcframework/ios-arm64/Headers/*.h']
+    stat.attributes.source_files = ['Stat.xcframework/ios-arm64/Headers/*.h', 'Stat.xcframework/ios-arm64_x86_64-simulator/Headers/*.h']
+    const { links } = generate(input)
+    assert.equal(new Set(links.map(([path]) => path)).size, links.length)
+    assert.deepEqual(links.filter(([path]) => path.includes('/Binary/')), [
+      ['Headers/Private/Binary/Stat.h', '../../../Binary/Stat.xcframework/ios-arm64_x86_64-simulator/Headers/Stat.h'],
+      ['Headers/Public/Binary/Stat.h', '../../../Binary/Stat.xcframework/ios-arm64_x86_64-simulator/Headers/Stat.h'],
+    ])
   })
 })
 

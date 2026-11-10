@@ -185,9 +185,15 @@ export function newAggregateTarget(project, name, settings, deploymentTarget) {
 }
 
 export const phaseOf = (target, kind) => target.buildPhases.find((phase) => phase.isa === `PBX${kind}BuildPhase`)
+// NativeTarget#add_file_references and #add_resources: a reference is in a phase once. Asked for again, as a
+// file is that two subspecs both have, it is the build file that is there, its compiler flags added to.
 export function addFile(target, kind, ref, settings) {
-  const file = { isa: 'PBXBuildFile', fileRef: ref, ...(settings === undefined ? {} : { settings }) }
-  phaseOf(target, kind).files.push(file)
+  const phase = phaseOf(target, kind)
+  let file = phase.files.find((one) => one.fileRef === ref)
+  if (file === undefined) phase.files.push(file = { isa: 'PBXBuildFile', fileRef: ref })
+  if (settings === undefined) return file
+  const flags = [file.settings?.COMPILER_FLAGS, settings.COMPILER_FLAGS].filter((one) => one !== undefined).join(' ')
+  file.settings = { ...file.settings, ...settings, ...(flags === '' ? {} : { COMPILER_FLAGS: flags }) }
   return file
 }
 

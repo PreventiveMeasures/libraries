@@ -11,6 +11,7 @@ import { pack } from '@preventive/archive/tar.js'
 import { install } from '../src/install.js'
 
 const FIXTURE = new URL('fixtures/frameworks/', import.meta.url).pathname
+const LIBRARIES = new URL('fixtures/libraries/', import.meta.url).pathname
 const ARCHIVE = 'https://github.com/acme/gamma/archive/refs/tags/3.0.0.tar.gz'
 const sha = (algorithm, bytes) => createHash(algorithm).update(bytes).digest('hex')
 const walk = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name), `${prefix}${entry.name}/`) : [`${prefix}${entry.name}`]))
@@ -199,6 +200,20 @@ end
     const result = await install(dir, GITHUB)
     assert.deepEqual([result.pods, result.downloaded, asked], [['Alpha', 'Beta', 'Delta', 'Epsilon', 'Gamma', 'Local'], ['Gamma'], [ARCHIVE]])
     assert.ok(existsSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')))
+  })
+
+  it('links a header that two subspecs both have once, where linking it again would fail', async () => {
+    // The libraries fixture, its pods in Pods/ as the lockfile has them: Overlap's subspecs share a header.
+    const dir = mkdtempSync(join(tmpdir(), 'pod-install-test-'))
+    dirs.push(dir)
+    cpSync(join(LIBRARIES, 'project'), dir, { recursive: true })
+    cpSync(join(dir, 'Podfile.lock'), join(dir, 'Pods/Manifest.lock'))
+    globalThis.fetch = (input) => assert.fail(`${String(input)} was fetched`)
+    assert.deepEqual((await install(dir, GITHUB)).downloaded, [])
+    const links = JSON.parse(readFileSync(join(LIBRARIES, 'expected/links.json'), 'utf8'))
+    for (const [path, target] of Object.entries(links)) assert.equal(readlinkSync(join(dir, 'Pods', path)), target, path)
+    assert.equal(links['Headers/Private/Overlap/Same.h'], '../../../../local/Overlap/h/x/Same.h')
+    assert.deepEqual(walk(join(dir, 'Pods/Headers')).sort(), Object.keys(links).map((path) => path.slice('Headers/'.length)).sort())
   })
 
   it('runs a prepare_command only for a pod that pod.config.json names, before the pod is cleaned', async () => {
