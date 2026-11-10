@@ -6,8 +6,10 @@ PODS:
   - Binary/Stat (4.5.6)
   - Core (1.2.3)
   - HeaderOnly (0.1.0)
+  - Local (1.0.0)
   - Mapped (2.0.0):
     - HeaderOnly
+  - Remote (2.0.0)
   - Scripted (1.0.0):
     - Binary/Stat
     - Mapped
@@ -19,7 +21,9 @@ DEPENDENCIES:
   - Binary (from `specs/Binary.podspec.json`)
   - Core (from `local/Core`)
   - HeaderOnly (from `local/HeaderOnly`)
+  - Local (from `local/Local`)
   - Mapped (from `local/Mapped`)
+  - Remote (from `specs/Remote.podspec.json`)
   - Scripted (from `local/Scripted`)
   - SwiftLib (from `local/SwiftLib`)
 
@@ -30,8 +34,12 @@ EXTERNAL SOURCES:
     :path: local/Core
   HeaderOnly:
     :path: local/HeaderOnly
+  Local:
+    :path: local/Local
   Mapped:
     :path: local/Mapped
+  Remote:
+    :podspec: specs/Remote.podspec.json
   Scripted:
     :path: local/Scripted
   SwiftLib:
@@ -41,10 +49,12 @@ SPEC CHECKSUMS:
   Binary: 093010e87d23442e8ece90a3c48ae26b54270c33
   Core: bcbab2578f801cf6d2d436152ff0877539410511
   HeaderOnly: dcfce3f95d9a65ded8a073e185bb27cc463da7e7
+  Local: 3aebd7d1c072f41aa09ac375b82b3ef4a93f8fa7
   Mapped: 55d0fe34cacc985a97667a73e331ae6de47df8c2
+  Remote: b0d69baf9c61a81a6cc83df6f12c4f95ebce80b3
   Scripted: f38b1dd36b9bab4144c9fad9411fb7c9e1e70dc5
   SwiftLib: a0ffa367a9832dabc915f13d180a771936547396
 
-PODFILE CHECKSUM: b4da06566b43a52328c6bdfb414b9523915a8bf4
+PODFILE CHECKSUM: 7879bc513493f381d2f6c63aac0400387e5a913c
 
 COCOAPODS: 1.16.2

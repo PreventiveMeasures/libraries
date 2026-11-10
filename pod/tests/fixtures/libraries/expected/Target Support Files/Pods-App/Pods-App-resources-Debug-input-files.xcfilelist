@@ -1,3 +1,12 @@
 ${PODS_ROOT}/Target Support Files/Pods-App/Pods-App-resources.sh
 ${PODS_ROOT}/../local/Core/assets/icon.png
 ${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly/HeaderOnly_privacy.bundle
+${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings
+${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings
+${PODS_ROOT}/../local/Local/ui/Base.lproj/Main.storyboard
+${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings
+${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle
+${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle
+${PODS_ROOT}/Remote/Remote/res/en.lproj/Remote.strings
+${PODS_ROOT}/Remote/Remote/res/ja.lproj/Remote.strings
+${PODS_CONFIGURATION_BUILD_DIR}/Remote/RemoteDirs.bundle

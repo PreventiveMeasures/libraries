@@ -98,9 +98,21 @@ EOM
 }
 if [[ "$CONFIGURATION" == "Release" ]]; then
   install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Alpha/Alpha_privacy.bundle"
+  install_resource "${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings"
+  install_resource "${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings"
+  install_resource "${BUILT_PRODUCTS_DIR}/Local/Local.framework/Base.lproj/Main.storyboardc"
+  install_resource "${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle"
 fi
 if [[ "$CONFIGURATION" == "Debug" ]]; then
   install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Alpha/Alpha_privacy.bundle"
+  install_resource "${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings"
+  install_resource "${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings"
+  install_resource "${BUILT_PRODUCTS_DIR}/Local/Local.framework/Base.lproj/Main.storyboardc"
+  install_resource "${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle"
 fi
 
 mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"

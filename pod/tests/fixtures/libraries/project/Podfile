@@ -6,6 +6,8 @@ target 'App' do
   pod 'Scripted', :path => 'local/Scripted'
   pod 'HeaderOnly', :path => 'local/HeaderOnly'
   pod 'Binary', :podspec => 'specs/Binary.podspec.json'
+  pod 'Local', :path => 'local/Local'
+  pod 'Remote', :podspec => 'specs/Remote.podspec.json'
 end
 target 'Ext' do
   pod 'Core', :path => 'local/Core', :modular_headers => true

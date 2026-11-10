@@ -245,10 +245,21 @@
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-defaults-App/Pods-defaults-App-resources.sh",
 				"${PODS_CONFIGURATION_BUILD_DIR}/Alpha/Alpha_privacy.bundle",
+				"${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings",
+				"${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings",
+				"${BUILT_PRODUCTS_DIR}/Local/Local.framework/Base.lproj/Main.storyboardc",
+				"${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings",
+				"${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Alpha_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Localizable.strings",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Main.storyboardc",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Main.strings",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LocalStrings.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LocalFiles.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -285,10 +296,21 @@
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-defaults-Ext/Pods-defaults-Ext-resources.sh",
 				"${PODS_CONFIGURATION_BUILD_DIR}/Alpha/Alpha_privacy.bundle",
+				"${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings",
+				"${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings",
+				"${BUILT_PRODUCTS_DIR}/Local/Local.framework/Base.lproj/Main.storyboardc",
+				"${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings",
+				"${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Alpha_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Localizable.strings",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Main.storyboardc",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Main.strings",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LocalStrings.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LocalFiles.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

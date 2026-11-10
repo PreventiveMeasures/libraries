@@ -1,7 +1,7 @@
 CLANG_CXX_LANGUAGE_STANDARD = c++20
 CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO
 GCC_PREPROCESSOR_DEFINITIONS = $(inherited) COCOAPODS=1
-HEADER_SEARCH_PATHS = $(inherited) "${PODS_ROOT}/Headers/Public" "${PODS_ROOT}/Headers/Public/Core" "${PODS_ROOT}/Headers/Public/HeaderOnly" "${PODS_ROOT}/Headers/Public/Mapped" "${PODS_ROOT}/Headers/Public/Scripted"
+HEADER_SEARCH_PATHS = $(inherited) "${PODS_ROOT}/Headers/Public" "${PODS_ROOT}/Headers/Public/Core" "${PODS_ROOT}/Headers/Public/HeaderOnly" "${PODS_ROOT}/Headers/Public/Local" "${PODS_ROOT}/Headers/Public/Mapped" "${PODS_ROOT}/Headers/Public/Remote" "${PODS_ROOT}/Headers/Public/Scripted"
 LIBRARY_SEARCH_PATHS = $(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/Core" "${PODS_ROOT}/../local/Core/vendor"
 OTHER_CFLAGS = $(inherited) -fmodule-map-file="${PODS_ROOT}/Headers/Public/core/Core.modulemap"
 OTHER_LDFLAGS = $(inherited) -ObjC -l"Core" -l"sqlite3" -l"vend" -l"z" -framework "Security" -weak_framework "CoreHaptics"

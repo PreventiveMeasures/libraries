@@ -99,10 +99,28 @@ EOM
 if [[ "$CONFIGURATION" == "Release" ]]; then
   install_resource "${PODS_ROOT}/../local/Core/assets/icon.png"
   install_resource "${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly/HeaderOnly_privacy.bundle"
+  install_resource "${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings"
+  install_resource "${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings"
+  install_resource "${PODS_ROOT}/../local/Local/ui/Base.lproj/Main.storyboard"
+  install_resource "${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle"
+  install_resource "${PODS_ROOT}/Remote/Remote/res/en.lproj/Remote.strings"
+  install_resource "${PODS_ROOT}/Remote/Remote/res/ja.lproj/Remote.strings"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Remote/RemoteDirs.bundle"
 fi
 if [[ "$CONFIGURATION" == "Debug" ]]; then
   install_resource "${PODS_ROOT}/../local/Core/assets/icon.png"
   install_resource "${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly/HeaderOnly_privacy.bundle"
+  install_resource "${PODS_ROOT}/../local/Local/res/en.lproj/Localizable.strings"
+  install_resource "${PODS_ROOT}/../local/Local/res/fr.lproj/Localizable.strings"
+  install_resource "${PODS_ROOT}/../local/Local/ui/Base.lproj/Main.storyboard"
+  install_resource "${PODS_ROOT}/../local/Local/ui/fr.lproj/Main.strings"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalStrings.bundle"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Local/LocalFiles.bundle"
+  install_resource "${PODS_ROOT}/Remote/Remote/res/en.lproj/Remote.strings"
+  install_resource "${PODS_ROOT}/Remote/Remote/res/ja.lproj/Remote.strings"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/Remote/RemoteDirs.bundle"
 fi
 
 mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"

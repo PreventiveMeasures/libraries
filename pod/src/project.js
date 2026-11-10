@@ -71,9 +71,10 @@ export function newProject(dir, configurations, objectVersion, deploymentTarget)
   return project
 }
 
-// A group of `parent`, by its name; with `dir`, one whose files are in that directory.
-export function newGroup(parent, name, dir) {
-  const group = { isa: 'PBXGroup', children: [], name, sourceTree: '<group>', _real: dir ?? parent._real }
+// A group of `parent`, by its name; with `dir`, one whose files are in that directory. A variant group is one
+// too, of the files that are one file in each language.
+export function newGroup(parent, name, dir, isa = 'PBXGroup') {
+  const group = { isa, children: [], name, sourceTree: '<group>', _real: dir ?? parent._real }
   if (dir !== undefined) group.path = pathFrom(parent._real, dir)
   parent.children.push(group)
   return group

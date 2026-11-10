@@ -4,9 +4,10 @@
 
 import { extname, join, posix } from 'node:path'
 
-import { PodError } from './error.js'
+import { PodError, quote } from './error.js'
 import { HEADERS } from './files.js'
 import { addFile, addSystemFramework, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, only64Bit, phaseOf } from './project.js'
+import { addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
 import { compareVersions } from './targets.js'
 
@@ -34,38 +35,36 @@ function commonDir(paths) {
 }
 
 // The references of an accessor's files: of a local pod's sources and resources, in groups as its directories
-// are, from the directory they share; else under `key`'s group of the spec.
-function addPaths(project, target, podGroup, accessor, paths, key, reflect) {
-  if (paths.length === 0) return
+// are, from the directory they share and down to an .lproj; else under `key`'s group of the spec.
+function addPaths(project, target, podGroup, accessor, given, key, reflect) {
+  const paths = allowablePaths(target.list, given)
+  if (paths.length === 0) return []
   const structured = target.local && reflect
   const base = structured ? commonDir(paths) : undefined
   const specGroup = groupForSpec(podGroup, target.name, accessor.spec.name, structured ? undefined : key)
-  for (const path of paths) {
+  return paths.map((path) => {
     let group = specGroup
-    if (structured) {
-      const from = base === undefined ? path : posix.relative(base, path)
-      let dir = base === undefined ? target.dir : join(target.dir, base)
-      for (const name of posix.dirname(from).split('/').filter((part) => part !== '.')) {
-        dir = join(dir, name)
-        group = groupNamed(group, name) ?? newGroup(group, name, dir)
-      }
+    const dirs = posix.dirname(base === undefined ? path : posix.relative(base, path)).split('/').filter((part) => part !== '.')
+    let dir = base === undefined ? target.dir : join(target.dir, base)
+    for (const name of structured ? dirs : []) {
+      if (isLproj(name)) break
+      dir = join(dir, name)
+      group = groupNamed(group, name) ?? newGroup(group, name, dir)
     }
-    newFile(project, group, join(target.dir, path))
-  }
+    return isLproj(dirs.at(-1) ?? '') ? addLocalized(project, group, target, path) : newFile(project, group, join(target.dir, path))
+  })
 }
-
-// What CocoaPods leaves out of a project: the files inside a data model, a mapping model or an asset catalog.
-const inProject = (paths) => paths.filter((path) => !/\.(?:xcdatamodeld|xcmappingmodel|xcassets)\/.+/iu.test(path))
 
 export function addPodFiles(project, target, sandbox) {
   const parent = target.local ? project.developmentPods : project.pods
   const podGroup = target.group = newGroup(parent, target.name, target.dir)
   for (const accessor of target.accessors) {
-    addPaths(project, target, podGroup, accessor, inProject(accessor.sourceFiles), undefined, true)
-    addPaths(project, target, podGroup, accessor, inProject(accessor.vendoredFrameworks), 'frameworks', false)
-    addPaths(project, target, podGroup, accessor, inProject(accessor.vendoredLibraries), 'frameworks', false)
-    addPaths(project, target, podGroup, accessor, inProject(accessor.resources), 'resources', true)
-    addPaths(project, target, podGroup, accessor, inProject(Object.values(accessor.resourceBundles).flat()), 'resources', true)
+    addPaths(project, target, podGroup, accessor, accessor.sourceFiles, undefined, true)
+    addPaths(project, target, podGroup, accessor, accessor.vendoredFrameworks, 'frameworks', false)
+    addPaths(project, target, podGroup, accessor, accessor.vendoredLibraries, 'frameworks', false)
+    const resources = addPaths(project, target, podGroup, accessor, accessor.resources, 'resources', true)
+    const bundled = addPaths(project, target, podGroup, accessor, Object.values(accessor.resourceBundles).flat(), 'resources', true)
+    addKnownRegions(project, [...resources, ...bundled])
   }
   if (target.local) for (const path of target.developerFiles) newFile(project, groupForSpec(podGroup, target.name, target.name, 'developer'), join(target.dir, path))
   target.supportGroup = newGroup(podGroup, 'Support Files', join(sandbox, 'Target Support Files', target.label))
@@ -115,13 +114,12 @@ function addSources(project, native, target) {
       }
     }
     for (const path of accessor.headers) addHeader(native, target, accessor, addFile(native, 'Headers', refOf(path)), path)
-    for (const path of accessor.sourceFiles.filter((one) => !SOURCES.has(extname(one)))) addFile(native, 'Sources', refOf(path))
+    for (const path of mergeDocc(target.list, accessor.sourceFiles.filter((one) => !SOURCES.has(extname(one))))) addFile(native, 'Sources', refOf(path))
     if (!target.framework) continue
     // A static framework's resources are copied by the app, but for those that are compiled.
-    for (const path of inProject(accessor.resources)) {
-      if (/\.(?:xcdatamodeld|rcproject)$/iu.test(path)) addFile(native, 'Sources', refOf(path))
-      else if (!target.static || COMPILED_RESOURCES.has(extname(path))) addFile(native, 'Resources', refOf(path))
-    }
+    const resources = resourceRefs(project, target, accessor.resources)
+    for (const ref of resources.compiled) addFile(native, 'Sources', ref)
+    for (const ref of resources.copied) if (!target.static || COMPILED_RESOURCES.has(extname(ref.name ?? ref.path))) addFile(native, 'Resources', ref)
   }
 }
 
@@ -151,12 +149,21 @@ function setAll(native, key, value) {
   for (const configuration of configurationsOf(native)) configuration.buildSettings[key] = value
 }
 
+// A resource bundle is a target of its own, by its name. CocoaPods makes one of each spec that has the name,
+// both under one id, and warns of the project it then writes; here it is refused.
 function addBundles(project, target, context) {
   const bundles = []
+  const named = target.accessors.flatMap((accessor) => Object.keys(accessor.resourceBundles).map((name) => [name, accessor.spec.name]))
+  const [twice] = named.find(([name], at) => named.findIndex(([other]) => other === name) !== at) ?? []
+  if (twice !== undefined) {
+    const specs = named.filter(([name]) => name === twice).map(([, spec]) => spec)
+    throw new PodError(`the resource bundle ${quote(twice)} is of more than one of its specs, ${specs.join(' and ')}, which CocoaPods writes no sound project for: two targets of one id`, target.where)
+  }
   for (const accessor of target.accessors) {
     for (const [name, paths] of Object.entries(accessor.resourceBundles)) {
       const bundle = newTarget(project, `${target.label}-${name}`, 'bundle', `${name}.bundle`, {}, undefined)
-      for (const path of inProject(paths)) addFile(bundle, 'Resources', project.refs.get(join(target.dir, path)))
+      const { compiled, copied } = resourceRefs(project, target, paths)
+      for (const ref of [...copied, ...compiled]) addFile(bundle, 'Resources', ref)
       const plist = `ResourceBundle-${name}-${target.label}-Info.plist`
       context.write(target, plist, context.support.infoPlist(target.version, 'BNDL'))
       for (const configuration of configurationsOf(bundle)) {

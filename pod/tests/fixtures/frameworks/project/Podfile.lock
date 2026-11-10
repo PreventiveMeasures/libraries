@@ -10,6 +10,7 @@ PODS:
   - Gamma/Core (3.0.0)
   - Gamma/Extra (3.0.0):
     - Gamma/Core
+  - Local (1.0.0)
 
 DEPENDENCIES:
   - Alpha (from `local/Alpha`)
@@ -17,6 +18,7 @@ DEPENDENCIES:
   - Delta (from `local/Delta`)
   - Gamma (from `specs/Gamma.podspec.json`)
   - Gamma/Extra (from `specs/Gamma.podspec.json`)
+  - Local (from `local/Local`)
 
 EXTERNAL SOURCES:
   Alpha:
@@ -27,13 +29,16 @@ EXTERNAL SOURCES:
     :path: local/Delta
   Gamma:
     :podspec: specs/Gamma.podspec.json
+  Local:
+    :path: local/Local
 
 SPEC CHECKSUMS:
   Alpha: 74123807173423dd17ddc76f4cc5b4183362afb7
   Beta: 167fd772b26ef77e000358e0b3063719f0b314f0
   Delta: 056c578447d4229b33941a898dfcb98e4c838516
   Gamma: c96324f9cc9965ed4f8cd0b2a860dfeeb4d816cf
+  Local: 3aebd7d1c072f41aa09ac375b82b3ef4a93f8fa7
 
-PODFILE CHECKSUM: de8688ef023de5664c792820279a462c1479dff8
+PODFILE CHECKSUM: 1419b814ae6be5f42e6202de6ff29e49352b1761
 
 COCOAPODS: 1.16.2

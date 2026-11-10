@@ -60,7 +60,7 @@ describe('generate, with build settings of pod.config.json', () => {
     input.config.pods.Alpha = { buildSettings: { HEADER_SEARCH_PATHS: '$(inherited) $(SRCROOT)/..' } }
     const { root } = treeOf(generate(input).files.get('Pods.xcodeproj/project.pbxproj'))
     const settings = Object.fromEntries(root.targets.map((target) => [target.name, target.buildConfigurationList.buildConfigurations.map((configuration) => configuration.buildSettings)]))
-    assert.deepEqual(Object.keys(settings), ['Alpha', 'Alpha-Alpha_privacy', 'Beta', 'Delta', 'Gamma', 'Pods-defaults-App', 'Pods-defaults-Ext'])
+    assert.deepEqual(Object.keys(settings), ['Alpha', 'Alpha-Alpha_privacy', 'Beta', 'Delta', 'Gamma', 'Local', 'Local-LocalFiles', 'Local-LocalStrings', 'Pods-defaults-App', 'Pods-defaults-Ext'])
     for (const [name, configurations] of Object.entries(settings)) {
       for (const one of configurations) {
         assert.equal(one.CODE_SIGNING_ALLOWED, 'NO', name)
@@ -89,5 +89,21 @@ describe('generate, of dynamic frameworks', () => {
     const frameworks = await load(join(FIXTURES, 'frameworks/project'))
     staticFramework(frameworks, 'Delta', true)
     assert.ok(generate(frameworks).files.has('Pods.xcodeproj/project.pbxproj'))
+  })
+})
+
+describe('generate, of resource bundles', () => {
+  const targetsOf = (input) => treeOf(generate(input).files.get('Pods.xcodeproj/project.pbxproj')).root.targets.map((target) => target.name)
+
+  it('refuses a bundle of one name in two specs of a pod, which CocoaPods makes two targets of one id for', async () => {
+    // `pod install` 1.16.2 writes the project all the same, with "Generated duplicate UUIDs" and one target lost.
+    const input = await load(join(FIXTURES, 'frameworks/project'))
+    const gamma = input.pods.find((pod) => pod.name === 'Gamma').root
+    for (const spec of gamma.subspecs) spec.attributes.resource_bundles = { Shared: ['LICENSE'] }
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'pods["Gamma"]: the resource bundle "Shared" is of more than one of its specs, Gamma/Core and Gamma/Extra, which CocoaPods writes no sound project for: two targets of one id')
+    // In one spec alone it is a target, and one of the same name in another pod is another.
+    delete gamma.subspecs[1].attributes.resource_bundles
+    input.pods.find((pod) => pod.name === 'Delta').root.attributes.resource_bundles = { Shared: ['include/**/*.h'] }
+    assert.deepEqual(targetsOf(input).filter((name) => name.endsWith('-Shared')), ['Delta-Shared', 'Gamma-Shared'])
   })
 })

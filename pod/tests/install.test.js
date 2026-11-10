@@ -55,7 +55,7 @@ describe('install', () => {
   it('downloads a pod by its archive, cleans it, and generates Pods/ as CocoaPods does', async () => {
     const { dir, asked, podspec } = await project()
     const result = await install(dir, GITHUB)
-    assert.deepEqual(result, { pods: ['Alpha', 'Beta', 'Delta', 'Gamma'], targets: ['Pods-defaults-App', 'Pods-defaults-Ext'], downloaded: ['Gamma'], written: 48 })
+    assert.deepEqual(result, { pods: ['Alpha', 'Beta', 'Delta', 'Gamma', 'Local'], targets: ['Pods-defaults-App', 'Pods-defaults-Ext'], downloaded: ['Gamma'], written: 58 })
     assert.deepEqual(asked, [ARCHIVE])
     assert.deepEqual(walk(join(dir, 'Pods/Gamma')).sort(), walk(join(FIXTURE, 'project/Pods/Gamma')).sort())
     assert.equal(statSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')).mode & 0o777, 0o444, 'a source file is locked')
@@ -197,7 +197,7 @@ end
     writeFileSync(join(dir, 'Pods/Epsilon/Epsilon.h'), '')
     writeFileSync(join(dir, 'Pods/Manifest.lock'), lock)
     const result = await install(dir, GITHUB)
-    assert.deepEqual([result.pods, result.downloaded, asked], [['Alpha', 'Beta', 'Delta', 'Epsilon', 'Gamma'], ['Gamma'], [ARCHIVE]])
+    assert.deepEqual([result.pods, result.downloaded, asked], [['Alpha', 'Beta', 'Delta', 'Epsilon', 'Gamma', 'Local'], ['Gamma'], [ARCHIVE]])
     assert.ok(existsSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')))
   })
 

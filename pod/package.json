@@ -33,6 +33,7 @@
     "src/prepare.js",
     "src/project-aggregate.js",
     "src/project-pods.js",
+    "src/project-resources.js",
     "src/project.js",
     "src/settings-aggregate.js",
     "src/settings-pod.js",
