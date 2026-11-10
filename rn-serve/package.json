@@ -60,7 +60,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@preventive/rn": "1.0.0-alpha.6"
+    "@preventive/rn": "1.0.0-alpha.7"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
