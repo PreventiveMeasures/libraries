@@ -25,21 +25,23 @@ after(() => {
 // The fixture's project in a directory of its own, Gamma not yet downloaded: its archive, as GitHub would
 // serve it, holds what CocoaPods left of it in Pods/ and a file it cleans away; the podspec is held to that
 // archive's hash, and the lockfile to that podspec. `change` edits the podspec first.
-async function project(change = (spec) => spec, config = {}) {
+async function project(change = (spec) => spec, config = {}, vendored = false) {
   const dir = mkdtempSync(join(tmpdir(), 'pod-install-test-'))
   dirs.push(dir)
   cpSync(join(FIXTURE, 'project'), dir, { recursive: true })
   const gamma = join(dir, 'Pods/Gamma')
   const entries = [...walk(gamma).map((path) => ({ name: `gamma-3.0.0/${path}`, data: readFileSync(join(gamma, path)) })), { name: 'gamma-3.0.0/unused.txt', data: Buffer.from('unused\n') }]
-  rmSync(join(dir, 'Pods'), { recursive: true })
+  if (!vendored) rmSync(join(dir, 'Pods'), { recursive: true })
   const archive = await compress(pack(entries), 'gzip')
   const path = join(dir, 'Podspecs/Gamma.podspec.json')
   const before = readFileSync(path)
   const spec = change(JSON.parse(before))
-  spec.source.sha256 = sha('sha256', archive)
+  if (spec.source.http !== undefined) spec.source.sha256 = sha('sha256', archive)
   const podspec = Buffer.from(`${JSON.stringify(spec, null, 2)}\n`)
   writeFileSync(path, podspec)
   writeFileSync(join(dir, 'Podfile.lock'), readFileSync(join(dir, 'Podfile.lock'), 'utf8').replace(sha('sha1', before), sha('sha1', podspec)))
+  // Vendored: Pods/Gamma is there, with CocoaPods' record of having installed it as the lockfile has it.
+  if (vendored) cpSync(join(dir, 'Podfile.lock'), join(dir, 'Pods/Manifest.lock'))
   writeFileSync(join(dir, 'pod.config.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(dir, 'pod.config.json'), 'utf8')), ...config }))
   const asked = []
   globalThis.fetch = (input) => {
@@ -91,9 +93,31 @@ describe('install', () => {
     assert.equal(existsSync(join(dir, 'Pods/Gamma')), false)
   })
 
-  it('refuses a source that is held to no hash', async () => {
-    const { dir } = await project((spec) => ({ ...spec, source: { git: 'https://github.com/acme/gamma.git', tag: '3.0.0' } }))
-    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]/u)
+  const tagged = (spec) => ({ ...spec, source: { git: 'https://github.com/acme/gamma.git', tag: '3.0.0' } })
+
+  it('refuses a source that is held to no hash, of a pod it has to download', async () => {
+    const { dir, asked } = await project(tagged)
+    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
+    assert.deepEqual(asked, [])
+  })
+
+  it('takes a pod that is not downloaded as it is, whatever source its podspec names', async () => {
+    // Local pods, by :path: Alpha's podspec names a git tag, and nothing of it is fetched.
+    const local = await project()
+    assert.deepEqual(JSON.parse(readFileSync(join(local.dir, 'Podspecs/Alpha.podspec.json'), 'utf8')).source, { git: 'https://example.com/alpha.git', tag: 'v1.0.0' })
+    await install(local.dir, GITHUB)
+    assert.deepEqual(local.asked, [ARCHIVE])
+    // A pod vendored in Pods/, as its Manifest.lock records it: by a git tag too, and not fetched.
+    const { dir, asked } = await project(tagged, {}, true)
+    const result = await install(dir, GITHUB)
+    assert.deepEqual([result.downloaded, asked], [[], []])
+    assert.ok(existsSync(join(dir, 'Pods/Target Support Files/Gamma/Gamma.debug.xcconfig')))
+    // Once it is not there, or not as the lockfile has it, it has to be downloaded, and is refused.
+    writeFileSync(join(dir, 'Pods/Manifest.lock'), readFileSync(join(dir, 'Podfile.lock'), 'utf8').replace(/Gamma: [\da-f]{40}/u, `Gamma: ${'0'.repeat(40)}`))
+    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
+    rmSync(join(dir, 'Pods/Gamma'), { recursive: true })
+    cpSync(join(dir, 'Podfile.lock'), join(dir, 'Pods/Manifest.lock'))
+    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
   })
 
   it('runs a prepare_command only for a pod that pod.config.json names, before the pod is cleaned', async () => {

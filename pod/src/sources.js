@@ -6,6 +6,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, sy
 import { dirname, join } from 'node:path'
 
 import { buildCocoaPodsTree } from '@preventive/deptree/cocoapods.js'
+import { parsePodfileLock } from '@preventive/lockfile/cocoapods.js'
 
 import { PodError, quote } from './error.js'
 import { prepareDownload } from './prepare.js'
@@ -29,21 +30,36 @@ function write(vfs, from, to) {
   }
 }
 
-// Downloads the pods of `input`, load.js's, that are not local, unless Pods/ has them as the lockfile has them:
-// its Manifest.lock is the lockfile, and each one's directory is there. Returns the names of those downloaded.
+// The pods Pods/ has as the lockfile has them, which CocoaPods would not download again: each that the
+// Manifest.lock there, its record of what it installed, has at this version, checksum and specs, and whose
+// directory is there.
+async function installedPods(sandbox, pods) {
+  const manifest = join(sandbox, 'Manifest.lock')
+  if (!existsSync(manifest)) return new Set()
+  const before = await parsePodfileLock(readFileSync(manifest, 'utf8')).catch(() => undefined)
+  const same = (pod, root) => root !== undefined && root.version === pod.version && root.checksum === pod.checksum && root.pods.length === pod.specs.length && root.pods.every((name) => pod.specs.includes(name))
+  return new Set(pods.filter((pod) => same(pod, before?.roots[pod.name]) && isThere(pod.dir)).map((pod) => pod.name))
+}
+
+// Downloads the pods of `input`, load.js's, that are neither local nor in Pods/ already as the lockfile has
+// them. Only what is downloaded has to have a source held to a hash: a pod that is there, as a local one is, is
+// used as it is, whatever source its podspec names. Returns the names of those downloaded.
 export async function fetchPods(input, github) {
   const { sandbox, lock, lockText, config } = input
-  const downloaded = input.pods.filter((pod) => !pod.local)
-  const manifest = join(sandbox, 'Manifest.lock')
-  const current = existsSync(manifest) && readFileSync(manifest).equals(lockText)
-  if (downloaded.length === 0 || (current && downloaded.every((pod) => isThere(pod.dir)))) return []
-  const podspecs = Object.fromEntries(downloaded.filter((pod) => pod.external).map((pod) => [pod.name, pod.bytes]))
+  const remote = input.pods.filter((pod) => !pod.local)
+  const there = await installedPods(sandbox, remote)
+  const needed = remote.filter((pod) => !there.has(pod.name))
+  if (needed.length === 0) return []
+  // A pod by :podspec that is not needed is given no podspec, so that deptree passes it over.
+  const podspecs = Object.fromEntries(needed.filter((pod) => pod.external).map((pod) => [pod.name, pod.bytes]))
   const host = { cocoapods: lock.cocoapods, os: process.platform }
   const { vfs, installed, skipped } = await buildCocoaPodsTree({ lockfile: lockText.toString('utf8'), podspecs, host, platforms: [config.platform.name], github, partial: true, prepare: prepareDownload(config, lock.cocoapods) })
-  const refused = skipped.filter(({ name }) => downloaded.some((pod) => pod.name === name))
+  const isNeeded = ({ name }) => needed.some((pod) => pod.name === name)
+  const refused = skipped.filter(isNeeded)
   if (refused.length > 0) throw new PodError(`${refused.length === 1 ? 'a pod is' : `${refused.length} pods are`} not downloaded:\n${refused.map(({ reason }) => `  ${reason}`).join('\n')}`)
-  for (const { name, path } of installed) write(vfs, `/${path}`, join(sandbox, name))
-  const missing = downloaded.find((pod) => !installed.some(({ name }) => name === pod.name))
+  const built = installed.filter(isNeeded)
+  const missing = needed.find((pod) => !built.some(({ name }) => name === pod.name))
   if (missing !== undefined) throw new PodError('is not downloaded', `pods[${quote(missing.name)}]`)
-  return installed.map(({ name }) => name)
+  for (const { name, path } of built) write(vfs, `/${path}`, join(sandbox, name))
+  return built.map(({ name }) => name)
 }
