@@ -98,9 +98,11 @@ EOM
 }
 if [[ "$CONFIGURATION" == "Release" ]]; then
   install_resource "${PODS_ROOT}/../local/Core/assets/icon.png"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly/HeaderOnly_privacy.bundle"
 fi
 if [[ "$CONFIGURATION" == "Debug" ]]; then
   install_resource "${PODS_ROOT}/../local/Core/assets/icon.png"
+  install_resource "${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly/HeaderOnly_privacy.bundle"
 fi
 
 mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"

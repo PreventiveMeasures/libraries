@@ -1,2 +1,3 @@
 ${PODS_ROOT}/Target Support Files/Pods-App/Pods-App-resources.sh
 ${PODS_ROOT}/../local/Core/assets/icon.png
+${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly/HeaderOnly_privacy.bundle

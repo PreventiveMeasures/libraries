@@ -151,7 +151,7 @@ function setAll(native, key, value) {
   for (const configuration of configurationsOf(native)) configuration.buildSettings[key] = value
 }
 
-function addBundles(project, target, native, context) {
+function addBundles(project, target, context) {
   const bundles = []
   for (const accessor of target.accessors) {
     for (const [name, paths] of Object.entries(accessor.resourceBundles)) {
@@ -247,13 +247,15 @@ export function addPodTarget(project, target, context) {
   const settings = targetSettings(target, project, context.objectVersion)
   if (!target.shouldBuild) {
     const placeholder = newAggregateTarget(project, target.label, { ENABLE_USER_SCRIPT_SANDBOXING: 'NO', ...(settings.ARCHS === undefined ? {} : { ARCHS: settings.ARCHS }) }, target.platform.target)
+    // A pod with nothing to build has its resource bundles built all the same, each a target of its own.
+    const bundles = addBundles(project, target, { ...context, write: (one, name, text) => addSupport(name, text) })
     addScriptPhases(placeholder, target, { ...context, addSupport })
-    return finish(project, target, placeholder, [], addSupport)
+    return finish(project, target, placeholder, bundles, addSupport)
   }
   const native = newTarget(project, target.label, target.framework ? 'framework' : 'static_library', target.productName, settings, target.platform.target)
   if (target.framework) addSystemFramework(project, native, 'Foundation')
   for (const configuration of configurationsOf(native)) for (const key of Object.keys(target.settings.merged)) delete configuration.buildSettings[key]
-  const bundles = addBundles(project, target, native, { ...context, write: (one, name, text) => addSupport(name, text) })
+  const bundles = addBundles(project, target, { ...context, write: (one, name, text) => addSupport(name, text) })
   addSources(project, native, target)
   if (target.definesModule && target.consumers.every((consumer) => consumer.module_map !== false)) {
     const custom = target.accessors.map((accessor) => accessor.moduleMap).find((path) => path !== undefined)

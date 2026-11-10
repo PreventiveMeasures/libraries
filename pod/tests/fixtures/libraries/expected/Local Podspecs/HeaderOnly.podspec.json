@@ -12,5 +12,10 @@
   "platforms": {
     "ios": "12.0"
   },
-  "source_files": "include/*.h"
+  "source_files": "include/*.h",
+  "resource_bundles": {
+    "HeaderOnly_privacy": [
+      "PrivacyInfo.xcprivacy"
+    ]
+  }
 }
