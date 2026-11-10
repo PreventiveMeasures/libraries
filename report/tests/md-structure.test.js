@@ -198,3 +198,24 @@ describe('inFence — a question per line, past many fences', () => {
     assert.ok(took < 1000, `${lines.length} lines took ${took.toFixed(0)}ms of CPU`)
   })
 })
+
+// A line can open items one inside another ("- 1. - x"), each read from
+// where the last one's text starts. Report text is untrusted, and a line
+// of thousands of `- ` markers, each read of it rescanning the rest of
+// the line, took seconds: past 32 items the rest of the line is the
+// innermost item's text, read once.
+describe('fenceRanges — items opened on one line', () => {
+  it('still reads a fence on a line of nested markers', () => {
+    assert.deepEqual(fencedLines(['- - - ```', '      code', '      ```', 'after']), [true, true, true, false])
+    assert.deepEqual(fencedLines(['> - - ```', '>     code']), [false, false])
+  })
+
+  it('reads a line of thousands of markers in one pass', () => {
+    for (const unit of ['- ', '* ', '+ ', '1. ', '> - ', '- 1. ']) {
+      const line = `${unit.repeat(20_000)}x`
+      const started = performance.now()
+      assert.deepEqual(fenceRanges(`${line}\n\`\`\`\ncode\n\`\`\``), [[line.length + 1, line.length + 13]], unit)
+      assert.ok(performance.now() - started < 500, `${JSON.stringify(unit)} took ${performance.now() - started} ms`)
+    }
+  })
+})

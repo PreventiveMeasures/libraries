@@ -100,12 +100,21 @@ export function fenceRanges(text) {
   return readFences(text).ranges
 }
 
+// How many list items one line is read as opening, one inside another
+// ("- 1. - x" opens three). Each marker is found by reading what follows
+// the last, and that reading costs the rest of the line ("- - - x" could
+// yet be a thematic break), so a line of thousands of markers -- a few KB
+// of untrusted text -- took quadratic time. Past this many the rest of
+// the line is the innermost item's text.
+const LINE_ITEMS = 32
+
 // Whether a quoted line holds paragraph text, past its `>`s and any
 // list markers inside -- `paragraph` if one is already open there.
 function quotedText(line, paragraph) {
   let text = line.replace(/^(?: {0,3}> ?)+/u, '')
   let opens = opener(text, paragraph)
-  while (opens?.item) {
+  for (let opened = 0; opens?.item; opened++) {
+    if (opened === LINE_ITEMS) { opens = null; break }
     text = text.slice(opens.item)
     opens = opener(text, false)
   }
@@ -183,8 +192,10 @@ export function readFences(text) {
     if (lazy && !opens) continue
     items.length = depth
     // Markers open items, each in the last ("- 1. x" opens two), and
-    // what follows is read from the innermost one's margin.
-    while (opens?.item) {
+    // what follows is read from the innermost one's margin; up to
+    // LINE_ITEMS of them, past which the rest is that item's text.
+    for (let opened = 0; opens?.item; opened++) {
+      if (opened === LINE_ITEMS) { opens = null; break }
       margin += opens.item
       rest = rest.slice(opens.item)
       items.push(margin)
