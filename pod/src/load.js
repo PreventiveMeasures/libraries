@@ -21,7 +21,7 @@ function projectOf(dir, config) {
   const path = join(dir, names[0], 'project.pbxproj')
   const text = read(path)
   if (text === undefined) throw new PodError('has no project.pbxproj', names[0])
-  return { name: names[0], ...readUserProject(text.toString('utf8'), names[0]) }
+  return { name: names[0], dir, ...readUserProject(text.toString('utf8'), names[0]) }
 }
 
 // A pod's podspec, which has to be the one the lockfile has the checksum of, its sha1.
@@ -49,7 +49,7 @@ export async function load(dir) {
     const local = root.external?.type === 'path'
     if (root.external !== undefined && !local && root.external.type !== 'podspec') throw new PodError(`a pod from an external source by :${root.external.type} is not supported: only those by :path and :podspec, and from trunk, are`, where)
     const podDir = local ? resolve(dir, root.external.path) : join(sandbox, root.name)
-    return { name: root.name, version: root.version, specs: root.pods, checksum: root.checksum, local, dir: podDir, sandboxPath: posixOf(relative(sandbox, podDir)), ...podspecOf(root, podspecs, where) }
+    return { name: root.name, version: root.version, specs: root.pods, checksum: root.checksum, local, external: root.external !== undefined, dir: podDir, sandboxPath: posixOf(relative(sandbox, podDir)), ...podspecOf(root, podspecs, where) }
   })
   return { dir, lock, lockText, config, user, sandbox, pods }
 }

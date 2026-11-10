@@ -139,5 +139,8 @@ export function analyze(pods, user, config) {
   for (const aggregate of aggregates) {
     if (EXTENSIONS.has(aggregate.userTarget.productType) || aggregate.userTarget.extensionApiOnly) for (const target of aggregate.podTargets) target.extensionApiOnly = true
   }
-  return { podTargets, aggregates, configurations: user.configurations }
+  // The configurations of the app's targets that take pods, in their order, each `debug` or `release` by its
+  // name, as TargetInspector#compute_build_configurations has them.
+  const configurations = Object.fromEntries(integrated.flatMap((target) => target.configurations).map((name) => [name, name === 'Debug' ? 'debug' : 'release']))
+  return { podTargets, aggregates, configurations }
 }

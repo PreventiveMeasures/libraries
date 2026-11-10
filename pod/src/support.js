@@ -101,3 +101,10 @@ export function resourcesScript(byConfiguration, deploymentTarget) {
   const blocks = Object.entries(byConfiguration).filter(([, resources]) => resources.length > 0).map(([name, resources]) => `if [[ "$CONFIGURATION" == "${name}" ]]; then\n${resources.map((path) => `  install_resource "${path}"\n`).join('')}fi\n`)
   return `${head}${blocks.join('')}${script('resources-tail.sh')}`
 }
+
+// Generator::EmbedFrameworksScript: `byConfiguration` is the frameworks of each of the app's configurations.
+export function frameworksScript(byConfiguration) {
+  const names = Object.keys(byConfiguration).filter((name) => byConfiguration[name].length > 0).sort()
+  const blocks = names.map((name) => `if [[ "$CONFIGURATION" == "${name}" ]]; then\n${byConfiguration[name].map((path) => `  install_framework "${path}"\n`).join('')}fi\n`)
+  return `${script('frameworks-head.sh')}${blocks.join('')}if [ "\${COCOAPODS_PARALLEL_CODE_SIGN}" == "true" ]; then\n  wait\nfi\n`
+}

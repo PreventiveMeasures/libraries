@@ -30,13 +30,12 @@ function common(objects, lists, key, where) {
   return [...values][0]
 }
 
-// `text` is the project.pbxproj. The configurations are the project's, each `debug` or `release` as CocoaPods
-// takes one by its name; a target's label is the name of its aggregate target, `Pods-<name>`, or undefined.
+// `text` is the project.pbxproj. A target's label is the name of its aggregate target, `Pods-<name>`, or
+// undefined; its configurations are their names, in its own order.
 export function readUserProject(text, where) {
-  const { objects, rootObject } = parseAscii(text, where)
+  const { objects, rootObject, objectVersion } = parseAscii(text, where)
   const project = objects?.[rootObject]
   if (project?.isa !== 'PBXProject') throw new PodError('the project file has no project', where)
-  const configurations = Object.fromEntries(objects[project.buildConfigurationList].buildConfigurations.map((id) => [objects[id].name, objects[id].name === 'Debug' ? 'debug' : 'release']))
   const targets = project.targets.map((id) => objects[id]).filter((target) => target.isa === 'PBXNativeTarget').map((target) => {
     const at = `${where}: targets[${quote(target.name)}]`
     const bases = objects[target.buildConfigurationList].buildConfigurations.map((id) => objects[objects[id].baseConfigurationReference]?.path)
@@ -46,11 +45,12 @@ export function readUserProject(text, where) {
     return {
       name: target.name,
       label: [...labels][0],
+      configurations: objects[target.buildConfigurationList].buildConfigurations.map((id) => objects[id].name),
       productType: PRODUCT_TYPES[target.productType] ?? target.productType,
       swiftVersion: common(objects, lists, 'SWIFT_VERSION', at),
       deploymentTarget: common(objects, lists, 'IPHONEOS_DEPLOYMENT_TARGET', at),
       extensionApiOnly: common(objects, lists, 'APPLICATION_EXTENSION_API_ONLY', at) === 'YES',
     }
   })
-  return { configurations, targets }
+  return { targets, objectVersion }
 }
