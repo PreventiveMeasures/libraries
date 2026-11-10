@@ -235,6 +235,35 @@ describe('generate, of the pods of a target that is embedded in another', () => 
   })
 })
 
+describe('generate, of a Core Data model', () => {
+  it('has it as a version group of its versions, the current one as it says, and builds it with the group', async () => {
+    // Alpha with a model of two versions among its resources and one of one version in a bundle, under static
+    // frameworks: what `pod install` 1.16.2 has of them in the Pods project.
+    const root = mkdtempSync(join(tmpdir(), 'pod-generate-test-'))
+    try {
+      cpSync(join(FIXTURES, 'frameworks/project'), root, { recursive: true })
+      for (const version of ['res/Model.xcdatamodeld/V1.xcdatamodel', 'res/Model.xcdatamodeld/V2.xcdatamodel', 'data/Plain.xcdatamodeld/Plain.xcdatamodel']) {
+        mkdirSync(join(root, 'local/Alpha', version), { recursive: true })
+        writeFileSync(join(root, 'local/Alpha', version, 'contents'), '<model/>\n')
+      }
+      writeFileSync(join(root, 'local/Alpha/res/Model.xcdatamodeld/.xccurrentversion'), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>_XCCurrentVersionName</key>\n\t<string>V2.xcdatamodel</string>\n</dict>\n</plist>\n')
+      const input = await load(root)
+      Object.assign(input.pods.find((pod) => pod.name === 'Alpha').root.attributes, { resources: ['res/*.xcdatamodeld'], resource_bundles: { Alpha_privacy: ['res/PrivacyInfo.xcprivacy'], AlphaData: ['data/**/*'] } })
+      const { files } = generate(input)
+      const tree = treeOf(files.get('Pods.xcodeproj/project.pbxproj')).root
+      const version = (path) => ({ isa: 'PBXFileReference', includeInIndex: '1', lastKnownFileType: 'wrapper.xcdatamodel', path, sourceTree: '<group>' })
+      const model = { isa: 'XCVersionGroup', children: [version('V1.xcdatamodel'), version('V2.xcdatamodel')], currentVersion: version('V2.xcdatamodel'), name: 'Model.xcdatamodeld', path: 'res/Model.xcdatamodeld', sourceTree: '<group>', versionGroupType: 'wrapper.xcdatamodel' }
+      const plain = { isa: 'XCVersionGroup', children: [version('Plain.xcdatamodel')], path: 'Plain.xcdatamodeld', sourceTree: '<group>', versionGroupType: 'wrapper.xcdatamodel' }
+      const filesOf = (target, phase) => tree.targets.find((one) => one.name === target).buildPhases.find((one) => one.isa === phase).files.map((file) => file.fileRef)
+      assert.deepEqual(filesOf('Alpha', 'PBXSourcesBuildPhase').filter((ref) => ref.isa === 'XCVersionGroup'), [model])
+      assert.deepEqual(filesOf('Alpha-AlphaData', 'PBXResourcesBuildPhase'), [plain])
+      assert.ok(Buffer.from(files.get('Target Support Files/Pods-defaults-App/Pods-defaults-App-resources.sh')).toString('utf8').includes('install_resource "${BUILT_PRODUCTS_DIR}/Alpha/alpha.framework/Model.momd"'))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('generate, of dynamic frameworks', () => {
   const staticFramework = (input, name, value) => {
     input.pods.find((pod) => pod.name === name).root.attributes.static_framework = value

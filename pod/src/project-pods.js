@@ -7,7 +7,7 @@ import { extname, join, posix } from 'node:path'
 import { PodError, quote } from './error.js'
 import { HEADERS } from './files.js'
 import { addFile, addSystemFramework, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, only64Bit, phaseOf } from './project.js'
-import { addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
+import { addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
 import { compareVersions } from './targets.js'
 
@@ -53,7 +53,8 @@ function addPaths(project, target, podGroup, accessor, given, key, reflect) {
       dir = join(dir, name)
       group = groupNamed(group, name) ?? newGroup(group, name, dir)
     }
-    return isLproj(dirs.at(-1) ?? '') ? addLocalized(project, group, target, path) : newFile(project, group, join(target.dir, path))
+    if (isLproj(dirs.at(-1) ?? '')) return addLocalized(project, group, target, path)
+    return extname(path).toLowerCase() === '.xcdatamodeld' ? addDataModel(project, group, target, path) : newFile(project, group, join(target.dir, path))
   })
 }
 

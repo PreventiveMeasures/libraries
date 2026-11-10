@@ -2,9 +2,13 @@
 // paths get a reference at all, the variant group that holds a file of an .lproj directory, the regions the
 // project knows of, and the references a target's phases take for a list of resources.
 
+import { readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 
-import { newFile, newGroup } from './project.js'
+import { PodError, quote } from './error.js'
+import { parseXml } from './plist.js'
+import { newFile, newGroup, pathFrom } from './project.js'
+import { byBytes } from './xcconfig.js'
 
 export const isLproj = (name) => name.toLowerCase().includes('.lproj')
 
@@ -65,6 +69,32 @@ export function addLocalized(project, group, target, path) {
   if (!project.variants.has(key)) project.variants.set(key, newGroup(group, name, dir, 'PBXVariantGroup'))
   const ref = newFile(project, project.variants.get(key), join(target.dir, path))
   ref._variant ??= project.variants.get(key)
+  return ref
+}
+
+// FileReferencesFactory#new_xcdatamodeld: a data model is no file's reference but a version group, of the
+// versions in it, the current one as its .xccurrentversion names it. Xcodeproj has the versions as the disk
+// lists them; here they are in the order of their names.
+export function addDataModel(project, group, target, path) {
+  const real = join(target.dir, path)
+  if (project.refs.has(real)) return project.refs.get(real)
+  const { files, dirs } = target.list
+  const from = pathFrom(group._real, real)
+  const versions = [...files, ...dirs].filter((one) => posix.dirname(one) === path && posix.extname(one) === '.xcdatamodel').sort(byBytes)
+  const children = versions.map((one) => ({ isa: 'PBXFileReference', includeInIndex: '1', lastKnownFileType: 'wrapper.xcdatamodel', path: posix.basename(one), sourceTree: '<group>', _real: join(target.dir, one) }))
+  const ref = { isa: 'XCVersionGroup', children, ...(from.includes('/') ? { name: posix.basename(path) } : {}), path: from, sourceTree: '<group>', versionGroupType: 'wrapper.xcdatamodel', _real: real }
+  if (files.includes(posix.join(path, '.xccurrentversion'))) {
+    let name
+    try {
+      name = parseXml(readFileSync(join(real, '.xccurrentversion'), 'utf8'), target.where)?._XCCurrentVersionName
+    } catch (error) {
+      throw new PodError(`the .xccurrentversion of ${quote(path)} cannot be read as an XML property list`, target.where, { cause: error })
+    }
+    const current = children.find((child) => child.path === name)
+    if (current !== undefined) ref.currentVersion = current
+  }
+  group.children.push(ref)
+  project.refs.set(real, ref)
   return ref
 }
 
