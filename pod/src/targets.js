@@ -103,6 +103,16 @@ function wire(podTargets) {
   }
 }
 
+// Analyzer#embedded_target_pod_targets_by_host: the pods of the targets embedded in `host` that it does not
+// take itself and has to have all the same. Under frameworks, those built as dynamic ones, which are loaded
+// from the host's bundle; else those of a static library, which the host links.
+function embeddedPods(host, aggregates) {
+  if (host.requiresHostTarget) return []
+  const own = new Set(host.podTargets)
+  const embedded = aggregates.filter((one) => one.requiresHostTarget && host.userTarget.dependencies.includes(one.userTarget.id) && (one.framework || one.userTarget.productType === 'static_library'))
+  return [...new Set(embedded.flatMap((one) => one.podTargets.filter((target) => !own.has(target) && !(one.framework && target.static))))]
+}
+
 // `pods` are the lockfile's, each with its root spec and directory; `user` the app's project, user-project.js's;
 // `config` the installation's, config.js's. The pod targets come sorted by name, as CocoaPods installs them.
 export function analyze(pods, user, config) {
@@ -141,6 +151,8 @@ export function analyze(pods, user, config) {
   for (const aggregate of aggregates) {
     if (EXTENSIONS.has(aggregate.userTarget.productType) || aggregate.userTarget.extensionApiOnly) for (const target of aggregate.podTargets) target.extensionApiOnly = true
   }
+  const embedded = new Map(aggregates.map((aggregate) => [aggregate, embeddedPods(aggregate, aggregates)]))
+  for (const aggregate of aggregates) aggregate.podTargets = [...aggregate.podTargets, ...embedded.get(aggregate)]
   // The configurations of the app's targets that take pods, in their order, each `debug` or `release` by its
   // name, as TargetInspector#compute_build_configurations has them.
   const configurations = Object.fromEntries(integrated.flatMap((target) => target.configurations).map((name) => [name, name === 'Debug' ? 'debug' : 'release']))

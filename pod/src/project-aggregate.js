@@ -110,7 +110,8 @@ export function addAggregateTarget(project, aggregate, context) {
   const resources = [...new Set(aggregate.podTargets.flatMap(resourcePaths))]
   if (resources.length > 0) {
     addSupport(`${aggregate.label}-resources.sh`, support.resourcesScript(byConfiguration(project, resources), aggregate.platform.target))
-    lists('resources', resources, resourceOutputs(resources))
+    // The lists are of the phase CocoaPods puts in the app's target, and it puts none in a static library.
+    if (aggregate.userTarget.productType !== 'static_library') lists('resources', resources, resourceOutputs(resources))
   }
   const { markdown, plist } = support.acknowledgements(aggregate.podTargets)
   addSupport(`${aggregate.label}-acknowledgements.markdown`, markdown)

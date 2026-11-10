@@ -32,21 +32,26 @@ function common(objects, lists, key, where) {
 
 // `text` is the project.pbxproj. A target's label is the name of its aggregate target, `Pods-<name>`, or
 // undefined; its configurations are their names, in its own order; its scripts are those of Pods/ that its
-// own phases run, each by its path from Target Support Files.
+// own phases run, each by its path from Target Support Files; its dependencies are the ids of the targets it
+// depends on, which it is the host of where they are embedded in it.
 export function readUserProject(text, where) {
   const { objects, rootObject, objectVersion } = parseAscii(text, where)
   const project = objects?.[rootObject]
   if (project?.isa !== 'PBXProject') throw new PodError('the project file has no project', where)
-  const targets = project.targets.map((id) => objects[id]).filter((target) => target.isa === 'PBXNativeTarget').map((target) => {
+  const targets = project.targets.filter((uuid) => objects[uuid].isa === 'PBXNativeTarget').map((uuid) => {
+    const target = objects[uuid]
     const at = `${where}: targets[${quote(target.name)}]`
     const bases = objects[target.buildConfigurationList].buildConfigurations.map((id) => objects[objects[id].baseConfigurationReference]?.path)
     const labels = new Set(bases.map((path) => (path === undefined ? undefined : /^(Pods-.+)\.[^.]+\.xcconfig$/u.exec(basename(path))?.[1])))
     if (labels.size > 1) throw new PodError('its configurations are based on the xcconfigs of more than one Pods target, or some on none', at)
     const lists = [target.buildConfigurationList, project.buildConfigurationList]
     const phases = (target.buildPhases ?? []).map((id) => objects[id]).filter((phase) => phase?.isa === 'PBXShellScriptBuildPhase')
+    const dependencies = (target.dependencies ?? []).map((one) => objects[one]?.target ?? objects[objects[one]?.targetProxy]?.remoteGlobalIDString)
     return {
+      id: uuid,
       name: target.name,
       label: [...labels][0],
+      dependencies: dependencies.filter((one) => one !== undefined),
       scripts: phases.flatMap((phase) => [...String(phase.shellScript ?? '').matchAll(/Target Support Files\/([^/"\n]+\/[^/"\n]+\.sh)/gu)].map((match) => match[1])),
       configurations: objects[target.buildConfigurationList].buildConfigurations.map((id) => objects[id].name),
       productType: PRODUCT_TYPES[target.productType] ?? target.productType,

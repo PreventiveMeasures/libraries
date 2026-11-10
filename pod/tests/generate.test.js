@@ -181,6 +181,37 @@ describe('generate, for a project whose phases run what is written no more', () 
   })
 })
 
+describe('generate, of the pods of a target that is embedded in another', () => {
+  const podsOf = (aggregates) => Object.fromEntries(aggregates.map((aggregate) => [aggregate.userTarget.name, aggregate.podTargets.map((target) => target.name)]))
+  const textOf = (files, path) => Buffer.from(files.get(`Target Support Files/${path}`)).toString('utf8')
+
+  it('gives the app an extension\'s dynamic frameworks that it does not take itself, as CocoaPods does', async () => {
+    // App takes Alpha and Delta; Ext, which it hosts, Beta, Delta and Gamma. `pod install` 1.16.2 has Gamma, a
+    // dynamic framework, in the app's target too, which embeds it; and not Beta, which is a static one.
+    const input = await load(join(FIXTURES, 'dynamic/project'))
+    input.config.targets = { App: { pods: ['Alpha', 'Delta'] }, Ext: { pods: ['Beta', 'Delta', 'Gamma'] } }
+    const { files, aggregates } = generate(input)
+    assert.deepEqual(podsOf(aggregates), { App: ['Alpha', 'Delta', 'Gamma'], Ext: ['Alpha', 'Beta', 'Delta', 'Gamma'] })
+    const embeds = textOf(files, 'Pods-defaults-App/Pods-defaults-App-frameworks.sh').split('\n').filter((line) => line.includes('install_framework "')).map((line) => line.trim())
+    assert.deepEqual([...new Set(embeds)], ['install_framework "${BUILT_PRODUCTS_DIR}/Alpha/alpha.framework"', 'install_framework "${BUILT_PRODUCTS_DIR}/Gamma/Gamma.framework"'])
+    assert.ok(textOf(files, 'Pods-defaults-App/Pods-defaults-App.debug.xcconfig').includes('OTHER_LDFLAGS = $(inherited) -l"c++" -framework "CoreGraphics" -framework "Gamma" -framework "UIKit" -framework "alpha"\n'))
+    const app = treeOf(files.get('Pods.xcodeproj/project.pbxproj')).root.targets.find((target) => target.name === 'Pods-defaults-App')
+    assert.deepEqual(app.dependencies.map((dependency) => dependency.name), ['Alpha', 'Delta', 'Gamma'])
+  })
+
+  it('gives the app the pods of a static library it hosts, which it links; and writes no lists for a phase the library has not', async () => {
+    // Without frameworks an extension's pods stay its own, and a static library's are its host's too.
+    const input = await load(join(FIXTURES, 'libraries/project'))
+    input.config.targets = { App: { pods: ['Core', 'Binary'] }, Ext: { pods: ['Mapped'] } }
+    assert.deepEqual(podsOf(generate(input).aggregates), { App: ['Binary', 'Core'], Ext: ['HeaderOnly', 'Mapped'] })
+    input.user.targets.find((target) => target.name === 'Ext').productType = 'static_library'
+    const { files, aggregates } = generate(input)
+    assert.deepEqual(podsOf(aggregates), { App: ['Binary', 'Core', 'HeaderOnly', 'Mapped'], Ext: ['HeaderOnly', 'Mapped'] })
+    assert.ok(textOf(files, 'Pods-App/Pods-App.debug.xcconfig').includes(' -l"Mapped" '))
+    assert.deepEqual([...files.keys()].filter((path) => path.includes('/Pods-Ext/Pods-Ext-resources')), ['Target Support Files/Pods-Ext/Pods-Ext-resources.sh'])
+  })
+})
+
 describe('generate, of dynamic frameworks', () => {
   const staticFramework = (input, name, value) => {
     input.pods.find((pod) => pod.name === name).root.attributes.static_framework = value
