@@ -52,3 +52,20 @@ for (const name of ['frameworks', 'libraries']) {
     })
   })
 }
+
+describe('generate, with build settings of pod.config.json', () => {
+  it('sets them on every target, and a pod\'s own on its target alone', async () => {
+    const input = await load(join(FIXTURES, 'frameworks/project'))
+    input.config.buildSettings = { CODE_SIGNING_ALLOWED: 'NO' }
+    input.config.pods.Alpha = { buildSettings: { HEADER_SEARCH_PATHS: '$(inherited) $(SRCROOT)/..' } }
+    const { root } = treeOf(generate(input).files.get('Pods.xcodeproj/project.pbxproj'))
+    const settings = Object.fromEntries(root.targets.map((target) => [target.name, target.buildConfigurationList.buildConfigurations.map((configuration) => configuration.buildSettings)]))
+    assert.deepEqual(Object.keys(settings), ['Alpha', 'Alpha-Alpha_privacy', 'Beta', 'Delta', 'Gamma', 'Pods-defaults-App', 'Pods-defaults-Ext'])
+    for (const [name, configurations] of Object.entries(settings)) {
+      for (const one of configurations) {
+        assert.equal(one.CODE_SIGNING_ALLOWED, 'NO', name)
+        assert.deepEqual(one.HEADER_SEARCH_PATHS, name === 'Alpha' ? ['$(inherited)', '$(SRCROOT)/..'] : undefined, name)
+      }
+    }
+  })
+})

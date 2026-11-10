@@ -99,6 +99,10 @@ export function generate(input) {
   for (const target of podTargets) addPodTarget(project, target, context)
   for (const aggregate of aggregates) addAggregateTarget(project, aggregate, context)
   wireDependencies(project, podTargets, aggregates)
+  // What a post_install hook set: on every target of the project, and on one pod's own.
+  for (const target of project.targets) {
+    for (const configuration of target.buildConfigurationList.buildConfigurations) Object.assign(configuration.buildSettings, config.buildSettings, config.pods[target.name]?.buildSettings)
+  }
   // CocoaPods removes its own groups where they hold nothing; Xcodeproj's Frameworks stays, as it is asked for.
   project.frameworks ??= newGroup(project.mainGroup, 'Frameworks')
   const own = new Set([project.supportFiles, project.pods, project.developmentPods])
