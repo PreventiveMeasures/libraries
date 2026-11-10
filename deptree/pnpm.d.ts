@@ -21,9 +21,13 @@ export { LockfileError, YamlError } from '@preventive/lockfile/pnpm.js'
 export { setCacheDir } from '@preventive/upstream/npm.js'
 
 // The machine pnpm would install on, which a tree depends on: `pnpm` is
-// the version that installs, and has to be a 10.x, an 11.x or a 12.x
-// from 12.8.1 on, the three built for, each as it differs from the
-// others; an earlier 12.x installs otherwise in places, and is refused. Left out, it is the one the root package.json's
+// the version that installs, and has to be a 10.x, an 11.x or a 12.x, the
+// three built for, each as it differs from the others. pnpm 12 is checked
+// against real installs from 12.8.1 on; an earlier one is taken but where
+// its changelog says it installs otherwise, as its bug, which is not built
+// for: a `file:` directory's file whose mode is not 0o644, for 12.8.0, and
+// a production tree an edge to an optional peer changes, before 12.7.0.
+// Left out, it is the one the root package.json's
 // packageManager pins, which pnpm switches to, and has to be given where
 // that pins none. `node` is the Node it runs on,
 // unless the settings name a nodeVersion or, for pnpm 11, the root
@@ -134,7 +138,8 @@ export interface PnpmProject {
 // time linear in the path and the pattern. pnpm hardlinks those files from
 // the directory into each snapshot of the package, in their modes, which
 // are refused but for a checkout's under umask 022 or 002: 0o644, 0o664,
-// 0o755 and 0o775. So a file linking a bin makes executable -- 0o755 for
+// 0o755 and 0o775, and, for pnpm 12.8.0, which installs each at 0o644, any
+// but 0o644. So a file linking a bin makes executable -- 0o755 for
 // pnpm 10, its mode with 0o111 added for 11 and 12 -- is made so in
 // every snapshot and in the directory, which is not written here; a CRLF
 // `#!` line it rewrites is rewritten as a file of that snapshot's own. Where it builds the package -- an install script, a
@@ -317,7 +322,7 @@ export interface PnpmProject {
 // host cannot run left out as pnpm walks them, hoisted, its bins linked --
 // as without it. Nothing else is fetched,
 // nor its files checked; all else is held to the whole lockfile, as
-// without it. From pnpm 11.28.0, and in pnpm 12, an edge to an optional
+// without it. From pnpm 11.28.0 and 12.7.0, an edge to an optional
 // peer, which the snapshot is linked to only as each project that reaches it
 // lists the peer itself, or as the peer is among the root's devDependencies
 // and resolvePeersFromWorkspaceRoot is set, is not walked, and is linked
@@ -327,7 +332,11 @@ export interface PnpmProject {
 // of a key with a hash in place of its peers; before, any dependency by the
 // name of one of the snapshot's optional peers, though the snapshot
 // resolved it as its own and its package.json asks for it, as the lockfile
-// pnpm 11.28.7 and 12.15.0 on write records.
+// pnpm 11.28.7 and 12.15.0 on write records. pnpm 12 before 12.7.0 walks
+// each such edge, as pnpm 11 before 11.28.0 does; a lockfile where walking
+// those 12.15.0 does not walk installs otherwise, or leaves out otherwise
+// what the host cannot run, is refused, and any other is laid out as both
+// lay it out.
 //
 // The two ways the files come, one or the other: given, with `lockfile`
 // and `manifests`, `project` read only for directories; or read, with

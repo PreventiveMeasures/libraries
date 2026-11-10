@@ -296,8 +296,8 @@ export async function buildPnpmTree(options) {
   checkProjects(lockfile, manifests, { hook, extensions, host, settings, env, directories })
   checkOptional(lockfile)
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
-  const { walked, installing } = production ? productionLockfile(lockfile, { ...host, resolvePeersFromWorkspaceRoot: settings.resolvePeersFromWorkspaceRoot }) : { walked: lockfile, installing: lockfile }
-  const { skipped, incompatible } = skippedSnapshots(walked, { host, settings })
+  const skippedOf = (walked) => skippedSnapshots(walked, { host, settings })
+  const { installing, skipped, incompatible } = production ? productionLockfile(lockfile, { ...host, resolvePeersFromWorkspaceRoot: settings.resolvePeersFromWorkspaceRoot }, skippedOf) : { installing: lockfile, ...skippedOf(lockfile) }
   const hoisted = settings.nodeLinker === 'hoisted'
   const checks = { lockfile, hook, fresh, drops }
   const { byDir, links, fixes, reads, builds, early, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile: installing, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching })

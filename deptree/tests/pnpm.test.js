@@ -931,8 +931,11 @@ describe('buildPnpmTree for pnpm 12', () => {
     await assert.rejects(buildPnpmTree({ lockfile: locked, manifests, host: HOST_11 }), notSet)
   })
 
-  it('refuses a pnpm 12 before 12.8.1', async () => {
-    await assert.rejects(built({ host: { ...HOST, pnpm: '12.8.0' } }), /^DeptreeError: host\.pnpm: pnpm "12\.8\.0" is not supported: pnpm 12 is from 12\.8\.1 on$/u)
+  // Each pnpm 12 is taken; what an earlier one installs otherwise is refused
+  // only where it does (production.test.js, packlist.test.js).
+  it('takes a pnpm 12 before 12.8.1', async () => {
+    stubRegistry(TARBALLS)
+    for (const pnpm of ['12.0.0', '12.6.0', '12.8.0']) assert.equal((await built({ host: { ...HOST, pnpm } })).vfs.readText('/node_modules/p/index.js'), 'module.exports = 2\n', pnpm)
   })
 })
 

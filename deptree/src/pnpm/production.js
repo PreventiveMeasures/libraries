@@ -5,7 +5,7 @@
 // optionalDependencies and `link:`s, which lead only to projects, all of them
 // installed anyway.
 //
-// From pnpm 11.28 and 12.8.1 on (@pnpm/lockfile.peer-edges), an edge to an
+// From pnpm 11.28 and 12.7.0 on (@pnpm/lockfile.peer-edges), an edge to an
 // optional peer that a snapshot has only as the projects that reach it list
 // the peer themselves is not walked, and is dropped from the snapshot where
 // nothing else reaches the peer: a devDependency only there to satisfy an
@@ -13,15 +13,22 @@
 // only an edge to a peer the snapshot's key binds is such an edge, or any of
 // one whose key ends in a hash of its peers; before, any edge by the name of
 // an optional peer was, though the snapshot resolved it as its own.
+//
+// pnpm 12 before 12.7.0 walks such an edge too, as pnpm 11 before 11.28
+// does, which is pnpm's bug and not built for: a lockfile where walking the
+// edges 12.15.0 does not walk installs otherwise is refused.
 
 import { compareVersions } from '@preventive/upstream/semver.js'
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
+import { DeptreeError, quote } from '../error.js'
 import { reachable } from './nm-hoist.js'
 
-// undefined where there is no such edge; else whether the key must bind it.
+// undefined where there is no such edge; else whether the key must bind it,
+// and whether a lockfile that walking the edges installs otherwise is refused.
 function ruleOf(pnpm, major) {
   const since = (version) => compareVersions(pnpm, version) >= 0
   if (major < 11 || (major === 11 && !since('11.28.0'))) return undefined
+  if (major === 12 && !since('12.7.0')) return { bound: true, refused: true }
   return { bound: since(major === 11 ? '11.28.7' : '12.15.0') }
 }
 
@@ -116,17 +123,38 @@ function without(packages, edges, drop) {
   return kept
 }
 
-// `walked`, what pnpm walks to leave out what the host cannot run: every
-// snapshot, but for the edges it does not walk; `installing`, the lockfile
-// the tree is laid out from: the snapshots reached, each but for those edges
-// to a snapshot not reached. Each importer's devDependencies are empty.
-export function productionLockfile(lockfile, { pnpm, major, resolvePeersFromWorkspaceRoot }) {
+const same = (a, b) => a.size === b.size && [...a].every((key) => b.has(key))
+
+// The edge to name in refusing: one to a snapshot `fixed` leaves out, else
+// one of a snapshot walking them all reaches.
+function refusalOf(edges, all, fixed, packages) {
+  const listed = [...edges].flatMap(([parent, aliases]) => [...aliases].map((alias) => ({ parent, alias, target: packages[parent].dependencies[alias] ?? packages[parent].optionalDependencies[alias] })))
+  const reached = listed.filter((edge) => all.picked.has(edge.parent))
+  const edge = reached.find(({ target }) => !fixed.picked.has(target)) ?? reached[0]
+  return new DeptreeError(`pnpm 12 before 12.7.0 walks its edge to its optional peer ${quote(edge.alias)}, which pnpm 12.7.0 on does not, and installs otherwise with devDependencies left out, which is not supported`, `snapshots[${quote(edge.parent)}]`)
+}
+
+// `installing`, the lockfile the tree is laid out from: the snapshots
+// reached, each but for the edges pnpm does not walk to a snapshot not
+// reached; and what `skippedOf` makes of what pnpm walks to leave out what
+// the host cannot run: every snapshot, but for those edges. Each importer's
+// devDependencies are empty.
+export function productionLockfile(lockfile, { pnpm, major, resolvePeersFromWorkspaceRoot }, skippedOf) {
   const importers = Object.fromEntries(Object.entries(lockfile.importers).map(([id, importer]) => [id, { ...importer, devDependencies: {} }]))
+  const starts = Object.values(importers).flatMap(prodEdgesOf)
+  const filtered = (edges) => {
+    const walked = { ...lockfile, importers, packages: without(lockfile.packages, edges, () => true) }
+    const picked = reachable(starts, (key) => prodEdgesOf(walked.packages[key]))
+    const packages = Object.fromEntries(Object.entries(lockfile.packages).filter(([key]) => picked.has(key)))
+    return { picked, installing: { ...lockfile, importers, packages: without(packages, edges, (target) => !picked.has(target)) }, ...skippedOf(walked) }
+  }
   const rule = ruleOf(pnpm, major)
   const edges = rule === undefined ? new Map() : satisfactionEdges(lockfile, rule, resolvePeersFromWorkspaceRoot)
-  const walked = { ...lockfile, importers, packages: without(lockfile.packages, edges, () => true) }
-  const starts = Object.values(importers).flatMap(prodEdgesOf)
-  const picked = reachable(starts, (key) => prodEdgesOf(walked.packages[key]))
-  const packages = Object.fromEntries(Object.entries(lockfile.packages).filter(([key]) => picked.has(key)))
-  return { walked, installing: { ...lockfile, importers, packages: without(packages, edges, (target) => !picked.has(target)) } }
+  const fixed = filtered(edges)
+  if (!rule?.refused || edges.size === 0) return fixed
+  // Where walking every edge reaches the same snapshots and leaves out the
+  // same, it lays out the same tree.
+  const all = filtered(new Map())
+  if (!same(all.picked, fixed.picked) || !same(all.skipped, fixed.skipped) || !same(all.incompatible, fixed.incompatible)) throw refusalOf(edges, all, fixed, lockfile.packages)
+  return all
 }
