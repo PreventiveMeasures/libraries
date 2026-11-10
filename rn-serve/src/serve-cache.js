@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
 import { touch } from './load-pack.js'
+import { printable } from './terminal.js'
 
 // At most as many bundles as a dev bundler keeps built.
 const KEPT = 8
@@ -34,8 +35,9 @@ export function cacheDirOf(reset, log) {
   return null
 }
 
-// './index for ios', or './index for ios, release, minified'.
-export const bundleName = ({ entryFile, platform, dev, minify }) => `${entryFile} for ${platform ?? 'no platform'}${dev ? '' : ', release'}${minify ? ', minified' : ''}`
+// './index for ios', or './index for ios, release, minified'. Logged, and the entry and platform are the
+// request URL's own text, so control characters and newlines are escaped.
+export const bundleName = ({ entryFile, platform, dev, minify }) => printable(`${entryFile} for ${platform ?? 'no platform'}${dev ? '' : ', release'}${minify ? ', minified' : ''}`, { colors: false }).replaceAll('\n', '\\x0A')
 
 // A dev bundler's request (bundle-url.js's bundleRequest()) of a bundle.
 const requestOf = ({ entryFile, platform, dev, minify }) => ({ kind: 'bundle', entryFile, platform, dev, minify, shallow: false })
