@@ -62,14 +62,19 @@ async function actionRows(asked, details) {
 }
 
 // GitHub repositories as dependencies: OSV's records of them as Actions,
-// and every range their own advisories list, whichever package it names.
+// but of those `internal`, and every range their own advisories list,
+// whichever package it names.
 export const GITHUB = {
   repositoryOnly: true,
   assertName: assertRepo,
   nameKey: (repo) => repo.toLowerCase(),
   assertVersion: assertion('a version or a branch name', isRefName),
-  advisories: async (asked, { github, details, cache }) => (await Promise.all([
-    actionRows(asked, details),
-    repositoryAdvisories(github, asked, { repoOf: (repo) => repo, versionsIn: bySemver(coversPlaceholder), details, cache }),
-  ])).flat(),
+  advisories: async (asked, { github, details, cache, internal }) => {
+    const external = new Map(asked)
+    for (const name of internal) external.delete(name)
+    return (await Promise.all([
+      actionRows(external, details),
+      repositoryAdvisories(github, asked, { repoOf: (repo) => repo, versionsIn: bySemver(coversPlaceholder), details, cache }),
+    ])).flat()
+  },
 }

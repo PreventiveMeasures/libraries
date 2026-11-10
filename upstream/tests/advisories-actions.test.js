@@ -128,3 +128,27 @@ describe('github, from OSV of GitHub Actions', () => {
     await assert.rejects(advisories([repo('acme/action', ['v1'])], { github }), /advisories: malformed OSV result for acme\/action/u)
   })
 })
+
+describe('github, internal', () => {
+  it('asks a repository given `internal: true` of its own advisories alone, its name sent to no other source', async () => {
+    const own = { ghsa_id: 'GHSA-aaaa-aaaa-aaaa', state: 'published', summary: 'From the repository', severity: 'high', vulnerabilities: [{ package: { ecosystem: 'actions', name: 'acme/secret' }, vulnerable_version_range: '< 2.0.0' }] }
+    const calls = stubAll({ records: { 'GHSA-mrrh-fwg8-r2c3': record('GHSA-mrrh-fwg8-r2c3', 'acme/open', fixedIn('2.0.0')) }, listings: { 'acme/open': [], 'acme/secret': [own] } })
+    const found = await advisories([repo('acme/open', ['v1.0.0']), { ...repo('acme/secret', ['v1.0.0']), internal: true }], { github })
+    assert.deepEqual(calls.filter(({ url }) => url === BATCH).flatMap(({ body }) => body.queries.map(({ package: { name } }) => name)), ['acme/open'])
+    assert.deepEqual(found.map(({ name, source, id, versions }) => [name, source, id, versions]), [
+      ['acme/open', 'osv', 'GHSA-mrrh-fwg8-r2c3', ['v1.0.0']],
+      ['acme/secret', 'repository', 'GHSA-aaaa-aaaa-aaaa', ['v1.0.0']],
+    ])
+    const alone = stubAll({ listings: { 'acme/secret': [] } })
+    await advisories([{ ...repo('acme/secret', ['v1']), internal: true }], { github })
+    assert.deepEqual(alone.map(({ url }) => url), [listing('acme/secret')], 'none asked of OSV')
+  })
+
+  it('takes a repository as internal where any spelling of it is, and refuses `internal` on another ecosystem', async () => {
+    const calls = stubAll({ listings: { 'Acme/Secret': [], 'acme/other': [] } })
+    await advisories([repo('Acme/Secret', ['v1']), { ...repo('acme/secret', ['v2']), internal: true }, { ...repo('acme/other', ['v1']), internal: false }], { github })
+    assert.deepEqual(calls.filter(({ url }) => url === BATCH).flatMap(({ body }) => body.queries.map(({ package: { name } }) => name)), ['acme/other'])
+    await assert.rejects(advisories([{ ecosystem: 'npm', name: 'left-pad', versions: ['1.3.0'], internal: true }]), /only a github package takes package\.internal/u)
+    await assert.rejects(advisories([{ ...repo('acme/x', ['v1']), internal: 'yes' }], { github }), /package\.internal must be a boolean/u)
+  })
+})
