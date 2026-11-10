@@ -202,6 +202,23 @@ end
     assert.ok(existsSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')))
   })
 
+  it('runs the prepare_command of a local pod where the pod is, as CocoaPods does, and only where it is named', async () => {
+    // `pod install` 1.16.2 runs it for a :path pod too, in the pod's own directory, at each installation.
+    const withCommand = async (config) => {
+      const { dir } = await project((spec) => spec, config, true)
+      const path = join(dir, 'Podspecs/Delta.podspec.json')
+      const before = readFileSync(path)
+      const podspec = Buffer.from(`${JSON.stringify({ ...JSON.parse(before), prepare_command: 'echo "$COCOAPODS_VERSION in $(basename "$PWD")" > prepared.txt' }, null, 2)}\n`)
+      writeFileSync(path, podspec)
+      for (const lock of ['Podfile.lock', 'Pods/Manifest.lock']) writeFileSync(join(dir, lock), readFileSync(join(dir, lock), 'utf8').replace(sha('sha1', before), sha('sha1', podspec)))
+      return dir
+    }
+    await assert.rejects(install(await withCommand({}), GITHUB), /pods\["Delta"\]: its podspec has a prepare_command.*name the pod in `prepareCommands`/u)
+    const dir = await withCommand({ prepareCommands: ['Delta'] })
+    assert.deepEqual((await install(dir, GITHUB)).downloaded, [])
+    assert.equal(readFileSync(join(dir, 'local/Delta/prepared.txt'), 'utf8'), '1.16.2 in Delta\n')
+  })
+
   it('links a header that two subspecs both have once, where linking it again would fail', async () => {
     // The libraries fixture, its pods in Pods/ as the lockfile has them: Overlap's subspecs share a header.
     const dir = mkdtempSync(join(tmpdir(), 'pod-install-test-'))
