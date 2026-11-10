@@ -56,9 +56,15 @@ const LIST = [
 
 // Answers each URL in `answers`, a Response as is and anything else as
 // JSON, and refuses any other; `calls` is every URL asked.
+// OSV, asked of GitHub Actions alone, has no record of them unless given,
+// and isn't counted among the calls.
+const OSV_BATCH = 'https://api.osv.dev/v1/querybatch'
+const actionsOnly = (init) => JSON.parse(init?.body ?? '{}').queries?.every((query) => query.package.ecosystem === 'GitHub Actions')
+
 function stubUrls(answers) {
   const calls = []
-  globalThis.fetch = (url) => {
+  globalThis.fetch = (url, init) => {
+    if (String(url) === OSV_BATCH && !Object.hasOwn(answers, OSV_BATCH) && actionsOnly(init)) return Promise.resolve(Response.json({ results: JSON.parse(init.body).queries.map(() => ({})) }))
     calls.push(String(url))
     const answer = answers[String(url)]
     if (answer === undefined) return Promise.reject(new Error(`unexpected request: ${url}`))
@@ -106,7 +112,7 @@ describe("a repository's listing, through the cache", () => {
     assert.deepEqual({ ...entry, at: 0 }, {
       at: 0,
       name: 'openzeppelin/openzeppelin-contracts',
-      v: 2,
+      v: 3,
       advisories: [{
         ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory GHSA-aaaa-aaaa-aaaa', description: 'Details of GHSA-aaaa-aaaa-aaaa.',
         severity: 'moderate', cvss: 6.1, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', cwe: ['CWE-79'],
@@ -136,8 +142,10 @@ describe("a repository's listing, through the cache", () => {
     for (const [i, stale] of [
       gzip({ ...entry, at: Date.now() - 91 * MINUTE }),
       gzip({ ...entry, at: Date.now() + 60_000 }),
-      // Kept before a range was ended below its patched version.
+      // Kept before a range was ended below its patched version, and a
+      // gem's below one Gem::Version reads.
       gzip({ ...entry, v: 1 }),
+      gzip({ ...entry, v: 2 }),
       gzip({ ...entry, name: 'acme/other' }),
       gzip({ ...entry, advisories: [{ ...entry.advisories[0], ranges: [{ range: 42 }] }] }),
       gzip({ ...entry, advisories: [{ ...entry.advisories[0], description: 42 }] }),
@@ -230,7 +238,7 @@ describe("a caller's store", () => {
     assert.deepEqual(calls, [OZ])
     assert.deepEqual(store.log, [['read', TYPE, KEY], ['write', TYPE, KEY]])
     const entry = store.get(TYPE, KEY)
-    assert.deepEqual([entry.name, entry.v, entry.advisories.map(({ ghsa }) => ghsa)], ['openzeppelin/openzeppelin-contracts', 2, ['GHSA-aaaa-aaaa-aaaa']])
+    assert.deepEqual([entry.name, entry.v, entry.advisories.map(({ ghsa }) => ghsa)], ['openzeppelin/openzeppelin-contracts', 3, ['GHSA-aaaa-aaaa-aaaa']])
     calls = stubUrls({})
     const respelled = (text) => text.replace('OpenZeppelin/openzeppelin-contracts', 'openzeppelin/OpenZeppelin-Contracts')
     assert.deepEqual(await audit('openzeppelin/OpenZeppelin-Contracts', { cache: store, details: true }), fresh.map((row) => ({ ...row, name: respelled(row.name), url: respelled(row.url) })))
@@ -281,7 +289,7 @@ describe("a caller's store", () => {
     it('takes what the store does not have, or has stale or malformed, as a miss', async () => {
     const store = mapStore()
     const kept = { ghsa: 'GHSA-aaaa-aaaa-aaaa', title: 'Advisory', ranges: [] }
-    const entry = (at, list) => ({ at, name: 'openzeppelin/openzeppelin-contracts', v: 2, advisories: list })
+    const entry = (at, list) => ({ at, name: 'openzeppelin/openzeppelin-contracts', v: 3, advisories: list })
     for (const stored of [null, 'text', entry(Date.now() - 91 * MINUTE, []), entry(Date.now(), [{ ...kept, description: 42 }])]) {
       store.set(TYPE, KEY, stored)
       const calls = stubUrls({ [OZ]: [] })

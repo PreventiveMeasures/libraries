@@ -25,10 +25,9 @@ export function* descend(top, shape = (entry) => entry, within = () => true) {
     const entry = stack.pop()
     yield shape(entry)
     if (entry.node.type !== 'directory' || !within(entry)) continue
-    const names = namesOf(entry.node)
-    for (let i = names.length - 1; i >= 0; i--) {
-      const name = entry.name === '' ? names[i] : `${entry.name}/${names[i]}`
-      stack.push({ name, leaf: names[i], parent: entry.node, node: entry.node.entries.get(names[i]), depth: entry.depth + 1 })
+    for (const leaf of namesOf(entry.node).toReversed()) {
+      const name = entry.name === '' ? leaf : `${entry.name}/${leaf}`
+      stack.push({ name, leaf, parent: entry.node, node: entry.node.entries.get(leaf), depth: entry.depth + 1 })
     }
   }
 }

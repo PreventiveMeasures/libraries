@@ -10,6 +10,9 @@ import { setCacheDir } from '../npm.js'
 
 const BATCH = 'https://api.osv.dev/v1/querybatch'
 const VULN = 'https://api.osv.dev/v1/vulns/'
+// Packagist's, which every composer call asks too: none here.
+const PACKAGIST = 'https://packagist.org/api/security-advisories/'
+const none = () => Promise.resolve(Response.json({ advisories: [] }))
 const realFetch = globalThis.fetch
 
 afterEach(() => {
@@ -26,6 +29,10 @@ const composer = as('composer')
 function stubOsv(hits, records) {
   const calls = []
   globalThis.fetch = (url, init = {}) => {
+    if (String(url) === PACKAGIST) {
+      calls.push({ url: PACKAGIST })
+      return none()
+    }
     const body = init.body && JSON.parse(init.body)
     calls.push({ url: String(url), body })
     if (String(url) === BATCH) {
@@ -340,14 +347,15 @@ describe('composer', () => {
     for (const version of ['1.2.3', 'v1.2.3', '1.2.3.4', '2.0.0-beta1', '2.0.0-RC2', '1.0.0-p1', '1.0']) {
       await composer([{ name: 'acme/app', version }])
     }
-    assert.equal(calls.length, 7)
+    // OSV once each, and Packagist.
+    assert.equal(calls.length, 14)
     for (const version of ['dev-main', '2.x-dev', '1.0.0-dev', '^1.0', '1.0.0 ', '', undefined]) {
       await assert.rejects(composer([{ name: 'acme/app', version }]), /advisories: package\.versions must be a Composer release version/u, String(version))
     }
     for (const name of ['acme', 'Acme/App', 'acme/', '/app', 'acme/app/x', '../app', 'acme/ap p', undefined]) {
       await assert.rejects(composer([{ name, version: '1.0.0' }]), /advisories: package\.name must be a Composer package name/u, String(name))
     }
-    assert.equal(calls.length, 7)
+    assert.equal(calls.length, 14)
   })
 })
 
@@ -365,6 +373,7 @@ describe('cargo and composer, with a GitHub client', () => {
     globalThis.fetch = (url, init = {}) => {
       url = String(url)
       calls.push({ url, headers: init.headers ?? {} })
+      if (url === PACKAGIST) return none()
       if (url === BATCH) {
         const { queries } = JSON.parse(init.body)
         return Promise.resolve(Response.json({ results: queries.map(({ package: { name }, version }) => ({ vulns: (hits[`${name}@${version}`] ?? []).map((id) => ({ id })) })) }))
@@ -478,7 +487,7 @@ describe('cargo and composer, with a GitHub client', () => {
     globalThis.fetch = (url, init) => (String(url).startsWith(CRATES) ? Promise.resolve(Response.json({ crates: [{ id: 'serde', repository: null }] })) : stubbed(url, init))
     await assert.rejects(cargo(one, options), /advisories: crates\.io answered for "serde", which was not asked/u)
     stubAll({})
-    globalThis.fetch = (url) => Promise.resolve(String(url) === BATCH ? Response.json({ results: [{}] }) : Response.json({ packages: {} }))
+    globalThis.fetch = (url) => (String(url) === PACKAGIST ? none() : Promise.resolve(String(url) === BATCH ? Response.json({ results: [{}] }) : Response.json({ packages: {} })))
     await assert.rejects(composer([{ name: 'acme/app', version: '1.0.0' }], options), /advisories: Packagist answered without acme\/app/u)
   })
 

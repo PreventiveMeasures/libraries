@@ -1,7 +1,7 @@
 {
   "name": "@preventive/lockfile",
-  "version": "1.2.0",
-  "description": "Strict lockfile readers for JavaScript, Rust, Python, Ruby and more",
+  "version": "1.3.0",
+  "description": "Strict lockfile readers for JavaScript, Rust, Python, Ruby, Swift and more",
   "type": "module",
   "exports": {
     "./bundler.js": {
@@ -15,6 +15,10 @@
     "./composer.js": {
       "types": "./composer.d.ts",
       "default": "./composer.js"
+    },
+    "./composer-semver.js": {
+      "types": "./composer-semver.d.ts",
+      "default": "./composer-semver.js"
     },
     "./foundry.js": {
       "types": "./foundry.d.ts",
@@ -36,6 +40,10 @@
       "types": "./poetry.d.ts",
       "default": "./poetry.js"
     },
+    "./pep440.js": {
+      "types": "./pep440.d.ts",
+      "default": "./pep440.js"
+    },
     "./pylock.js": {
       "types": "./pylock.d.ts",
       "default": "./pylock.js"
@@ -43,6 +51,10 @@
     "./soldeer.js": {
       "types": "./soldeer.d.ts",
       "default": "./soldeer.js"
+    },
+    "./swiftpm.js": {
+      "types": "./swiftpm.d.ts",
+      "default": "./swiftpm.js"
     },
     "./uv.js": {
       "types": "./uv.d.ts",
@@ -76,6 +88,8 @@
     "cocoapods.js",
     "composer.d.ts",
     "composer.js",
+    "composer-semver.d.ts",
+    "composer-semver.js",
     "foundry.d.ts",
     "foundry.js",
     "npm.d.ts",
@@ -84,6 +98,8 @@
     "pnpm.js",
     "poetry.d.ts",
     "poetry.js",
+    "pep440.d.ts",
+    "pep440.js",
     "pylock.d.ts",
     "pylock.js",
     "rust-semver.d.ts",
@@ -110,7 +126,6 @@
     "src/cocoapods/parse.js",
     "src/cocoapods/pods.js",
     "src/cocoapods/psych.js",
-    "src/cocoapods/sha1.js",
     "src/cocoapods/shape.js",
     "src/cocoapods/sources.js",
     "src/cocoapods/yaml.js",
@@ -165,6 +180,10 @@
     "src/shape.js",
     "src/soldeer/config.js",
     "src/soldeer/parse.js",
+    "src/swiftpm/json.js",
+    "src/swiftpm/location.js",
+    "src/swiftpm/parse.js",
+    "src/swiftpm/pin.js",
     "src/toml/datetime.js",
     "src/toml/error.js",
     "src/toml/number.js",
@@ -185,6 +204,8 @@
     "src/yarn1/parse.js",
     "src/yarn1/resolutions.js",
     "src/yarn1/syntax.js",
+    "swiftpm.d.ts",
+    "swiftpm.js",
     "toml.d.ts",
     "toml.js",
     "uv.d.ts",
@@ -198,7 +219,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/cocoapods/*.test.js ./tests/composer/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/cocoapods/*.test.js ./tests/composer/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/swiftpm/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "author": {

@@ -25,6 +25,10 @@ const FILE_COST = 1024
 const IN_BAND = 16
 // A worker's first message: its config is loaded.
 const READY = 'ready'
+// Each worker's young generation, in MB: 16 MB semi-spaces. Node's default with 16 GB of RAM, 192 MB
+// (64 MB semi-spaces), let 3 workers hold ~400 MB more for no faster a build: Babel's garbage is a
+// file's, and dies with its transform. A --max-semi-space-size given to Node still takes precedence.
+const YOUNG_MB = 48
 
 // esbuild's inline map can be larger than the code it maps, but adds no nodes for Babel to transform.
 const sourceSize = (source = '') => {
@@ -32,18 +36,16 @@ const sourceSize = (source = '') => {
   return map < 0 ? source.length : map
 }
 
-// -> async (source, filename, without = []) => { code, imports, uncacheable? }, by the @babel/core at
-// corePath, less the config's plugins keyed in `without` (options: transformerOf()). Runs up to `max`
-// workers (defaultWorkers() if null), all started now if `warm`; with `eager`, all as a build is past
-// IN_BAND files, not one more as each has a BACKLOG: a build that misses a cache gets them all at once,
-// one that hits it none. Has close(), and fingerprint() with a fingerprinter.
+// -> async (source, filename, without = []) => { code, imports, uncacheable? }, on up to `max` workers
+// (defaultWorkers() if null). `warm` starts them all now; `eager` starts them all once a build passes
+// IN_BAND files, rather than one per BACKLOG. Has close(), and fingerprint() with a fingerprinter.
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false, eager = false } = {}) {
   const most = max ?? defaultWorkers()
   const bySize = options.oneBuild && !options.sourceMaps
   const workers = []
   const made = () => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } } })
-    // The answers it owes, which it gives in turn.
+    const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } }, resourceLimits: { maxYoungGenerationSizeMb: YOUNG_MB } })
+    // `asked`: the answers it owes, in order.
     const info = { worker, asked: [], ready: false, load: 0 }
     worker.on('message', (answer) => {
       // READY is its first message, so any means it is ready.
@@ -161,7 +163,7 @@ export function profileReport({ files, ms, plugins, own, before = new Map() }, r
     line('ms', '%', 'files', 'calls', 'Babel, outside plugins'),
     ...owned.map(([name, entry]) => row(name, entry)),
     row('traversal, and the rest', { ms: rest }),
-    ...(before.size === 0 ? [] : [line('ms', '', 'files', '', 'before Babel, on the main thread'), ...[...before].map(([name, entry]) => line(Math.round(entry.ms), '', entry.files, '', name))]),
+    ...(before.size === 0 ? [] : [line('ms', '', 'files', '', 'before Babel, on the main thread'), ...before.entries().map(([name, entry]) => line(Math.round(entry.ms), '', entry.files, '', name))]),
     '',
   ].join('\n')
 }
@@ -170,7 +172,7 @@ if (workerData?.babel !== undefined) {
   // Only serve reuses compiled code on disk; a one-off bundle keeps nothing across runs.
   if (!workerData.babel.options.oneBuild) enableCompileCache()
   // options.fingerprinter: the path of a module whose workerFingerprint() makes the worker's fingerprint
-  // (rn-serve's, serve/fingerprint.js), as the worker loads its config.
+  // (@preventive/rn-serve's src/fingerprint.js), as the worker loads its config.
   const { fingerprinter = null } = workerData.babel.options
   const fingerprintOf = fingerprinter === null ? null : (await import(pathToFileURL(fingerprinter).href)).workerFingerprint
   const { transform, fingerprint } = transformerOf({ ...workerData.babel, fingerprintOf })

@@ -30,7 +30,7 @@ describe('readRnConfig', () => {
   })
 
   it('takes each of its options, as they are', () => {
-    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, port: 8082, launch: 'ios', ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' }, android: { device: 'Pixel_8', variant: 'freeDebug', binaryPath: 'app.apk' } }
+    const options = { metroConfig: false, assetExts: ['riv', 'tar.gz'], sourceExts: ['mjs'], assetResolutions: ['0.75', 5], maxWorkers: 2, esm: true, devtools: true, port: 8082, launch: 'ios', allowedPaths: ['./index.js', 'src/**', 'node_modules/**'], disallowedPaths: ['src/{legacy,old}/**'], allowedModules: ['app', 'react*', '@react-native/*'], disallowedModules: ['moment'], ios: { simulator: 'iPhone 17 (26.0)', binaryPath: 'build/App.app' }, android: { device: 'Pixel_8', variant: 'freeDebug', binaryPath: 'app.apk' } }
     assert.deepEqual(read('{ "launch": false, "ios": {} }'), { launch: false, ios: {} })
     assert.deepEqual(read('{ "launch": "android" }'), { launch: 'android' })
     assert.deepEqual(read(JSON.stringify(options)), options)
@@ -40,7 +40,7 @@ describe('readRnConfig', () => {
 
   it('refuses an option it does not know, a value of another type, and a file not an object of JSON', () => {
     // devTools, its name before: none now.
-    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, ios, android, development, production' })
+    assert.throws(() => read('{ "devTools": true }'), { message: 'rn.config.json: no such option devTools: it has metroConfig, assetExts, sourceExts, assetResolutions, maxWorkers, esm, inlineRequires, babel, devtools, port, launch, allowedPaths, disallowedPaths, allowedModules, disallowedModules, ios, android, development, production' })
     for (const port of [-1, 65_536, 80.5, '8082', null]) {
       assert.throws(() => read(JSON.stringify({ port })), { message: `rn.config.json: port is a port, 0 to 65535, not ${JSON.stringify(port)}` })
     }
@@ -60,6 +60,14 @@ describe('readRnConfig', () => {
     for (const workers of [0, 1.5, '2', null]) {
       assert.throws(() => read(JSON.stringify({ maxWorkers: workers })), { message: `rn.config.json: maxWorkers is a number of workers, 1 or more, not ${JSON.stringify(workers)}` })
     }
+    for (const globs of [['/app/src/**'], ['src\\**'], [''], ['src/{a,b'], ['src/../secrets'], ['src//x'], ['.'], 'src/**', [1]]) {
+      assert.throws(() => read(JSON.stringify({ disallowedPaths: globs })), { message: `rn.config.json: disallowedPaths is a list of globs of paths from the project root, each a directory's files too ("src", "src/**/*.js", "node_modules"), not ${JSON.stringify(globs)}` })
+    }
+    for (const names of [['react-native/Libraries'], ['@scope'], ['@scope/a/b'], ['./x'], ['{react,'], [''], 'react']) {
+      assert.throws(() => read(JSON.stringify({ allowedModules: names })), { message: `rn.config.json: allowedModules is a list of globs of packages' names ("react-native", "@react-native/*"), not ${JSON.stringify(names)}` })
+    }
+    assert.throws(() => read('{ "production": { "disallowedPaths": ["src/../x"] } }'), { message: /^rn\.config\.json: production\.disallowedPaths is a list of globs of paths/u })
+    assert.throws(() => read('{ "development": { "allowedModules": ["react-native/Libraries"] } }'), { message: /^rn\.config\.json: development\.allowedModules is a list of globs of packages' names/u })
     assert.throws(() => read('{ "esm": "yes" }'), { message: 'rn.config.json: esm is true or false, not "yes"' })
     assert.throws(() => read('{ "devtools": 1 }'), { message: 'rn.config.json: devtools is true or false, not 1' })
     assert.throws(() => read('{ "metroConfig": "" }'), { message: 'rn.config.json: metroConfig is true, false or the path of a Metro config, not ""' })
@@ -239,13 +247,19 @@ describe('babel, development and production', () => {
       assert.throws(() => read({ babel }), { message: `rn.config.json: babel is an object of Babel plugins, each true (run it on every file) or false (never), not ${JSON.stringify(babel)}` })
     }
     for (const option of ['metroConfig', 'assetExts', 'sourceExts', 'assetResolutions', 'port', 'devtools', 'launch', 'maxWorkers']) {
-      assert.throws(() => read({ development: { [option]: true } }), { message: `rn.config.json: no such option development.${option}: it has babel, esm, inlineRequires` })
+      assert.throws(() => read({ development: { [option]: true } }), { message: `rn.config.json: no such option development.${option}: it has babel, esm, inlineRequires, allowedPaths, disallowedPaths, allowedModules, disallowedModules` })
     }
     assert.throws(() => read({ production: { babel: { a: 1 } } }), { message: /^rn\.config\.json: production\.babel is an object of Babel plugins/u })
-    assert.throws(() => read({ production: [] }), { message: 'rn.config.json: production is an object of options (babel, esm, inlineRequires), not []' })
+    assert.throws(() => read({ production: [] }), { message: 'rn.config.json: production is an object of options (babel, esm, inlineRequires, allowedPaths, disallowedPaths, allowedModules, disallowedModules), not []' })
     assert.throws(() => read({ inlineRequires: true, production: { inlineRequires: false } }), { message: 'rn.config.json: inlineRequires is set at the top level and in production: set it at the top level, for both, or in development and production' })
     assert.deepEqual(read({ development: { inlineRequires: false }, production: { inlineRequires: true } }), { development: { inlineRequires: false }, production: { inlineRequires: true } })
     assert.throws(() => read({ babel: { a: true }, development: { babel: { b: true } } }), { message: 'rn.config.json: babel is set at the top level and in development: set it at the top level, for both, or in development and production' })
     assert.throws(() => read({ esm: false, development: { esm: true }, production: { esm: true } }), { message: 'rn.config.json: esm is set at the top level and in development and production: set it at the top level, for both, or in development and production' })
+  })
+
+  it("takes restrictions at the top level and in a section alike, a section's adding to the top level's", () => {
+    const restrictions = { allowedPaths: ['src'], disallowedPaths: ['src/legacy'], allowedModules: ['app'], disallowedModules: ['moment'] }
+    const config = { ...restrictions, development: restrictions, production: restrictions }
+    assert.deepEqual(read(config), config)
   })
 })

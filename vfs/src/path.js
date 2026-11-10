@@ -27,14 +27,16 @@ export function normalize(path) {
   const out = []
   for (const part of segments(path)) {
     if (part === '.') continue
-    if (part !== '..') out.push(part)
-    else if (out.length > 0 && out.at(-1) !== '..') out.pop()
-    else if (!absolute) out.push('..')
+    if (part !== '..') {
+      out.push(part)
+    } else if (out.length > 0 && out.at(-1) !== '..') {
+      out.pop()
+    } else if (!absolute) {
+      out.push('..')
+    }
   }
-  let result = (absolute ? '/' : '') + out.join('/')
-  if (result === '') result = '.'
-  if (path.endsWith('/') && !result.endsWith('/')) result += '/'
-  return result
+  const result = ((absolute ? '/' : '') + out.join('/')) || '.'
+  return path.endsWith('/') && !result.endsWith('/') ? `${result}/` : result
 }
 
 export function join(...paths) {

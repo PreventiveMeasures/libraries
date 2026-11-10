@@ -2,6 +2,8 @@
 // version, and a checksum 64 lowercase hex digits, before any request or
 // cache path. The cache is setCacheDir's (npm.js).
 
+import type { CacheOptions } from './npm.js'
+
 export { HttpError } from './npm.js'
 
 // Reads crates.io's index for that version and throws unless its sha256
@@ -20,6 +22,11 @@ export function verifyChecksum(name: string, version: string, checksum: string):
 // `~/.cargo`. A file there that does not match is passed over. One in
 // setCacheDir's cache that does not match throws.
 export function getCrate(name: string, version: string, checksum?: string): Promise<Uint8Array>
+
+// Each asked crate's versions crates.io has yanked, as `cargo audit` warns
+// of, and those it doesn't have (all, for a crate of another registry or a
+// git source). Not advisories, so not in advisories(); cached 90 minutes.
+export function yankedVersions(crates: Iterable<{ name: string, versions: string[] }>, options?: CacheOptions): Promise<Map<string, { yanked: string[], unknown: string[] }>>
 
 // What resolveCrateRepos maps each resolved name to: `owner/name`, the
 // GitHub repo the crate's `repository` on crates.io names.

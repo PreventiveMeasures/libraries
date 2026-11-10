@@ -36,7 +36,7 @@ Also say in one sentence what the summary should focus on, so that it carries wh
 Return only JSON: {"focus":"...","questions":["...","..."]} with at most ${maxQuestions} questions.`
 }
 
-export const proposeUser = (task) => taskLines(task)
+export const proposeUser = taskLines
 
 // Phase 1: one entry into one row. `summarize` off is the supplement pass: extra questions a gate
 // asked for one request, answered by a cheaper model over the whole dataset, with no summary.

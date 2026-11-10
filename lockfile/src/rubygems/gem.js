@@ -66,8 +66,9 @@ const OSES = {
 
 // [os, version] as `rubygems` reads them, and the CPU a lone mswin32 is of.
 function readOs(os, rubygems) {
+  if (os === undefined) return ['unknown', undefined, undefined]
   for (const [pattern, name, version = (m) => m[1]] of OSES[rubygems]) {
-    const match = os === undefined ? null : pattern.exec(os)
+    const match = pattern.exec(os)
     if (match === null) continue
     const named = name ?? match[1]
     return [named, version(match), /^mswin\d*32$/u.test(named) ? 'x86' : undefined]

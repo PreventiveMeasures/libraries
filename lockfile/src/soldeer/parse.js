@@ -43,8 +43,7 @@ function readEntry(entry, index) {
     if (!FIELDS.includes(key)) throw new LockfileError(`unsupported field ${quote(key)}`, at(where, key))
   }
   if (entry.url !== undefined && entry.git !== undefined) throw new LockfileError('both a url and a git repository, which Soldeer refuses', where)
-  let type = 'http'
-  if (entry.url === undefined) type = entry.git === undefined ? 'private' : 'git'
+  const type = entry.url === undefined ? (entry.git === undefined ? 'private' : 'git') : 'http'
   const read = { type }
   for (const field of KINDS[type]) {
     if (entry[field] === undefined) throw new LockfileError(`expected ${field}, which Soldeer requires of an entry with ${HAVING[type]}`, where)

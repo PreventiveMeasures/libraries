@@ -1,11 +1,12 @@
-// A build's view of the project, as both bundle formats (bundle.js, serve/modules.js) have it: Metro's resolver
+// A build's view of the project, as both bundle formats (bundle.js, rn-serve's modules.js) have it: Metro's resolver
 // over a host that notes each file it reads or looks for, for a watcher, and the assets built.
 
 import { basename, dirname, relative, resolve } from 'node:path'
 
-import { assetData, assetModule } from './assets.js'
+import { assetData, assetModule, assetRecord } from './assets.js'
 import { aliasing } from './babel-aliases.js'
 import { createMetroResolver } from './resolve.js'
+import { packagesOf } from './restrictions.js'
 import { reactNativeOf } from './serializer.js'
 
 // The key of the empty module, which Metro resolves some imports to, and the namespace of assets' modules.
@@ -15,21 +16,21 @@ export const ASSET = 'metro-asset'
 export const posixRelative = (from, to) => relative(from, to).replaceAll('\\', '/')
 
 // A build's state, resolving through buildHost() (each package.json read anew, each file read noted in
-// `read`) or run.resolution (serve/resolution.js). made(state) gets it before react-native's modules are
+// `read`) or run.resolution (rn-serve's resolution.js). made(state) gets it before react-native's modules are
 // found, which may fail (a package.json of no JSON): the build goes on with it, as with no react-native.
 export function newState(run, read = new Set(), made = () => {}) {
-  const { projectRoot, entry, platform } = run
+  const { projectRoot, entry, platform, restrict = null } = run
   const host = buildHost(run.host, read)
   const resolveModule = run.resolution?.(run.changes ?? null, read) ?? metroResolverOf({ ...run, host })
   const resolution = importResolution(resolveModule, run)
   const graph = new Map()
   const assets = new Map()
   let registry = run.assetRegistryPath
+  let packageOf = null
   const state = {
     read,
     graph,
     before: run.runBeforeMain ?? [],
-    // Resolves an import as importResolution() does, recording it in `graph`; returns resolvedModule() of it.
     resolveImport(importer, specifier, kind, pluginData) {
       const resolved = resolution(importer, specifier, kind, pluginData)
       if (!graph.has(importer)) graph.set(importer, new Map())
@@ -43,6 +44,16 @@ export function newState(run, read = new Set(), made = () => {}) {
       return assetModule(data, registry)
     },
     assets: () => [...assets.keys()].toSorted().map((path) => assets.get(path)),
+    // A file given by its path from the project root (a polyfill), as resolvedModule() has one.
+    fileOf: (path) => ({ kind: 'file', key: resolve(projectRoot, path) }),
+    // The errors of rn.config.json's restrictions for each file of a module, by real path: for an asset, each
+    // file the build takes for the platform. A file from a custom resolveRequest, or a polyfill, may be a link.
+    forbidden(found) {
+      if (restrict === null || found === null || found.kind === 'empty') return []
+      packageOf ??= packagesOf(host)
+      const files = found.kind === 'asset' ? assetFilesOf(found.key, platform, host) : [found.key]
+      return files.map((path) => realOf(host, path)).flatMap((path) => restrict(path, packageOf(path)))
+    },
   }
   made(state)
   const reactNative = reactNativeOf(resolveModule, run.host, resolve(projectRoot, entry), platform)
@@ -51,9 +62,8 @@ export function newState(run, read = new Set(), made = () => {}) {
   return state
 }
 
-// (importer, specifier, kind, pluginData) => Metro's resolution of an import, by esbuild's kind, or null.
-// pluginData is the importer's loadFile() data: `imports`, the specifiers of its ES imports, which a require
-// call Babel made of one resolves as; `aliases`, module-resolver's Babel left (load.js), else `aliases`.
+// -> (importer, specifier, kind, pluginData) => Metro's resolution of an import, or null. A require Babel made
+// of an ES import (in pluginData.imports) resolves as one; pluginData.aliases, if any, replaces `aliases`.
 export function importResolution(resolveModule, { platform, aliases = null }) {
   return (importer, specifier, kind, { imports = [], aliases: mapped = null } = {}) => {
     const isESMImport = kind === 'import-statement' || kind === 'dynamic-import' || (kind === 'require-call' && imports.includes(specifier))
@@ -69,6 +79,24 @@ export function resolvedModule(resolution) {
   if (resolution.type === 'empty') return { kind: 'empty', key: EMPTY }
   if (resolution.type === 'assetFiles') return { kind: 'asset', key: resolution.filePaths.toSorted()[0] }
   return { kind: 'file', key: resolution.filePath }
+}
+
+// The files of the asset at `path` a build takes, or `path` alone where it has none (assetSource() then fails).
+function assetFilesOf(path, platform, host) {
+  try {
+    return assetRecord(path, { platform, host }).files
+  } catch {
+    return [path]
+  }
+}
+
+// The real path of a file, or its path where it has none (its load then fails).
+function realOf(host, path) {
+  try {
+    return host.realpath(path)
+  } catch {
+    return path
+  }
 }
 
 // Metro's AssetData of an asset of the project, its URL its path from the project root.
@@ -88,7 +116,7 @@ export function buildHost(host, read) {
 
 // buildHost()'s host, and what it knows: `known(name, path)`, a path's isFile or realpath as looked up;
 // entry(path), its entry in its directory's listing (null where none, undefined where none listed);
-// forget(dir), that directory's listing let go (serve/resolution.js keeps it across builds).
+// forget(dir), that directory's listing let go (rn-serve's resolution.js keeps it across builds).
 export function lookups(host, read) {
   // The resolver tries every spelling of each import (platform, extension) and each directory up to its package.json.
   const once = (find) => {
@@ -120,7 +148,13 @@ export function lookups(host, read) {
     if (listed === undefined || listed.isSymbolicLink() || !(listed.isFile() || listed.isDirectory())) return host[name](path)
     return listed[name]()
   }
-  const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath: once((path) => host.realpath(path)) }
+  // A real path is its own, known so: the restrictions check each file the resolver gives again (newState()).
+  const realpath = once((path) => {
+    const real = host.realpath(path)
+    if (real !== path) realpath.known.set(real, real)
+    return real
+  })
+  const looked = { isFile: once(typed('isFile')), isDirectory: once(typed('isDirectory')), realpath }
   return {
     host: {
       ...looked,

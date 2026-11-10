@@ -17,10 +17,11 @@ import { DiffError } from './myers.js'
 export function applyRecords(a, blocks, b = null) {
   const out = []
   let ai = 0
-  for (const { a0, a1, b0, b1, insert } of blocks) {
+  for (const block of blocks) {
+    const { a0, a1 } = block
     if (a0 < ai || a1 < a0 || a1 > a.length) throw new DiffError('a block is out of order or out of range')
     for (; ai < a0; ai++) out.push(a[ai])
-    out.push(...replacement({ b0, b1, insert }, b))
+    out.push(...replacement(block, b))
     ai = a1
   }
   for (; ai < a.length; ai++) out.push(a[ai])

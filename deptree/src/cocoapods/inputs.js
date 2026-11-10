@@ -1,7 +1,9 @@
 // What buildCocoaPodsTree takes, as text or read from the project's root.
 
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkHostKeys, checkLeftOut, checkProject, readBytes, readText, typeOf } from '../project.js'
+import { isObject } from './podspec.js'
 
 // CocoaPods 1.13.0 to 1.17.x, which download, clean and lock a pod alike
 // but for one thing, which tree.js follows: 1.16 on copy a download into
@@ -37,8 +39,30 @@ const PODFILES = ['CocoaPods.podfile.yaml', 'CocoaPods.podfile', 'Podfile', 'Pod
 
 const LOCKFILE = 'lockfile must be the Podfile.lock text, or left out where project is given'
 
+// The podspecs of pods by :podspec, as CocoaPods writes each in Pods/Local
+// Podspecs, by name: those given, as text or bytes, or else those in the
+// project's Pods/Local Podspecs; undefined for one neither has.
+const PODSPECS = 'podspecs must be an object of podspecs by name, each as text or bytes, or left out'
+function podspecsOf(podspecs, project) {
+  if (podspecs !== undefined) {
+    if (!isObject(podspecs)) throw new TypeError(PODSPECS)
+    const given = new Map(Object.entries(podspecs))
+    for (const value of given.values()) if (!(typeof value === 'string' ? value.isWellFormed() : value instanceof Uint8Array)) throw new TypeError(PODSPECS)
+    return (name) => {
+      const value = given.get(name)
+      return typeof value === 'string' ? utf8fromString(value) : value
+    }
+  }
+  if (project === undefined) return () => undefined
+  return (name) => {
+    const path = `/Pods/Local Podspecs/${name}.podspec.json`
+    return typeOf(project, path) === 'file' ? readBytes(project, path) : undefined
+  }
+}
+
 export function inputsOf(options) {
   const { lockfile, podfile, project } = options
+  const podspecs = podspecsOf(options.podspecs, project)
   if (lockfile === undefined) {
     if (project === undefined) throw new TypeError(LOCKFILE)
     checkProject(project)
@@ -47,10 +71,10 @@ export function inputsOf(options) {
     if (lock === undefined) throw new DeptreeError('the project has no Podfile.lock, without which CocoaPods resolves each pod anew')
     const name = PODFILES.find((candidate) => typeOf(project, `/${candidate}`) === 'file')
     if (name === undefined) throw new DeptreeError(`the project has no Podfile, as ${PODFILES.join(', ')}, without which CocoaPods installs nothing`)
-    return { lockfile: lock, podfile: readBytes(project, `/${name}`) }
+    return { lockfile: lock, podfile: readBytes(project, `/${name}`), podspecs }
   }
   if (typeof lockfile !== 'string') throw new TypeError(LOCKFILE)
   if (project !== undefined) throw new TypeError('project must be left out where lockfile is given')
   if (podfile !== undefined && typeof podfile !== 'string' && !(podfile instanceof Uint8Array)) throw new TypeError('podfile must be the Podfile, as text or bytes, or left out')
-  return { lockfile, podfile }
+  return { lockfile, podfile, podspecs }
 }

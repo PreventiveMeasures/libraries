@@ -1,8 +1,7 @@
 // pnpm 10 applies the patch patchedDependencies picks for a package's name and
 // version (@pnpm/patching.config's getPatchInfo), not the one its snapshot key
 // names, so every snapshot must name that pick's hash. Every patch must be some
-// snapshot's, which pnpm checks only when resolving. pnpm 9 picks by the
-// selector `name@version` as spelled, else `name`, and takes no range.
+// snapshot's, which pnpm checks only when resolving.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
@@ -26,11 +25,17 @@ function group(selectors) {
   }
   for (const selector of selectors) {
     const { name, version, range } = parseSelector(selector)
-    if (version !== undefined) of(name).exact.set(version, selector)
-    else if (range === undefined) of(selector).all = selector
-    else if (validRange(range) === null) throw new DeptreeError(`${quote(range)} is not a version range, which pnpm refuses`, `patchedDependencies[${quote(selector)}]`)
-    else if (range.trim() === '*') of(name).all = selector
-    else of(name).ranges.push({ range, selector })
+    if (version !== undefined) {
+      of(name).exact.set(version, selector)
+    } else if (range === undefined) {
+      of(selector).all = selector
+    } else if (validRange(range) === null) {
+      throw new DeptreeError(`${quote(range)} is not a version range, which pnpm refuses`, `patchedDependencies[${quote(selector)}]`)
+    } else if (range.trim() === '*') {
+      of(name).all = selector
+    } else {
+      of(name).ranges.push({ range, selector })
+    }
   }
   return groups
 }
@@ -44,14 +49,11 @@ function pick(groups, name, version, where) {
   return taking[0]?.selector ?? found.all
 }
 
-// pnpm 9's getPatchInfo.
-const pick9 = (hashes, name, version) => [`${name}@${version}`, name].find((selector) => Object.hasOwn(hashes, selector))
-
-export function checkPatchUse(lockfile, hashes, major = 10) {
-  const groups = major < 10 ? undefined : group(Object.keys(hashes))
+export function checkPatchUse(lockfile, hashes) {
+  const groups = group(Object.keys(hashes))
   const used = new Set()
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
-    const selector = major < 10 ? pick9(hashes, pkg.name, pkg.version) : pick(groups, pkg.name, pkg.version, quote(key))
+    const selector = pick(groups, pkg.name, pkg.version, quote(key))
     const wanted = selector === undefined ? undefined : hashes[selector].hash
     if (wanted !== pkg.patchHash) {
       throw new DeptreeError(`pnpm applies ${selector === undefined ? 'no patch' : `the patch of ${quote(selector)}`} to it, and the lockfile names ${pkg.patchHash === undefined ? 'none' : `the patch ${pkg.patchHash}`}`, quote(key))

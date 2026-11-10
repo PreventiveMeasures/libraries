@@ -18,6 +18,14 @@ export type EntryType = 'file' | 'directory' | 'symlink'
 // `./a` where `name` is `a`, `dir/` where it is `dir` -- and passed every
 // check the cleaned one did. A symlink's target is never rewritten, only
 // checked, so `linkname` is as stored.
+//
+// Beside those, what the central directory stores of the entry, for a
+// reader that follows another program's reading of it: `system` is the
+// maker's, the upper byte of the version made by, 3 for Unix, whose
+// attributes alone `mode` is read from; `version` the one needed to
+// extract, `flags` the general purpose bits, `internalAttributes` and
+// `attributes` the internal and external ones, each as stored; `extra` the
+// extra fields, each its id and data, in the order stored.
 export interface Entry {
   name: string
   type: EntryType
@@ -26,6 +34,17 @@ export interface Entry {
   linkname: string
   data: Uint8Array
   storedName: string
+  system: number
+  version: number
+  flags: number
+  internalAttributes: number
+  attributes: number
+  extra: ExtraField[]
+}
+
+export interface ExtraField {
+  id: number
+  data: Uint8Array
 }
 
 // An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and

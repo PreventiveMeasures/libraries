@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON, numberOf } from './json.js'
+import { expectObject, extractJSON, numberOf, textOf } from './json.js'
 import { mapLimit } from './pool.js'
 import { blocks, candidateBlock, requestBlock, scoreSystem } from './prompts.js'
 
@@ -20,9 +20,9 @@ function readScore(text) {
   const json = expectObject(extractJSON(text), 'score, reason and evidence')
   const value = numberOf(json.score)
   if (value === undefined) throw new TypeError('expected a numeric score')
-  const reason = typeof json.reason === 'string' ? json.reason.trim() : ''
+  const reason = textOf(json.reason)
   if (!reason) throw new TypeError('expected a reason for the score')
-  const evidence = typeof json.evidence === 'string' ? json.evidence.trim() : ''
+  const evidence = textOf(json.evidence)
   if (!evidence) throw new TypeError('expected the evidence quoted from the candidate')
   return { score: Math.min(100, Math.max(0, value)), reason, evidence }
 }

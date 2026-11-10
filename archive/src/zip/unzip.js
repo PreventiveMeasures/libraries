@@ -106,9 +106,10 @@ async function findEnd(source) {
   throw new ArchiveError('no end of central directory record')
 }
 
-// Extra fields, each an id, a length and that many bytes, tiling the room.
+// Extra fields, each an id, a length and that many bytes, tiling the room,
+// in the order stored; copies, so that none holds on to the chunk read.
 function extras(raw, at) {
-  const fields = new Map()
+  const fields = []
   const r = reader(raw)
   for (let pos = 0; pos < raw.length;) {
     const id = r.u16(pos)
@@ -118,7 +119,7 @@ function extras(raw, at) {
     // Every name here is UTF-8 already, so this field can only disagree with
     // the name checked above -- and unzip would extract the name it carries.
     if (id === UNICODE_PATH_EXTRA) throw new ArchiveError('an entry carries a second name in a Unicode path extra field', at)
-    if (!fields.has(id)) fields.set(id, raw.subarray(pos + 4, pos + 4 + size))
+    fields.push({ id, data: raw.slice(pos + 4, pos + 4 + size) })
     pos += 4 + size
   }
   return fields
@@ -141,6 +142,7 @@ async function readCentral(read, at) {
     crc: r.u32(at + 16),
     csize: r.u32(at + 20),
     usize: r.u32(at + 24),
+    internal: r.u16(at + 36),
     attributes: r.u32(at + 38),
     offset: r.u32(at + 42),
     // A copy, so that no entry holds on to the chunk it was read from.
@@ -154,7 +156,8 @@ async function readCentral(read, at) {
   // The DOS fields have to be a time even where the extended timestamp,
   // an exact one, is the time kept.
   entry.mtime = fromDos(entry.date, entry.time, at)
-  const stamp = extras(r.slice(at + 46 + nameLength, extraLength), at).get(TIMESTAMP_EXTRA)
+  entry.extra = extras(r.slice(at + 46 + nameLength, extraLength), at)
+  const stamp = entry.extra.find((field) => field.id === TIMESTAMP_EXTRA)?.data
   if (stamp !== undefined && stamp[0] & 1) {
     if (stamp.length < 5) throw new ArchiveError('an extended timestamp is cut short', at)
     entry.mtime = view(stamp).getInt32(1, true)
@@ -233,7 +236,10 @@ async function entryOf(source, entry, names) {
   if (crc32(body) !== entry.crc) throw new ArchiveError('the data does not match its CRC-32', at)
   const target = type === 'symlink' ? decodeUtf8(body, 'symlink target', at) : ''
   const named = located(() => cleanNames(rawName, type, target, names.above), at)
-  const out = { ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName }
+  const out = {
+    ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName,
+    system: entry.madeBy >> 8, version: entry.version, flags: entry.flags, internalAttributes: entry.internal, attributes: entry.attributes, extra: entry.extra,
+  }
   located(() => names.add(out), at)
   return out
 }
@@ -268,13 +274,15 @@ async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep =
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
   let expected = 0
   const sorted = list.toSorted((a, b) => a.offset - b.offset)
-  const boundaries = sorted.map((_, i) => sorted[i + 1]?.offset ?? start)
-  // The headers are read ahead through, but never the data between them,
-  // which is read again when its entry is reached: from each header to its
-  // own data, give or take a descriptor, by the directory's sizes, or on
-  // through the next header where it has none.
+  // Each entry ends where the next starts, the last at the directory. The
+  // headers are read ahead through, but never the data between them, which
+  // is read again when its entry is reached: from each header to its own
+  // data, give or take a descriptor, by the directory's sizes, or on through
+  // the next header where it has none.
+  const boundaries = []
   const stops = []
   for (let i = sorted.length - 1; i >= 0; i--) {
+    boundaries[i] = sorted[i + 1]?.offset ?? start
     stops[i] = sorted[i].csize === 0 && i + 1 < sorted.length ? stops[i + 1] : boundaries[i] - sorted[i].csize
   }
   const locals = walk(source)

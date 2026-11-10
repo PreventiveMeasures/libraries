@@ -9,16 +9,22 @@ import { matches, printable } from './args.js'
 export const NPM_REGISTRY = 'https://registry.npmjs.org'
 export const GITHUB_API = 'https://api.github.com'
 export const OSV_API = 'https://api.osv.dev'
+export const OSV_EXPORTS = 'https://osv-vulnerabilities.storage.googleapis.com'
 export const CRATES_API = 'https://crates.io'
 export const PACKAGIST_REPO = 'https://repo.packagist.org'
+export const PACKAGIST = 'https://packagist.org'
 export const CRATES_INDEX = 'https://index.crates.io'
 export const CRATES_STATIC = 'https://static.crates.io'
 export const SOLDEER_API = 'https://api.soldeer.xyz'
 export const SOLDEER_REVISIONS = 'https://soldeer-revisions.s3.amazonaws.com'
 export const COCOAPODS_CDN = 'https://cdn.cocoapods.org'
+export const RUBYGEMS = 'https://rubygems.org'
+export const RUBYGEMS_INDEX = 'https://index.rubygems.org'
+export const PYPI = 'https://pypi.org'
+export const GITHUB_WEB = 'https://github.com'
 export const MAX_BYTES = 512 * 1024 * 1024
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, CRATES_API, PACKAGIST_REPO, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, OSV_EXPORTS, CRATES_API, PACKAGIST_REPO, PACKAGIST, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, PYPI, GITHUB_WEB])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)
@@ -83,7 +89,8 @@ export async function send(url, { method = 'GET', headers = {}, body, redirect =
   assert.ok(['manual', 'follow'].includes(redirect), `Unexpected redirect mode: ${redirect}`)
   assert.ok(Object.hasOwn(LIMITS, as), `Unexpected response type: ${as}`)
   assert.ok(Object.entries(headers).every(isHeader), 'Unexpected header')
-  const json = body === undefined ? {} : { headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  // Bytes as they are, under the type `headers` give; anything else as JSON.
+  const json = body === undefined ? {} : body instanceof Uint8Array ? { body } : { headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   return await fetch(url, { method, headers, redirect, signal: AbortSignal.timeout(LIMITS[as].ms), ...json })
 }
 

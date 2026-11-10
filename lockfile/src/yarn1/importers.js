@@ -63,19 +63,18 @@ const CLEANED = ['optionalDependencies', 'dependencies', 'devDependencies']
 // yarn drops `//`, a comment, from a dependency list.
 function readTargets(manifest, dir, where, context) {
   const listed = new Map()
-  const ranges = new Map()
   for (const kind of CLEANED) {
     for (const [name, range, here] of entries(orEmpty(manifest[kind]), at(where, kind))) {
       if (name === '//') continue
       const value = string(range, here)
-      if (!listed.has(name)) listed.set(name, { kind, value, here })
-      if (!ranges.has(name) && value !== '' && value !== '*') ranges.set(name, value)
+      const first = listed.get(name) ?? listed.set(name, { kind, value, here, range: undefined }).get(name)
+      if (first.range === undefined && value !== '' && value !== '*') first.range = value
     }
   }
   const importer = Object.create(null)
   for (const kind of KINDS) importer[kind] = Object.create(null)
-  for (const [name, { kind, value, here }] of listed) {
-    const target = fromLockfile(ranges.get(name) ?? value, dir, here)
+  for (const [name, { kind, value, here, range }] of listed) {
+    const target = fromLockfile(range ?? value, dir, here)
     importer[kind][name] = resolveRequest({ name, range: target, pattern: `${checkName(name, here)}@${target}`, where: here }, context)
   }
   return importer

@@ -12,14 +12,14 @@ import { own } from '../manifest.js'
 const SCOPED = /^(?:@([^/]+?)\/)?([^/]+?)$/u
 export function validForOldPackages(name) {
   if (name === '' || name.startsWith('.') || name.startsWith('_') || name.trim() !== name) return false
-  if (name.toLowerCase() === 'node_modules' || name.toLowerCase() === 'favicon.ico') return false
+  if (['node_modules', 'favicon.ico'].includes(name.toLowerCase())) return false
   if (encodeURIComponent(name) === name) return true
   const m = SCOPED.exec(name)
   return m !== null && encodeURIComponent(m[1]) === m[1] && encodeURIComponent(m[2]) === m[2]
 }
 
 // @pnpm/parse-wanted-dependency.
-function parseWanted(raw) {
+export function parseWanted(raw) {
   const at = raw.indexOf('@', 1)
   const name = at === -1 ? raw : raw.slice(0, at)
   return validForOldPackages(name) ? { name, range: at === -1 ? undefined : raw.slice(at + 1) } : undefined
@@ -29,9 +29,8 @@ function parseWanted(raw) {
 const DELIMITER = /[^ @|]>/u
 
 export function parseSelector(selector, where) {
-  if (!selector.isWellFormed()) throw new DeptreeError(`pnpm cannot parse the selector ${quote(selector)}`, where)
   const split = selector.search(DELIMITER)
-  const parsed = (split === -1 ? [selector] : [selector.slice(0, split + 1), selector.slice(split + 2)]).map(parseWanted)
+  const parsed = selector.isWellFormed() ? (split === -1 ? [selector] : [selector.slice(0, split + 1), selector.slice(split + 2)]).map(parseWanted) : [undefined]
   if (parsed.includes(undefined)) throw new DeptreeError(`pnpm cannot parse the selector ${quote(selector)}`, where)
   return parsed.length === 1 ? { target: parsed[0] } : { parent: parsed[0], target: parsed[1] }
 }

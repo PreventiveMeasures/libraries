@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DIGESTS, checkHash, parseSdistName, parseWheelName } from '../../src/python/files.js'
-import { checkNormalVersion, checkSpecifiers, normalVersion, parseVersion, versionKey } from '../../src/python/pep440.js'
+import { checkNormalVersion, checkSpecifiers, compareVersions, normalVersion, parseVersion, versionKey } from '../../src/python/pep440.js'
 import { checkMarker, checkNormalName, checkRequirementText, isName, normalName } from '../../src/python/pep508.js'
 
 // What the PEP 440 and PEP 508 readers make of the cases each tool's
@@ -33,6 +33,16 @@ describe('PEP 440', () => {
   it('a version in normal form, as uv writes every one', () => {
     assert.ok(reads(checkNormalVersion)('1.0.post1'))
     assert.throws(() => checkNormalVersion('1.0-1', 'v'), /"1\.0-1" is not a version in normal form, "1\.0\.post1"/u)
+  })
+
+  it('versions in order, as packaging orders them', () => {
+    const ordered = ['1.0.dev0', '1.0a1.dev0', '1.0a1', '1.0a1.post1', '1.0b0', '1.0rc1', '1.0', '1.0+abc', '1.0+abc.1', '1.0+1', '1.0.post1.dev1', '1.0.post1', '1.1.dev1', '1.1', '1.10', '1!0.1']
+    for (const [i, a] of ordered.entries()) {
+      for (const [j, b] of ordered.entries()) assert.equal(Math.sign(compareVersions(a, b)), Math.sign(i - j), `${a} ${b}`)
+    }
+    assert.equal(compareVersions('1.0', '1.0.0'), 0)
+    assert.equal(compareVersions('v1.0-RC.1', '1.0rc1'), 0)
+    assert.ok(compareVersions('99999999999999999999.0', '99999999999999999998.9') > 0)
   })
 
   it('equal versions, by their release less trailing zeros', () => {

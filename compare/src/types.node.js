@@ -197,14 +197,14 @@ export function proveWith(text, stripTypeScriptTypes) {
   // blanks here, so only a kept one steers. `loads` is whether any run statement is a module load, a bare
   // `export {}`, or an `export default` on an identifier, the runtime that runs differently per module format
   // -- a hashbang, directive or pragma does not.
-  const prologue = tree.program.body.length > 0 ? tree.program.body[0].start : stripped.code.length
+  const prologue = tree.program.body[0]?.start ?? stripped.code.length
   const hashbang = tree.program.hashbang ? [tree.program.hashbang] : []
   const steering = tree.comments.filter(({ start, end }) => steers(stripped.code.slice(start, end), start < prologue))
-  const verbatim = ({ start, end }) => stripped.code.slice(start, end)
+  const verbatim = ({ start, end }) => ({ start, text: stripped.code.slice(start, end) })
   const parts = [
-    ...hashbang.map((node) => ({ start: node.start, text: verbatim(node) })),
+    ...hashbang.map(verbatim),
     ...runtime.map((node) => ({ start: node.start, text: runtimeText(body, stripped.code, tree.comments, node) })),
-    ...steering.map((node) => ({ start: node.start, text: verbatim(node) })),
+    ...steering.map(verbatim),
   ]
   const signature = parts.sort((a, b) => a.start - b.start).map((part) => part.text).join('\n')
   return { proven: true, runtime: signature, loads: runtime.length > 0 }

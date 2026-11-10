@@ -12,6 +12,7 @@ import { TRANSFORM_PROFILES, babelAliases, bigBuild, defines, flowStripper, peer
 import { diskHost } from './defaults.js'
 import { maxWorkersOf, metroOptions } from './metro-options.js'
 import { babelSwitchesOf, extendedMetro, flagOf, inlineRequiresOf, metroConfigOf, readRnConfig, withInlineRequires } from './rn-config.js'
+import { restrictionsOf } from './restrictions.js'
 import { prelude } from './serializer.js'
 import { differences } from './self-test.js'
 import { metroSourceMap } from './source-map.js'
@@ -111,15 +112,6 @@ async function run(args, { cwd, stderr, closing }) {
   } else if (args['babel-aliases'] !== undefined) {
     fail("--babel-aliases maps the imports where no Babel runs: the project's Babel config has its aliases")
   }
-  const build = async (options) => {
-    try {
-      return await bundle(options)
-    } catch (error) {
-      if (!Array.isArray(error?.errors)) throw error
-      for (const line of await esbuild.formatMessages(error.errors, { kind: 'error' })) stderr.write(line)
-      return fail(`esbuild reported ${error.errors.length} error(s)`)
-    }
-  }
   const options = {
     entry,
     platform,
@@ -132,6 +124,7 @@ async function run(args, { cwd, stderr, closing }) {
     // Imports are checked with esm, and with inline requires (never both: transformRefusal).
     esm: esm.on,
     checkImports: esm.on || inlineRequires !== null,
+    restrict: restrictionsOf(rnConfig, cwd, dev),
     assetExts: metro.assetExts,
     resolver: { ...metro.resolver, dev },
     blockList: metro.blockList,
@@ -146,15 +139,29 @@ async function run(args, { cwd, stderr, closing }) {
   }
   // Each module as this build loaded it, for --self-test to compare.
   const ours = args['self-test'] ? new Map() : null
-  const result = await build({ ...options, cache: ours })
+  const result = await built(stderr, { ...options, cache: ours })
+  // Its workers stopped once it's built: V8 keeps their heaps' pages for the process's other isolates,
+  // so --self-test's build, which has workers of its own, reuses them instead of taking as much again.
+  babel?.babel.close()
   for (const line of await esbuild.formatMessages(result.warnings, { kind: 'warning' })) stderr.write(line)
   writeOutputs(cwd, args, result)
   stderr.write(`rn-bundle: ${entry} for ${platform}${args.output === undefined ? '' : ` to ${args.output}`} (esbuild ${esbuild.version}), ${result.graph.size} modules, ${result.assets.length} assets\n`)
   if (babel?.profile) stderr.write(profileReport(babel.profile, cwd))
   if (ours === null) return 0
   const theirs = new Map()
-  await build({ ...options, ...babelOf({ keepPlugins: true }), keepPlugins: true, cache: theirs })
+  await built(stderr, { ...options, ...babelOf({ keepPlugins: true }), keepPlugins: true, cache: theirs })
   return reported(await differences(esbuild, ours, theirs), ours.size, cwd, stderr)
+}
+
+// bundle()'s result; esbuild's errors written out, and failed on.
+async function built(stderr, options) {
+  try {
+    return await bundle(options)
+  } catch (error) {
+    if (!Array.isArray(error?.errors)) throw error
+    for (const line of await options.esbuild.formatMessages(error.errors, { kind: 'error' })) stderr.write(line)
+    return fail(`esbuild reported ${error.errors.length} error(s)`)
+  }
 }
 
 const write = (path, contents) => {

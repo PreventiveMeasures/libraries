@@ -1,5 +1,5 @@
-// JSON for generated code, as @exodus/schemasafe's jsval() writes it (src/safe-format.js): a __proto__ key stays
-// own (an object literal would set the prototype), and U+2028/U+2029 (string ends before ES2019) are escaped.
+// JSON to embed in generated code, as @exodus/schemasafe's jsval(): a `__proto__` key stays an own key, and
+// U+2028/U+2029 (which end strings before ES2019) are escaped.
 export const jsval = (value) =>
   JSON.stringify(value)
     .replaceAll(/([,{])"__proto__":/gu, '$1["__proto__"]:')

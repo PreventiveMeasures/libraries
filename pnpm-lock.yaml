@@ -68,7 +68,7 @@ importers:
         specifier: ^1.16.0
         version: 1.16.0
       '@preventive/archive':
-        specifier: ^1.2.2
+        specifier: ^1.4.0
         version: link:../archive
       '@preventive/compare':
         specifier: ^1.2.11
@@ -77,10 +77,10 @@ importers:
         specifier: ^1.1.0
         version: link:../diff
       '@preventive/lockfile':
-        specifier: ^1.2.0
+        specifier: ^1.3.0
         version: link:../lockfile
       '@preventive/upstream':
-        specifier: ^1.4.0
+        specifier: ^1.6.0
         version: link:../upstream
       '@preventive/vfs':
         specifier: ^1.1.0
@@ -145,18 +145,46 @@ importers:
       metro-resolver:
         specifier: 0.87.2
         version: 0.87.2
-      metro-runtime:
-        specifier: 0.87.2
-        version: 0.87.2
-      metro-runtime-0.81:
-        specifier: npm:metro-runtime@0.81.5
-        version: metro-runtime@0.81.5
       metro-transform-plugins:
         specifier: 0.87.2
         version: 0.87.2
       oxc-parser:
         specifier: ^0.152.0
         version: 0.152.0
+
+  rn-serve:
+    dependencies:
+      '@preventive/rn':
+        specifier: 1.0.0-alpha.7
+        version: link:../rn
+    devDependencies:
+      '@babel/core':
+        specifier: ^7.29.7
+        version: 7.29.7
+      '@babel/plugin-transform-modules-commonjs':
+        specifier: ^7.29.7
+        version: 7.29.7(@babel/core@7.29.7)
+      '@babel/plugin-transform-react-jsx':
+        specifier: ^7.29.7
+        version: 7.29.7(@babel/core@7.29.7)
+      babel-plugin-module-resolver:
+        specifier: ^5.0.2
+        version: 5.0.3
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      flow-remove-types:
+        specifier: ^2.338.0
+        version: 2.338.0
+      metro-config:
+        specifier: 0.87.2
+        version: 0.87.2
+      metro-runtime:
+        specifier: 0.87.2
+        version: 0.87.2
+      metro-runtime-0.81:
+        specifier: npm:metro-runtime@0.81.5
+        version: metro-runtime@0.81.5
       react-refresh:
         specifier: 0.14.2
         version: 0.14.2
@@ -170,8 +198,11 @@ importers:
   upstream:
     dependencies:
       '@preventive/archive':
-        specifier: ^1.2.0
+        specifier: ^1.4.0
         version: link:../archive
+      '@preventive/lockfile':
+        specifier: ^1.3.0
+        version: link:../lockfile
 
   vfs:
     devDependencies:

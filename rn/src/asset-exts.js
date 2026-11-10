@@ -9,7 +9,6 @@ import { defaults } from './defaults.js'
 import { metroAssetExts, scanMetroAssetExts } from './metro-config.js'
 import { added, metroConfigOf, readRnConfig } from './rn-config.js'
 
-// The project's oxc-parser, else the one beside rn/; null if neither.
 function locateOxc(projectRoot) {
   const fromHere = createRequire(import.meta.url)
   let path
@@ -21,8 +20,8 @@ function locateOxc(projectRoot) {
   return fromHere(path)
 }
 
-// Metro's asset extensions plus rn.config.json's assetExts if set, else those the Metro config
-// (`file`, else rn.config.json's metroConfig) adds, parsed by `oxc` (located if not given) or a regex.
+// Metro's asset extensions plus rn.config.json's assetExts if set, else plus those the Metro config adds,
+// parsed with oxc-parser where available, else a regex.
 export function readMetroAssetExts(projectRoot, { file = null, oxc } = {}) {
   const rnConfig = readRnConfig(projectRoot, (message) => {
     throw new Error(message)

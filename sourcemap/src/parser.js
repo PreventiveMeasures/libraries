@@ -11,9 +11,9 @@ export function parse(text, lang) {
   for (const sourceType of ['unambiguous', 'commonjs']) {
     try {
       const parsed = parseSync(`source.${lang}`, text, { sourceType, lang, preserveParens: false })
-      const errors = parsed.errors.filter((e) => e.severity !== 'Warning' && e.severity !== 'Advice')
-      if (errors.length === 0) return { program: parsed.program }
-      error ??= errors[0].message
+      const failed = parsed.errors.find((e) => e.severity !== 'Warning' && e.severity !== 'Advice')
+      if (!failed) return { program: parsed.program }
+      error ??= failed.message
     } catch (cause) {
       error ??= cause.message
     }

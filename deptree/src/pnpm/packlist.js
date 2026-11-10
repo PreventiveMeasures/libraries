@@ -1,5 +1,5 @@
 // The files pnpm's directory fetcher installs of a `file:` dependency, as its
-// packlist picks them: npm-packlist 5.1.3 for pnpm 9 and 10, 10.0.4 for pnpm
+// packlist picks them: npm-packlist 5.1.3 for pnpm 10, 10.0.4 for pnpm
 // 11, and pnpm 12's own port of it, by package.json's `files`, `main` and
 // `bin`, the .npmignore and .gitignore files where they read them, and their
 // own rules. Of glob syntax only `*`, `?` and `**` are followed, which they
@@ -13,7 +13,6 @@ import { DeptreeError, quote } from '../error.js'
 import { readBytes } from '../project.js'
 import { bytesOf, gitignoreGlob, matched, matchedOrParents } from './gitignore.js'
 import { pack10, pack11 } from './npm-packlist.js'
-
 
 const MODES = new Set([0o644, 0o664, 0o755, 0o775])
 

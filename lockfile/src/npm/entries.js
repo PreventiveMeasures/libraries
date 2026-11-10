@@ -168,7 +168,7 @@ export function readLink(entry, where) {
 export function readEntry(entry, where, kindOf, folder) {
   record(entry, where, FIELDS[kindOf], REFUSED)
   const read = Object.create(null)
-  for (const key of Object.keys(READERS)) read[key] = field(entry, key, where, READERS[key])
+  for (const [key, reader] of Object.entries(READERS)) read[key] = field(entry, key, where, reader)
   if (kindOf === 'importer' && folder !== undefined && read.bundleDependencies !== undefined) {
     throw new LockfileError('a bundle of a directory, which is not supported', at(where, 'bundleDependencies'))
   }

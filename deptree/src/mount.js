@@ -48,10 +48,7 @@ export const within = (parent, child) => child === parent || (parent === '.' ? c
 // a line or paragraph separator, a bidirectional control).
 export const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 
-const asRefusal = (error, what, path) => {
-  if (error instanceof VfsError) return new DeptreeError(`cannot be ${what}: ${error.message}`, quote(path), { cause: error })
-  return error
-}
+const asRefusal = (error, what, path) => (error instanceof VfsError ? new DeptreeError(`cannot be ${what}: ${error.message}`, quote(path), { cause: error }) : error)
 
 // Each builder holds what a tarball names and where a package goes to that
 // first, and makes no link where a package is written after. What is made

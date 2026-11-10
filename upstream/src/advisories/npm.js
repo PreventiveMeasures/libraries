@@ -13,8 +13,7 @@ import { npmRepos } from './repos.js'
 const BULK_URL = buildUrl(NPM_REGISTRY, ['-', 'npm', 'v1', 'security', 'advisories', 'bulk'])
 const NAMES_PER_REQUEST = 250
 const GHSA_PAGE = 'https://github.com/advisories/'
-// Names checked at once for whether they are public: each a small document,
-// answered in about a tenth of a second.
+// Each a small document, answered in about a tenth of a second.
 const NAMES_AT_ONCE = 32
 
 const isRow = (row) => row && typeof row === 'object' && Number.isSafeInteger(row.id)
@@ -55,9 +54,7 @@ async function registryAdvisories(asked) {
 }
 
 // The registry's rows carry no text: each GHSA's is OSV's record of it,
-// GitHub's advisory database as published, asked once for the rows that
-// cover an asked version, but where `osv` already read it. One OSV does
-// not have yet has none.
+// asked once, unless `osv` already read it.
 async function withDetails(rows) {
   const asks = (row) => row.source === 'registry' && row.details === undefined
   const ghsas = [...new Set(rows.filter((row) => asks(row) && row.ghsa && row.versions.length > 0).map((row) => row.ghsa))]
@@ -66,13 +63,9 @@ async function withDetails(rows) {
   return rows.map((row) => (asks(row) ? { ...row, ...detailsOf(text.get(row.ghsa), row.ghsa) } : row))
 }
 
-// With `osv`, OSV's records of the asked versions besides the registry's
-// rows, the malicious packages' (MAL-...), which the registry has none
-// of, among them. A version a registry row reports under the same
-// advisory, the row's id one of an OSV row's ids or aliases, is left to
-// that row, which takes the OSV row's ids among its aliases, and its text
-// where it is the same record; an OSV row keeps the versions no such row
-// reports, which advisories() joins to a registry row of its own id.
+// With `osv`, OSV's records too, malware's among them. A version a registry
+// row reports under the same advisory is left to that row, which takes the
+// record's ids as aliases.
 function withOsv(registry, osv) {
   const rows = registry.map((row) => ({ ...row }))
   const added = []
@@ -89,14 +82,9 @@ function withOsv(registry, osv) {
   return [...rows, ...added]
 }
 
-// Whether npm's registry serves `name` to anyone: its latest version's
-// document, for that name, read with no token. Private packages and other
-// registries' answer 404; any other answer, or none, counts as private too,
-// as in triage. That document first, as npm answers a HEAD of the package's
-// in two seconds or more about one time in ten; but a 404 for it may only
-// mean no `latest` tag (a package published with `--tag` alone, or one
-// unpublished whole, its name kept), so then the package's document, a HEAD
-// with no token, decides.
+// Whether npm serves `name` without a token: its latest version's document,
+// else (no `latest` tag) a HEAD of the package's; anything but 200 is
+// private, as in triage. That order, as the HEAD is often slow.
 async function servesAnyone(name) {
   try {
     const json = await request(buildUrl(NPM_REGISTRY, [...name.split('/'), 'latest']), { as: 'json' })
@@ -111,37 +99,36 @@ async function servesAnyone(name) {
   }
 }
 
-// The packages of `asked` whose name is public (servesAnyone). The name
-// decides, not the version: npm takes down malicious versions but keeps
-// their name. Public names are kept a month, as a scoped package can be
-// made private; the rest are asked again each time.
+// The name decides, not the version: npm takes down malicious versions but
+// keeps their name. Only public names are cached, a month.
 async function publicOnly(asked, cache) {
   const names = [...asked.keys()]
   const kept = await pool(names, NAMES_AT_ONCE, (name) => readRecord('npm/public', name, cache))
-  const missing = names.filter((name, i) => kept[i]?.public !== true)
+  const serving = new Set(names.filter((name, i) => kept[i]?.public === true))
+  const missing = names.filter((name) => !serving.has(name))
   const found = await pool(missing, NAMES_AT_ONCE, servesAnyone)
   const added = missing.filter((name, i) => found[i])
   await pool(added, NAMES_AT_ONCE, (name) => writeRecord('npm/public', name, { public: true }, cache))
-  const serving = new Set([...names.filter((name, i) => kept[i]?.public === true), ...added])
+  for (const name of added) serving.add(name)
   return new Map([...asked].filter(([name]) => serving.has(name)))
 }
 
-// OSV's records of the public packages only: no request to OSV names a
-// private one.
+// No request to OSV names a private package.
 async function osvOfPublic(asked, options) {
   const told = await publicOnly(asked, options.cache)
   return told.size > 0 ? await osvRows({ osv: 'npm' }, told, options) : []
 }
 
-// What `npm audit` asks the registry, one row per vulnerable range, and
-// with `osv`, OSV's records of the public packages.
+// What `npm audit` asks, and with `osv`, OSV's records of public packages.
 export const NPM = {
+  github: 'npm',
+  lookUp: npmRepos,
   assertName: assertPackageName,
   assertVersion: assertPackageVersion,
   compare: compareVersions,
   advisories: async (asked, options) => {
     const [registry, osv] = await Promise.all([registryAdvisories(asked), options.osv ? osvOfPublic(asked, options) : []])
     const rows = withOsv(registry, osv)
-    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, { ecosystem: 'npm', lookUp: npmRepos })
+    return await withRepositories(options.details ? await withDetails(rows) : rows, asked, options, NPM)
   },
 }

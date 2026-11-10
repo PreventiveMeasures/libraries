@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parsePnpmLockfile } from '@preventive/lockfile/pnpm.js'
+import { listExtensions } from '../src/pnpm/extensions.js'
 import { createHook } from '../src/pnpm/hook.js'
 import { listOverrides } from '../src/pnpm/overrides.js'
 import { checkProjects, readManifests } from '../src/pnpm/projects.js'
@@ -112,6 +113,13 @@ describe('checkProjects', () => {
     assert.throws(() => check({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile }), /dependencies\.q resolved to "1\.2\.0", which is not in "\^2\.0\.0"/u)
   })
 
+  // pnpm resolves `*` to a prerelease `latest`, writing this lockfile.
+  it('takes a prerelease for a range of `*`, but not for another', () => {
+    const locked = (spec) => parsePnpmLockfile(`lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      q:\n        specifier: '${spec}'\n        version: 1.3.0-beta.1\n\npackages:\n\n  q@1.3.0-beta.1:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  q@1.3.0-beta.1: {}\n`).lockfile
+    for (const spec of ['*', 'x', '']) check({ dependencies: { q: spec } }, { lockfile: locked(spec) })
+    assert.throws(() => check({ dependencies: { q: '>=1.0.0' } }, { lockfile: locked('>=1.0.0') }), /dependencies\.q resolved to "1\.3\.0-beta\.1", which is not in ">=1\.0\.0"/u)
+  })
+
   // A package.json is a plain object, with Object.prototype's names in it.
   it('reads a dependency by a name Object.prototype has as package.json lists it', () => {
     const importer = (kind, version) => parsePnpmLockfile(`lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    ${kind}:\n      constructor:\n        specifier: ${version}\n        version: ${version}\n${version.startsWith('link:') ? '' : `\npackages:\n\n  constructor@1.0.0:\n    resolution: {integrity: ${I}}\n\nsnapshots:\n\n  constructor@1.0.0: {}\n`}`).lockfile
@@ -120,41 +128,6 @@ describe('checkProjects', () => {
       check({ dependencies: { constructor: 'link:c' } }, { lockfile: importer('dependencies', 'link:c'), host })
       assert.throws(() => check({ devDependencies: { constructor: 'link:c' } }, { lockfile: importer('dependencies', 'link:c'), host }), /^DeptreeError: manifests\["\."\]: the lockfile is not up to date with this package\.json, which a frozen install refuses: devDependencies in the lockfile do not match the same field in package\.json$/u)
     }
-  })
-})
-
-describe('checkProjects for pnpm 9', () => {
-  const HOST_9 = { ...HOST, pnpm: '9.15.9', major: 9 }
-  const CHECKS = { manage: false, strict: true, strictVersion: false }
-  const check9 = (manifest, { checks = {}, ...options } = {}) => check(manifest, { host: HOST_9, packageManagerChecks: { ...CHECKS, ...checks }, ...options })
-
-  // As real installs of pnpm 9.15.9 take, or fail on, what the root pins.
-  it('holds packageManager to the pnpm that runs as pnpm 9 does', () => {
-    for (const packageManager of ['pnpm@10.33.4', 'pnpm@9.15.9+sha512.abc', 'pnpm', 'pnpm@https://example.com/pnpm.tgz', '@yarnpkg/cli@4.0.0', '']) check9({ ...MANIFEST, packageManager })
-    assert.throws(() => check9({ ...MANIFEST, packageManager: 'yarn@1.22.22' }), /^DeptreeError: manifests\["\."\]\.packageManager: the project is installed by "yarn", which pnpm 9 refuses with packageManagerStrict$/u)
-    check9({ ...MANIFEST, packageManager: 'yarn@1.22.22' }, { checks: { strict: false } })
-    assert.throws(() => check9({ ...MANIFEST, packageManager: 'pnpm@10.33.4' }, { checks: { strictVersion: true } }), /: the project is installed by pnpm 10\.33\.4, not 9\.15\.9, which pnpm 9 refuses with packageManagerStrict and packageManagerStrictVersion$/u)
-    check9({ ...MANIFEST, packageManager: 'pnpm@10.33.4' }, { checks: { strictVersion: true, strict: false } })
-    assert.throws(() => check9({ ...MANIFEST, packageManager: 'pnpm@9.15.8' }, { checks: { manage: true } }), /: the project is installed by pnpm 9\.15\.8, which pnpm 9 switches to with managePackageManagerVersions, not 9\.15\.9$/u)
-    assert.throws(() => check9({ ...MANIFEST, packageManager: 'pnpm@v9.15.8' }, { checks: { manage: true } }), /: pnpm "v9\.15\.8" is one pnpm 9\.15\.0 switches to and a later 9\.15 does not, which is not supported$/u)
-    for (const packageManager of ['pnpm@9.15.9', 'pnpm@9.x', 'pnpm']) check9({ ...MANIFEST, packageManager }, { checks: { manage: true } })
-    assert.throws(() => check9({ ...MANIFEST, packageManager: 'yarn@1.22.22' }, { checks: { manage: true } }), /which pnpm 9 refuses with packageManagerStrict$/u)
-    assert.throws(() => check9({ ...MANIFEST, packageManager: 7 }), /: expected a string, which pnpm 9 fails on otherwise$/u)
-  })
-
-  // As a real install of pnpm 9.15.9 takes ^2.0.0 resolved to 3.0.1.
-  it('takes a version the importer resolved outside its range', () => {
-    const lockfile = cloned()
-    lockfile.importers['.'].specifiers.q = '^2.0.0'
-    check9({ ...MANIFEST, dependencies: { ...MANIFEST.dependencies, q: '^2.0.0' } }, { lockfile })
-  })
-
-  it('knows no runtime, and holds a project to the host\'s own platform', () => {
-    check9({ ...MANIFEST, devEngines: { runtime: { name: 'node', version: '24.0.0', onFail: 'download' } } })
-    const darwin = { ...MANIFEST, os: ['darwin'], engines: { pnpm: '>=11' } }
-    check9(darwin, { supportedArchitectures: { os: ['darwin'] } })
-    assert.throws(() => check(darwin, { supportedArchitectures: { os: ['darwin'] } }), /its engines\.pnpm, ">=11", does not take pnpm 10\.33\.4/u, 'pnpm 10 takes supportedArchitectures')
-    assert.throws(() => check9({ ...MANIFEST, engines: { pnpm: '>=10' } }), /its engines\.pnpm, ">=10", does not take pnpm 9\.15\.9, which pnpm refuses/u)
   })
 })
 
@@ -207,6 +180,28 @@ describe('checkProjects for pnpm 11', () => {
     check11(manifest(undefined), { lockfile })
     assert.throws(() => check11(manifest(false), { lockfile }), /linkDirectory is true in the lockfile and publishConfig\.linkDirectory false/u)
     check(manifest(false), { lockfile })
+  })
+})
+
+// pnpm 10.34.9, 11.28.11, 12.8.1 and 12.18.0 all add what such an extension
+// has to the project's own dependencies, and so to its importer.
+describe('checkProjects with package extensions', () => {
+  const HOSTS = [{ ...HOST, major: 10 }, { ...HOST, pnpm: '11.28.2', major: 11 }, { ...HOST, pnpm: '12.8.1', major: 12 }]
+  const extended = (manifest, packageExtensions, host = HOSTS[0]) => {
+    const extensions = listExtensions(packageExtensions, host.major)
+    checkProjects(LOCKFILE, new Map([['.', manifest]]), { hook: createHook({ overrides: [], extensions, ignored: [], major: host.major }), extensions, host, settings: SETTINGS })
+  }
+
+  it('refuses an extension that names a project, in its version', () => {
+    const named = { name: 'app', version: '1.2.0', ...MANIFEST }
+    for (const host of HOSTS) {
+      for (const selector of ['app', 'app@^1', 'app@1.2.0']) {
+        assert.throws(() => extended(named, { [selector]: { dependencies: { z: '1.0.0' } } }, host), /^DeptreeError: manifests\["\."\]: a package extension names this project, whose package\.json pnpm extends too, which is not supported$/u, selector)
+      }
+      extended(named, { 'app@^2': { dependencies: { z: '1.0.0' } }, q: { dependencies: { z: '1.0.0' } } }, host)
+      extended(MANIFEST, { app: { dependencies: { z: '1.0.0' } } }, host)
+    }
+    assert.throws(() => extended({ ...named, version: 1 }, { 'app@^1': {} }), /^DeptreeError: manifests\["\."\]\.version: not a string, which pnpm fails on where an extension names this package with a range$/u)
   })
 })
 

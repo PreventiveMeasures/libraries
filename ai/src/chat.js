@@ -19,12 +19,13 @@ const DEFAULT_MAX_TOOL_TURNS = 30
 // report one. A sum cannot be priced afterwards: a long-context tier is chosen per request, and
 // the sum's prompt is every request's prompt added together.
 export function normalizeUsage(data, model) {
-  // New format: array of { request, response } turns
+  // New format: array of { request, response } turns; null when none of them carries a usage.
   if (Array.isArray(data)) {
-    const usages = data.map((turn) => normalizeOneUsage(turn.response)).filter(Boolean)
-    if (usages.length === 0) return null
-    const total = emptyUsage()
-    for (const usage of usages) addUsage(total, price(usage, model))
+    let total = null
+    for (const turn of data) {
+      const usage = normalizeOneUsage(turn.response)
+      if (usage) addUsage(total ??= emptyUsage(), price(usage, model))
+    }
     return total
   }
   // Old format: single response object

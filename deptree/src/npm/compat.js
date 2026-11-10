@@ -87,8 +87,7 @@ export function skippedOf(nodes, host, settings, omitted = new Set()) {
       if (host.reuse || !omitted.has(node)) checkRuns(node.manifest, host, where, settings.engineStrict, ', and it is not optional')
       continue
     }
-    if (host.reuse && omitted.has(node)) continue
-    if (!host.reuse && skipped.has(node)) continue
+    if (host.reuse ? omitted.has(node) : skipped.has(node)) continue
     if (checkEngine(node.manifest, host) === undefined && checkPlatform(node.manifest, host, where) === undefined) continue
     for (const member of optionalSet(node, host, skipped)) skipped.add(member)
   }
@@ -101,10 +100,10 @@ export function skippedOf(nodes, host, settings, omitted = new Set()) {
 // `set`, and what is in the node_modules of each of its nodes.
 function withBeneath(nodes, set) {
   const under = (node) => node.parent !== undefined && (set.has(nodes.get(node.parent)) || under(nodes.get(node.parent)))
-  return new Set([...nodes.values()].filter((node) => set.has(node) || under(node)))
+  return new Set(nodes.values().filter((node) => set.has(node) || under(node)))
 }
 
 // What --omit=dev leaves out: each package the lockfile's flags say only dev
 // dependencies reach, and so what is beneath it, as the lockfile reader holds
 // the flags to what depends on each.
-export const omittedOf = (nodes) => new Set([...nodes.values()].filter((node) => node.kind === 'package' && node.pkg.dev))
+export const omittedOf = (nodes) => new Set(nodes.values().filter((node) => node.kind === 'package' && node.pkg.dev))

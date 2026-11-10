@@ -1,5 +1,5 @@
 import { call } from './call.js'
-import { expectObject, extractJSON, sentenceList } from './json.js'
+import { expectObject, extractJSON, sentenceList, textOf } from './json.js'
 import { gateSystem, proposeSystem, proposeUser, requestBlock } from './prompts.js'
 
 // The two calls that decide what the table carries: the questions proposed once per task, and the
@@ -18,7 +18,7 @@ function readProposal(maxQuestions) {
     const json = expectObject(extractJSON(text), 'focus and questions')
     const questions = sentenceList(json.questions, 'questions').slice(0, maxQuestions)
     if (questions.length === 0) throw new TypeError('expected at least one question')
-    const focus = typeof json.focus === 'string' ? json.focus.trim() : ''
+    const focus = textOf(json.focus)
     if (!focus) throw new TypeError('expected a focus for the summary')
     return { focus, questions }
   }
@@ -45,7 +45,7 @@ function readGate(maxExtra) {
     return {
       extraQuestions: questionIds(sentenceList(json.extraQuestions, 'extraQuestions').slice(0, maxExtra), 'x'),
       fullScan: json.fullScan,
-      reason: typeof json.reason === 'string' ? json.reason.trim() : '',
+      reason: textOf(json.reason),
     }
   }
 }

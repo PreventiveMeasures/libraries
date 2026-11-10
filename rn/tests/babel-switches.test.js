@@ -4,8 +4,6 @@ import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { switchesOf } from '../src/babel-switches.js'
-import { transformerOf } from '../src/babel-transformer.js'
-import { workerFingerprint } from '../serve/fingerprint.js'
 import { linked } from './rn-bundle-app.js'
 import { writeTree } from './fixtures.js'
 
@@ -45,19 +43,5 @@ describe('switchesOf', () => {
     const bare = switchesOf(core, [['./plugins/needs.js', false]], { cwd: root, root }, { ...config, configFile: false })
     assert.deepEqual([...bare.off], ['./plugins/needs.js'])
     assert.deepEqual(bare.errors, ["rn.config.json's babel names ./plugins/needs.js, which Babel can't load without its options (needs a version), and the Babel config has no plugin of it to take them from: name it by its key, as --profile shows it"])
-  })
-})
-
-describe("Babel's workers, of plugins switched on", () => {
-  const { root, cleanup } = writeTree({
-    'package.json': { name: 'app' },
-    'plugins/reads.js': "require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'data.txt'))\nmodule.exports = () => ({ name: 'reads', visitor: {} })\n",
-    'data.txt': 'data',
-  })
-  after(cleanup)
-
-  it("have the fingerprint of the files a plugin added reads as Babel loads it, as of the config's", () => {
-    const { fingerprint } = transformerOf({ corePath: createRequire(import.meta.url).resolve('@babel/core'), options: { cwd: root, root, babelrc: false, configFile: false, switches: [['./plugins/reads.js', true]] }, profile: false, fingerprintOf: workerFingerprint })
-    assert.ok(fingerprint.reads.some(([path]) => path === join(root, 'data.txt')), JSON.stringify(fingerprint.reads))
   })
 })

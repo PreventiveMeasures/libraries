@@ -47,8 +47,7 @@ function namesTransientCode(body) {
 }
 
 export function isTransientHttpFailure(status, body = '') {
-  if (status === 429 || status >= 500) return true
-  return namesTransientCode(body)
+  return status === 429 || status >= 500 || namesTransientCode(body)
 }
 
 // `Retry-After` is the one number here that isn't a guess, so it wins when a server sends one. Both

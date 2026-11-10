@@ -9,10 +9,9 @@ const PACKAGES = new Map([
   ['reanimated', 'react-native-reanimated'],
   ['worklets', 'react-native-worklets'],
 ])
-// The thread's require cache, which holds the plugin files Babel loaded for the config.
+// Holds the plugin files Babel loaded for the config.
 const LOADED = createRequire(import.meta.url).cache
-// Calls whose callbacks the plugin makes worklets: Reanimated's hooks, animations and
-// runOn* functions, gesture handler's hooks and Gesture builders, and withCallback.
+// Calls whose callbacks the plugin makes worklets.
 const NAMES = [
   'useFrameCallback', 'useAnimatedStyle', 'useAnimatedProps', 'createAnimatedPropAdapter', 'useDerivedValue', 'useAnimatedScrollHandler',
   'useAnimatedReaction', 'useWorkletCallback', 'useAnimatedGestureHandler', 'withTiming', 'withSpring', 'withDecay', 'withRepeat', 'withCallback',
@@ -27,21 +26,20 @@ const NAMED = /(["'])((?:use|with|run|schedule|execute|create)[A-Z][A-Za-z]*)\1/
 const RELEASE = /prod|release|stag[ei]/iu
 const VALUE = /\bvalue\b/u
 
-// ({ cwd, envName }) -> (plugin, source) => whether the plugin is Reanimated's and leaves the source as is
-// (though it would visit every call, function, class and JSX attribute): the source has no `worklet`,
-// none of the names above, and (outside a release) no `value`, however `.value` is spaced.
+// -> (plugin, source) => whether the plugin is Reanimated's and would leave the source as is: it has no
+// `worklet`, none of the names above, and (outside a release) no `value`.
 export function workletsGate({ cwd, envName = '' }) {
   const byEnv = RELEASE.test(process.env.BABEL_ENV ?? '') || RELEASE.test(process.env.NODE_ENV ?? '')
   const release = byEnv && (RELEASE.test(envName) || !/dev/iu.test(envName))
-  // What the plugin acts on, read from its files Babel loaded (from wherever, e.g. a preset's own
-  // node_modules), else as the project resolves it; null if unreadable, which keeps the plugin.
+  // The names the plugin acts on, read from its files Babel loaded, else as the project resolves it; null
+  // if unreadable, which keeps the plugin.
   const wordsOf = (name) => {
     const file = new RegExp(String.raw`[\\/]${name}[\\/]plugin(?:\.js$|[\\/].*\.c?js$)`, 'u')
     const loaded = Object.keys(LOADED).filter((path) => file.test(path))
     try {
       const paths = loaded.length > 0 ? loaded : [createRequire(join(cwd, 'package.json')).resolve(`${name}/plugin`)]
       const code = paths.map((path) => readFileSync(path, 'utf8')).join('\n')
-      const names = new Set([...NAMES, ...Array.from(code.matchAll(NAMED), ([, , named]) => named)])
+      const names = new Set([...NAMES, ...code.matchAll(NAMED).map(([, , named]) => named)])
       return new RegExp(`worklet|\\b(?:${[...names].join('|')})\\b`, 'u')
     } catch {
       return null

@@ -43,23 +43,6 @@ async function followingMoves(github, repo, ask) {
   }
 }
 
-// The commit that `git clone --branch <tag>` checks out: a branch of that
-// name before a tag, which is refused, as the branch can move; else the
-// commit the tag names, through an annotated one. GitHub answers for the
-// repository as it is now: the tag is held to no hash.
-export async function tagCommit(github, repo, tag, where) {
-  // `@`, and a name that starts with `-`, no branch can have.
-  const branchName = !/^(?:@$|-)/u.test(tag)
-  return await followingMoves(github, repo, async (name) => {
-    const branch = branchName && await github.getRepoHead({ repo: name, branch: tag }).catch((error) => {
-      if (error instanceof HttpError && error.status === 404) return undefined
-      throw error
-    })
-    if (branch) throw new DeptreeError(`${quote(name)} has a branch named ${quote(tag)} as well as the tag, which git's clone takes before the tag`, where)
-    return (await github.getRepoTag({ repo: name, tag })).oid
-  })
-}
-
 // That `commit` is one a clone of the repository has, which GitHub's API
 // does not tell: it answers for a commit of any fork through the
 // repository's name, and for one no branch or tag reaches any longer. Of
@@ -75,12 +58,15 @@ export async function checkCloned(github, repo, commit, where) {
   }
 }
 
-// GitHub's tarball, which upstream holds to the tree GitHub names for the
-// commit, files, symlinks and the submodules it shows as empty directories
-// alike. Unpacked as a checkout with umask 0o022 writes it: directories
-// 0o755, files 0o644 or 0o755 by the bit git keeps, symlinks as symlinks.
+// GitHub's tarball of the commit's tree: the tree read off the commit's own
+// object, which upstream's getCommitTree fetches as git does and holds to
+// the commit's id, so that it is the commit's whatever GitHub's API says;
+// and the tarball held to that tree, files, symlinks and the submodules it
+// shows as empty directories alike. Unpacked as a checkout with umask
+// 0o022 writes it: directories 0o755, files 0o644 or 0o755 by the bit git
+// keeps, symlinks as symlinks.
 export async function checkoutOf(github, repo, rev, where) {
-  const bytes = await followingMoves(github, repo, (name) => github.getRepoTarball({ repo: name, sha: rev }))
+  const bytes = await followingMoves(github, repo, async (name) => github.getRepoTreeTarball({ repo: name, tree: await github.getCommitTree({ repo: name, sha: rev }) }))
   let entries
   try {
     entries = unpack(await decompress(bytes, 'gzip', { limit: MAX_BYTES }))

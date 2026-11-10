@@ -30,10 +30,10 @@ const describe = (node) => quote(node.location)
 // one from the registry does. What is in the folder of the name is what
 // npm takes, an alias among them.
 function registryValid(child, { fetchSpec, kind }, semver) {
-  const pkg = packageOf(child)
   if (kind === undefined || (kind === 'range' && fetchSpec === '*')) return undefined
   if (kind === 'tag') return child.kind === 'link' || !/^https?:/u.test(child.resolution?.tarball ?? '') ? `is a tag, which npm holds met by a tarball from a URL alone, and ${describe(child)} is none` : undefined
-  return semver.satisfies(pkg.version ?? '', fetchSpec, true) ? undefined : `is not satisfied by ${describe(child)}, ${pkg.version ?? 'of no version'}`
+  const { version } = packageOf(child)
+  return semver.satisfies(version ?? '', fetchSpec, true) ? undefined : `is not satisfied by ${describe(child)}, ${version ?? 'of no version'}`
 }
 
 // A repository, by the ssh URL of one on a host npm knows or else by its

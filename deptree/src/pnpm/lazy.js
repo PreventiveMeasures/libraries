@@ -17,7 +17,7 @@ import { compose, writeNode } from './write.js'
 // build pass builds it (`builds`), patched or with an install script, which
 // turns on its other copies and what else is built; or which of its bins pnpm
 // links could change them, one linked being fixed otherwise than it is, made
-// executable or its CRLF `#!` line made LF; or pnpm 9 and 12 fail on one that
+// executable or its CRLF `#!` line made LF; or pnpm 12 fails on one that
 // is a directory; or the package is patched, which is held to its bins as
 // linked; or its commands cannot be read alone. Else its files are as fetched
 // and patched, whatever pnpm links of its bins, and of anything else's.
@@ -31,13 +31,10 @@ function bound(node, major, builds) {
   }
   if (bins.size === 0) return false
   if (node.pkg.patchHash !== undefined) return true
-  for (const path of bins.keys()) {
-    if (failsAsDirectory(node, path, major)) return true
+  return bins.keys().some((path) => {
     const file = node.files.get(path)
-    if (file?.data === undefined) continue
-    if (fixChanges(file, major)) return true
-  }
-  return false
+    return failsAsDirectory(node, path, major) || (file?.data !== undefined && fixChanges(file, major))
+  })
 }
 
 // What an unpacked package's files were, read back from the tree, which holds
@@ -76,21 +73,24 @@ export async function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, ea
   const fetched = new Map()
   const counted = new Set()
   const left = new Map()
-  for (const node of byDir.values()) left.set(packageKeyOf(node.key), (left.get(packageKeyOf(node.key)) ?? 0) + 1)
+  for (const node of byDir.values()) {
+    const id = packageKeyOf(node.key)
+    left.set(id, (left.get(id) ?? 0) + 1)
+  }
   let made
 
   const fetchOnce = (node) => {
     const id = packageKeyOf(node.key)
-    if (!fetched.has(id)) {
-      fetched.set(id, limit(() => fetchPackage(node.pkg, quote(id), major, fetching)).then((got) => {
-        counted.add(id)
-        stats.tarballs = counted.size
-        return got
-      }, (error) => {
-        throw refusalOf(error, quote(id))
-      }))
-    }
-    return fetched.get(id)
+    if (fetched.has(id)) return fetched.get(id)
+    const promise = limit(() => fetchPackage(node.pkg, quote(id), major, fetching)).then((got) => {
+      counted.add(id)
+      stats.tarballs = counted.size
+      return got
+    }, (error) => {
+      throw refusalOf(error, quote(id))
+    })
+    fetched.set(id, promise)
+    return promise
   }
   // A directory's files are read with the tree.
   const prepare = async (node) => {

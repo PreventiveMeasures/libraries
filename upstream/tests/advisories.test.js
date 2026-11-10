@@ -24,9 +24,15 @@ const vuln = (name, range, ecosystem = 'npm') => ({ package: { ecosystem, name }
 
 // Answers each URL in `answers`, a Response as is and anything else as
 // JSON, and refuses any other; `calls` is every URL asked.
+// OSV, asked of GitHub Actions alone, has no record of them unless given,
+// and isn't counted among the calls.
+const OSV_BATCH = 'https://api.osv.dev/v1/querybatch'
+const actionsOnly = (init) => JSON.parse(init?.body ?? '{}').queries?.every((query) => query.package.ecosystem === 'GitHub Actions')
+
 function stubUrls(answers) {
   const calls = []
-  globalThis.fetch = (url) => {
+  globalThis.fetch = (url, init) => {
+    if (String(url) === OSV_BATCH && !Object.hasOwn(answers, OSV_BATCH) && actionsOnly(init)) return Promise.resolve(Response.json({ results: JSON.parse(init.body).queries.map(() => ({})) }))
     calls.push(String(url))
     const answer = answers[String(url)]
     if (answer === undefined) return Promise.reject(new Error(`unexpected request: ${url}`))
@@ -66,7 +72,7 @@ describe('advisories', () => {
     }
     for (const [pkg, error] of [
       [null, /advisories: package must be an options object/u],
-      [{ ...ok, ecosystem: 'pypi' }, /advisories: package\.ecosystem must be one of npm, cargo, composer, soldeer, github/u],
+      [{ ...ok, ecosystem: 'maven' }, /advisories: package\.ecosystem must be one of npm, cargo, composer, gem, ruby, pypi, swift, cocoapods, soldeer, github/u],
       [{ ...ok, ecosystem: '__proto__' }, /advisories: package\.ecosystem must be one of/u],
       [{ ...ok, versions: [] }, /advisories: package\.versions must be a non-empty array/u],
       [{ ...ok, versions: '1.0.0' }, /advisories: package\.versions must be a non-empty array/u],
@@ -625,6 +631,43 @@ describe('npm, with a GitHub client', () => {
       ['GHSA-aaaa-aaaa-aaaa', '>= 2.1.0, < 4.1.11 || >= 5.0.0-beta.1, < 5.0.0-rc.2', ['4.1.10', '5.0.0-beta.3']],
       ['GHSA-bbbb-bbbb-bbbb', '< 5.0.0', ['4.1.10', '4.1.11', '5.0.0-beta.3', '5.0.0-rc.2']],
       ['GHSA-cccc-cccc-cccc', '>= 5.0.0', ['5.0.3']],
+    ])
+  })
+
+  it('ends a range below its patched version only where it is lower bounds alone, below that version', async () => {
+    const patched = (name, range, patchedVersions) => ({ ...vuln(name, range), patched_versions: patchedVersions })
+    stubAll({
+      repos: { 'mono-a': 'acme/mono' },
+      github: {
+        [REPO_ADVISORIES]: [
+          // Fixed below, or at, where the range begins: bounded, none of it.
+          repoAdvisory('GHSA-aaaa-aaaa-aaaa', [patched('mono-a', '>= 3.0.0', '2.2.9')]),
+          repoAdvisory('GHSA-bbbb-bbbb-bbbb', [patched('mono-a', '>= 3.0.0', '3.0.0')]),
+          // Ended already, if not by a `<`.
+          repoAdvisory('GHSA-cccc-cccc-cccc', [patched('mono-a', '= 3.1.2', '3.1.2')]),
+          repoAdvisory('GHSA-dddd-dddd-dddd', [patched('mono-a', '^3.1.0', '3.1.3')]),
+          // Lower bounds alone, partial ones too, fixed above them.
+          repoAdvisory('GHSA-eeee-eeee-eeee', [patched('mono-a', '> 3.0.0, >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3', '3.1.0')]),
+          // Fixed in the next release: bounded, as 3.1.3-0 is in between.
+          repoAdvisory('GHSA-ffff-ffff-ffff', [patched('mono-a', '> 3.1.2', '3.1.3')]),
+          // Lower bounds as semver writes them, without a comma; alternatives,
+          // which `< 3.1.3` would end only one of, as given.
+          repoAdvisory('GHSA-gggg-gggg-gggg', [patched('mono-a', '>= 3.0.0 >= 3.0.5', '3.1.3'), patched('mono-a', '>= 3.2.0 || >= 3.0.0', '3.1.3')]),
+          // Lower bounds semver reads as every version.
+          repoAdvisory('GHSA-hhhh-hhhh-hhhh', [patched('mono-a', '>= 0', '3.1.3'), patched('mono-a', '>= 0.0.0-0', '3.1.3'), patched('mono-a', '*', '3.1.3')]),
+        ],
+      },
+    })
+    const found = await npm(['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0'].map((version) => ({ name: 'mono-a', version })), { github, repoAdvisories: true })
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-bbbb-bbbb-bbbb', '>= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-cccc-cccc-cccc', '= 3.1.2', ['3.1.2']],
+      ['GHSA-dddd-dddd-dddd', '^3.1.0', ['3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-eeee-eeee-eeee', '> 3.0.0, >= 3.0.5, < 3.1.3 || >= 3, < 3.1.0', ['3.0.0', '3.1.2', '3.1.3-rc.1']],
+      ['GHSA-ffff-ffff-ffff', '> 3.1.2, < 3.1.3', ['3.1.3-rc.1']],
+      ['GHSA-gggg-gggg-gggg', '>= 3.0.0 >= 3.0.5, < 3.1.3 || >= 3.2.0 || >= 3.0.0', ['3.0.0', '3.1.2', '3.1.3-rc.1', '3.2.0']],
+      ['GHSA-hhhh-hhhh-hhhh', '>= 0, < 3.1.3 || >= 0.0.0-0, < 3.1.3 || *, < 3.1.3', ['3.0.0', '3.1.2', '3.1.3-rc.1']],
     ])
   })
 

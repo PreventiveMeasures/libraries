@@ -1,11 +1,11 @@
 // Refuses a lockfile a frozen install would refuse as out of date with the
 // settings (@pnpm/lockfile.settings-checker's getOutdatedLockfileSetting),
-// naming the setting as pnpm names it. pnpm 9 holds the lockfile to neither the
-// catalogs nor dedupePeers.
+// naming the setting as pnpm names it.
 
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, difference, quote } from '../error.js'
-import { md5Base32, sha256Hex } from '../hash.js'
+import { sha256Hex } from '../hash.js'
+import { extensionsChecksum } from './extensions.js'
 import { sameSpecifier } from './frozen.js'
 import { catalogEntry } from './overrides.js'
 import { checkPatchUse, checkPeerPatches } from './patches.js'
@@ -15,7 +15,7 @@ const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen i
 const SIDES = ['the lockfile', 'the settings']
 
 // `hashes` is { hash, path } by selector, `byHash` { text, path } by hash.
-async function hashPatches(configured, given, major) {
+async function hashPatches(configured, given) {
   const texts = new Map()
   for (const [key, text] of given) {
     const path = normalize(key)
@@ -32,7 +32,7 @@ async function hashPatches(configured, given, major) {
     const text = texts.get(path)
     const normalized = text.replaceAll('\r\n', '\n')
     const where = `patches[${quote(path)}]`
-    const hash = major < 10 ? md5Base32(normalized, where) : await sha256Hex(normalized, where)
+    const hash = await sha256Hex(normalized, where)
     hashes[selector] = { hash, path }
     if (!byHash.has(hash)) byHash.set(hash, { text, path })
   }
@@ -49,9 +49,9 @@ function checkPatches(locked, hashes, major) {
   if (detail !== undefined) throw outdated('patchedDependencies', `the patches differ: ${detail}`)
 }
 
-export async function checkUpToDate(lockfile, settings, overrides, given, major) {
-  const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given, major)
-  for (const [name, catalog] of major < 10 ? [] : Object.entries(lockfile.catalogs)) {
+export async function checkUpToDate(lockfile, settings, { overrides, extensions }, given, major) {
+  const { hashes, byHash } = await hashPatches(settings.patchedDependencies, given)
+  for (const [name, catalog] of Object.entries(lockfile.catalogs)) {
     for (const [alias, { specifier }] of Object.entries(catalog)) {
       const configured = catalogEntry(settings.catalogs, name, alias)
       if (!sameSpecifier(specifier, configured, major)) throw outdated('catalogs', `${quote(alias)} is ${quote(specifier)} in the lockfile's catalog ${quote(name)}, and ${configured === undefined ? 'nothing' : quote(configured)} in the settings`)
@@ -59,17 +59,16 @@ export async function checkUpToDate(lockfile, settings, overrides, given, major)
   }
   const overridden = difference(lockfile.overrides, Object.fromEntries(overrides.map(({ selector, spec }) => [selector, spec])), SIDES)
   if (overridden !== undefined) throw outdated('overrides', `the overrides differ: ${overridden}`)
-  // pnpm checksums them with object-hash, which is not reproduced here.
-  if (settings.packageExtensions !== undefined && Object.keys(settings.packageExtensions).length > 0) throw new DeptreeError('package extensions are not supported: their checksum cannot be checked against the lockfile\'s here', 'packageExtensions')
-  if (lockfile.packageExtensionsChecksum !== undefined) throw outdated('packageExtensionsChecksum', 'the lockfile was resolved with package extensions, and the settings have none')
+  const extended = await extensionsChecksum(extensions, major)
+  if (lockfile.packageExtensionsChecksum !== extended) throw outdated('packageExtensionsChecksum', extended === undefined ? 'the lockfile was resolved with package extensions, and the settings have none' : 'the package extensions in the settings are not those the lockfile was resolved with')
   const ignored = (list) => JSON.stringify([...list].sort())
   if (ignored(lockfile.ignoredOptionalDependencies) !== ignored(settings.ignoredOptionalDependencies)) throw outdated('ignoredOptionalDependencies', 'the optional dependencies left out differ')
   checkPatches(lockfile.patchedDependencies, hashes, major)
   const locked = lockfile.settings
   if (locked.autoInstallPeers !== undefined && locked.autoInstallPeers !== settings.autoInstallPeers) throw outdated('settings.autoInstallPeers', `autoInstallPeers is ${locked.autoInstallPeers} in the lockfile`)
-  if (major >= 10 && Boolean(locked.dedupePeers) !== settings.dedupePeers) throw outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)
+  if (Boolean(locked.dedupePeers) !== settings.dedupePeers) throw outdated('settings.dedupePeers', `dedupePeers is ${Boolean(locked.dedupePeers)} in the lockfile`)
   if ((locked.peersSuffixMaxLength ?? 1000) !== settings.peersSuffixMaxLength) throw outdated('settings.peersSuffixMaxLength', `peersSuffixMaxLength is ${locked.peersSuffixMaxLength ?? 'left at 1000'} in the lockfile`)
-  checkPatchUse(lockfile, hashes, major)
+  checkPatchUse(lockfile, hashes)
   if (major >= 11) checkPeerPatches(lockfile, hashes)
   return byHash
 }

@@ -38,8 +38,8 @@ export function createAliases(alias, cwd) {
   }
 }
 
-// createAliases() of a file's { alias, cwd } (load.js), made once per object and per value,
-// since a load cache restores equal copies; null where createAliases() throws.
+// createAliases() of { alias, cwd }, memoized by object and by value (a load cache restores equal
+// copies); null where it throws.
 export function aliasing(of) {
   if (OF.has(of)) return OF.get(of)
   const key = JSON.stringify([of.alias, of.cwd])

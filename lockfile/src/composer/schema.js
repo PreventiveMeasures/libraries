@@ -31,7 +31,7 @@ function check(value, schema, where) {
       if (!value.has(key)) throw new LockfileError(`no ${quote(key)}, which Composer's schema requires`, where)
     }
     for (const [key, item] of value) {
-      const of = schema.properties !== undefined && Object.hasOwn(schema.properties, key) ? schema.properties[key] : schema.additionalProperties
+      const of = Object.hasOwn(schema.properties ?? {}, key) ? schema.properties[key] : schema.additionalProperties
       if (of !== undefined) check(item, of, at(where, key))
     }
   }

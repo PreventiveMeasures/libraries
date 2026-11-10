@@ -94,8 +94,7 @@ export function linkCargo(lock, manifests, options) {
   for (const dep of activate(packages, roots, why)) dep.active = true
   checkActive(lock, packages, members)
   checkLinks(packages)
-  const slots = Object.values(packages).flatMap((pkg) => pkg.dependencies.filter((dep) => dep.active && patched.has(dep)).map((dep) => patched.get(dep)))
-  checkPatches(locked, lock.unusedPatches, patches, new Set(slots))
+  checkPatches(locked, lock.unusedPatches, patches, new Set(patched.entries().filter(([dep]) => dep.active).map(([, slot]) => slot)))
   return { resolver: resolverOf(root), root: rootKey, members: [...members], packages }
 }
 

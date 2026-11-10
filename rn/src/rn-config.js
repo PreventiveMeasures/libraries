@@ -1,17 +1,13 @@
-// rn.config.json, in the project root: defaults for the flags of rn-bundle, rn-serve and rn-cli.
-// Unknown or mistyped options are errors. Its lists add to Metro's defaults, and a Metro config that
-// sets one otherwise is an error, so asset-exts.js needn't read that config. `babel` switches Babel
-// plugins (babel-switches.js). `inlineRequires` sets Metro's inline requires (each module run where
-// first used); a Metro config's own getTransformOptions that disagrees is an error. `esm` has esbuild
-// link ES modules, each run as imported, so it can't go with inline requires. `development` and
-// `production` set babel, esm and inlineRequires for dev and release builds: an option is set there
-// or at the top level, never both.
+// rn.config.json in the project root: defaults for the flags of rn-bundle, rn-serve and rn-cli; unknown
+// or mistyped options are errors. Its lists add to Metro's defaults. `development` and `production` set
+// babel, esm and inlineRequires per build, and add their restrictions (restrictions.js) to the top level's.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { defaults } from './defaults.js'
+import { globRegExp, isPathGlob } from './restrictions.js'
 
 const RN_CONFIG = 'rn.config.json'
 
@@ -23,10 +19,12 @@ const extensions = [listOf((value) => typeof value === 'string' && /^[^./\\][^/\
 const isScale = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0) || (typeof value === 'string' && /^\d+(?:\.\d+)?$/u.test(value) && Number(value) > 0)
 const nonEmpty = (what) => [(value) => typeof value === 'string' && value !== '', what]
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-// Babel plugins by name, each on or off, in order.
 const switches = [(value) => isObject(value) && Object.entries(value).every(([name, on]) => name !== '' && typeof on === 'boolean'), 'an object of Babel plugins, each true (run it on every file) or false (never)']
-// What `development` and `production` may set.
-const MODE = { babel: switches, esm: boolean, inlineRequires: boolean }
+const globs = [listOf((value) => typeof value === 'string' && isPathGlob(value)), 'a list of globs of paths from the project root, each a directory\'s files too ("src", "src/**/*.js", "node_modules")']
+const packages = [listOf((value) => typeof value === 'string' && /^(?:@[^/]+\/[^/]+|[^@/.][^/]*)$/u.test(value) && globRegExp(value) !== null), 'a list of globs of packages\' names ("react-native", "@react-native/*")']
+// What `development` and `production` may set; the first three in place of the top level's (OVERRIDDEN).
+const MODE = { babel: switches, esm: boolean, inlineRequires: boolean, allowedPaths: globs, disallowedPaths: globs, allowedModules: packages, disallowedModules: packages }
+const OVERRIDDEN = ['babel', 'esm', 'inlineRequires']
 // Each option's [validator, description]; a section is an object of its own options.
 const OPTIONS = {
   metroConfig: [(value) => typeof value === 'boolean' || (typeof value === 'string' && value !== ''), 'true, false or the path of a Metro config'],
@@ -40,6 +38,10 @@ const OPTIONS = {
   devtools: boolean,
   port: [(value) => Number.isSafeInteger(value) && value >= 0 && value <= 65_535, 'a port, 0 to 65535'],
   launch: [(value) => value === false || value === 'ios' || value === 'android', '"ios", "android", or false'],
+  allowedPaths: globs,
+  disallowedPaths: globs,
+  allowedModules: packages,
+  disallowedModules: packages,
   ios: {
     simulator: nonEmpty("a simulator's name, or its UDID"),
     binaryPath: nonEmpty("the path of a simulator's build of the app, an .app"),
@@ -65,7 +67,6 @@ function errorOf(options, key, value, name) {
   return errorIn(option, value, `${name}.`)
 }
 
-// The project's rn.config.json, or {}.
 export function readRnConfig(projectRoot, fail) {
   let config
   try {
@@ -77,7 +78,7 @@ export function readRnConfig(projectRoot, fail) {
   if (!isObject(config)) return fail(`${RN_CONFIG}: not an object of options`)
   const error = errorIn(OPTIONS, config, '')
   if (error !== null) return fail(`${RN_CONFIG}: ${error}`)
-  for (const key of Object.keys(MODE)) {
+  for (const key of OVERRIDDEN) {
     const modes = MODES.filter((mode) => config[mode]?.[key] !== undefined)
     if (config[key] !== undefined && modes.length > 0) return fail(`${RN_CONFIG}: ${key} is set at the top level and in ${modes.join(' and ')}: set it at the top level, for both, or in development and production`)
   }
@@ -108,8 +109,8 @@ function alike(key, a, b) {
 }
 const shown = (list) => (list.length > 5 ? `${list.slice(0, 5).join(', ')} and ${list.length - 5} more` : list.join(', '))
 
-// The error if the loaded Metro config sets the list `key` unlike any default, with or without
-// rn.config.json's `additions`; or null.
+// The error if the Metro config sets the list `key` unlike every default, with or without rn.config.json's
+// `additions`, or null. This lets asset-exts.js trust rn.config.json without reading the Metro config.
 function conflictOf(metro, key, additions) {
   const current = listIn(metro, key).map(String)
   if (metro.defaultLists.some((base) => alike(key, current, base[key]) || alike(key, current, added(base[key], additions)))) return null

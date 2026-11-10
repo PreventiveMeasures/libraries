@@ -134,6 +134,19 @@ export interface Client {
   // one's tag object followed to the commit, through up to 8 tags of tags.
   // Refused for a tag on anything but a commit.
   getRepoTag(options: { repo: RepoName; tag: string }): Promise<{ tag: string; oid: string }>
+  // The id of the tree of the full commit `sha`, a sha1, held to `sha`:
+  // read off the commit's own object, which is fetched as git fetches it,
+  // from github.com's git-upload-pack over git's protocol v2 (`want`,
+  // `deepen 1`, `filter tree:0`, so the commit alone), and hashed, as
+  // `commit <size>\0` and its bytes, to `sha`. So the tree is the commit's,
+  // whatever GitHub's API would say of it, as getRepoTarball and
+  // getRepoTreeId take it from. The packfile is held to its trailer;
+  // GitHub's ERR, a side-band error, an answer with no such commit, or one
+  // whose first line names no tree, is refused. The client's token, where
+  // it has one, is sent as git sends one, by Basic. A redirect is not
+  // followed: one for a repository renamed or transferred throws, an
+  // HttpError with its status, for getRepo to follow.
+  getCommitTree(options: { repo: RepoName; sha: string }): Promise<string>
   // The repo's gzipped tarball at the full commit `sha`, whole, in memory:
   // getRepoTreeTarball's for the tree GitHub names for that commit, asked
   // on every call, cached or not. So its top directory is named for the

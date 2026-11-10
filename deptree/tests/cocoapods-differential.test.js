@@ -1,29 +1,24 @@
 import assert from 'node:assert/strict'
+import process from 'node:process'
 import { describe, it } from 'node:test'
 import { DeptreeError } from '../src/error.js'
 import { expandBraces, fnmatch } from '../src/cocoapods/fnmatch.js'
 import { installPod, planPod } from '../src/cocoapods/install.js'
 import { readPodspec, specNamed } from '../src/cocoapods/podspec.js'
+import { DIRS, NAMES, portExtract, random, rawZipCaseOf, sorted, tarCaseOf, zipCaseOf } from './cocoapods-archives.js'
 import { cocoapods, cocoapodsVersion } from './cocoapods-reference.js'
 
 // CocoaPods, which cleans every pod it downloads, against the port here:
 // over patterns and paths made at random, which Ruby's File.fnmatch
-// matches; patterns whose braces PathList expands; and downloads and
-// podspecs made at random, which PodDirCleaner cleans and lock_files!
-// locks. Skipped where ruby or the cocoapods gem is missing; GEM_PATH may
-// say where it is. The seeds are fixed.
+// matches; patterns whose braces PathList expands; downloads and podspecs
+// made at random, which PodDirCleaner cleans and lock_files! locks; and
+// archives made at random, which RemoteFile extracts with `tar xf` or
+// `unzip` and flattens. Skipped where ruby or the cocoapods gem is missing;
+// GEM_PATH may say where it is. The seeds are fixed.
 
 const SKIP = cocoapodsVersion() === undefined && 'no ruby with the cocoapods gem'
-
-function random(seed) {
-  let state = seed
-  const next = (n) => {
-    state = (state * 1103515245 + 12345) & 0x7fffffff
-    return state % n
-  }
-  const pick = (items) => items[next(items.length)]
-  return { next, pick, join: (items, length) => Array.from({ length }, () => pick(items)).join('') }
-}
+// As root, bsdtar keeps an archive's modes, as no other user's tar does.
+const EXTRACT_SKIP = SKIP || (process.getuid?.() === 0 && process.platform !== 'linux' && 'root, whose bsdtar keeps the modes archived')
 
 const PATTERN = ['*', '*', '?', '[', ']', '!', '^', '-', '\\', '/', '/', '.', 'a', 'A', 'b', 'B', '**/', '/**/', '\u00E9', '\u00C9', '{', '}', ',', 'm', '.m']
 const PATH = ['a', 'A', 'b', 'B', '/', '.', '\u00E9', '\u00C9', '-', ']', '[', '*', 'm', '!', '\\', '{', ',']
@@ -33,8 +28,6 @@ function pathOf({ next, pick, join }, pattern) {
   return [...pattern].map((char) => (char === '*' ? join(PATH, next(3)) : char === '?' ? pick(PATH) : next(4) === 0 ? pick(PATH) : char)).join('')
 }
 
-const NAMES = ['a', 'A', 'Sources', 'sources', 'Source', 'Classes', 'Res', 'res.bundle', 'x.m', 'X.M', 'y.h', 'z.swift', 'img.png', 'README.md', 'readme', 'LICENSE', 'License.md', '.hidden', 'foo.', 'mod.modulemap', 'pre.pch', 'lib.a', 'F.framework', 'Tests', 'S', 'So']
-const DIRS = ['a', 'Sources', 'sources', 'Source', 'Classes', 'Res', 'res.bundle', 'Tests', 'S', 'F.framework', 'sub', '.hid', 'd.']
 const PATTERNS = ['**/*.{h,m}', 'Sources/**/*', 'Sources', 'sources/', 'Source', '*.m', 'S*', '**/*.swift', 'Classes/*.{h,m,swift}', 'Res/*', 'res.bundle', '*.png', 'a/**', '**/*', 'Tests/**/*.m', '{a,b}/*', '{}', 'F.framework', 'lib.a', 'x.m', 'X.M', '[ab]/*', '*/[a]*', '.hid/*', 'd./*']
 const LISTS = ['source_files', 'exclude_files', 'resources', 'preserve_paths', 'vendored_frameworks', 'vendored_libraries']
 
@@ -87,8 +80,6 @@ function portInstall({ entries, podspec, installed: names }) {
   return [...out.dirs.map((dir) => [dir, 'directory']), ...[...out.files].map(([path, { mode }]) => [path, 'file', mode]), ...[...out.links].map(([path, target]) => [path, 'symlink', target])]
 }
 
-const sorted = (entries) => entries.map((entry) => JSON.stringify(entry)).sort()
-
 describe('the port, against CocoaPods', { skip: SKIP }, () => {
   it('matches each path as File.fnmatch does', () => {
     const r = random(7)
@@ -129,5 +120,41 @@ describe('the port, against CocoaPods', { skip: SKIP }, () => {
       compared++
     })
     assert.ok(compared > 150, `compared ${compared}`)
+  })
+
+  // What the port takes, CocoaPods has to take and leave the same.
+  async function extracted(cases) {
+    const { extract: expected } = cocoapods({ fnmatch: [], expand: [], install: [], extract: cases })
+    let compared = 0
+    let refused = 0
+    for (const [i, one] of cases.entries()) {
+      let ours
+      try {
+        ours = await portExtract(one)
+      } catch (error) {
+        if (!(error instanceof DeptreeError)) throw error
+        refused++
+        continue
+      }
+      assert.equal(expected[i].error, undefined, `CocoaPods fails on what the port takes: ${JSON.stringify(one)}`)
+      assert.deepEqual(sorted(ours), sorted(expected[i].entries), JSON.stringify(one))
+      compared++
+    }
+    return { compared, refused }
+  }
+
+  it('extracts and flattens each archive as RemoteFile does with `tar xf` or `unzip`, where it does not refuse it', { skip: EXTRACT_SKIP }, async () => {
+    const r = random(5)
+    const cases = []
+    for (let i = 0; i < 400; i++) cases.push(await (r.next(3) === 0 ? zipCaseOf(r) : tarCaseOf(r)))
+    const { compared, refused } = await extracted(cases)
+    assert.ok(compared > 150 && refused > 20, `compared ${compared}, refused ${refused}`)
+  })
+
+  it('extracts each zip with every field as given as RemoteFile does with `unzip`, where it does not refuse it', { skip: SKIP }, async () => {
+    const r = random(17)
+    const cases = Array.from({ length: 300 }, () => rawZipCaseOf(r))
+    const { compared, refused } = await extracted(cases)
+    assert.ok(compared > 100 && refused > 20, `compared ${compared}, refused ${refused}`)
   })
 })

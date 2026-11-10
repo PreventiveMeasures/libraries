@@ -24,7 +24,8 @@ const RELEVANT = ['name', 'version', 'require', 'require-dev', 'conflict', 'repl
 function contentHash(config) {
   const relevant = new Map(RELEVANT.filter((key) => config.has(key)).map((key) => [key, config.get(key)]))
   const settings = config.get('config')
-  if (settings instanceof Map && settings.get('platform') !== undefined && settings.get('platform') !== null) relevant.set('config', new Map([['platform', settings.get('platform')]]))
+  const platform = settings instanceof Map ? settings.get('platform') : undefined
+  if (platform !== undefined && platform !== null) relevant.set('config', new Map([['platform', platform]]))
   return md5(encodeJson(new Map([...relevant].sort(([a], [b]) => compareKeys(a, b)))))
 }
 

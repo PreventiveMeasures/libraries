@@ -31,7 +31,6 @@ const NUMBERS = [
 // fraction of a second is any character and the digits after it.
 const DATES = /^(?:\d{4}-\d\d-\d\d|\d{4}-\d\d?-\d\d?(?:[Tt]|[ \t]+)\d\d?:\d\d:\d\d(?:.\d*)?(?:[ \t]*(?:Z|[-+]\d\d?(?::\d\d)?))?)$/u
 
-const INDICATOR = /^[-?:,[\]{}#&*!|>'"%@`]/u
 // A string YAMLHelper writes plain, and a symbol as YAML.dump writes one.
 export const PLAIN = /^\w[\w/ ()~<>=.:`,-]*$/u
 export const SYMBOL = /^:[a-z_][a-z0-9_]*$/u
@@ -48,8 +47,8 @@ export const inspect = (text) => JSON.stringify(text).replace(/#(?=[{$@])/gu, '\
 
 function processString(text, rules) {
   if (resolved(text, rules)) return `'${text}'`
-  if (/^[ \t\n\v\f\r]*$/u.test(text) || INDICATOR.test(text) || text.endsWith(':')) return inspect(text)
-  return PLAIN.test(text) ? text : inspect(text)
+  // PLAIN takes no indicator first, and no string of spaces alone or none.
+  return PLAIN.test(text) && !text.endsWith(':') ? text : inspect(text)
 }
 
 // YAMLHelper's sorting_string: what an entry sorts by, its case folded as

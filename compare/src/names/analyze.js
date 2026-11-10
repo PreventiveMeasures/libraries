@@ -132,8 +132,9 @@ function otherNames(node, s) {
     case 'ExportAllDeclaration': if (node.exported) s.others.add(node.exported); break
     case 'ImportAttribute': s.others.add(node.key); break
     case 'MemberExpression':
-      if (!node.computed) s.others.add(node.property)
-      if (!node.computed && NAME_READS.has(node.property.name)) s.reads.add(node.property.name)
+      if (node.computed) break
+      s.others.add(node.property)
+      if (NAME_READS.has(node.property.name)) s.reads.add(node.property.name)
       break
     case 'ObjectPattern':
       for (const { type, computed, key } of node.properties) if (type === 'Property' && !computed && NAME_READS.has(key.name)) s.reads.add(key.name)
@@ -158,8 +159,9 @@ function visit(node, where, s) {
     case 'WithStatement': return 'dynamic'
     case 'VariableDeclaration': declareVariables(node, where, s); return null
     case 'FunctionDeclaration':
-      if (node.id && !where.fn && !where.strict) return 'block-function'
-      if (node.id) declare(s, where, node.id)
+      if (!node.id) return null
+      if (!where.fn && !where.strict) return 'block-function'
+      declare(s, where, node.id)
       return null
     // A function an `if` holds without braces is one in a block.
     case 'IfStatement':

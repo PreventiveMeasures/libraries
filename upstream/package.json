@@ -1,7 +1,7 @@
 {
   "name": "@preventive/upstream",
-  "version": "1.5.1",
-  "description": "Minimal npm, crates.io, Soldeer, CocoaPods trunk, GitHub and git checkout clients",
+  "version": "1.7.0",
+  "description": "Minimal npm, crates.io, RubyGems, Soldeer, CocoaPods trunk, GitHub and git checkout clients",
   "type": "module",
   "exports": {
     "./advisories.js": {
@@ -36,6 +36,10 @@
       "types": "./package.d.ts",
       "default": "./package.js"
     },
+    "./rubygems.js": {
+      "types": "./rubygems.d.ts",
+      "default": "./rubygems.js"
+    },
     "./semver.js": {
       "types": "./semver.d.ts",
       "default": "./semver.js"
@@ -68,18 +72,23 @@
     "npm.js",
     "package.d.ts",
     "package.js",
+    "rubygems.d.ts",
+    "rubygems.js",
     "semver.d.ts",
     "semver.js",
     "soldeer.d.ts",
     "soldeer.js",
     "weak-edges.d.ts",
     "weak-edges.js",
+    "src/advisories/actions.js",
     "src/advisories/common.js",
     "src/advisories/github.js",
     "src/advisories/index.js",
     "src/advisories/npm.js",
     "src/advisories/osv.js",
+    "src/advisories/packagist.js",
     "src/advisories/repos.js",
+    "src/advisories/rubysec.js",
     "src/args.js",
     "src/attributes.js",
     "src/cache.js",
@@ -89,6 +98,7 @@
     "src/download.js",
     "src/git.js",
     "src/github/client.js",
+    "src/github/commit.js",
     "src/github/read.js",
     "src/github/write.js",
     "src/http.js",
@@ -100,7 +110,11 @@
     "src/npm/versions.js",
     "src/package.js",
     "src/pool.js",
+    "src/pypi/version.js",
     "src/remote.js",
+    "src/rubygems/gem.js",
+    "src/rubygems/platform.js",
+    "src/rubygems/version.js",
     "src/semver-peer.cjs",
     "src/semver.js",
     "src/tree.js",
@@ -132,7 +146,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@preventive/archive": "^1.2.0"
+    "@preventive/archive": "^1.4.0",
+    "@preventive/lockfile": "^1.3.0"
   },
   "peerDependencies": {
     "semver": "^7.5.2"

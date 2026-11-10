@@ -1,24 +1,27 @@
 import assert from 'node:assert/strict'
 
-import { assertCrateName, assertCrateVersion, assertion, isGhsa, isStrings, matches, show } from '../args.js'
-import { OSV_API, buildUrl, request } from '../http.js'
+import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isRepo, isStrings, matches, show } from '../args.js'
+import { readJSON, writeJSON } from '../cache.js'
+import { OSV_API, OSV_EXPORTS, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
+import { assertPypiName, assertPypiVersion, boundRange as boundPypiRange, compareVersions as comparePypiVersions, normalName, readRange as readPypiRange } from '../pypi/version.js'
+import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
 import { isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
-import { withRepositories } from './github.js'
-import { composerRepos, crateRepos } from './repos.js'
+import { bySemver, withRepositories } from './github.js'
+import { packagistRows } from './packagist.js'
+import { composerRepos, crateRepos, gemRepos, pypiRepos } from './repos.js'
+import { rubysecRows, sameIds } from './rubysec.js'
 
 const QUERY_URL = buildUrl(OSV_API, ['v1', 'querybatch'])
 const QUERIES_PER_REQUEST = 1000
 export const RECORDS_AT_ONCE = 8
 const isOsvId = matches(/^(?=.{1,128}$)[A-Z][\dA-Z]*(?:-[\dA-Za-z]+)+$/u)
-// osv.dev's page for one of its records. An id that is only another's
-// alias (PKSA-...) has none, and redirects to a search.
+// An id that is only another's alias (PKSA-...) has no page of its own.
 const osvPage = (id) => `https://osv.dev/vulnerability/${id}`
 const INFORMATIONAL = new Set(['unmaintained', 'unsound', 'notice'])
-// Of the records that publish one advisory, the first answered for a
-// version stands for the rest on it: RustSec's, what `cargo audit` reads
-// and GitHub mirrors, then the GHSA, then any other (MAL-...), then by id.
+// Of one advisory's records, which a version is reported under: RustSec's
+// (what `cargo audit` reads), then the GHSA, then by id.
 const rank = (id) => (id.startsWith('RUSTSEC-') ? 0 : (isGhsa(id) ? 1 : 2))
 const first = (a, b) => rank(a.id) - rank(b.id) || order(a.id, b.id)
 const named = (a, b) => a.aliases.includes(b.id) || b.aliases.includes(a.id)
@@ -31,22 +34,141 @@ export const CARGO = {
   assertVersion: assertCrateVersion,
   advisories: (asked, options) => osvAdvisories(CARGO, asked, options),
 }
-// TODO: packagist.org's API, what `composer audit` reads, also has the
-// FriendsOfPHP advisories OSV lacks; using it means matching Composer
-// version ranges here.
+// OSV, and Packagist's own, which has the FriendsOfPHP advisories OSV lacks.
 export const COMPOSER = {
   osv: 'Packagist',
   github: 'composer',
   lookUp: composerRepos,
   assertName: assertion('a Composer package name', matches(/^(?=.{3,256}$)[a-z\d](?:[_.-]?[a-z\d]+)*\/[a-z\d](?:(?:[_.]|-{1,2})?[a-z\d]+)*$/u)),
   assertVersion: assertion('a Composer release version', matches(/^(?=.{1,64}$)v?\d+(?:\.\d+){0,3}(?:[._-]?(?:stable|beta|b|RC|alpha|a|patch|pl|p)(?:[.-]?\d+)*)?$/iu)),
-  // Composer's `v1.2.3` is semver's 1.2.3; what semver cannot read at all
-  // (1.2.3.4, 1.0.0-p1) is covered by every range.
-  covers: (version, range) => {
+  // What semver can't read (1.2.3.4, 1.0.0-p1) is covered by every range.
+  versionsIn: bySemver((version, range) => {
     const plain = version.replace(/^v/iu, '')
     return !isExactVersion(plain) || inRange(plain, range)
+  }),
+  advisories: async (asked, options) => {
+    const [osv, packagist] = await Promise.all([osvRows(COMPOSER, asked, options), packagistRows(asked)])
+    return await withRepositories([...osv, ...sameIds(packagist, osv)], asked, options, COMPOSER)
   },
-  advisories: (asked, options) => osvAdvisories(COMPOSER, asked, options),
+}
+
+// OSV, and with a GitHub client ruby-advisory-db, which OSV lacks.
+export const GEM = {
+  osv: 'RubyGems',
+  github: 'rubygems',
+  lookUp: gemRepos,
+  assertName: assertGemName,
+  assertVersion: assertGemVersion,
+  // `1.0` and `1.0.0` are equal, so are ordered by their text.
+  compare: (a, b) => compareGemVersions(a, b) || order(a, b),
+  bound: boundGemRange,
+  versionsIn: (asked, range) => {
+    const test = readGemRange(range)
+    return test === undefined ? [...asked] : asked.filter(test)
+  },
+  advisories: async (asked, options) => {
+    const [osv, rubysec] = await Promise.all([osvRows(GEM, asked, options), options.github ? rubysecRows(options.github, asked, options) : []])
+    return await withRepositories([...osv, ...sameIds(rubysec, osv)], asked, options, GEM)
+  },
+}
+
+// As OSV's SwiftURL names it, `github.com/vapor/vapor`, in any case.
+const SWIFT_NAME = /^(?=.{1,512}$)[a-z\d-]+(?:\.[a-z\d-]+)+(?:\/(?!\.\.?(?:\/|$))[\w.~-]+)+(?<!\.git)$/u
+// TSCUtility.Version: SemVer, but an identifier may be empty, or a number
+// have a leading zero.
+const SWIFT_VERSION = /^(?=.{5,256}$)(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){2}(?:-[\dA-Za-z.-]*)?(?:\+[\dA-Za-z.-]*)?$/u
+const swiftRepo = (name) => {
+  const repo = name.startsWith('github.com/') ? name.slice('github.com/'.length) : ''
+  return isRepo(repo) ? repo : null
+}
+
+// How late a package OSV adds is asked in its spelling.
+const NAMES_TTL_MS = 90 * 60 * 1000
+const LISTED = /^(?<modified>[^,]{1,64}),(?<id>[^,]+)$/u
+const namesIn = (record, ecosystem) => (Array.isArray(record.affected) ? record.affected : []).map((entry) => entry?.package)
+  .filter((pkg) => pkg?.ecosystem === ecosystem && typeof pkg.name === 'string').map((pkg) => pkg.name)
+const isKept = (value) => value && typeof value === 'object' && typeof value.at === 'number' && value.records && typeof value.records === 'object'
+  && Object.values(value.records).every((record) => typeof record?.modified === 'string' && isStrings(record.names))
+
+// Each package name OSV has in `ecosystem`: from its list of records, each
+// record read again only once it is modified.
+async function osvNames(ecosystem, cache) {
+  const kept = await readJSON('osv/names', ecosystem, cache)
+  const records = isKept(kept) ? kept.records : {}
+  const age = isKept(kept) ? Date.now() - kept.at : Number.NaN
+  if (!(age >= 0 && age <= NAMES_TTL_MS)) {
+    const list = (await request(buildUrl(OSV_EXPORTS, [ecosystem, 'modified_id.csv']), { as: 'text' })).split('\n').filter(Boolean).map((line) => LISTED.exec(line)?.groups)
+    assert.ok(list.every((entry) => entry && isOsvId(entry.id)), `advisories: malformed list of OSV's ${ecosystem} records`)
+    const changed = list.filter(({ id, modified }) => records[id]?.modified !== modified)
+    const read = new Map((await pool(changed.map(({ id }) => id), RECORDS_AT_ONCE, getVuln)).map((record) => [record.id, namesIn(record, ecosystem)]))
+    const fresh = Object.fromEntries(list.map(({ id, modified }) => [id, { modified, names: read.get(id) ?? records[id].names }]))
+    await writeJSON('osv/names', ecosystem, { at: Date.now(), records: fresh }, cache)
+    return Object.values(fresh).flatMap(({ names }) => names)
+  }
+  return Object.values(records).flatMap(({ names }) => names)
+}
+
+export const SWIFT = {
+  osv: 'SwiftURL',
+  github: 'swift',
+  lookUp: (names) => new Map(names.map((name) => [name, swiftRepo(name)])),
+  assertName: assertion("a Swift package's repository, `github.com/owner/name`", matches(SWIFT_NAME)),
+  assertVersion: assertion('a version as SwiftPM writes one', matches(SWIFT_VERSION)),
+  // GitHub's URLs are case-insensitive.
+  nameKey: (name) => name.toLowerCase(),
+  advisories: async (asked, options) => {
+    // OSV matches a Swift package only as it spells it, case and all.
+    const spelling = new Map((await osvNames('SwiftURL', options.cache)).map((name) => [name.toLowerCase(), name]))
+    const osvName = (name) => spelling.get(name.toLowerCase()) ?? name
+    const askedAs = new Map([...asked.keys()].map((name) => [osvName(name), name]))
+    const rows = await osvRows(SWIFT, new Map([...asked].map(([name, versions]) => [osvName(name), versions])), options)
+    return await withRepositories(rows.map((row) => ({ ...row, name: askedAs.get(row.name) })), asked, options, SWIFT)
+  },
+}
+
+// What `pip-audit` reads. OSV takes a name in any spelling PEP 503
+// normalizes alike.
+export const PYPI = {
+  osv: 'PyPI',
+  github: 'pip',
+  lookUp: pypiRepos,
+  assertName: assertPypiName,
+  assertVersion: assertPypiVersion,
+  nameKey: normalName,
+  // `1.0` and `1.0.0` are equal, so are ordered by their text.
+  compare: (a, b) => comparePypiVersions(a, b) || order(a, b),
+  bound: boundPypiRange,
+  versionsIn: (asked, range) => {
+    const test = readPypiRange(range)
+    return test === undefined ? [...asked] : asked.filter(test)
+  },
+  advisories: (asked, options) => osvAdvisories(PYPI, asked, options),
+}
+
+// The ids OSV answers each query with, a thousand queries a request.
+async function idsOf(queries, what) {
+  const ids = []
+  for (const chunk of chunks(queries, QUERIES_PER_REQUEST)) {
+    const answer = await request(QUERY_URL, { method: 'POST', body: { queries: chunk }, as: 'json' })
+    assert.ok(Array.isArray(answer?.results) && answer.results.length === chunk.length, 'advisories: expected one OSV result per query')
+    for (const result of answer.results) {
+      const vulns = result?.vulns ?? []
+      assert.ok(result && result.next_page_token === undefined && Array.isArray(vulns) && vulns.every((vuln) => isOsvId(vuln?.id)), `advisories: malformed OSV result for ${what(ids.length)}`)
+      ids.push(vulns.map(({ id }) => id))
+    }
+  }
+  return ids
+}
+
+// Every record OSV has of each name, for an ecosystem whose versions it
+// can't match: [{ record, names }], withdrawn ones left out.
+export async function packageRecords(osv, names) {
+  const byId = new Map()
+  for (const [j, ids] of (await idsOf(names.map((name) => ({ package: { name, ecosystem: osv } })), (at) => names[at])).entries()) {
+    for (const id of ids) (byId.get(id) ?? byId.set(id, new Set()).get(id)).add(names[j])
+  }
+  const records = await pool([...byId.keys()], RECORDS_AT_ONCE, getVuln)
+  return records.filter((record) => !record.withdrawn).map((record) => ({ record, names: byId.get(record.id) }))
 }
 
 export async function getVuln(id) {
@@ -57,7 +179,7 @@ export async function getVuln(id) {
   return { ...record, aliases: (record.aliases ?? []).filter(isOsvId) }
 }
 
-function toAdvisory(ecosystem, name, versions, record, details) {
+export function toAdvisory(ecosystem, name, versions, record, details) {
   const { aliases } = record
   const ghsas = aliases.filter(isGhsa)
   const ghsa = isGhsa(record.id) ? record.id : (ghsas.length === 1 ? ghsas[0] : undefined)
@@ -79,28 +201,18 @@ function toAdvisory(ecosystem, name, versions, record, details) {
   }
 }
 
-// OSV's batch query matches versions on its side, but answers ids only:
-// each record is fetched once after. An advisory more than one database
-// publishes comes back under each one's id, the records naming each other
-// as aliases, either way round, directly or through others: one group, in
-// which each version is reported under the first answered for it, and
-// each record has the others' ids as aliases. `osv` is OSV's name for the
-// ecosystem.
+// OSV's batch query answers ids only, each record fetched after. Records
+// of one advisory, naming each other as aliases, are one group: each
+// version is reported under its first, the rest its aliases.
 export async function osvRows({ osv }, asked, { details }) {
   const list = [...asked].flatMap(([name, versions]) => versions.map((version) => ({ name, version })))
   const hits = new Map() // id -> name -> versions, in `list` order
-  for (const chunk of chunks(list, QUERIES_PER_REQUEST)) {
-    const body = { queries: chunk.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })) }
-    const answer = await request(QUERY_URL, { method: 'POST', body, as: 'json' })
-    assert.ok(Array.isArray(answer?.results) && answer.results.length === chunk.length, 'advisories: expected one OSV result per query')
-    for (const [j, result] of answer.results.entries()) {
-      const { name, version } = chunk[j]
-      const vulns = result?.vulns ?? []
-      assert.ok(result && result.next_page_token === undefined && Array.isArray(vulns) && vulns.every((vuln) => isOsvId(vuln?.id)), `advisories: malformed OSV result for ${name}@${version}`)
-      for (const { id } of vulns) {
-        const byName = hits.get(id) ?? hits.set(id, new Map()).get(id)
-        byName.set(name, (byName.get(name) ?? new Set()).add(version))
-      }
+  const found = await idsOf(list.map(({ name, version }) => ({ package: { name, ecosystem: osv }, version })), (j) => `${list[j].name}@${list[j].version}`)
+  for (const [j, ids] of found.entries()) {
+    const { name, version } = list[j]
+    for (const id of ids) {
+      const byName = hits.get(id) ?? hits.set(id, new Map()).get(id)
+      byName.set(name, (byName.get(name) ?? new Set()).add(version))
     }
   }
   const records = (await pool([...hits.keys()], RECORDS_AT_ONCE, getVuln)).filter((record) => !record.withdrawn)
@@ -126,6 +238,5 @@ export async function osvRows({ osv }, asked, { details }) {
 }
 
 async function osvAdvisories(ecosystem, asked, options) {
-  const { github, lookUp, covers } = ecosystem
-  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, { ecosystem: github, lookUp, covers })
+  return await withRepositories(await osvRows(ecosystem, asked, options), asked, options, ecosystem)
 }

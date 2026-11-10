@@ -34,7 +34,7 @@ function readRev(value, where) {
 // at. forge checks a submodule out by the name of either, and a rev by itself.
 function readDependency(value, where) {
   const types = Object.keys(record(value, where, TYPES))
-  if (types.length !== 1) throw new LockfileError(`expected one of "rev", "tag" and "branch", found ${types.length === 0 ? 'none' : types.map((type) => quote(type)).join(' and ')}`, where)
+  if (types.length !== 1) throw new LockfileError(`expected one of "rev", "tag" and "branch", found ${types.length === 0 ? 'none' : types.map(quote).join(' and ')}`, where)
   const [type] = types
   if (type === 'rev') return { type, name: undefined, rev: readRev(value.rev, at(where, 'rev')), url: undefined }
   const here = at(where, type)

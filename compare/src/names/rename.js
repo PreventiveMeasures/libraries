@@ -20,12 +20,14 @@ function givenNames(a, b, { map, support, weak }) {
     for (let n = 2; a.names.has(named) || b.names.has(named); n++) named = `${name}${APART}${n}`
     return named
   }
+  const name = (variable) => {
+    if (!variable.aside) return variable.name
+    if (map.has(variable)) return map.get(variable).name
+    return b.names.has(variable.name) ? apart(variable.name) : variable.name
+  }
   const given = new Map()
   for (;;) {
-    for (const variable of a.variables) {
-      const own = variable.aside && !map.has(variable) && b.names.has(variable.name) ? apart(variable.name) : variable.name
-      given.set(variable, variable.aside && map.has(variable) ? map.get(variable).name : own)
-    }
+    for (const variable of a.variables) given.set(variable, name(variable))
     const wrong = [...misread(a, given)]
     if (wrong.length === 0) return given
     const paired = wrong.filter((variable) => map.has(variable))

@@ -9,6 +9,7 @@ import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstre
 import { DeptreeError, difference, quote } from '../error.js'
 import { own, readManifest } from '../manifest.js'
 import { createMatcher } from '../matcher.js'
+import { extensionsOf } from './extensions.js'
 import { KINDS, checkCatalogResolutions, checkLinkTargets, checkLinkedPackages, indexProjects, resolvedOf, sameSpecifier } from './frozen.js'
 import { checkProject } from './install.js'
 import { validForOldPackages } from './overrides.js'
@@ -50,7 +51,6 @@ function wantedOf(manifest, autoInstallPeers, unresolved) {
 // it is not set.
 const metaOf = (meta) => JSON.stringify(Object.entries(meta).map(([name, item]) => [name, item?.injected === true, item?.node]).sort())
 
-// pnpm 9 does not hold what a dependency resolved to to its range.
 function checkKind(importer, kinds, kind, unresolved, major) {
   const locked = importer[kind]
   const wanted = kind === 'devDependencies' ? kinds[kind] : omit(kinds[kind], unresolved)
@@ -61,7 +61,8 @@ function checkKind(importer, kinds, kind, unresolved, major) {
   for (const name of names) {
     if (!locked[name] || !sameSpecifier(importer.specifiers[name], wanted[name], major)) return `${kind}.${name} is not what package.json asks for`
     const spec = importer.specifiers[name]
-    if (major < 10 || validRange(spec) === null) continue
+    // pnpm resolves `*` to a prerelease `latest`, and checks no such range.
+    if (validRange(spec) === null || validRange(spec) === '*') continue
     const version = resolvedOf(name, locked[name])
     if (valid(version) !== null && !satisfies(version, spec)) return `${kind}.${name} resolved to ${quote(version)}, which is not in ${quote(spec)}`
   }
@@ -100,8 +101,7 @@ function devEnginesPackageManager(devEngines, where) {
   const engine = list[Math.max(index, 0)]
   if (!engine.name) return undefined
   let { onFail } = engine
-  if (Array.isArray(engines) && index === -1) onFail = list.at(-1).onFail ?? 'error'
-  else if (Array.isArray(engines)) onFail ??= index === list.length - 1 ? 'error' : 'ignore'
+  if (Array.isArray(engines)) onFail = index === -1 ? list.at(-1).onFail ?? 'error' : onFail ?? (index === list.length - 1 ? 'error' : 'ignore')
   return { name: engine.name, onFail }
 }
 
@@ -160,37 +160,8 @@ function checkPackageManager12(manifest, host, pmOnFail, env) {
   }
 }
 
-// pnpm 9's parsePackageManager.
-function parsePackageManager(packageManager) {
-  if (!packageManager.includes('@')) return { name: packageManager, version: undefined }
-  const [name, reference] = packageManager.split('@')
-  return { name, version: reference.includes(':') ? undefined : reference.split('+')[0] }
-}
-
-// pnpm 9 switches to the pnpm packageManager pins only with
-// managePackageManagerVersions; otherwise it refuses another package
-// manager with packageManagerStrict, and another pnpm with that and
-// packageManagerStrictVersion, and installs with itself. 9.15.0 switches
-// to a version semver reads but spells otherwise, and later 9.15s do not.
-function checkPackageManager9(manifest, host, { manage, strict, strictVersion }) {
-  const { packageManager } = manifest
-  if (!packageManager) return
-  const where = 'manifests["."].packageManager'
-  if (typeof packageManager !== 'string') throw new DeptreeError('expected a string, which pnpm 9 fails on otherwise', where)
-  const { name, version } = parsePackageManager(packageManager)
-  if (manage && name === 'pnpm') {
-    const exact = version === undefined ? null : valid(version)
-    if (version === undefined || version === host.pnpm || exact === null) return
-    if (exact !== version.trim()) throw new DeptreeError(`pnpm ${quote(version)} is one pnpm 9.15.0 switches to and a later 9.15 does not, which is not supported`, where)
-    throw new DeptreeError(`the project is installed by pnpm ${version}, which pnpm 9 switches to with managePackageManagerVersions, not ${host.pnpm}`, where)
-  }
-  if (name && name !== 'pnpm' && strict) throw new DeptreeError(`the project is installed by ${quote(name)}, which pnpm 9 refuses with packageManagerStrict`, where)
-  if (name === 'pnpm' && strict && strictVersion && version && version !== host.pnpm) throw new DeptreeError(`the project is installed by pnpm ${version}, not ${host.pnpm}, which pnpm 9 refuses with packageManagerStrict and packageManagerStrictVersion`, where)
-}
-
 function checkPackageManager(manifest, host, settings, env) {
   const { pmOnFail } = settings
-  if (host.major < 10) return checkPackageManager9(manifest, host, settings.packageManagerChecks)
   if (host.major >= 12) return checkPackageManager12(manifest, host, pmOnFail, env)
   const { packageManager } = manifest
   if (host.major >= 11) {
@@ -212,8 +183,6 @@ function checkPackageManager(manifest, host, settings, env) {
 const RUNTIMES = [['devEngines', 'devDependencies'], ['engines', 'dependencies']]
 const RUNTIME_NAMES = ['node', 'deno', 'bun']
 function checkRuntimes(manifest, where, { host, root, onFail }) {
-  // pnpm 9 knows no runtime.
-  if (host.major < 10) return
   const checked = new Set()
   for (const [field, kind] of RUNTIMES) {
     const runtime = manifest[field]?.runtime
@@ -245,13 +214,16 @@ function dependsOn(manifest, ignored) {
   return names(manifest.devDependencies).length > 0 || [...names(manifest.dependencies), ...names(manifest.optionalDependencies)].some((name) => !optional.has(name))
 }
 
-export function checkProjects(lockfile, manifests, { hook, host, settings, env }) {
+// pnpm extends a project's package.json too, which is refused: not every
+// place one is read in here is read through the hook.
+export function checkProjects(lockfile, manifests, { hook, extensions = [], host, settings, env, directories }) {
   checkPackageManager(manifests.get('.'), host, settings, env)
   const ignored = createMatcher(settings.ignoredOptionalDependencies ?? [])
   let index
   for (const [id, manifest] of manifests) {
     const where = `manifests[${quote(id)}]`
     const root = id === '.'
+    if (extensionsOf(extensions, manifest, where).length > 0) throw new DeptreeError('a package extension names this project, whose package.json pnpm extends too, which is not supported', where)
     checkProject(manifest, where, { host, settings, root })
     checkRuntimes(manifest, where, { host, root, onFail: root ? settings.runtimeOnFail : undefined })
     const importer = lockfile.importers[id]
@@ -263,10 +235,12 @@ export function checkProjects(lockfile, manifests, { hook, host, settings, env }
     const reason = mismatch(importer, hooked, settings.autoInstallPeers, host.major, where)
     if (reason !== undefined) throw new DeptreeError(`the lockfile is not up to date with this package.json, which a frozen install refuses: ${reason}`, where)
     checkLinkTargets({ id, manifest: hooked, importer }, where)
-    if (host.major !== 11) continue
-    checkCatalogResolutions(importer, lockfile.catalogs, where)
-    index ??= indexProjects(manifests)
-    checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
+    if (host.major === 11) {
+      checkCatalogResolutions(importer, lockfile.catalogs, where)
+      index ??= indexProjects(manifests)
+      checkLinkedPackages({ manifest: hooked, importer, index, linkWorkspacePackages: settings.linkWorkspacePackages }, where)
+    }
+    directories?.(hooked, importer)
   }
 }
 

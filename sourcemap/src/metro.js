@@ -128,7 +128,7 @@ function helperRequests(map) {
   for (const [i, named] of bindings.entries()) {
     if (named.size === 0) continue
     const file = map.files[i]
-    const declared = new Set(Array.from((file.content ?? '').matchAll(/(?:function|var|let|const)\s+(_[A-Za-z]+\d*)\b/gu), (match) => match[1]))
+    const declared = new Set((file.content ?? '').matchAll(/(?:function|var|let|const)\s+(_[A-Za-z]+\d*)\b/gu).map((match) => match[1]))
     const modules = [...named].filter((name) => !declared.has(name) && !declared.has(name.replace(/\d+$/u, ''))).flatMap(helpersOf)
     if (modules.length > 0) helpers.set(file, modules.map((module) => HELPER_MODULES[module] ?? `@babel/runtime/helpers/${module}`))
   }
@@ -146,7 +146,7 @@ function resolverFor(requests, index) {
     const targets = first.get(from) ?? first.set(from, new Map()).get(from)
     for (const specifier of specifiers) targets.set(specifier, resolveSpecifier(index, from, specifier, () => null))
   }
-  const reached = new Set([...first.values()].flatMap((targets) => [...targets.values()].map((target) => target.to)))
+  const reached = new Set(first.values().flatMap((targets) => targets.values().map((target) => target.to)))
   const entry = (_, root) => index.byRoot.get(root).find((file) => !reached.has(file)) ?? index.byRoot.get(root)[0]
   return (from, specifier) => {
     const target = first.get(from)?.get(specifier)
@@ -155,7 +155,8 @@ function resolverFor(requests, index) {
 }
 
 const isPrelude = (file) => /(?:^|\/)__prelude__$/u.test(file.source ?? '')
-const isModuleSystem = (file) => file?.package?.name === 'metro-runtime' && file.package.path === 'src/polyfills/require.js'
+const isRuntime = (file, path) => file?.package?.name === 'metro-runtime' && file.package.path === path
+const isModuleSystem = (file) => isRuntime(file, 'src/polyfills/require.js')
 
 function fromMap(map) {
   // Metro's prelude; in a map composed with Hermes', which compiles the
@@ -167,7 +168,7 @@ function fromMap(map) {
   // An asset's one import, the registry, the walk reached right after the
   // first asset; an import() also imports Metro's asyncRequire.
   const registry = map.files[map.files.findIndex(isAsset) + 1]
-  const asyncRequire = map.files.find((file) => file.package?.name === 'metro-runtime' && file.package.path === 'src/modules/asyncRequire.js')
+  const asyncRequire = map.files.find((file) => isRuntime(file, 'src/modules/asyncRequire.js'))
   const scanned = new Map(map.files.filter((file) => file.content !== null && isScript(file)).map((from) => [from, scanSpecifiers(from.content)]))
   const helpers = helperRequests(map)
   const named = [...scanned].map(([from, found]) => [from, found.flatMap(({ specifier }) => (specifier === null ? [] : [specifier]))])

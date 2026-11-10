@@ -60,9 +60,8 @@ const inliningOf = (plugin, transform = {}) => ({
 
 const NONE = () => Promise.resolve(null)
 
-// A bundle's inline requires, each async (entryPath, { platform, dev }) => inliningOf()'s or null:
-// `inlineRequires` as getTransformOptions gives them; `inlining` turned on whatever it gives of
-// inlineRequires, for rn.config.json's inlineRequires (rn-config.js). Null without the plugin.
+// Each async (entryPath, { platform, dev }) => inliningOf()'s or null: `inlineRequires` as getTransformOptions
+// sets them, `inlining` on whatever it sets (for rn.config.json's inlineRequires). Null without the plugin.
 function inliningsOf(getTransformOptions, plugin, hot) {
   if (plugin === null) return { inlineRequires: NONE, inlining: NONE }
   if (typeof getTransformOptions !== 'function') return { inlineRequires: NONE, inlining: () => Promise.resolve(inliningOf(plugin)) }
@@ -116,7 +115,6 @@ const show = (value, cwd) => {
 // As Metro's WorkerFarm takes maxWorkers: at least one.
 const workersOf = (maxWorkers) => Math.max(1, Math.trunc(maxWorkers) || 1)
 
-// --max-workers, else the config's maxWorkers.
 export function maxWorkersOf(given, metro, fail) {
   if (given === undefined) return metro.maxWorkers
   return /^\d+$/u.test(given) ? workersOf(Number(given)) : fail(`--max-workers takes a number of workers, not ${given}`)

@@ -3,7 +3,7 @@
 // with devDependencies left out: every project's devDependencies dropped, and
 // of the snapshots those the rest reach, through dependencies,
 // optionalDependencies and `link:`s, which lead only to projects, all of them
-// installed anyway. The root's specifiers stay, which pnpm 9 hoists by.
+// installed anyway.
 //
 // From pnpm 11.28 and 12.8.1 on (@pnpm/lockfile.peer-edges), an edge to an
 // optional peer that a snapshot has only as the projects that reach it list

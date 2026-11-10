@@ -14,8 +14,7 @@ const BLOCK_SCOPING = 'transform-block-scoping'
 const LET = /\b(?:let|const)\b/u
 
 // -> { transform, fingerprint }: transform({ source, filename, without }) gives { code, imports, module?,
-// uncacheable?, spent? } or { error, loc? }; fingerprint is null without `fingerprintOf`. The options are
-// Babel's, plus cli.js's projectBabel() ones: ownPlugins, keepPlugins, inlineRequires, fingerprinter, etc.
+// uncacheable?, spent? } or { error, loc? }. The options are Babel's plus cli.js's projectBabel() ones.
 export function transformerOf({ corePath, options, profile, fingerprintOf = null }) {
   const { ownPlugins = [], keepPlugins = false, inlineRequires = null, fingerprinter: _fingerprinter, oneBuild = false, switches = [], ...given } = options
   const core = createRequire(corePath)(corePath)
@@ -138,8 +137,7 @@ const IMPORTS = {
 }
 
 // Metro's inline-requires plugin, its Program exit run only where a top-level var is initialized by an
-// inlineable call (or a member of one) of a module it doesn't ignore: elsewhere it would crawl the
-// program's scopes and walk it for no change.
+// inlinable require (or a member of one): elsewhere it would crawl the program's scopes for no change.
 export function gatedInlining(plugin) {
   return (api, options) => {
     const instance = plugin(api, options)

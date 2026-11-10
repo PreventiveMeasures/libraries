@@ -49,7 +49,7 @@ export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minim
   // interning would, so two files that differ late would pay for it twice.
   // Those go straight to the search, where the trim finds the same thing
   // once the lines are numbers.
-  if (key === null && sameLines(a, b, null)) return []
+  if (key === null && sameLines(a, b)) return []
   const { A, B, classes } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
@@ -186,12 +186,14 @@ function searched(lo, hi, aside, changed) {
   return Int32Array.from(kept)
 }
 
+// Two lines are the same line when their keys are, or when their text is
+// with no key in force.
+const equalUnder = (key) => (key ? (x, y) => key(x) === key(y) : (x, y) => x === y)
+
 // Whether two line arrays are equal under the comparison, without a search.
-// Not exported: `diffLines` asks it first, so a caller gets the cheap answer
-// by calling the one function, which is where that belongs.
 export function sameLines(a, b, key = null) {
   if (a.length !== b.length) return false
-  const equal = key ? (x, y) => key(x) === key(y) : (x, y) => x === y
+  const equal = equalUnder(key)
   for (let i = 0; i < a.length; i++) if (!equal(a[i], b[i])) return false
   return true
 }
@@ -331,7 +333,7 @@ function collectBlocks(changedA, changedB) {
 // original strings are compared, not the interned ids, so the interning is
 // checked along with the search.
 export function verifyChangeSet(a, b, blocks, key = null) {
-  const equal = key ? (x, y) => key(x) === key(y) : (x, y) => x === y
+  const equal = equalUnder(key)
   let ai = 0, bi = 0
   for (const { a0, a1, b0, b1 } of blocks) {
     if (a0 < ai || b0 < bi || a1 < a0 || b1 < b0 || a1 > a.length || b1 > b.length) throw new DiffError('a block is out of order or out of range')

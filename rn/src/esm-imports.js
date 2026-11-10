@@ -1,7 +1,6 @@
-// Checks each import by name of an ES module as esbuild's linker does (bundle.js with `esm`), for builds it
-// doesn't link: a dev bundle's modules, each built alone, and ones Babel makes CommonJS for inline requires.
-// An import of a name not exported (following `export *`s) warns, the import undefined, as in Metro. Not of
-// a module whose exports aren't known (CommonJS, or `export *` of such), nor in a TS file, as in esbuild.
+// Checks named imports against their module's exports as esbuild's linker does, for builds it doesn't link
+// (dev bundles, and CommonJS for inline requires): a missing export warns, the import undefined as in Metro.
+// As in esbuild, modules of unknown exports (CommonJS) and TS files are not checked.
 
 import { extname } from 'node:path'
 
@@ -9,16 +8,15 @@ import { posixRelative } from './build-host.js'
 
 const TS = new Set(['.ts', '.tsx', '.mts', '.cts'])
 
-// The warnings of the build's imports: `modules`, each ES module's { imports, exports, stars, commonJs? }
-// by path (babel-transformer.js's esModuleOf()); `graph`, how the build resolved each import (build-host.js's
-// state.graph); `source(path)`, a file's text, or null, for a warning's location.
+// `modules`: esModuleOf()'s records by path; `graph`: build-host.js's state.graph; `source(path)`: a
+// file's text or null, to locate warnings.
 export function unmatchedImports({ modules, graph, projectRoot, source }) {
   const targetOf = (importer, specifier) => {
     const resolution = graph.get(importer)?.get(specifier)
     return resolution?.type === 'sourceFile' ? resolution.filePath : null
   }
-  // The names a module exports: its own, and those but `default` of each module it reaches through its
-  // `export *`s, through any cycle of them; null where it may export any (one of them CommonJS, or unknown).
+  // A module's exports, following `export *` (less `default`) through cycles; null where a module reached
+  // is CommonJS or unknown, so it may export anything.
   const known = new Map()
   const exportsOf = (path) => {
     if (!known.has(path)) known.set(path, reachedOf(path))
@@ -28,7 +26,7 @@ export function unmatchedImports({ modules, graph, projectRoot, source }) {
     const module = modules.get(path)
     if (module === undefined || module.commonJs) return null
     const names = new Set(module.exports)
-    // Visited in turn as they're added.
+    // Grows as it is iterated.
     const seen = new Set([path])
     for (const from of seen) {
       for (const star of modules.get(from).stars) {
@@ -57,8 +55,8 @@ export function unmatchedImports({ modules, graph, projectRoot, source }) {
   return warnings.toSorted((a, b) => a.location.file.localeCompare(b.location.file) || (a.location.line ?? 0) - (b.location.line ?? 0) || a.text.localeCompare(b.text))
 }
 
-// Where a file names the module it imports `name` of: in the first statement that names both (not an import
-// of a type alone), else the first that names the module; as esbuild locates a message.
+// As esbuild locates it: the first statement (not type-only) naming both the module and `name`, else the
+// first naming the module.
 function locationOf(projectRoot, path, specifier, name, source) {
   const file = posixRelative(projectRoot, path)
   const text = source(path)

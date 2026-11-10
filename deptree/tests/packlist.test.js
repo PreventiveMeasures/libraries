@@ -8,13 +8,12 @@ import { packDirectory } from '../src/pnpm/packlist.js'
 // machine busy with other tests stretches on the clock and not here.
 const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
-// What pnpm 9, 10, 11 and 12 install of a `file:` dependency's directory.
+// What pnpm 10, 11 and 12 install of a `file:` dependency's directory.
 // Each list here is what real installs of these versions kept, file for file.
-const V9 = '9.15.9'
 const V10 = '10.33.4'
 const V11 = '11.28.2'
 const V12 = '12.8.1'
-const NPM_PACKLISTS = [V9, '10.30.3', V10, '11.27.0', V11]
+const NPM_PACKLISTS = ['10.30.3', V10, '11.27.0', V11]
 
 const textOf = (paths) => Object.fromEntries(paths.map((path) => [path, `// ${path}\n`]))
 const pack = (files, pnpm, fields = {}, { raw } = {}) => {
@@ -58,7 +57,7 @@ describe('packDirectory by the built-in rules', () => {
       'Node_Modules/q.js', 'node_modules/n/index.js', 'lib/README.orig',
     ]
     keeps(files, fields, {
-      [`${V9} ${V10}`]: ['Node_Modules/q.js', 'bun.lockb', 'cli.js', 'index.js', 'lib/README.orig', 'lib/yarn.lock', 'package.json', 'yarn.lock.d/b'],
+      [`${V10}`]: ['Node_Modules/q.js', 'bun.lockb', 'cli.js', 'index.js', 'lib/README.orig', 'lib/yarn.lock', 'package.json', 'yarn.lock.d/b'],
       [V11]: ['cli.js', 'index.js', 'lib/yarn.lock', 'package.json', 'yarn.lock.d/b'],
       [V12]: ['.DS_store', '._foo', '.lock-wscript', 'NPM-DEBUG.LOG', 'Node_Modules/q.js', 'X.ORIG', 'Yarn.Lock', 'build/config.gypi', 'bun.lockb', 'cli.js', 'cvs/x', 'index.js', 'package.json', 'star*.js', 'x.orig/a.js', 'yarn.lock.d/b'],
     })
@@ -70,7 +69,7 @@ describe('packDirectory by the built-in rules', () => {
   // npm-packlist 5 reads a bin normalized, npm-packlist 10 as it is.
   it('keeps what main, browser and bin name, each by its own rules', () => {
     keeps(['index.js', '.npmrc', 'x.orig', 'yarn.lock', '.git/a.js'], { browser: '.npmrc', main: 'x.orig', bin: { foo: 'yarn.lock', bar: './.git/a.js' } }, {
-      [`${V9} ${V10}`]: ['.npmrc', 'index.js', 'package.json', 'x.orig', 'yarn.lock'],
+      [`${V10}`]: ['.npmrc', 'index.js', 'package.json', 'x.orig', 'yarn.lock'],
       [V11]: ['.git/a.js', '.npmrc', 'index.js', 'package.json', 'x.orig', 'yarn.lock'],
       [V12]: ['index.js', 'package.json'],
     })
@@ -79,7 +78,7 @@ describe('packDirectory by the built-in rules', () => {
   // npm-packlist 10 rereads its rules for the top in every directory.
   it('leaves out bun.lockb for pnpm 11 alone, and the rules at the top in every directory', () => {
     keeps(['index.js', 'cli.js', 'bun.lockb', 'lib/.lock-wscript', 'lib/.wafpickle-1', 'lib/build/config.gypi', 'lib/archived-packages/y'], fields, {
-      [`${V9} ${V10} ${V12}`]: ['bun.lockb', 'cli.js', 'index.js', 'lib/.lock-wscript', 'lib/.wafpickle-1', 'lib/archived-packages/y', 'lib/build/config.gypi', 'package.json'],
+      [`${V10} ${V12}`]: ['bun.lockb', 'cli.js', 'index.js', 'lib/.lock-wscript', 'lib/.wafpickle-1', 'lib/archived-packages/y', 'lib/build/config.gypi', 'package.json'],
       [V11]: ['cli.js', 'index.js', 'package.json'],
     })
   })
@@ -126,7 +125,7 @@ describe('packDirectory by package.json\'s files', () => {
   it('keeps what its globs take, less what a `!` one takes back', () => {
     const files = textOf([...COMMON, 'dist/a.js', 'dist/a.js.map', 'dist/sub/b.js', 'types/a.d.ts', 'types/deep/b.d.ts', 'x.mjs'])
     keeps(files, { files: ['*.js', 'lib/**/*.ts', 'dist/*', '!dist/*.map', 'types/**', '*.mjs'] }, {
-      [`${V9} 10.30.3 ${V10} ${V12}`]: ['LICENSE', 'README.md', 'dist/a.js', 'dist/sub/b.js', 'index.js', 'lib/sub/d.ts', 'package.json', 'types/a.d.ts', 'types/deep/b.d.ts', 'x.mjs'],
+      [`10.30.3 ${V10} ${V12}`]: ['LICENSE', 'README.md', 'dist/a.js', 'dist/sub/b.js', 'index.js', 'lib/sub/d.ts', 'package.json', 'types/a.d.ts', 'types/deep/b.d.ts', 'x.mjs'],
       [`11.27.0 ${V11}`]: ['LICENSE', 'README.md', 'dist/a.js', 'dist/sub/b.js', 'index.js', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json', 'types/a.d.ts', 'types/deep/b.d.ts', 'x.mjs'],
     })
     keeps(textOf([...COMMON, 'lib/internal/keep.js', 'lib/internal/drop.js']), { files: ['lib', '!lib/internal', '!lib/b.js', 'lib/internal/keep.js'] }, {
@@ -150,22 +149,22 @@ describe('packDirectory by package.json\'s files', () => {
 
   // glob in npm-packlist 5 and minimatch in 10 match without case, pnpm 12
   // with it; npm-packlist 10 walks into `LIB` no more than into lib.
-  it('matches without case for pnpm 9, 10 and 11, and with it for pnpm 12', () => {
+  it('matches without case for pnpm 10 and 11, and with it for pnpm 12', () => {
     keeps(textOf([...COMMON, 'Docs/A.md']), { files: ['LIB', 'Index.JS', 'docs'] }, {
-      [`${V9} ${V10}`]: ['Docs/A.md', 'LICENSE', 'README.md', 'docs/guide.md', 'index.js', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json'],
+      [`${V10}`]: ['Docs/A.md', 'LICENSE', 'README.md', 'docs/guide.md', 'index.js', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json'],
       [V11]: ['Docs/A.md', 'LICENSE', 'README.md', 'docs/guide.md', 'index.js', 'package.json'],
       [V12]: ['LICENSE', 'README.md', 'docs/guide.md', 'package.json'],
     })
   })
 
   // npm-packlist 5 keeps each path a glob takes in spite of its own rules.
-  it('keeps for pnpm 9 and 10 what a glob takes that their rules leave out', () => {
+  it('keeps for pnpm 10 what a glob takes that their rules leave out', () => {
     keeps(textOf(COMMON), { files: ['index.js/', 'lib/a.js', 'lib/*'] }, {
-      [`${V9} ${V10}`]: ['LICENSE', 'README.md', 'lib/.DS_Store', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'lib/x.orig', 'package.json'],
+      [`${V10}`]: ['LICENSE', 'README.md', 'lib/.DS_Store', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'lib/x.orig', 'package.json'],
       [`${V11} ${V12}`]: ['LICENSE', 'README.md', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json'],
     })
     keeps(textOf([...COMMON, '.eslintrc', 'lib/.hidden.js', '.github/ci.yml']), { files: ['.*', 'lib/.*'] }, {
-      [`${V9} ${V10}`]: ['.eslintrc', '.github/ci.yml', '.npmrc', 'LICENSE', 'README.md', 'lib/.DS_Store', 'lib/.hidden.js', 'package.json'],
+      [`${V10}`]: ['.eslintrc', '.github/ci.yml', '.npmrc', 'LICENSE', 'README.md', 'lib/.DS_Store', 'lib/.hidden.js', 'package.json'],
       [V11]: ['.eslintrc', 'LICENSE', 'README.md', 'lib/.hidden.js', 'package.json'],
       [V12]: ['.eslintrc', '.github/ci.yml', 'LICENSE', 'README.md', 'lib/.hidden.js', 'package.json'],
     })
@@ -174,7 +173,7 @@ describe('packDirectory by package.json\'s files', () => {
   // pnpm 12 takes a list with no entry as no list.
   it('keeps for an empty list what each keeps by its own rules', () => {
     keeps(['index.js', 'lib/a.js', 'README.md'], { main: 'index.js', files: [] }, {
-      [`${V9} ${V10} ${V11}`]: ['README.md', 'index.js', 'package.json'],
+      [`${V10} ${V11}`]: ['README.md', 'index.js', 'package.json'],
       [V12]: ['README.md', 'index.js', 'lib/a.js', 'package.json'],
     })
   })
@@ -188,12 +187,12 @@ describe('packDirectory by .npmignore and .gitignore', () => {
     const files = { ...textOf([...COMMON, 'dist/a.js', 'dist/keep.js', 'build/out.js', 'lib/build/out.js', 'x.log', 'lib/tmp/t.js', 'coverage/c.json']), '.gitignore': 'node_modules\ncoverage\n*.log\ndist/\n!dist/keep.js\n/build\n# comment\n\n', 'lib/.gitignore': 'tmp/\n' }
     const kept = ['CHANGELOG.md', 'LICENSE', 'README.md', 'docs/guide.md', 'index.js', 'lib/a.js', 'lib/b.js', 'lib/build/out.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json', 'test/x.test.js']
     keeps(files, { main: 'index.js' }, {
-      [`${V9} ${V10} ${V11}`]: [...kept, 'dist/a.js', 'dist/keep.js'],
+      [`${V10} ${V11}`]: [...kept, 'dist/a.js', 'dist/keep.js'],
       [V12]: [...kept, '.gitignore', 'lib/.gitignore'],
     })
     const negated = { ...textOf([...COMMON, 'gen/a.js', 'gen/b.js', 'gen/keep/c.js', 'out.log', 'keep.log']), '.gitignore': 'gen/*\n!gen/keep/\n*.log\n!keep.log\n' }
     const back = ['CHANGELOG.md', 'LICENSE', 'README.md', 'docs/guide.md', 'gen/keep/c.js', 'index.js', 'keep.log', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json', 'test/x.test.js']
-    keeps(negated, {}, { [`${V9} ${V10} ${V11}`]: back, [V12]: [...back, '.gitignore'] })
+    keeps(negated, {}, { [`${V10} ${V11}`]: back, [V12]: [...back, '.gitignore'] })
   })
 
   // A .npmignore has npm-packlist pass over the .gitignore beside it, and
@@ -202,35 +201,35 @@ describe('packDirectory by .npmignore and .gitignore', () => {
   it('reads a .npmignore over a .gitignore', () => {
     const top = { ...textOf(COMMON), '.npmignore': 'test/\n*.md\n', '.gitignore': 'lib/\n' }
     const kept = ['LICENSE', 'README.md', 'index.js', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json']
-    keeps(top, {}, { [`${V9} ${V10} ${V11}`]: kept, [V12]: [...kept, '.gitignore', '.npmignore'] })
+    keeps(top, {}, { [`${V10} ${V11}`]: kept, [V12]: [...kept, '.gitignore', '.npmignore'] })
     const below = { ...textOf([...COMMON, 'lib/gen/g.js', 'lib/x.test.js', 'src/gen/g.js']), 'lib/.npmignore': '*.test.js\n', 'lib/.gitignore': 'gen/\n', '.gitignore': '/src/gen\n' }
     const both = ['CHANGELOG.md', 'LICENSE', 'README.md', 'docs/guide.md', 'index.js', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json', 'test/x.test.js']
-    keeps(below, {}, { [`${V9} ${V10} ${V11}`]: [...both, 'lib/gen/g.js'], [V12]: [...both, '.gitignore', 'lib/.gitignore', 'lib/.npmignore'] })
+    keeps(below, {}, { [`${V10} ${V11}`]: [...both, 'lib/gen/g.js'], [V12]: [...both, '.gitignore', 'lib/.gitignore', 'lib/.npmignore'] })
   })
 
   // `files` has npm-packlist pass over the top's ignore files, but not over
   // those of a directory it walks; pnpm 12 reads none.
   it('reads below where `files` has it walk', () => {
     keeps({ ...textOf(COMMON), '.npmignore': 'lib/b.js\n' }, { files: ['lib'] }, {
-      [`${V9} ${V10} ${V11} ${V12}`]: ['LICENSE', 'README.md', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json'],
+      [`${V10} ${V11} ${V12}`]: ['LICENSE', 'README.md', 'lib/a.js', 'lib/b.js', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json'],
     })
     keeps({ ...textOf(COMMON), 'lib/.gitignore': 'b.js\n', 'lib/sub/.npmignore': '*.ts\n' }, { files: ['lib', 'index.js'] }, {
-      [`${V9} ${V10} ${V11}`]: ['LICENSE', 'README.md', 'index.js', 'lib/a.js', 'lib/sub/c.js', 'package.json'],
+      [`${V10} ${V11}`]: ['LICENSE', 'README.md', 'index.js', 'lib/a.js', 'lib/sub/c.js', 'package.json'],
       [V12]: ['LICENSE', 'README.md', 'index.js', 'lib/.gitignore', 'lib/a.js', 'lib/b.js', 'lib/sub/.npmignore', 'lib/sub/c.js', 'lib/sub/d.ts', 'package.json'],
     })
   })
 
   // npm-packlist makes each character of a bin that is a string a rule of
   // its own for pnpm 11, and the path of a browser that is an object
-  // `[object Object]`, which takes one character of those for pnpm 9 to 11.
+  // `[object Object]`, which takes one character of those for pnpm 10 and 11.
   it('keeps what npm-packlist makes of a bin or a browser it reads as text', () => {
     keeps({ ...textOf(['cli.js', 'c', 'l', 'i', 's', 'j', 'x']), '.npmignore': 'c\nl\nx\ns\n' }, { bin: 'cli.js' }, {
-      [`${V9} ${V10}`]: ['cli.js', 'i', 'j', 'package.json'],
+      [`${V10}`]: ['cli.js', 'i', 'j', 'package.json'],
       [V11]: ['c', 'cli.js', 'i', 'j', 'l', 'package.json', 's'],
       [V12]: ['.npmignore', 'cli.js', 'i', 'j', 'package.json'],
     })
     keeps({ ...textOf(['index.js', 'o', 'z', 'B']), '.npmignore': 'o\nz\nB\n' }, { browser: { './index.js': './b.js' } }, {
-      [`${V9} ${V10} ${V11}`]: ['B', 'index.js', 'o', 'package.json'],
+      [`${V10} ${V11}`]: ['B', 'index.js', 'o', 'package.json'],
       [V12]: ['.npmignore', 'index.js', 'package.json'],
     })
   })
@@ -242,7 +241,7 @@ describe('packDirectory by the version that installs', () => {
   it('matches `**` as the minimatch that version bundles', () => {
     const files = { 'index.js': 'i', 'd/c/x.js': 'x', 'd/y.js': 'y', '.npmignore': '**/*/c/**/**\n' }
     keeps(files, {}, {
-      [`${V9} 10.30.3 ${V11}`]: ['d/y.js', 'index.js', 'package.json'],
+      [`10.30.3 ${V11}`]: ['d/y.js', 'index.js', 'package.json'],
       [V10]: ['d/c/x.js', 'd/y.js', 'index.js', 'package.json'],
       [V12]: ['.npmignore', 'd/y.js', 'index.js', 'package.json'],
     })
@@ -250,7 +249,7 @@ describe('packDirectory by the version that installs', () => {
 
   it('keeps a package.yaml and a package.json5 for pnpm from 11.28', () => {
     keeps(['lib/a.js', 'package.yaml', 'PACKAGE.JSON5', 'other.yaml'], { files: ['lib'] }, {
-      [`${V9} ${V10} 11.27.0`]: ['lib/a.js', 'package.json'],
+      [`${V10} 11.27.0`]: ['lib/a.js', 'package.json'],
       [`${V11} ${V12}`]: ['PACKAGE.JSON5', 'lib/a.js', 'package.json', 'package.yaml'],
     })
   })
@@ -269,7 +268,7 @@ describe('packDirectory by the version that installs', () => {
     const files = { ...textOf(['lib/a.js', 'index.js', 'test/t.js', 'x.orig']), '.npmignore': 'test\n' }
     const raw = '\uFEFF{"name":"foo","version":"1.0.0","main":"x.orig","files":["lib"]}'
     keeps(files, { main: 'x.orig', files: ['lib'] }, {
-      [`${V9} ${V10}`]: ['index.js', 'lib/a.js', 'package.json'],
+      [`${V10}`]: ['index.js', 'lib/a.js', 'package.json'],
       [V11]: ['lib/a.js', 'package.json', 'x.orig'],
       [V12]: ['lib/a.js', 'package.json'],
     }, { raw })
@@ -354,7 +353,7 @@ describe('packDirectory bounds', () => {
     assert.ok(took < 1000, `${took}ms`)
   })
 
-  // Past it minimatch may make too large a regexp, which pnpm 9, 10 and 11
+  // Past it minimatch may make too large a regexp, which pnpm 10 and 11
   // fail on, and globset one, which pnpm 12 drops with its whole file.
   it('a pattern of up to 4096 characters', () => {
     for (const pnpm of ALL) {
@@ -374,7 +373,7 @@ describe('packDirectory bounds', () => {
     assert.throws(() => pack(['x', 'y'], V12, { files: files(5461) }), /^DeptreeError: x: its package\.json has `files` of more than 16 KiB, all of which pnpm 12 may drop/u)
   })
 
-  it('for pnpm 9 and 10, a pattern with up to 100 ** parts, each matched in turn', () => {
+  it('for pnpm 10, a pattern with up to 100 ** parts, each matched in turn', () => {
     for (const pnpm of NPM_PACKLISTS) {
       const glob = `${'**/'.repeat(101)}x`
       if (pnpm.startsWith('11.')) assert.deepEqual(pack(['x', 'y'], pnpm, { files: [glob] }), ['package.json', 'x'], pnpm)

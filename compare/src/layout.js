@@ -38,7 +38,8 @@ export function detectRoot(basePaths, otherPaths) {
     const counts = new Map()
     for (const path of within) {
       for (let at = path.indexOf('/'); at !== -1; at = path.indexOf('/', at + 1)) {
-        if (from.has(path.slice(at + 1))) counts.set(path.slice(0, at + 1), (counts.get(path.slice(0, at + 1)) ?? 0) + 1)
+        const dir = path.slice(0, at + 1)
+        if (from.has(path.slice(at + 1))) counts.set(dir, (counts.get(dir) ?? 0) + 1)
       }
     }
     let best = null, tied = false
@@ -65,7 +66,8 @@ export function treeLayout(basePaths, otherPaths) {
 
 export function layoutPackageDirs(baseDirs, otherDirs, layout) {
   if (!baseDirs && !otherDirs) return null
-  const files = Map.groupBy([...baseDirs ?? []], ([, dir]) => dir)
-  const dirs = new Map([...files].map(([dir, entries]) => [dir, layoutDir(layout, dir, entries.map(([path]) => path.slice(dir.length + 1)))]))
-  return new Map([...[...baseDirs ?? []].map(([path, dir]) => [layout.paths.get(path) ?? path, dirs.get(dir)]), ...otherDirs ?? []])
+  const base = [...baseDirs ?? []]
+  const files = Map.groupBy(base, ([, dir]) => dir)
+  const dirs = new Map(files.entries().map(([dir, entries]) => [dir, layoutDir(layout, dir, entries.map(([path]) => path.slice(dir.length + 1)))]))
+  return new Map([...base.map(([path, dir]) => [layout.paths.get(path) ?? path, dirs.get(dir)]), ...otherDirs ?? []])
 }

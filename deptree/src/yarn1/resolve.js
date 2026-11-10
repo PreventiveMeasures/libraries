@@ -119,9 +119,13 @@ class Resolver {
     return { kind, name, version: entry.version, entry, dir }
   }
 
+  refsOf(name) {
+    return (this.byName.get(name) ?? []).map((pattern) => this.patterns.get(pattern))
+  }
+
   // exoticRangeMatch: the package of `name` copied from `dir` already.
   copyOf(name, dir) {
-    return this.byName.get(name)?.map((pattern) => this.patterns.get(pattern)).find((ref) => ref.kind === 'directory' && ref.dir === dir)
+    return this.refsOf(name).find((ref) => ref.kind === 'directory' && ref.dir === dir)
   }
 
   // No resolution applies to a top-level request.
@@ -138,7 +142,7 @@ class Resolver {
   }
 
   exactMatch(name, version) {
-    return this.byName.get(name)?.map((pattern) => this.patterns.get(pattern)).find((ref) => ref.version === version)
+    return this.refsOf(name).find((ref) => ref.version === version)
   }
 
   // Waits where a package of its name and version is resolved already; else
@@ -180,8 +184,11 @@ class Resolver {
   start(request) {
     const rule = this.ruleOf(request)
     if (rule !== undefined) {
-      if (this.patterns.has(rule.pattern)) this.divert(request, rule)
-      else this.diverted.push([request, rule])
+      if (this.patterns.has(rule.pattern)) {
+        this.divert(request, rule)
+      } else {
+        this.diverted.push([request, rule])
+      }
       return undefined
     }
     const info = this.infoOf(request)
@@ -252,8 +259,11 @@ class Resolver {
   turn(strands) {
     const next = []
     for (const strand of strands) {
-      if (--strand.left > 0) next.push(strand)
-      else next.push(...this.check(strand.request, strand.info).map((child) => this.start(child)).filter(Boolean))
+      if (--strand.left > 0) {
+        next.push(strand)
+      } else {
+        next.push(...this.check(strand.request, strand.info).map((child) => this.start(child)).filter(Boolean))
+      }
     }
     return next
   }

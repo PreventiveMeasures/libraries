@@ -162,11 +162,11 @@ export function featureValue(text) {
 // dependency that no feature is named after or enables by `dep:`.
 export function featureMap(value, where, dependencies) {
   const written = tableOf(value, where, checkFeature, stringsOf())
-  const optionalDep = new Map()
-  for (const dep of dependencies) optionalDep.set(dep.name, (optionalDep.get(dep.name) ?? false) || dep.optional)
   const explicit = new Set(Object.values(written).flat().map(featureValue).filter((item) => item.feature === undefined).map((item) => item.dep))
   const map = Object.assign(Object.create(null), written)
+  const optionalDep = new Map()
   for (const dep of dependencies) {
+    optionalDep.set(dep.name, optionalDep.get(dep.name) || dep.optional)
     if (dep.optional && !(dep.name in written) && !explicit.has(dep.name)) map[dep.name] = [`dep:${dep.name}`]
   }
   const used = new Set()

@@ -47,7 +47,7 @@ function reduce(value, conditions) {
 // exact key wins even when null; else the pattern with the longest base, then the longest pattern.
 function target(map, subpath, conditions) {
   if (!map.has(subpath) && !map.keys().some((key) => key.split('*').length === 2 && patternMatch(key, subpath) !== null)) return null
-  const reduced = new Map([...map].map(([key, value]) => [key, reduce(value, conditions)]))
+  const reduced = new Map(map.entries().map(([key, value]) => [key, reduce(value, conditions)]))
   if (reduced.values().some((to) => to === REFUSED || (typeof to === 'string' && !to.startsWith('./')))) return null
   const patterns = [...reduced.keys()].filter((key) => key.includes('*')).toSorted((a, b) => b.indexOf('*') - a.indexOf('*') || b.length - a.length)
   const key = reduced.has(subpath) ? subpath : patterns.find((pattern) => patternMatch(pattern, subpath) !== null)

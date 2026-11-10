@@ -3,51 +3,54 @@ import assert from 'node:assert/strict'
 import { assertArgs, assertBoolean, assertRepo, assertion, isIterable, optional, sameName } from '../args.js'
 import { assertCache } from '../cache.js'
 import { SEVERITIES, isMalware, order } from './common.js'
-import { GITHUB, SOLDEER, assertClient } from './github.js'
+import { GITHUB } from './actions.js'
+import { COCOAPODS, SOLDEER, assertClient } from './github.js'
 import { NPM } from './npm.js'
-import { CARGO, COMPOSER } from './osv.js'
+import { CARGO, COMPOSER, GEM, PYPI, SWIFT } from './osv.js'
+import { RUBY } from './rubysec.js'
 
-const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, soldeer: SOLDEER, github: GITHUB }
+const ECOSYSTEMS = { npm: NPM, cargo: CARGO, composer: COMPOSER, gem: GEM, ruby: RUBY, pypi: PYPI, swift: SWIFT, cocoapods: COCOAPODS, soldeer: SOLDEER, github: GITHUB }
 const byNumbers = new Intl.Collator('en', { numeric: true }).compare
 const assertEcosystem = assertion(`one of ${Object.keys(ECOSYSTEMS).join(', ')}`, (value) => typeof value === 'string' && Object.hasOwn(ECOSYSTEMS, value))
 const assertVersions = assertion('a non-empty array', (value) => Array.isArray(value) && value.length > 0)
 
-// Ecosystem -> name -> { versions, github? }, a name given twice merged.
-// Every package is checked before any is used.
+// Ecosystem -> name -> { versions, github?, internal? }, every package
+// checked first. A name is internal where any of its spellings is.
 function collect(packages) {
   assert.ok(isIterable(packages), 'advisories: packages must be an iterable of { ecosystem, name, github?, versions }')
   const byEcosystem = new Map()
+  const spelled = new Map()
   for (const pkg of packages) {
-    assertArgs('advisories', pkg, { ecosystem: assertEcosystem, name: null, github: optional(assertRepo), versions: assertVersions }, 'package')
-    const { assertName, assertVersion } = ECOSYSTEMS[pkg.ecosystem]
+    assertArgs('advisories', pkg, { ecosystem: assertEcosystem, name: null, github: optional(assertRepo), versions: assertVersions, internal: optional(assertBoolean) }, 'package')
+    const { assertName, assertVersion, nameKey } = ECOSYSTEMS[pkg.ecosystem]
     assertName('advisories', 'package.name', pkg.name)
     for (const version of pkg.versions) assertVersion('advisories', 'package.versions', version)
     assert.ok(pkg.ecosystem !== 'github' || pkg.github === undefined, 'advisories: a github package is its own repository, and takes no package.github')
+    assert.ok(pkg.ecosystem === 'github' || pkg.internal === undefined, 'advisories: only a github package takes package.internal')
     const named = byEcosystem.get(pkg.ecosystem) ?? byEcosystem.set(pkg.ecosystem, new Map()).get(pkg.ecosystem)
-    // A repository's name is GitHub's, in any case: the first spelling stands.
-    const name = pkg.ecosystem === 'github' ? [...named.keys()].find((known) => sameName(known, pkg.name)) ?? pkg.name : pkg.name
+    // A repository's name in any case, a Python package's as PEP 503
+    // normalizes it: the first spelling stands.
+    const key = nameKey && `${pkg.ecosystem}\0${nameKey(pkg.name)}`
+    const name = key ? spelled.get(key) ?? spelled.set(key, pkg.name).get(key) : pkg.name
     const entry = named.get(name) ?? named.set(name, { versions: new Set() }).get(name)
     assert.ok(pkg.github === undefined || entry.github === undefined || sameName(entry.github, pkg.github), `advisories: ${pkg.name} is given two repositories`)
     entry.github ??= pkg.github
+    entry.internal ||= pkg.internal === true
     for (const version of pkg.versions) entry.versions.add(version)
   }
   return byEcosystem
 }
 
-// Which of an advisory's rows stands for it: npm's registry's, then OSV's,
-// then its repository's.
-const SOURCES = ['registry', 'osv', 'repository']
+// Which of an advisory's rows stands for it, first to last.
+const SOURCES = ['registry', 'osv', 'packagist', 'rubysec', 'repository']
 const worse = (a, b) => (b === undefined || (a !== undefined && SEVERITIES.indexOf(a) < SEVERITIES.indexOf(b)) ? a : b)
 
-// An advisory's rows as one: the first's by source, what it lacks from the
-// first of the rest that has it, the others' aliases, and of them all the
-// worst severity, the highest CVSS score with its own vector (else the first
-// vector), the ranges (` || `), CWEs and versions (in the order `asked` has
-// them). RustSec's kind of advisory that is not a vulnerability as such only
-// where each of them has that kind: a row without one is a vulnerability.
+// An advisory's rows as one: the first by source, filled from the rest,
+// with the worst severity, the highest CVSS, and every range, CWE and
+// version. `informational` only where every row has it.
 function joinRows(rows, asked) {
-  const [head, ...rest] = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
-  const all = [head, ...rest]
+  const all = rows.toSorted((a, b) => SOURCES.indexOf(a.source) - SOURCES.indexOf(b.source))
+  const [head, ...rest] = all
   const ranges = [...new Set(all.map((row) => row.range).filter((range) => range !== undefined))]
   const versions = new Set(all.flatMap((row) => row.versions))
   const joined = {
@@ -68,17 +71,13 @@ function joinRows(rows, asked) {
   delete joined.cvssVector
   if (scored?.cvss !== undefined) joined.cvss = scored.cvss
   if (scored?.cvssVector !== undefined) joined.cvssVector = scored.cvssVector
-  // A range of none ('') covers every version, as they then do together.
+  // A range of none ('') covers every version.
   if (ranges.length > 0) joined.range = ranges.includes('') ? '' : ranges.join(' || ')
   return joined
 }
 
-// One row for each advisory id on a package, where its sources answer more
-// than one: npm's registry one per range, and OSV's record of it, or its
-// repository, another for the versions they cover beyond that. Records of
-// other ids that name it as an alias stay rows of their own, each version
-// reported under one, as their sources rate them. Rows keep the place of the
-// first answered.
+// One row per advisory id; records of other ids that name it as an alias
+// stay rows of their own.
 function oneRowPerAdvisory(rows, asked) {
   const byId = Map.groupBy(rows, (row) => `${row.name}\0${row.id}`)
   return [...byId.values()].map((same) => (same.length === 1 ? same[0] : joinRows(same, asked.get(same[0].name))))
@@ -94,7 +93,8 @@ export async function advisories(packages, options = {}) {
     const names = [...named.keys()].toSorted()
     const asked = new Map(names.map((name) => [name, [...named.get(name).versions].toSorted(compare)]))
     const known = new Map(names.filter((name) => named.get(name).github).map((name) => [name, named.get(name).github]))
-    const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, details: options.details === true, osv: options.osv === true, known, cache: options.cache })
+    const internal = new Set(names.filter((name) => named.get(name).internal))
+    const rows = await find(asked, { github: options.github, repoAdvisories: options.repoAdvisories === true, details: options.details === true, osv: options.osv === true, known, internal, cache: options.cache })
     return oneRowPerAdvisory(rows.filter((row) => row.versions.length > 0), asked).map((row) => ({ ecosystem, ...row, ...(isMalware(row) && { malware: true }) }))
   }))
   return found.flat().toSorted((a, b) => order(a.ecosystem, b.ecosystem) || order(a.name, b.name))

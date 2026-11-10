@@ -26,7 +26,7 @@ const rangeStart = (start, count) => (count === 0 ? Number(start) : Number(start
 
 // `\ No newline at end of file` is not a line of the hunk: it takes the
 // terminator off the line above it.
-const isNoNewline = (line) => line !== undefined && line.startsWith('\\')
+const isNoNewline = (line) => line?.startsWith('\\')
 const chop = (text) => text.replace(/\n$/u, '')
 
 export function parseDiff(text) {
@@ -154,12 +154,10 @@ function parseContext(lines, at) {
   if (!fence) return null
   const oldHead = CONTEXT_OLD.exec(lines[at + 1] ?? '')
   if (!oldHead) throw new PatchError("'*** ' range expected", at + 1)
-  let i = at + 2
-  const old = readSide(lines, i, CONTEXT_NEW, '-')
-  i = old.next
-  const newHead = CONTEXT_NEW.exec(lines[i] ?? '')
-  if (!newHead) throw new PatchError("'--- ' range expected", i)
-  const fresh = readSide(lines, i + 1, null, '+')
+  const old = readSide(lines, at + 2, '-')
+  const newHead = CONTEXT_NEW.exec(lines[old.next] ?? '')
+  if (!newHead) throw new PatchError("'--- ' range expected", old.next)
+  const fresh = readSide(lines, old.next + 1, '+')
   // A side with no changes of its own prints its range line and nothing
   // else, so what it covers is read off the other side: the lines it would
   // have shown are that side's context lines.
@@ -174,14 +172,15 @@ function parseContext(lines, at) {
   return { hunk: { oldStart, newStart, label: fence[1] || null, lines: interleave(lhs, rhs) }, next: fresh.next }
 }
 
-function readSide(lines, at, stop, tag) {
+// A side ends at the next range line or fence, or at a line that is not one
+// of its own.
+function readSide(lines, at, tag) {
   const out = []
   let i = at
   for (; i < lines.length; i++) {
     const raw = lines[i]
-    if (stop && stop.test(raw)) break
-    if (CONTEXT_FENCE.test(raw) || CONTEXT_OLD.test(raw) || (!stop && CONTEXT_NEW.test(raw))) break
-    if (isNoNewline(raw)) { out[out.length - 1].text = chop(out.at(-1).text); continue }
+    if (CONTEXT_FENCE.test(raw) || CONTEXT_OLD.test(raw) || CONTEXT_NEW.test(raw)) break
+    if (isNoNewline(raw)) { const last = out.at(-1); last.text = chop(last.text); continue }
     const mark = raw === '\n' ? ' ' : raw[0]
     if (mark !== ' ' && mark !== '!' && mark !== '-' && mark !== '+') break
     out.push({ tag: mark === ' ' ? ' ' : tag, text: raw === '\n' ? raw : raw.slice(2) })

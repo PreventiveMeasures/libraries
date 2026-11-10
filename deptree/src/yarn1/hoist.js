@@ -63,7 +63,9 @@ export class Hoister {
             sorted.push(item)
             available.add(pattern)
             changed = true
-          } else queue.push(item)
+          } else {
+            queue.push(item)
+          }
         }
       }
       for (const [pattern, parent] of sorted.concat(queue)) {
@@ -89,7 +91,7 @@ export class Hoister {
   }
 
   propagateRequired() {
-    const toVisit = [...this.tree.values()].filter((info) => info.isRequired)
+    const toVisit = this.tree.values().filter((info) => info.isRequired).toArray()
     // In yarn's order, but by index, as shift() copies a long array.
     for (let i = 0; i < toVisit.length; i++) {
       const info = toVisit[i]

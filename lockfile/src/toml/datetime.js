@@ -14,7 +14,7 @@ const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 function partsOf(text) {
   const m = DATETIME.exec(text)
   if (m === null) return undefined
-  const [year, month, day, hour, minute, second] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[5]), Number(m[6]), Number(m[7])]
+  const [year, month, day, hour, minute, second] = [m[1], m[2], m[3], m[5], m[6], m[7]].map(Number)
   const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
   if (month < 1 || month > 12 || day < 1 || day > (month === 2 && leap ? 29 : DAYS[month - 1])) return undefined
   if (hour > 23 || minute > 59 || second > 60) return undefined

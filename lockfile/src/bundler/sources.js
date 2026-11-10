@@ -115,8 +115,10 @@ const READERS = { GIT: readGit, PATH: readPath, GEM: readGem }
 // says it: a path's identifier whole, and a repository's first part, its
 // URL and then ` (`, whatever the rest each version of Bundler writes. A
 // URL of credentials, which Bundler leaves out of it, or of a scheme in
-// capitals, which it writes in lowercase, says nothing: undefined.
+// capitals, which it writes in lowercase, says nothing: undefined, as a
+// GEM source's.
 function orderKey(source) {
+  if (source.type === 'gem') return undefined
   if (source.type === 'path') return `source at \`${source.path}\``
   const url = /^([A-Za-z][\w+.-]*):\/\/([^/]*)/u.exec(source.remote)
   return url !== null && (/[A-Z]/u.test(url[1]) || url[2].includes('@')) ? undefined : `${source.remote} (`
@@ -132,7 +134,7 @@ const describe = (source) => `the ${source.type} source ${quote(source.remote ??
 function checkOrder(sources, raw) {
   let prior
   for (const [index, source] of sources.entries()) {
-    const key = source.type === 'gem' ? undefined : orderKey(source)
+    const key = orderKey(source)
     if (key === undefined) continue
     if (prior !== undefined && compareCodePoints(key, prior.key) < 0) throw fail(`${describe(source)} after ${describe(prior.source)}, where Bundler sorts them the other way`, raw[index].number)
     prior = { key, source }

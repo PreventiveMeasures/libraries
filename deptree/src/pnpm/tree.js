@@ -1,4 +1,4 @@
-// The node_modules tree pnpm 9, 10, 11 or 12 installs from a frozen lockfile
+// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile
 // with the isolated linker and --ignore-scripts, in a Vfs rooted at the
 // lockfile's directory; patched still, as pnpm patches before scripts. Bins are
 // not linked, though what linking does to their files is (bins.js). With
@@ -25,8 +25,10 @@ import { checkNoneDropped, hoistedBuilds, hoistedLayout, hoistedModules, mayDrop
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
 import { createPatchedCheck, skippedSnapshots } from './install.js'
 import { lazyUnpacker } from './lazy.js'
-import { checkFetched, fetchPackage } from './package.js'
+import { checkFetched, createPeerDrop, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
+import { createDirectoryCheck } from './directories.js'
+import { listExtensions } from './extensions.js'
 import { createHook } from './hook.js'
 import { productionLockfile } from './production.js'
 import { listOverrides } from './overrides.js'
@@ -89,25 +91,27 @@ async function fetchAll(nodes, project, host, fetching) {
     return fetching.sizeEstimateOnly ? { ...got, size: bytesOf(got.files) } : got
   }
   await eachConcurrently(packages, async ([id, pkg]) => {
-    if (pkg.resolution.type === 'directory') fetched.set(id, read(pkg, quote(id)))
-    else if (!fetching.lazy) fetched.set(id, await fetch(pkg, quote(id)))
+    if (pkg.resolution.type === 'directory') {
+      fetched.set(id, read(pkg, quote(id)))
+    } else if (!fetching.lazy) {
+      fetched.set(id, await fetch(pkg, quote(id)))
+    }
   }, ([id]) => quote(id))
   return fetched
 }
 
 // With `lazy`, a registry package's snapshots have no files yet, and are held
-// to them as each is unpacked; `checks` are what that takes, of `checked`, the
-// whole lockfile.
-async function fetchNodes(nodes, checked, hook, project, host, fetching) {
+// to them as each is unpacked; `checks` are what that takes, of the whole
+// lockfile.
+async function fetchNodes(nodes, checks, project, host, fetching) {
   const fetched = await fetchAll(nodes, project, host, fetching)
-  const checks = { lockfile: checked, hook, fresh: createFreshnessCheck(checked, host.major) }
   const byDir = new Map()
   for (const node of nodes.values()) {
     const got = fetched.get(packageKeyOf(node.key))
     if (got !== undefined) checkFetched(node, got, checks)
     byDir.set(node.dir, { ...node, files: got?.files, manifest: got?.manifest, about: got?.about ?? NO_ABOUT, size: got?.size })
   }
-  return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length, checks }
+  return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }
 
 // pnpm hardlinks a directory package's files into each of its snapshots, so a
@@ -188,8 +192,8 @@ const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 // followed, nor with `lazy` but where a package unpacked needs them. `builds`
 // tells, where any patch is configured, what the build pass builds; `reads`
 // the packages the fixes read the files of (hoistedBinReads). `lockfile` is
-// the one the tree is laid out from, and `checked` the whole one.
-async function buildHoisted({ lockfile, checked, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching }) {
+// the one the tree is laid out from, and `checks` hold it to the whole one.
+async function buildHoisted({ lockfile, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
   if (!COPYING.has(settings.packageImportMethod)) {
@@ -205,7 +209,7 @@ async function buildHoisted({ lockfile, checked, settings, host, project, hook, 
   const keepsModules = since('11.25.0')
   const dropping = building && hardlinks && !keepsModules ? mayDrop(placed) : new Map()
   if (fetching.sizeEstimateOnly) checkNoneDropped(dropping, host.pnpm)
-  const { byDir, tarballs, checks } = await fetchNodes(placed, checked, hook, project, host, fetching)
+  const { byDir, tarballs } = await fetchNodes(placed, checks, project, host, fetching)
   const linked = readLinked(links, byDir, manifests, project)
   const prod = prodPackages(lockfile, skipped, directories)
   const dev = (node) => !prod.has(packageIdOf(node.key, node.pkg, directories))
@@ -220,17 +224,17 @@ async function buildHoisted({ lockfile, checked, settings, host, project, hook, 
   }
   // With lazy, those that may drop a node_modules are fetched with the tree.
   const early = dropping.size === 0 ? undefined : { nodes: [...byDir.values()].filter((node) => dropping.has(node.key)), check: () => builtOf((node) => dropping.has(node.key) && builds(node)) }
-  return { byDir, links, fixes, reads: () => hoistedBinReads({ nodes: byDir, building, packages: lockfile.packages }), builds, early, tarballs, dev, checks }
+  return { byDir, links, fixes, reads: () => hoistedBinReads({ nodes: byDir, building, packages: lockfile.packages }), builds, early, tarballs, dev }
 }
 
 // The isolated layout: each package in node_modules/.pnpm, linked from what
 // needs it and where it is hoisted; `fixes` as buildHoisted's, and `reads`
 // the packages they read the files of (binReads).
-async function buildIsolated({ lockfile, checked, settings, host, project, hook, installed, manifests, names, skipped, fetching }) {
+async function buildIsolated({ lockfile, checks, settings, host, project, installed, manifests, names, skipped, fetching }) {
   const { major } = host
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
   for (const node of nodes.values()) checkSource(node, installed)
-  const { byDir, tarballs, checks } = await fetchNodes(nodes, checked, hook, project, host, fetching)
+  const { byDir, tarballs } = await fetchNodes(nodes, checks, project, host, fetching)
   const links = linksOf(byDir, direct, settings, names, major, hoisting)
   const linked = readLinked(links, byDir, manifests, project)
   const prod = reachedInProd(lockfile.importers, nodes, byDir)
@@ -249,14 +253,15 @@ async function buildIsolated({ lockfile, checked, settings, host, project, hook,
     const targets = binTargets(linking)
     return { targets, executable: executableElsewhere(byDir, targets, settings.packageImportMethod, major) }
   }
-  return { byDir, links, fixes, reads: () => binReads(linking), tarballs, dev, checks }
+  return { byDir, links, fixes, reads: () => binReads(linking), tarballs, dev }
 }
 
 export async function buildPnpmTree(options) {
-  const { project, host: given, vfs: into } = options ?? {}
+  const opts = options ?? {}
+  const { project, host: given, vfs: into } = opts
   if (into !== undefined && !(into instanceof Vfs)) throw new TypeError('vfs must be a Vfs, or left out')
-  const fetching = fetchingOf(options ?? {}, into)
-  const production = productionOf(options ?? {})
+  const fetching = fetchingOf(opts, into)
+  const production = productionOf(opts)
   if (project !== undefined) checkProject(project)
   const machine = checkHost(given)
   const folded = machine.os === 'darwin'
@@ -275,22 +280,27 @@ export async function buildPnpmTree(options) {
   // pins, which leaves the tree as it is.
   if (env !== undefined && major < 11) throw new DeptreeError('the env document pnpm 11 writes is not supported', 'env')
   if (env !== undefined && Object.keys(env.importers['.'].configDependencies).length > 0) throw new DeptreeError('config dependencies are not supported', 'env.importers["."].configDependencies')
-  // As pnpm 9, 10 and 11 write the lockfile's own directory.
+  // As pnpm 10 and 11 write the lockfile's own directory.
   const empty = major >= 12 ? Object.keys(lockfile.packages).find((key) => packageKeyOf(key).endsWith('@file:')) : undefined
   if (empty !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path', quote(empty))
   const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, major)
+  const extensions = listExtensions(settings.packageExtensions, major)
   const installed = checkLocalOverrides(overrides, project)
-  const patched = await checkUpToDate(lockfile, settings, overrides, patchesOf(inputs, settings.patchedDependencies), major)
-  const hook = createHook({ overrides, ignored: settings.ignoredOptionalDependencies, major })
-  checkProjects(lockfile, manifests, { hook, host, settings, env })
+  const patched = await checkUpToDate(lockfile, settings, { overrides, extensions }, patchesOf(inputs, settings.patchedDependencies), major)
+  const hook = createHook({ overrides, extensions, ignored: settings.ignoredOptionalDependencies, major })
+  const fresh = createFreshnessCheck(lockfile, host, extensions, settings.autoInstallPeers)
+  const drops = createPeerDrop(host, settings.autoInstallPeers)
+  const directories = createDirectoryCheck(lockfile, { host, hook, project, installed, settings, fresh, drops })
+  checkProjects(lockfile, manifests, { hook, extensions, host, settings, env, directories })
   checkOptional(lockfile)
   const names = settings.hoistWorkspacePackages ? workspaceNames(manifests) : new Map()
   const { walked, installing } = production ? productionLockfile(lockfile, { ...host, resolvePeersFromWorkspaceRoot: settings.resolvePeersFromWorkspaceRoot }) : { walked: lockfile, installing: lockfile }
   const { skipped, incompatible } = skippedSnapshots(walked, { host, settings })
   const hoisted = settings.nodeLinker === 'hoisted'
-  const { byDir, links, fixes, reads, builds, early, tarballs, dev, checks } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile: installing, checked: lockfile, settings, host, project, hook, installed, manifests, names, patched, skipped, fetching })
+  const checks = { lockfile, hook, fresh, drops }
+  const { byDir, links, fixes, reads, builds, early, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile: installing, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()
 

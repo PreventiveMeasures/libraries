@@ -138,10 +138,7 @@ export function chatCompletionsBase(maxTokensField) {
     },
 
     appendToolResults(messages, json, toolCalls, results) {
-      messages.push(json.choices[0].message)
-      for (let i = 0; i < toolCalls.length; i++) {
-        messages.push({ role: 'tool', tool_call_id: toolCalls[i].id, content: results[i] })
-      }
+      messages.push(json.choices[0].message, ...toolCalls.map((tc, i) => ({ role: 'tool', tool_call_id: tc.id, content: results[i] })))
     },
 
     // The initial-message shape for a backend with nothing for us to mark up: Moonshot caches

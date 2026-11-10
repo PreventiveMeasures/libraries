@@ -3,9 +3,9 @@ import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { assertPod, assertSha1 } from './args.js'
+import { assertPod, assertSha1, assertSha256, assertion, isRepo } from './args.js'
 import { verifiedDownload } from './download.js'
-import { COCOAPODS_CDN, buildUrl, encodeSegment } from './http.js'
+import { COCOAPODS_CDN, GITHUB_WEB, buildUrl, encodeSegment } from './http.js'
 
 // No expiry, but kept by checksum as well: trunk refuses a version it
 // already has, yet rewrites a podspec it has, as `pod trunk deprecate`
@@ -15,7 +15,7 @@ const DIR = 'cocoapods/podspecs'
 // Where a spec repo keeps a version's podspec: under a directory each for
 // the first three hex digits of the md5 of the name, as
 // Pod::Source::Metadata shards trunk, and CocoaPods/Specs with it.
-function specPath(name, version) {
+export function specPath(name, version) {
   const shard = createHash('md5').update(name).digest('hex').slice(0, 3)
   return ['Specs', ...shard, name, version, `${name}.podspec.json`]
 }
@@ -34,6 +34,39 @@ async function localPaths(name, version) {
     return []
   }
   return (await readdir(root).catch(() => [])).map((repo) => join(root, repo, ...specPath(name, version)))
+}
+
+// Where pod archives are kept: by their hash alone, which names them.
+const ARCHIVES = 'cocoapods/archives'
+
+// https://github.com/<owner>/<repo>/ and a path under it, as buildUrl
+// would write it: no query, fragment, credentials or port, and nothing in
+// a segment but what it lets through.
+function isGitHubUrl(value) {
+  const parsed = typeof value === 'string' ? URL.parse(value) : null
+  if (parsed?.origin !== GITHUB_WEB) return false
+  const segments = parsed.pathname.slice(1).split('/')
+  if (segments.length < 3 || !isRepo(`${segments[0]}/${segments[1]}`)) return false
+  try {
+    return buildUrl(GITHUB_WEB, segments) === value
+  } catch {
+    return false
+  }
+}
+const assertGitHubUrl = assertion('an https URL of a GitHub repository\'s, with a path under it', isGitHubUrl)
+
+// An archive a podspec's source names by :http, held to the sha256 the
+// podspec gives of it: a sha1 alone, which two archives made to collide
+// share, is not taken. GitHub's answer for a tag's archive or a release's
+// asset is a redirect, to codeload.github.com or to where it keeps the
+// files, which is followed: the bytes are held to the hash whoever answers.
+export async function getPodArchive(url, sha256) {
+  assertGitHubUrl('getPodArchive', 'url', url)
+  assertSha256('getPodArchive', 'sha256', sha256)
+  return await verifiedDownload({
+    method: 'getPodArchive', dir: ARCHIVES, what: url, entry: `sha256-${sha256}`, ext: 'archive', algorithm: 'sha256', expected: sha256,
+    locate: () => url, options: { redirect: 'follow' },
+  })
 }
 
 // Trunk has no hash to check a podspec against, so the caller brings one,

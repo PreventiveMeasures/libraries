@@ -39,11 +39,15 @@ export function expectObject(value, what) {
   return value
 }
 
+// A string trimmed, and anything else -- a number, null, an object -- as the empty string, so a
+// caller checks for text with one truthiness test and never reads `true` or `[object Object]`.
+export const textOf = (value) => (typeof value === 'string' ? value.trim() : '')
+
 // A list of non-empty strings, each trimmed, with anything else in the list dropped rather than
 // refused: one blank answer among eight is not worth a re-ask, and the caller pads what is missing.
 export function stringList(value) {
   if (!Array.isArray(value)) return []
-  return value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+  return value.map(textOf).filter(Boolean)
 }
 
 // The same list where every member has to be a sentence: a list of questions, whose one malformed
@@ -63,6 +67,13 @@ export function numberOf(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
   if (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/u.test(value.trim())) return Number(value)
   return undefined
+}
+
+// An ordinal on a page or a list of `size` rows -- a whole number from 1 to `size` -- or undefined:
+// numberOf's rules, so `true` or `[1]` is never read as the first row.
+export function ordinalOf(value, size) {
+  const n = numberOf(value)
+  return n !== undefined && Number.isInteger(n) && n >= 1 && n <= size ? n : undefined
 }
 
 // One line, for a row rendered into a page: a summary the model wrote with a newline in it would

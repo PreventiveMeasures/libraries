@@ -1,8 +1,5 @@
-// PEP 440: a version in any spelling packaging reads, the normal form
-// packaging and uv write it in, which versions are equal, and the
-// specifiers of a requirement or a requires-python. No whitespace around a
-// version is taken, which packaging would strip. A check takes a value of
-// a TOML lockfile, and refuses anything but a string as its readers do.
+// PEP 440 versions and specifiers as packaging reads them, no whitespace
+// around a version. A check takes a TOML value, refusing anything but a string.
 
 import { LockfileError, quote } from '../error.js'
 import { checker } from '../toml/shape.js'
@@ -19,10 +16,8 @@ const PRE_KINDS = { __proto__: null, alpha: 'a', a: 'a', beta: 'b', b: 'b', prev
 // A number in a version, without the leading zeros it may be written with.
 const int = (digits) => digits.replace(/^0+(?=\d)/u, '')
 
-// The parts of a version, or undefined for what packaging does not read,
-// and for any that is not ASCII, which uv does not read: VERSION's
-// case-insensitive letters would take the long s for `s` and the Kelvin
-// sign for `k`.
+// Undefined for what packaging doesn't read, and anything not ASCII: the
+// case-insensitive regex would take the long s for `s`, Kelvin for `k`.
 export function parseVersion(text) {
   const m = /^[\0-\u007F]*$/u.test(text) ? VERSION.exec(text) : null
   if (m === null) return undefined
@@ -57,6 +52,32 @@ export function versionKey(parsed) {
 
 // The key of a version known to be one.
 export const versionKeyOf = (version) => versionKey(parseVersion(version))
+
+// packaging's Version sort key: a dev-only release before pre-releases,
+// which sort by their letters; a local version after the public one.
+function orderKey({ epoch, release, pre, post, dev, local }) {
+  let end = release.length
+  while (end > 1 && release[end - 1] === '0') end--
+  const [, kind, number] = /^(\D+)(\d+)$/u.exec(pre ?? '') ?? []
+  return [
+    [BigInt(epoch)],
+    release.slice(0, end).map(BigInt),
+    pre === undefined ? [post === undefined && dev !== undefined ? 0 : 2] : [1, kind, BigInt(number)],
+    post === undefined ? [0] : [1, BigInt(post)],
+    dev === undefined ? [1] : [0, BigInt(dev)],
+    local === undefined ? [0] : [1, ...local.map((part) => (/^\d+$/u.test(part) ? [1, BigInt(part)] : [0, part]))],
+  ]
+}
+
+function compareKeys(a, b) {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const order = Array.isArray(a[i]) ? compareKeys(a[i], b[i]) : (a[i] < b[i] ? -1 : (a[i] > b[i] ? 1 : 0))
+    if (order !== 0) return order
+  }
+  return Math.sign(a.length - b.length)
+}
+
+export const compareVersions = (a, b) => compareKeys(orderKey(parseVersion(a)), orderKey(parseVersion(b)))
 
 export const checkVersion = checker((text) => parseVersion(text) !== undefined, 'a version')
 
