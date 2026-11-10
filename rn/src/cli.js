@@ -34,6 +34,26 @@ export function peers(cwd, fail) {
   return { fromProject, locate, load: fromHere, peer }
 }
 
+// A build's process.env.NODE_ENV: `define`'s, where a string (--define may set it), else development of a
+// dev build, else production.
+export function nodeEnvOf(dev, define) {
+  try {
+    const defined = JSON.parse(define?.['process.env.NODE_ENV'])
+    if (typeof defined === 'string') return defined
+  } catch {
+    // Defined as other than a string literal: the build's own.
+  }
+  return dev ? 'development' : 'production'
+}
+
+// NODE_ENV and BABEL_ENV as a build's code sees them, which its Babel config and plugins see too: NODE_ENV
+// nodeEnvOf()'s, BABEL_ENV Babel's envName (Metro's transformer's: development of a dev build, else
+// `shellBabelEnv`, the shell's BABEL_ENV, undefined where unset, or production). The shell's is given, not
+// read: a process that sets its own (rn-serve's, a dev build's) still has the shell's for release builds.
+export function buildEnvOf(dev, define, shellBabelEnv) {
+  return { NODE_ENV: nodeEnvOf(dev, define), BABEL_ENV: dev ? 'development' : shellBabelEnv || 'production' }
+}
+
 // __DEV__ and process.env.NODE_ENV as Metro's prelude sets them, unless a K=V pair overrides them.
 export function defines(dev, pairs, fail) {
   const define = { __DEV__: String(dev), 'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production') }

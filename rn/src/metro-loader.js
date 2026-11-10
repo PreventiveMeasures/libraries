@@ -7,7 +7,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { assetModule } from './assets.js'
 import { ASSET, EMPTY, assetDataOf, importResolution, resolvedModule } from './build-host.js'
 import { TS_AS_JS, assetLoaded, esbuildPath, loadCached, loweredAt, notResolved, realPath, resolvedAs, supportedOf, withDefaults } from './bundle.js'
-import { TRANSFORM_PROFILES, bigBuild, defines, flowStripper, peers, projectBabel } from './cli.js'
+import { TRANSFORM_PROFILES, bigBuild, buildEnvOf, defines, flowStripper, peers, projectBabel } from './cli.js'
 import { diskHost } from './defaults.js'
 import { createMetroResolver } from './resolve.js'
 import { reactNativeOf } from './serializer.js'
@@ -31,9 +31,13 @@ export function createMetroLoader(options) {
   if (aliases !== null && typeof aliases !== 'function') refuse("aliases is babel-aliases.js's createAliases() of the aliases")
   if (assetSource !== null && typeof assetSource !== 'function') refuse("assetSource is a function of an asset's path to its module's source")
   const project = peers(projectRoot, fail)
-  // As in rn-bundle. Babel's config is taken not to change while the loader lives: a .babelrc made later
-  // isn't seen.
-  const target = projectBabel(projectRoot, project, fail, { sourceMaps: sourcemap, transformProfile, oneBuild: true, warm: aliases === null && bigBuild(project) })?.({ platform, dev }) ?? null
+  // As in rn-bundle, NODE_ENV and BABEL_ENV the build's for the Babel config and its plugins, without
+  // setting this process's. Babel's config is taken not to change while the loader lives: a .babelrc made
+  // later isn't seen.
+  const define = defines(dev, [], fail)
+  const shellBabelEnv = process.env.BABEL_ENV
+  const envFor = (forDev) => buildEnvOf(forDev, defines(forDev, [], fail), shellBabelEnv)
+  const target = projectBabel(projectRoot, project, fail, { sourceMaps: sourcemap, transformProfile, oneBuild: true, warm: aliases === null && bigBuild(project), envFor })?.({ platform, dev }) ?? null
   if (target !== null && aliases !== null) {
     target.babel.close()
     fail("aliases map the imports where no Babel runs: the project's Babel config has its aliases")
@@ -51,7 +55,7 @@ export function createMetroLoader(options) {
   }
   let supported = null
   return {
-    define: defines(dev, [], fail),
+    define,
     tsconfigRaw: target === null ? undefined : TS_AS_JS,
     supported: () => (supported ??= loweredAt(run.babelPlugins, join(projectRoot, 'index.js')).then((lowered) => supportedOf(run.babel, lowered))),
     // An import from another namespace (stdin's) resolves as from a file in resolveDir.

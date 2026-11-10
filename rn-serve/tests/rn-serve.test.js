@@ -603,7 +603,8 @@ describe('rn-serve, of a Babel config that reads NODE_ENV and BABEL_ENV', () => 
       '}',
       '',
     ].join('\n'),
-    'index.js': 'globalThis.result = globalThis.seen\n',
+    // And the bundle's code, as its process.env.NODE_ENV is defined.
+    'index.js': 'globalThis.result = { ...globalThis.seen, code: process.env.NODE_ENV }\n',
     'node_modules/@babel/core': linked('@babel/core'),
   })
   // module-resolver's aliases of NODE_ENV, the config's only plugin: of a TS entry, which esbuild makes JS
@@ -635,10 +636,17 @@ describe('rn-serve, of a Babel config that reads NODE_ENV and BABEL_ENV', () => 
   it("has them as each bundle's Babel needs them, none set by hand: a dev one's development, a release one's production, BABEL_ENV the shell's", async () => {
     const server = await serve(seeing.root, [], TMP, { env: SHELL })
     try {
-      assert.deepEqual(await resultOf(server, ''), { config: ['development', 'development', 'development'], plugin: ['development', 'development'] })
-      assert.deepEqual(await resultOf(server, '&dev=false'), { config: ['production', 'staging', 'staging'], plugin: ['production', 'staging'] })
+      assert.deepEqual(await resultOf(server, ''), { config: ['development', 'development', 'development'], plugin: ['development', 'development'], code: 'development' })
+      assert.deepEqual(await resultOf(server, '&dev=false'), { config: ['production', 'staging', 'staging'], plugin: ['production', 'staging'], code: 'production' })
     } finally {
       await server.stop()
+    }
+    // Without the shell's BABEL_ENV, a release one's production, not the dev one's this process has.
+    const unset = await serve(seeing.root, [], TMP, { env: { ...SHELL, BABEL_ENV: undefined } })
+    try {
+      assert.deepEqual(await resultOf(unset, '&dev=false'), { config: ['production', 'production', 'production'], plugin: ['production', 'production'], code: 'production' })
+    } finally {
+      await unset.stop()
     }
   })
 

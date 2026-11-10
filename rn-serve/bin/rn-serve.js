@@ -20,7 +20,7 @@ import { emitKeypressEvents } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, format as printf, styleText } from 'node:util'
 
-import { babelAliases, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '@preventive/rn/src/cli.js'
+import { babelAliases, buildEnvOf, defines, failer, flowStripper, locateThrough, peers, projectBabel } from '@preventive/rn/src/cli.js'
 import { createDevBundler } from '../src/dev-bundler.js'
 import { createDevToolsOpener } from '../src/devtools.js'
 import { createGate, hostnamesOf, isLoopback } from '../src/gate.js'
@@ -74,12 +74,12 @@ const log = (line) => {
 if (values.port !== undefined && (!/^\d+$/u.test(values.port) || Number(values.port) > 65_535)) fail(`--port takes a port, not ${values.port}`)
 defines(true, values.define, fail)
 
-// NODE_ENV and BABEL_ENV as each target's Babel, its config and plugins read them: a dev bundle's development,
-// as its envName; a release bundle's production, BABEL_ENV the shell's if set, as Metro's transformer names
-// its envName. This process's are a dev bundle's, for the project's code it loads (the Metro and Babel
-// configs), as `react-native bundle --dev` sets NODE_ENV: none is to be set by hand.
+// NODE_ENV and BABEL_ENV as each target's code sees them, which its Babel config and plugins see too
+// (buildEnvOf()'s): NODE_ENV its bundle's process.env.NODE_ENV, BABEL_ENV Babel's envName, the shell's kept
+// for release bundles. This process's are a dev bundle's, for the project's code it loads (the Metro and
+// Babel configs): none is to be set by hand.
 const shellBabelEnv = process.env.BABEL_ENV
-const envFor = (dev) => ({ NODE_ENV: dev ? 'development' : 'production', BABEL_ENV: dev ? 'development' : shellBabelEnv || 'production' })
+const envFor = (dev) => buildEnvOf(dev, defines(dev, values.define, fail), shellBabelEnv)
 Object.assign(process.env, envFor(true))
 
 // The project: its rn.config.json, Metro config, peers, Babel config and cache.
