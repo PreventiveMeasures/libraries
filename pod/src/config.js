@@ -13,7 +13,8 @@ const settings = [(value) => isObject(value) && Object.values(value).every((one)
 const POD = { modularHeaders: boolean, inhibitWarnings: boolean, buildSettings: settings }
 const TARGET = { pods: names }
 const OPTIONS = {
-  // The directory of the JSON podspecs, each <name>.podspec.json, from the config's own.
+  // The directory of the podspecs committed for pods, each <name>.podspec.json or <name>.podspec, from the
+  // config's own.
   podspecs: [isName, 'the path of a directory'],
   // The app's project, where its directory has more than one.
   project: [isName, 'the path of an .xcodeproj'],

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // pod-install [--project-directory=DIR]
-// What `pod install` does for a React Native app, without CocoaPods or Ruby: from the Podfile.lock, the JSON
-// podspecs committed beside it (Podspecs/<name>.podspec.json, each held to the lockfile's checksum) and
-// pod.config.json (src/config.js), it downloads each pod's archive, held to the sha256 its podspec gives, and
-// generates Pods/ -- the Pods project, every target's support files, the header links and Manifest.lock -- as
-// CocoaPods 1.16 does, for the app's own project to build with as it is.
+// What `pod install` does for a React Native app, without CocoaPods or Ruby: from the Podfile.lock, each pod's
+// podspec and pod.config.json (src/config.js), it downloads each pod's archive, held to the sha256 its podspec
+// gives, and generates Pods/ -- the Pods project, every target's support files, the header links and
+// Manifest.lock -- as CocoaPods 1.16 does, for the app's own project to build with as it is.
+//
+// A podspec is taken as <name>.podspec.json, the JSON CocoaPods keeps of one, or as <name>.podspec where that
+// is in the form read without Ruby (src/podspec-read.js): from Podspecs/ beside the lockfile, else from where
+// the lockfile has the pod. Either way it is held to the lockfile's checksum, the sha1 of that JSON.
 
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'

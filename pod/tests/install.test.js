@@ -81,8 +81,53 @@ describe('install', () => {
 
   it('refuses a podspec that is not the one the lockfile has the checksum of', async () => {
     const { dir } = await project()
-    writeFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), readFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), 'utf8').replace('"Alpha"', '"Alpha" '))
-    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec is not the one the lockfile has the checksum of/u)
+    writeFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), readFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), 'utf8').replace('"summary": "Alpha"', '"summary": "Changed"'))
+    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec, "Podspecs\/Alpha\.podspec\.json", is not the one the lockfile has the checksum of/u)
+  })
+
+  it('reads a podspec where the lockfile has the pod from, as JSON or in the form read without Ruby', async () => {
+    const { dir } = await project()
+    // Alpha's podspec as its author would write it, beside the pod: it comes to the JSON the lockfile is of.
+    const json = JSON.parse(readFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), 'utf8'))
+    const ruby = `Pod::Spec.new do |s|
+  s.name = 'Alpha'
+  s.version = '1.0.0'
+  s.summary = 'Alpha'
+  s.homepage = 'https://example.com/alpha'
+  s.license = 'MIT'
+  s.author = 'Fixture'
+  s.platforms = { :ios => '15.1' }
+  s.source = { :git => 'https://example.com/alpha.git', :tag => "v#{s.version}" }
+  s.source_files = 'src/**/*.{h,mm,cpp}'
+  s.private_header_files = 'src/Alpha+Private.h'
+  s.header_dir = 'alpha'
+  s.header_mappings_dir = 'src'
+  s.compiler_flags = '-DALPHA=1 -Wno-comma'
+  s.frameworks = 'UIKit', 'CoreGraphics'
+  s.library = 'c++'
+  s.resource_bundles = { 'Alpha_privacy' => ['res/PrivacyInfo.xcprivacy'] }
+  s.pod_target_xcconfig = ${JSON.stringify(json.pod_target_xcconfig).replaceAll('":', '" =>')}
+  s.dependency 'Delta'
+end
+`
+    rmSync(join(dir, 'Podspecs/Alpha.podspec.json'))
+    rmSync(join(dir, 'local/Alpha/Alpha.podspec.json'))
+    writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby)
+    await install(dir, GITHUB)
+    assert.equal(readFileSync(join(dir, 'Pods/Local Podspecs/Alpha.podspec.json'), 'utf8'), readFileSync(join(FIXTURE, 'expected/Local Podspecs/Alpha.podspec.json'), 'utf8'))
+    // Beta's as JSON beside the pod, as its package ships it and not as CocoaPods writes it.
+    rmSync(join(dir, 'Podspecs/Beta.podspec.json'))
+    const shipped = JSON.stringify(JSON.parse(readFileSync(join(dir, 'local/Beta/Beta.podspec.json'), 'utf8')))
+    writeFileSync(join(dir, 'local/Beta/Beta.podspec.json'), shipped)
+    await install(dir, GITHUB)
+    assert.equal(readFileSync(join(dir, 'Pods/Local Podspecs/Beta.podspec.json'), 'utf8'), readFileSync(join(FIXTURE, 'expected/Local Podspecs/Beta.podspec.json'), 'utf8'))
+    // One that is not in the form read, and one that comes to another podspec than the lockfile's.
+    writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby.replace("s.license = 'MIT'", "s.license = 'MIT' if ENV['X'] == '1'"))
+    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: local\/Alpha\/Alpha\.podspec: line 6: `==`, which is not in the form of a podspec that is read without Ruby/u)
+    writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby.replace("'c++'", "'z'"))
+    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec, "local\/Alpha\/Alpha\.podspec", is not the one the lockfile has the checksum of/u)
+    rmSync(join(dir, 'local/Alpha/Alpha.podspec'))
+    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec is not there, as ".*Podspecs\/Alpha\.podspec\.json" or .*local\/Alpha\/Alpha\.podspec\.json"/u)
   })
 
   it('refuses an archive that is not the one its podspec has the hash of', async () => {

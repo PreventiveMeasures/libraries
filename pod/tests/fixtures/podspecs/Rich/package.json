@@ -1,0 +1,1 @@
+{ "name": "rich", "version": "1.0.0-rc.2", "description": "Rich", "license": "Apache-2.0", "author": "Rich Author <rich@example.com>", "repository": { "url": "git+https://github.com/acme/rich.git" } }
