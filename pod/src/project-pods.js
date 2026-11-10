@@ -196,6 +196,15 @@ function addScriptPhases(native, target, context) {
     native.buildPhases.splice(from, 1)
     native.buildPhases.splice(at, 0, phase)
   }
+  // PodTargetIntegrator#add_copy_dsyms_script_phase: the symbols of what the pod vends, copied for the app's.
+  const { dsyms, bcsymbolmaps } = target.settings.vendored
+  if (dsyms.length + bcsymbolmaps.length > 0) {
+    const base = `${target.label}-copy-dsyms`
+    context.addSupport(`${base}.sh`, context.support.dsymsScript(dsyms, bcsymbolmaps))
+    const copied = [...dsyms, ...bcsymbolmaps]
+    const lists = context.paths(target, base, copied, copied.map((path) => `\${DWARF_DSYM_FOLDER_PATH}/${posix.basename(path)}`))
+    native.buildPhases.push(newPhase('ShellScript', { name: '[CP] Copy dSYMs', shellPath: '/bin/sh', shellScript: `"\${PODS_ROOT}/Target Support Files/${target.label}/${base}.sh"\n`, showEnvVarsInLog: '0', ...lists }))
+  }
   const xcframeworks = target.settings.xcframeworks
   if (xcframeworks.length > 0) {
     const support = `\${PODS_ROOT}/Target Support Files/${target.label}/${target.label}-xcframeworks`

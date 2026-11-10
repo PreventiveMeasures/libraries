@@ -2,8 +2,10 @@ PODS:
   - Binary (4.5.6):
     - Binary/Dyn (= 4.5.6)
     - Binary/Stat (= 4.5.6)
+    - Binary/Vend (= 4.5.6)
   - Binary/Dyn (4.5.6)
   - Binary/Stat (4.5.6)
+  - Binary/Vend (4.5.6)
   - Core (1.2.3)
   - HeaderOnly (0.1.0)
   - Local (1.0.0)
@@ -54,7 +56,7 @@ EXTERNAL SOURCES:
     :path: local/SwiftLib
 
 SPEC CHECKSUMS:
-  Binary: 093010e87d23442e8ece90a3c48ae26b54270c33
+  Binary: 22e1217a083082f95b310008f6c2110882aefda5
   Core: bcbab2578f801cf6d2d436152ff0877539410511
   HeaderOnly: dcfce3f95d9a65ded8a073e185bb27cc463da7e7
   Local: 3aebd7d1c072f41aa09ac375b82b3ef4a93f8fa7

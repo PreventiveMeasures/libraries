@@ -109,6 +109,9 @@ export function frameworksScript(byConfiguration) {
   return `${script('frameworks-head.sh')}${names.length > 0 ? '\n' : ''}${blocks.join('')}if [ "\${COCOAPODS_PARALLEL_CODE_SIGN}" == "true" ]; then\n  wait\nfi\n`
 }
 
+// Generator::CopydSYMsScript: each .dSYM and each .bcsymbolmap of what a pod vends, copied beside the build's own.
+export const dsymsScript = (dsyms, bcsymbolmaps) => `${script('dsyms-head.sh')}${dsyms.map((path) => `install_dsym "${path}"\n`).join('')}${bcsymbolmaps.map((path) => `install_bcsymbolmap "${path}"\n`).join('')}`
+
 // Generator::CopyXCFrameworksScript: the variant and the architectures of every slice, by its directory, then
 // each .xcframework with its slices for iOS; `from` gives one's path from Pods/.
 export function xcframeworksScript(xcframeworks, from) {

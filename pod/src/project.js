@@ -86,7 +86,8 @@ export const pathFrom = (from, to) => relative(from, to).split(sep).join('/') ||
 export function newFile(project, group, path) {
   if (project.refs.has(path)) return project.refs.get(path)
   const from = isAbsolute(path) ? pathFrom(group._real, path) : path
-  const ref = { isa: 'PBXFileReference', includeInIndex: '1', path: from, sourceTree: '<group>', _real: path }
+  // FileReferencesFactory#configure_defaults_for_file_reference: a framework is not indexed.
+  const ref = { isa: 'PBXFileReference', ...(extname(path).toLowerCase() === '.framework' ? {} : { includeInIndex: '1' }), path: from, sourceTree: '<group>', _real: path }
   const type = FILE_TYPES[extname(path).slice(1)]
   if (type !== undefined) ref.lastKnownFileType = type
   if (from.includes('/')) ref.name = basename(path)

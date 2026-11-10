@@ -29,12 +29,12 @@ function resourcePaths(pod) {
   }))]
 }
 
-// What the app embeds: each pod's dynamic frameworks as they are vended, and the one it is built as; and its
-// dynamic .xcframeworks, whose slice for the build is copied where the app takes it from.
+// PodTarget#framework_paths. What the app embeds: of each spec of a pod, its dynamic libraries and frameworks
+// as they are vended, then the framework the pod is built as; and its dynamic .xcframeworks, whose slice for
+// the build is copied where the app takes it from.
 function frameworkPaths(pod) {
-  const vendored = pod.settings.vendored.dynamicFrameworks.map((path) => `\${PODS_ROOT}/${join(pod.sandboxPath, path)}`)
   const built = pod.shouldBuild && pod.framework && !pod.static ? [`\${BUILT_PRODUCTS_DIR}/${pod.label}/${pod.productName}`] : []
-  return [...new Set([...vendored, ...built])]
+  return [...new Set(pod.settings.vendored.artifacts.flatMap((paths) => [...paths.map((path) => `\${PODS_ROOT}/${join(pod.sandboxPath, path)}`), ...built]))]
 }
 const dynamicXcframeworks = (pod) => pod.settings.xcframeworks.filter((one) => one.framework && one.dynamic)
 

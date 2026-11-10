@@ -13,16 +13,26 @@
   },
   "source": {
     "http": "https://github.com/acme/binary/archive/refs/tags/4.5.6.tar.gz",
-    "sha256": "6885d4521bb93ae4495bc14f8db67a31282cac670a122d77b5047585587fdf54"
+    "sha256": "68e2e1a375edb9f497785a29a510a059cc65b2f680a451620b83cd4e7c44aac5"
   },
   "subspecs": [
     {
       "name": "Dyn",
-      "vendored_frameworks": "Dyn.xcframework"
+      "vendored_frameworks": "Dyn.xcframework",
+      "preserve_paths": "Dyn.dSYMs"
     },
     {
       "name": "Stat",
       "vendored_frameworks": "Stat.xcframework"
+    },
+    {
+      "name": "Vend",
+      "vendored_frameworks": "Vend.framework",
+      "vendored_libraries": "lib/libDemo.dylib",
+      "preserve_paths": [
+        "*.dSYM",
+        "*.bcsymbolmap"
+      ]
     }
   ]
 }

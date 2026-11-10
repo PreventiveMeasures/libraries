@@ -1,0 +1,3 @@
+${PODS_ROOT}/Binary/Vend.framework.dSYM
+${PODS_ROOT}/Binary/Dyn.dSYMs/Dyn.framework.dSYM
+${PODS_ROOT}/Binary/Vend.bcsymbolmap

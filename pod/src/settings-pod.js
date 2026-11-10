@@ -6,6 +6,7 @@ import { basename, extname, posix } from 'node:path'
 import { isDynamic, readXcframework } from './binaries.js'
 import { privateSearchPaths, publicSearchPaths } from './headers.js'
 import { BUILD_DIR, XCFRAMEWORKS_DIR, configOf, lazy, mergedXcconfigs, sorted, uniqueSorted } from './settings.js'
+import { byBytes } from './xcconfig.js'
 
 const NAMES = [
   'PODS_BUILD_DIR', 'PODS_CONFIGURATION_BUILD_DIR', 'PODS_XCFRAMEWORKS_BUILD_DIR', 'USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES', 'CODE_SIGN_IDENTITY',
@@ -21,7 +22,25 @@ const DEVELOPER_FRAMEWORKS = '$(PLATFORM_DIR)/Developer/Library/Frameworks'
 const developerPaths = (frameworks) => (frameworks.includes('XCTest') || frameworks.includes('SenTestingKit') ? [DEVELOPER_FRAMEWORKS] : [])
 const intermediate = (xcframework) => `${XCFRAMEWORKS_DIR}/${xcframework.targetName}`
 
-// What a pod vends as it is: its frameworks and libraries, each static or dynamic, and its .xcframeworks.
+// PodTarget#framework_paths and PodTargetInstaller.dsym_paths: the symbols that come with what a pod vends as
+// dynamic, each from Pods/. A .dSYM beside a library or a framework, of its whole name; those of a directory
+// <name>.dSYMs beside an .xcframework; and the .bcsymbolmap files beside a library or a framework.
+function symbolsOf(target, artifacts) {
+  const { files, dirs } = target.list
+  const there = new Set([...files, ...dirs])
+  const inDir = (dir, extension) => [...there].filter((path) => posix.dirname(path) === dir && path.endsWith(extension) && !posix.basename(path).startsWith('.')).sort(byBytes)
+  const fromPods = (path) => `\${PODS_ROOT}/${posix.join(target.sandboxPath, path)}`
+  const beside = artifacts.flat().map((path) => `${path}.dSYM`).filter((path) => there.has(path))
+  const ofXcframeworks = target.accessors.flatMap((accessor) => accessor.vendoredXcframeworks).flatMap((path) => {
+    const dir = posix.join(posix.dirname(path), `${basename(path, '.xcframework')}.dSYMs`)
+    return dirs.includes(dir) ? inDir(dir, '.dSYM') : []
+  })
+  const maps = artifacts.flat().flatMap((path) => inDir(posix.dirname(path), '.bcsymbolmap').filter((one) => files.includes(one)))
+  return { dsyms: [...beside, ...ofXcframeworks].map(fromPods), bcsymbolmaps: [...new Set(maps)].map(fromPods) }
+}
+
+// What a pod vends as it is: its frameworks and libraries, each static or dynamic, and its .xcframeworks; and
+// of each spec what is dynamic and is neither built nor in an .xcframework, its libraries before its frameworks.
 function vendored(target) {
   const full = (path) => posix.join(target.dir, path)
   const fromSandbox = (path) => `\${PODS_ROOT}/${posix.join(target.sandboxPath, posix.dirname(path))}`
@@ -29,7 +48,10 @@ function vendored(target) {
   const dynamicFrameworks = frameworks.filter((path) => isDynamic(posix.join(full(path), stem(path))))
   const libraries = target.accessors.flatMap((accessor) => accessor.vendoredLibraries)
   const dynamicLibraries = libraries.filter((path) => isDynamic(full(path)))
+  const artifacts = target.accessors.map((accessor) => [...accessor.vendoredLibraries.filter((path) => dynamicLibraries.includes(path)), ...accessor.vendoredFrameworks.filter((path) => dynamicFrameworks.includes(path))])
   return {
+    artifacts,
+    ...symbolsOf(target, artifacts),
     xcframeworks: target.accessors.flatMap((accessor) => accessor.vendoredXcframeworks.map((path) => readXcframework(full(path), accessor.spec.name, target.where))),
     frameworkDirs: target.accessors.flatMap((accessor) => accessor.vendoredFrameworks).map(fromSandbox),
     staticFrameworks: frameworks.filter((path) => !dynamicFrameworks.includes(path)),
