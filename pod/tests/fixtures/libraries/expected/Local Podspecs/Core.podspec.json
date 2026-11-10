@@ -1,0 +1,46 @@
+{
+  "summary": "Core",
+  "homepage": "https://example.com/core",
+  "authors": "Fixture",
+  "source": {
+    "git": "https://example.com/core.git",
+    "tag": "1.2.3"
+  },
+  "name": "Core",
+  "version": "1.2.3",
+  "license": {
+    "type": "MIT",
+    "file": "LICENSE"
+  },
+  "platforms": {
+    "ios": "13.4"
+  },
+  "source_files": "src/**/*.{h,m}",
+  "private_header_files": "src/CoreInternal.h",
+  "header_dir": "core",
+  "requires_arc": [
+    "src/arc/**/*.m"
+  ],
+  "resources": [
+    "assets/*.png"
+  ],
+  "vendored_libraries": "vendor/libvend.a",
+  "weak_frameworks": "CoreHaptics",
+  "frameworks": "Security",
+  "libraries": [
+    "z",
+    "sqlite3"
+  ],
+  "prefix_header_contents": "#define CORE_PREFIX 1",
+  "compiler_flags": [
+    "-Wno-shadow"
+  ],
+  "pod_target_xcconfig": {
+    "GCC_PREPROCESSOR_DEFINITIONS": "$(inherited) CORE=1",
+    "USE_HEADERMAP": "NO"
+  },
+  "user_target_xcconfig": {
+    "USE_HEADERMAP": "NO",
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++20"
+  }
+}

@@ -27,13 +27,23 @@ function resourcePaths(pod) {
   }))]
 }
 
-// What the app embeds: each pod's dynamic frameworks as they are vended, the one it is built as, and its
-// dynamic .xcframeworks from where their slice is copied to.
+// What the app embeds: each pod's dynamic frameworks as they are vended, and the one it is built as; and its
+// dynamic .xcframeworks, whose slice for the build is copied where the app takes it from.
 function frameworkPaths(pod) {
   const vendored = pod.settings.vendored.dynamicFrameworks.map((path) => `\${PODS_ROOT}/${join(pod.sandboxPath, path)}`)
   const built = pod.shouldBuild && pod.framework && !pod.static ? [`\${BUILT_PRODUCTS_DIR}/${pod.label}/${pod.productName}`] : []
-  const xcframeworks = pod.settings.xcframeworks.filter((one) => one.framework && one.dynamic).map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
-  return [...new Set([...vendored, ...built, ...xcframeworks])]
+  return [...new Set([...vendored, ...built])]
+}
+const dynamicXcframeworks = (pod) => pod.settings.xcframeworks.filter((one) => one.framework && one.dynamic)
+
+const OUTPUT_EXTENSIONS = { ...COMPILED, '.xcassets': '.car' }
+// TargetIntegrator.resource_output_paths: where the resources script leaves each resource in the app.
+function resourceOutputs(resources) {
+  return [...new Set(resources.map((path) => {
+    const extension = extensionOf(path)
+    const name = extension === '.xcassets' ? 'Assets' : path.split('/').at(-1).slice(0, path.split('/').at(-1).length - extension.length)
+    return `\${TARGET_BUILD_DIR}/\${UNLOCALIZED_RESOURCES_FOLDER_PATH}/${name}${OUTPUT_EXTENSIONS[extension] ?? extension}`
+  }))]
 }
 
 const byConfiguration = (project, value) => Object.fromEntries(Object.keys(project.configurations).map((name) => [name, value]))
@@ -78,17 +88,33 @@ export function addAggregateTarget(project, aggregate, context) {
     setAll('MODULEMAP_FILE', `Target Support Files/${aggregate.label}/${aggregate.label}.modulemap`)
     addFile(native, 'Headers', addSupport(`${aggregate.label}-umbrella.h`, support.umbrellaHeader(aggregate)), { ATTRIBUTES: [aggregate.framework ? 'Public' : 'Project'] })
   }
-  const frameworks = aggregate.podTargets.flatMap(frameworkPaths)
-  if (frameworks.length > 0 && !aggregate.requiresHostTarget) addSupport(`${aggregate.label}-frameworks.sh`, support.frameworksScript(byConfiguration(project, frameworks)))
-  const resources = aggregate.podTargets.flatMap(resourcePaths)
-  if (resources.length > 0) addSupport(`${aggregate.label}-resources.sh`, support.resourcesScript(byConfiguration(project, resources), aggregate.platform.target))
+  // The lists of what the app's own script phases read and write, one for each of its configurations.
+  const lists = (kind, inputs, outputs) => {
+    if (Number(context.objectVersion) < 50) return
+    const script = `\${PODS_ROOT}/Target Support Files/${aggregate.label}/${aggregate.label}-${kind}.sh`
+    for (const name of Object.keys(project.configurations)) {
+      context.write(aggregate, `${aggregate.label}-${kind}-${name}-input-files.xcfilelist`, [script, ...inputs].join('\n'))
+      context.write(aggregate, `${aggregate.label}-${kind}-${name}-output-files.xcfilelist`, outputs.join('\n'))
+    }
+  }
+  const frameworks = [...new Set(aggregate.podTargets.flatMap(frameworkPaths))]
+  const xcframeworks = aggregate.podTargets.flatMap(dynamicXcframeworks)
+  const embedded = xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
+  if (frameworks.length + xcframeworks.length > 0 && !aggregate.requiresHostTarget) {
+    addSupport(`${aggregate.label}-frameworks.sh`, support.frameworksScript(byConfiguration(project, [...frameworks, ...embedded])))
+    const outputs = [...new Set(frameworks.map((path) => `\${TARGET_BUILD_DIR}/\${FRAMEWORKS_FOLDER_PATH}/${path.split('/').at(-1)}`)), ...xcframeworks.map((one) => `\${TARGET_BUILD_DIR}/\${FRAMEWORKS_FOLDER_PATH}/${one.name}.framework`)]
+    lists('frameworks', [...frameworks, ...xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework/${one.name}`)], outputs)
+  }
+  const resources = [...new Set(aggregate.podTargets.flatMap(resourcePaths))]
+  if (resources.length > 0) {
+    addSupport(`${aggregate.label}-resources.sh`, support.resourcesScript(byConfiguration(project, resources), aggregate.platform.target))
+    lists('resources', resources, resourceOutputs(resources))
+  }
   const { markdown, plist } = support.acknowledgements(aggregate.podTargets)
   addSupport(`${aggregate.label}-acknowledgements.markdown`, markdown)
   addSupport(`${aggregate.label}-acknowledgements.plist`, plist)
   addFile(native, 'Sources', addSupport(`${aggregate.label}-dummy.m`, support.dummySource(aggregate.label)))
   aggregate.native = native
-  aggregate.resources = resources
-  aggregate.frameworks = frameworks
   return native
 }
 

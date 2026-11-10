@@ -10,7 +10,7 @@ import { headersOf } from './headers.js'
 import { writeProject } from './pbxproj.js'
 import { addAggregateTarget, wireDependencies } from './project-aggregate.js'
 import { addPodFiles, addPodTarget } from './project-pods.js'
-import { newGroup, newProject, pathFrom, sortProject } from './project.js'
+import { newGroup, newProject, normalizeSettings, pathFrom, sortProject } from './project.js'
 import { aggregateConfig } from './settings-aggregate.js'
 import { podSettings } from './settings-pod.js'
 import { deploymentTarget } from './spec.js'
@@ -87,7 +87,7 @@ export function generate(input) {
       const text = readFileSync(join(target.dir, path), 'utf8')
       return plain ? text.replaceAll(/^(\s*)framework\s+(module[^{}]+)\{/gmu, '$1$2{') : text
     },
-    config: (aggregate) => aggregateConfig(aggregate, { podfileDir: pathFrom(user.dir, dir), podsDir: pathFrom(user.dir, sandbox) }),
+    config: (aggregate) => aggregateConfig(aggregate, { podfileDir: pathFrom(user.dir, dir), podsDir: pathFrom(user.dir, sandbox), pods: podTargets }),
     paths: (target, base, inputs, outputs) => {
       if (Number(user.objectVersion) < 50) return { inputPaths: inputs, outputPaths: outputs }
       const lists = { inputFileListPaths: [`${base}-input-files.xcfilelist`, inputs], outputFileListPaths: [`${base}-output-files.xcfilelist`, outputs] }
@@ -99,8 +99,12 @@ export function generate(input) {
   for (const target of podTargets) addPodTarget(project, target, context)
   for (const aggregate of aggregates) addAggregateTarget(project, aggregate, context)
   wireDependencies(project, podTargets, aggregates)
-  project.mainGroup.children = project.mainGroup.children.filter((child) => child.isa !== 'PBXGroup' || child.children.length > 0)
+  // CocoaPods removes its own groups where they hold nothing; Xcodeproj's Frameworks stays, as it is asked for.
+  project.frameworks ??= newGroup(project.mainGroup, 'Frameworks')
+  const own = new Set([project.supportFiles, project.pods, project.developmentPods])
+  project.mainGroup.children = project.mainGroup.children.filter((child) => !own.has(child) || child.children.length > 0)
   sortProject(project)
+  normalizeSettings(project)
   files.set('Pods.xcodeproj/project.pbxproj', writeProject(project))
   for (const pod of input.pods) if (pod.external) files.set(`Local Podspecs/${pod.name}.podspec.json`, pod.bytes)
   files.set('Manifest.lock', input.lockText)

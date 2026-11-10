@@ -1,0 +1,3 @@
+${PODS_ROOT}/Target Support Files/Binary/Binary-xcframeworks.sh
+${PODS_ROOT}/Binary/Dyn.xcframework
+${PODS_ROOT}/Binary/Stat.xcframework

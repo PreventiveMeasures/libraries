@@ -113,9 +113,11 @@ export function sortProject(project) {
     for (const child of group.children) if (isGroup(child)) sortGroup(child)
   }
   sortGroup(project.mainGroup)
-  project.root.buildConfigurationList.buildConfigurations.sort((a, b) => compare(a.name, b.name))
+  const lower = (a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase())
+  project.root.buildConfigurationList.buildConfigurations.sort(lower)
+  project.targets.sort(lower)
   for (const target of project.targets) {
-    target.buildConfigurationList.buildConfigurations.sort((a, b) => compare(a.name, b.name))
+    target.buildConfigurationList.buildConfigurations.sort(lower)
     target.dependencies.sort((a, b) => compare(a.name, b.name))
     for (const phase of target.buildPhases) phase.files?.sort((a, b) => byName(a.fileRef, b.fileRef, (one) => one._real))
   }
@@ -205,3 +207,25 @@ export function addDependency(project, target, on) {
 
 // Whether the app's targets are built for 64 bits alone, as CocoaPods has it of an old project: iOS 11 on.
 export const only64Bit = (deploymentTarget, objectVersion) => compareVersions(deploymentTarget, '11.0') >= 0 && Number(objectVersion) < 50
+
+// The settings that are lists in a project file, from Xcode 9.3's format on and before it.
+const LISTS = ['ALTERNATE_PERMISSIONS_FILES', 'ARCHS', 'BUILD_VARIANTS', 'EXCLUDED_SOURCE_FILE_NAMES', 'FRAMEWORK_SEARCH_PATHS', 'GCC_PREPROCESSOR_DEFINITIONS', 'GCC_PREPROCESSOR_DEFINITIONS_NOT_USED_IN_PRECOMPS', 'HEADER_SEARCH_PATHS', 'INFOPLIST_PREPROCESSOR_DEFINITIONS', 'LIBRARY_SEARCH_PATHS', 'OTHER_CFLAGS', 'OTHER_CPLUSPLUSFLAGS', 'OTHER_LDFLAGS', 'REZ_SEARCH_PATHS', 'SECTORDER_FLAGS', 'WARNING_CFLAGS', 'WARNING_LDFLAGS']
+const LISTS_50 = [...LISTS, 'INCLUDED_SOURCE_FILE_NAMES', 'LD_RUNPATH_SEARCH_PATHS', 'LOCALIZED_STRING_MACRO_NAMES', 'SYSTEM_FRAMEWORK_SEARCH_PATHS', 'SYSTEM_HEADER_SEARCH_PATHS', 'USER_HEADER_SEARCH_PATHS']
+
+// XCBuildConfiguration#normalize_array_settings, as Xcodeproj writes build settings: one of LISTS with more than
+// one word is a list, and any other a string.
+export function normalizeSettings(project) {
+  const lists = new Set(Number(project.objectVersion) >= 50 ? LISTS_50 : LISTS)
+  const all = [project.root.buildConfigurationList, ...project.targets.map((target) => target.buildConfigurationList)].flatMap((list) => list.buildConfigurations)
+  for (const { buildSettings } of all) {
+    for (const [key, value] of Object.entries(buildSettings)) {
+      const listed = lists.has(key.replace(/\[[^\]]+\]$/u, ''))
+      if (Array.isArray(value)) {
+        if (!(value.length > 1 && listed)) buildSettings[key] = value.join(' ')
+      } else if (listed) {
+        const words = [...value.matchAll(/ *((['"]?).*?[^\\]\2)(?=( |$))/gu)].map((match) => match[1])
+        if (words.length > 1) buildSettings[key] = words
+      }
+    }
+  }
+}

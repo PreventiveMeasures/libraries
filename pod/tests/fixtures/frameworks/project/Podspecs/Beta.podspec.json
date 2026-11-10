@@ -1,0 +1,44 @@
+{
+  "name": "Beta",
+  "version": "2.1.0",
+  "summary": "Beta",
+  "homepage": "https://example.com/beta",
+  "license": {
+    "type": "MIT"
+  },
+  "authors": {
+    "Fixture": "f@example.com"
+  },
+  "platforms": {
+    "ios": "16.0"
+  },
+  "source": {
+    "git": "https://example.com/beta.git",
+    "tag": "2.1.0"
+  },
+  "swift_versions": "5.9",
+  "source_files": "Sources/**/*.{h,m,swift}",
+  "static_framework": true,
+  "pod_target_xcconfig": {
+    "DEFINES_MODULE": "YES",
+    "SWIFT_COMPILATION_MODE": "wholemodule"
+  },
+  "user_target_xcconfig": {
+    "OTHER_LDFLAGS": "-ObjC",
+    "GCC_PREPROCESSOR_DEFINITIONS": "$(inherited) BETA=1"
+  },
+  "script_phases": {
+    "name": "Beta phase",
+    "script": "echo beta",
+    "execution_position": "before_compile"
+  },
+  "dependencies": {
+    "Alpha": [
+
+    ],
+    "Gamma/Core": [
+
+    ]
+  },
+  "swift_version": "5.9"
+}

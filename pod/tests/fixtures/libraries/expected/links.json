@@ -1,0 +1,19 @@
+{
+  "Headers/Private/Core/core/Core.h": "../../../../../local/Core/src/Core.h",
+  "Headers/Private/Core/core/CoreInternal.h": "../../../../../local/Core/src/CoreInternal.h",
+  "Headers/Private/Core/core/Legacy.h": "../../../../../local/Core/src/legacy/Legacy.h",
+  "Headers/Private/HeaderOnly/HeaderOnly.h": "../../../../local/HeaderOnly/include/HeaderOnly.h",
+  "Headers/Private/Mapped/mapped/Mapped.h": "../../../../../local/Mapped/include/mapped/Mapped.h",
+  "Headers/Private/Mapped/mapped/inner/Inner.h": "../../../../../../local/Mapped/include/mapped/inner/Inner.h",
+  "Headers/Private/Scripted/Scripted.h": "../../../../local/Scripted/src/Scripted.h",
+  "Headers/Public/Core/core/Core.h": "../../../../../local/Core/src/Core.h",
+  "Headers/Public/Core/core/Legacy.h": "../../../../../local/Core/src/legacy/Legacy.h",
+  "Headers/Public/HeaderOnly/HeaderOnly.h": "../../../../local/HeaderOnly/include/HeaderOnly.h",
+  "Headers/Public/Mapped/mapped/Mapped.h": "../../../../../local/Mapped/include/mapped/Mapped.h",
+  "Headers/Public/Mapped/mapped/inner/Inner.h": "../../../../../../local/Mapped/include/mapped/inner/Inner.h",
+  "Headers/Public/Scripted/Scripted.h": "../../../../local/Scripted/src/Scripted.h",
+  "Headers/Public/SwiftLib/SwiftLib-umbrella.h": "../../../Target Support Files/SwiftLib/SwiftLib-umbrella.h",
+  "Headers/Public/SwiftLib/SwiftLib.modulemap": "../../../Target Support Files/SwiftLib/SwiftLib.modulemap",
+  "Headers/Public/core/Core-umbrella.h": "../../../Target Support Files/Core/Core-umbrella.h",
+  "Headers/Public/core/Core.modulemap": "../../../Target Support Files/Core/Core.modulemap"
+}

@@ -1,0 +1,16 @@
+{
+  "summary": "HeaderOnly",
+  "homepage": "https://example.com/headeronly",
+  "authors": "Fixture",
+  "source": {
+    "git": "https://example.com/headeronly.git",
+    "tag": "0.1.0"
+  },
+  "name": "HeaderOnly",
+  "version": "0.1.0",
+  "license": "MIT",
+  "platforms": {
+    "ios": "12.0"
+  },
+  "source_files": "include/*.h"
+}

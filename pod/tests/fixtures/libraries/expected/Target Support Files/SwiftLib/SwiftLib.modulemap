@@ -1,0 +1,6 @@
+module SwiftLib {
+  umbrella header "SwiftLib-umbrella.h"
+
+  export *
+  module * { export * }
+}

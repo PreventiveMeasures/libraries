@@ -174,6 +174,3 @@ code_sign_if_enabled() {
     eval "$code_sign_cmd"
   fi
 }
-if [ "${COCOAPODS_PARALLEL_CODE_SIGN}" == "true" ]; then
-  wait
-fi

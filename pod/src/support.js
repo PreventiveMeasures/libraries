@@ -106,5 +106,19 @@ export function resourcesScript(byConfiguration, deploymentTarget) {
 export function frameworksScript(byConfiguration) {
   const names = Object.keys(byConfiguration).filter((name) => byConfiguration[name].length > 0).sort()
   const blocks = names.map((name) => `if [[ "$CONFIGURATION" == "${name}" ]]; then\n${byConfiguration[name].map((path) => `  install_framework "${path}"\n`).join('')}fi\n`)
-  return `${script('frameworks-head.sh')}${blocks.join('')}if [ "\${COCOAPODS_PARALLEL_CODE_SIGN}" == "true" ]; then\n  wait\nfi\n`
+  return `${script('frameworks-head.sh')}${names.length > 0 ? '\n' : ''}${blocks.join('')}if [ "\${COCOAPODS_PARALLEL_CODE_SIGN}" == "true" ]; then\n  wait\nfi\n`
+}
+
+// Generator::CopyXCFrameworksScript: the variant and the architectures of every slice, by its directory, then
+// each .xcframework with its slices for iOS; `from` gives one's path from Pods/.
+export function xcframeworksScript(xcframeworks, from) {
+  const cases = (echo) => xcframeworks.flatMap((one) => one.slices.map((slice) => `  "${one.name}.xcframework/${slice.identifier}")\n    echo "${echo(slice)}"\n    ;;\n`)).join('')
+  const EMPTY = '  case "$1" in\n  esac\n'
+  const [head, middle, tail] = script('xcframeworks-head.sh').split(EMPTY)
+  const lines = xcframeworks.map((one) => {
+    const slices = one.slices.filter((slice) => slice.platform === 'ios')
+    return slices.length === 0 ? '' : `install_xcframework ${[`\${PODS_ROOT}/${from(one)}`, one.targetName, one.framework ? 'framework' : 'library', ...slices.map((slice) => slice.identifier)].map((arg) => `"${arg}"`).join(' ')}\n`
+  })
+  const body = `${head}  case "$1" in\n${cases((slice) => slice.variant ?? '')}  esac\n${middle}  case "$1" in\n${cases((slice) => [...slice.archs].sort().join(' '))}  esac\n${tail}`
+  return `${body}${lines.join('')}${xcframeworks.length > 0 ? '\n' : ''}`
 }

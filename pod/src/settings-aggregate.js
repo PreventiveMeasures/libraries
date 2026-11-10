@@ -40,7 +40,8 @@ function settingsOf(aggregate, pods, sandbox) {
   const usesSwift = pods.some((pod) => pod.usesSwift)
   const embedsSwift = !aggregate.requiresHostTarget && usesSwift
   const modern = aggregate.swiftVersion === undefined || compareVersions(aggregate.swiftVersion, '2.3') >= 0
-  const headerPaths = aggregate.framework && pods.every((pod) => pod.shouldBuild) ? [] : publicSearchPaths(pods)
+  // The public headers of every pod that links its own, whichever app target takes it.
+  const headerPaths = aggregate.framework && pods.every((pod) => pod.shouldBuild) ? [] : publicSearchPaths(sandbox.pods)
   headerPaths.push(...pods.filter((pod) => pod.framework && pod.shouldBuild).map((pod) => of(pod).frameworkHeaderSearchPath))
   headerPaths.push(...pods.flatMap((pod) => of(pod).xcframeworks).filter((one) => !one.framework && !one.dynamic).map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/Headers`))
   const libraries = uniqueSorted(pods.flatMap((pod) => of(pod).librariesToImport))

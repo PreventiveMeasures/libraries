@@ -4,6 +4,7 @@
 
 import { extname, join, posix } from 'node:path'
 
+import { PodError } from './error.js'
 import { HEADERS } from './files.js'
 import { addFile, addSystemFramework, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, only64Bit, phaseOf } from './project.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
@@ -189,7 +190,9 @@ function addScriptPhases(native, target, context) {
   const xcframeworks = target.settings.xcframeworks
   if (xcframeworks.length > 0) {
     const support = `\${PODS_ROOT}/Target Support Files/${target.label}/${target.label}-xcframeworks`
-    const inputs = [`${support}.sh`, ...xcframeworks.map((one) => `\${PODS_ROOT}/${posix.join(target.sandboxPath, posix.relative(target.dir, one.dir))}`)]
+    const fromSandbox = (one) => posix.join(target.sandboxPath, posix.relative(target.dir, one.dir))
+    context.addSupport(`${target.label}-xcframeworks.sh`, context.support.xcframeworksScript(xcframeworks, fromSandbox))
+    const inputs = [`${support}.sh`, ...xcframeworks.map((one) => `\${PODS_ROOT}/${fromSandbox(one)}`)]
     const outputs = xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
     const phase = newPhase('ShellScript', { name: '[CP] Copy XCFrameworks', shellPath: '/bin/sh', shellScript: `"${support}.sh"\n`, showEnvVarsInLog: '0', ...context.paths(target, `${target.label}-xcframeworks`, inputs, outputs) })
     native.buildPhases.push(phase)
@@ -206,6 +209,34 @@ function addScriptPhases(native, target, context) {
   }
 }
 
+// PodTargetInstaller#add_swift_library_compatibility_header_phase: a Swift library's generated header, put
+// where those that import the library find it, with a module map that names it.
+function compatibilityHeaderPhase(target) {
+  if (target.accessors.some((accessor) => accessor.moduleMap !== undefined)) throw new PodError('a Swift pod built as a static library with a module map of its own is not supported, as CocoaPods refuses it', target.where)
+  const moduleMap = `\${PODS_ROOT}/${target.moduleMapLink}`
+  const umbrella = `\${PODS_ROOT}/${posix.join(posix.dirname(target.moduleMapLink), `${target.label}-umbrella.h`)}`
+  const generated = '${DERIVED_SOURCES_DIR}/${PRODUCT_MODULE_NAME}-Swift.h'
+  const shellScript = [
+    'COMPATIBILITY_HEADER_PATH="${BUILT_PRODUCTS_DIR}/Swift Compatibility Header/${PRODUCT_MODULE_NAME}-Swift.h"',
+    'MODULE_MAP_PATH="${BUILT_PRODUCTS_DIR}/${PRODUCT_MODULE_NAME}.modulemap"',
+    '',
+    `ditto "${generated}" "\${COMPATIBILITY_HEADER_PATH}"`,
+    `ditto "${moduleMap}" "\${MODULE_MAP_PATH}"`,
+    `ditto "${umbrella}" "\${BUILT_PRODUCTS_DIR}"`,
+    'printf "\\n\\nmodule ${PRODUCT_MODULE_NAME}.Swift {\\n  header \\"${COMPATIBILITY_HEADER_PATH}\\"\\n  requires objc\\n}\\n" >> "${MODULE_MAP_PATH}"',
+    '',
+  ].join('\n')
+  return newPhase('ShellScript', {
+    name: 'Copy generated compatibility header',
+    inputFileListPaths: [],
+    inputPaths: [generated, moduleMap, umbrella],
+    outputFileListPaths: [],
+    outputPaths: ['${BUILT_PRODUCTS_DIR}/${PRODUCT_MODULE_NAME}.modulemap', `\${BUILT_PRODUCTS_DIR}/${target.label}-umbrella.h`, '${BUILT_PRODUCTS_DIR}/Swift Compatibility Header/${PRODUCT_MODULE_NAME}-Swift.h'],
+    shellPath: '/bin/sh',
+    shellScript,
+  })
+}
+
 // One pod's target. `context` writes its support files, and has the text of each, support.js's.
 export function addPodTarget(project, target, context) {
   const { support } = context
@@ -216,6 +247,7 @@ export function addPodTarget(project, target, context) {
   const settings = targetSettings(target, project, context.objectVersion)
   if (!target.shouldBuild) {
     const placeholder = newAggregateTarget(project, target.label, { ENABLE_USER_SCRIPT_SANDBOXING: 'NO', ...(settings.ARCHS === undefined ? {} : { ARCHS: settings.ARCHS }) }, target.platform.target)
+    addScriptPhases(placeholder, target, { ...context, addSupport })
     return finish(project, target, placeholder, [], addSupport)
   }
   const native = newTarget(project, target.label, target.framework ? 'framework' : 'static_library', target.productName, settings, target.platform.target)
@@ -234,12 +266,13 @@ export function addPodTarget(project, target, context) {
     setAll(native, 'INFOPLIST_FILE', `Target Support Files/${target.label}/${target.label}-Info.plist`)
     if (target.consumers.some((consumer) => consumer.header_mappings_dir)) native.buildPhases.push(newPhase('ShellScript', { name: 'Create Symlinks to Header Folders', inputFileListPaths: [], inputPaths: [], outputFileListPaths: [], outputPaths: [], shellPath: '/bin/sh', shellScript: SYMLINK_HEADERS }))
   }
+  if (!target.framework && target.usesSwift) native.buildPhases.push(compatibilityHeaderPhase(target))
   if (target.consumers.every((consumer) => consumer.prefix_header_file !== false)) {
     addSupport(`${target.label}-prefix.pch`, support.prefixHeader(target))
     setAll(native, 'GCC_PREFIX_HEADER', `Target Support Files/${target.label}/${target.label}-prefix.pch`)
   }
   addFile(native, 'Sources', addSupport(`${target.label}-dummy.m`, support.dummySource(target.label)))
-  addScriptPhases(native, target, context)
+  addScriptPhases(native, target, { ...context, addSupport })
   return finish(project, target, native, bundles, addSupport)
 }
 

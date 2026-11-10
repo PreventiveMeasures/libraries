@@ -1,0 +1,45 @@
+{
+  "summary": "Scripted",
+  "homepage": "https://example.com/scripted",
+  "authors": "Fixture",
+  "source": {
+    "git": "https://example.com/scripted.git",
+    "tag": "1.0.0"
+  },
+  "name": "Scripted",
+  "version": "1.0.0",
+  "license": "MIT",
+  "platforms": {
+    "ios": "12.0"
+  },
+  "source_files": "src/*.{h,c}",
+  "prefix_header_file": false,
+  "script_phases": [
+    {
+      "name": "Generate",
+      "script": "echo gen > \"$DERIVED_FILE_DIR/gen.txt\"",
+      "execution_position": "before_headers",
+      "input_files": [
+        "$(PODS_TARGET_SRCROOT)/src/Scripted.c"
+      ],
+      "output_files": [
+        "$(DERIVED_FILE_DIR)/gen.txt"
+      ],
+      "show_env_vars_in_log": "0"
+    },
+    {
+      "name": "After",
+      "script": "echo after",
+      "execution_position": "after_compile",
+      "shell_path": "/bin/bash"
+    },
+    {
+      "name": "Any",
+      "script": "echo any"
+    }
+  ],
+  "dependencies": {
+    "Mapped": [],
+    "Binary/Stat": []
+  }
+}

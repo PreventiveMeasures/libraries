@@ -1,0 +1,12 @@
+platform :ios, '15.1'
+target 'App' do
+  pod 'Core', :path => 'local/Core', :modular_headers => true
+  pod 'SwiftLib', :path => 'local/SwiftLib'
+  pod 'Mapped', :path => 'local/Mapped', :inhibit_warnings => true
+  pod 'Scripted', :path => 'local/Scripted'
+  pod 'HeaderOnly', :path => 'local/HeaderOnly'
+  pod 'Binary', :podspec => 'specs/Binary.podspec.json'
+end
+target 'Ext' do
+  pod 'Core', :path => 'local/Core', :modular_headers => true
+end

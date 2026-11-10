@@ -1,0 +1,2 @@
+${PODS_XCFRAMEWORKS_BUILD_DIR}/Binary/Dyn/Dyn.framework
+${PODS_XCFRAMEWORKS_BUILD_DIR}/Binary/Stat/Stat.framework

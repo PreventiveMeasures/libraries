@@ -1,0 +1,4 @@
+framework module Mapped {
+  header "Mapped.h"
+  export *
+}
