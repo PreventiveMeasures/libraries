@@ -3,13 +3,14 @@
 // checksum.
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 
 import { parsePodfileLock } from '@preventive/lockfile/cocoapods.js'
 
 import { readConfig } from './config.js'
 import { PodError, quote } from './error.js'
+import { dirGlob } from './files.js'
 import { jsonSpecJson } from './podspec-json.js'
 import { podspecJson } from './podspec-read.js'
 import { readSpec } from './spec.js'
@@ -28,6 +29,22 @@ function projectOf(dir, config) {
 }
 
 const sha1 = (bytes) => createHash('sha1').update(bytes).digest('hex')
+
+// What a podspec that is read without Ruby may read of the disk: a file's text; files.js's dirGlob; and what is
+// at a path, a file or a directory.
+const FILES = {
+  read: (path) => read(path)?.toString('utf8'),
+  glob: dirGlob,
+  kind: (path) => {
+    const stats = statSync(path, { throwIfNoEntry: false })
+    return stats === undefined ? undefined : stats.isDirectory() ? 'directory' : 'file'
+  },
+}
+// A value of pod.config.json's `globals` as a podspec has one: a hash with its keys in their order.
+function ordered(value) {
+  if (Array.isArray(value)) return value.map(ordered)
+  return value !== null && typeof value === 'object' ? new Map(Object.entries(value).map(([key, item]) => [key, ordered(item)])) : value
+}
 
 // Where a pod's podspec is looked for, the first that is there taken: committed for it in the podspecs'
 // directory, as the JSON CocoaPods wrote or as a podspec to read; else where the lockfile has the pod from, as
@@ -49,7 +66,7 @@ function podspecForms(file, where, context) {
   const bytes = readFileSync(file)
   const text = bytes.toString('utf8')
   if (!file.endsWith('.json')) {
-    const { forms, conditions } = podspecJson(file, text, (path) => read(path)?.toString('utf8'), where, context)
+    const { forms, conditions } = podspecJson(file, text, FILES, where, context)
     return { forms: forms.map((json) => Buffer.from(json)), conditions }
   }
   try {
@@ -85,7 +102,8 @@ export async function load(dir) {
   const podspecs = resolve(dir, config.podspecs)
   // What a podspec that is read without Ruby is read in: podspec-read.js's context.
   const prebuilt = { core: lock.roots['React-Core-prebuilt'] !== undefined, deps: lock.roots.ReactNativeDependencies !== undefined }
-  const context = { env: new Map(Object.entries(config.env)), reactNative: lock.roots['React-Core']?.version, prebuilt, frameworks: config.frameworks }
+  const globals = new Map(Object.entries(config.globals).map(([name, value]) => [name, ordered(value)]))
+  const context = { env: new Map(Object.entries(config.env)), globals, reactNative: lock.roots['React-Core']?.version, prebuilt, frameworks: config.frameworks, cocoapods: lock.cocoapods }
   const pods = Object.values(lock.roots).map((root) => {
     const where = `pods[${quote(root.name)}]`
     const local = root.external?.type === 'path'

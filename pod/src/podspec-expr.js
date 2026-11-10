@@ -1,100 +1,15 @@
 // The values of a podspec in the form podspec-read.js reads: literals, the few names and calls it may read, and
-// the conditions over them, a variable of the environment among those. Reading one changes nothing, so both
-// sides of a `&&`, a `||` and a `?:` are read, and one that is refused refuses the podspec.
+// the conditions over them, a variable of the environment among those. Reading one changes nothing but where it
+// calls a helper of React Native's with a specification, so both sides of a `&&`, a `||` and a `?:` are read,
+// and one that is refused refuses the podspec.
 
-import { basename, dirname, isAbsolute, resolve } from 'node:path'
-
-import { PodError } from './error.js'
-import { PLATFORMS } from './podspec-json.js'
-import { KNOWN, reactNative } from './podspec-rn.js'
+import { call, defined, environment, global, helper, isHelper } from './podspec-calls.js'
+import { PLATFORMS, SYMBOL } from './podspec-json.js'
+import { METHODS, ordered, plus } from './podspec-methods.js'
+import { expect, fail, is, next, peek, skipLines, text, truthy, untaken } from './podspec-parse.js'
 import { tokenize } from './podspec-tokens.js'
 
 export const PROXIES = new Set([...PLATFORMS, 'macos'])
-// React Native's helpers for podspecs, scripts/react_native_pods.rb's, that are read: the one called, and those
-// that are values.
-const HELPERS = new Set(['install_modules_dependencies', 'min_ios_version_supported'])
-
-export const peek = (p) => p.tokens[p.at]
-export const next = (p) => p.tokens[p.at++]
-export const is = (p, type, value) => peek(p).type === type && (value === undefined || peek(p).value === value)
-export function fail(p, what, token = peek(p)) {
-  throw new PodError(`line ${token.line}: ${what}, which is not in the form of a podspec that is read without Ruby`, p.where)
-}
-export function expect(p, type, value) {
-  if (!is(p, type, value)) fail(p, `\`${peek(p).value ?? peek(p).type}\` where \`${value ?? type}\` is expected`)
-  return next(p)
-}
-export const skipLines = (p) => {
-  while (is(p, 'newline') || is(p, ';')) next(p)
-}
-// What holds, to Ruby: all but nil and false.
-export const truthy = (value) => value !== null && value !== false
-
-// React Native's helpers as the version the lockfile has it at has them, for `what` of the podspec, which is
-// refused where that is no version they are known of.
-export function reactNativeOf(p, token, what) {
-  const version = p.context.reactNative
-  const helpers = version === undefined ? undefined : reactNative(version)
-  if (helpers !== undefined) return helpers
-  throw new PodError(`line ${token.line}: ${what}, which is known only of React Native ${KNOWN}: the lockfile has ${version === undefined ? 'no React-Core' : `React-Core at ${version}`}`, p.where)
-}
-
-// `ENV['NAME']`: what pod.config.json's `env` gives, null for one that is not set; else what the lockfile's
-// React Native leaves there once a Podfile's use_react_native! has run, and not set where it has none.
-export function environment(p, name, token) {
-  let value = null
-  if (p.context.env.has(name)) value = p.context.env.get(name)
-  else if (p.context.reactNative !== undefined) {
-    const helpers = reactNativeOf(p, token, `\`ENV['${name}']\` is not given by pod.config.json's \`env\`, and is then as React Native leaves it`)
-    if (helpers.podfile.has(name)) throw new PodError(`line ${token.line}: \`ENV['${name}']\` is as the Podfile had it, which pod.config.json's \`env\` has to give`, p.where)
-    value = helpers.env(p.context)[name] ?? null
-  }
-  p.env.set(name, value)
-  return value
-}
-
-// A value as Ruby's to_s has it in a string.
-export function text(p, value) {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return String(value)
-  if (value === null) return ''
-  return typeof value === 'boolean' ? String(value) : fail(p, 'a list or a hash in a string')
-}
-
-// A hash of a package.json as a podspec reads it: its keys in their order. One whose keys are numbers, which
-// JSON.parse puts first, is refused.
-function fromJson(p, value) {
-  if (Array.isArray(value)) return value.map((item) => fromJson(p, item))
-  if (value === null || typeof value !== 'object') return value
-  if (Object.keys(value).some((key) => /^(?:0|[1-9]\d*)$/u.test(key))) fail(p, 'a package.json with a number for a key')
-  return new Map(Object.entries(value).map(([key, item]) => [key, fromJson(p, item)]))
-}
-
-function readJson(p, path) {
-  const file = isAbsolute(path) ? resolve(path) : resolve(p.dir, path)
-  if (basename(file) !== 'package.json') fail(p, 'a file read that is no package.json')
-  const content = p.read(file)
-  if (content === undefined) throw new PodError(`its podspec reads ${file}, which is not there`, p.where)
-  return content
-}
-
-// The calls a podspec may make: File's, of paths, and JSON.parse.
-function call(p, receiver, method, args) {
-  const strings = args.every((arg) => typeof arg === 'string')
-  if (receiver === 'File' && method === 'join' && strings) return args.join('/').replaceAll(/\/+/gu, '/')
-  if (receiver === 'File' && method === 'dirname' && strings && args.length === 1) return dirname(args[0])
-  if (receiver === 'File' && method === 'expand_path' && strings && args.length <= 2) return resolve(args[1] ?? p.dir, args[0])
-  if (receiver === 'File' && method === 'read' && strings && args.length === 1) return { file: readJson(p, args[0]) }
-  if (receiver === 'JSON' && method === 'parse' && args.length === 1 && typeof args[0]?.file === 'string') {
-    try {
-      return fromJson(p, JSON.parse(args[0].file))
-    } catch (error) {
-      if (error instanceof PodError) throw error
-      throw new PodError('its podspec reads a package.json that is not JSON', p.where, { cause: error })
-    }
-  }
-  return fail(p, `the call \`${receiver}.${method}\``)
-}
 
 export function list(p, close) {
   const items = []
@@ -107,20 +22,24 @@ export function list(p, close) {
   return items
 }
 
-// `{ key => value, key: value }`.
-function hash(p) {
-  const pairs = new Map()
-  for (skipLines(p); !is(p, '}'); skipLines(p)) {
+// `key => value, key: value`, to `close`: of a hash, and of a call, whose values without a key, which come
+// first, go to `args`.
+function pairs(p, close, args) {
+  const byName = new Map()
+  for (skipLines(p); !is(p, close); skipLines(p)) {
     const shorthand = (is(p, 'name') || is(p, 'string')) && p.tokens[p.at + 1].type === ':'
     const key = shorthand && is(p, 'name') ? next(p).value : expression(p)
-    expect(p, shorthand ? ':' : '=>')
+    if (args !== undefined && byName.size === 0 && !shorthand && !is(p, '=>')) args.push(key)
+    else {
+      expect(p, shorthand ? ':' : '=>')
+      skipLines(p)
+      byName.set(text(p, key), expression(p))
+    }
     skipLines(p)
-    pairs.set(text(p, key), expression(p))
-    skipLines(p)
-    if (!is(p, '}')) expect(p, ',')
+    if (!is(p, close)) expect(p, ',')
   }
   next(p)
-  return pairs
+  return byName
 }
 
 export function interpolate(p, parts) {
@@ -131,28 +50,6 @@ export function interpolate(p, parts) {
     if (!is(inner, 'newline')) fail(inner, 'an interpolation of more than a value')
     return text(p, value)
   }).join('')
-}
-
-// `defined?(name)` and `respond_to?(:name, true)`, of one of React Native's helpers: whether the Podfile had
-// it, which is whether the lockfile has React Native.
-function defined(p, token) {
-  const responds = token.value === 'respond_to?'
-  const parenthesized = is(p, '(')
-  if (parenthesized) next(p)
-  const name = expect(p, responds ? 'symbol' : 'name').value
-  if (responds) {
-    // A helper is a private method, which respond_to? has only where it is told to.
-    expect(p, ',')
-    expect(p, 'name', 'true')
-  } else if (is(p, '(')) {
-    next(p)
-    expect(p, ')')
-  }
-  if (parenthesized) expect(p, ')')
-  if (!HELPERS.has(name)) fail(p, `\`${token.value}\` of \`${name}\``, token)
-  if (p.context.reactNative === undefined) return responds ? false : null
-  reactNativeOf(p, token, `\`${name}\` is React Native's`)
-  return responds ? true : 'method'
 }
 
 // What a specification is read of: its name and its version, and whether it has a platform.
@@ -169,58 +66,72 @@ function ofSpec(p, token) {
   return (attribute === 'name' || attribute === 'version') && typeof value === 'string' ? value : fail(p, `\`${token.value}.${attribute}\` read`, token)
 }
 
+// `Pod::VERSION`, the CocoaPods the lockfile is of; and `Gem::Version.new(text)`, a version, to compare.
+function constant(p, token) {
+  expect(p, '::')
+  const name = expect(p, 'name').value
+  if (token.value === 'Pod' && name === 'VERSION' && typeof p.context.cocoapods === 'string') return p.context.cocoapods
+  if (token.value !== 'Gem' || name !== 'Version') return fail(p, `\`${token.value}::${name}\``, token)
+  expect(p, '.')
+  expect(p, 'name', 'new')
+  expect(p, '(')
+  const [version, ...more] = list(p, ')')
+  return typeof version === 'string' && more.length === 0 ? { version } : fail(p, 'a version of what is no text', token)
+}
+
 function named(p, token) {
   const name = token.value
   if (name === 'true' || name === 'false') return name === 'true'
   if (name === 'nil') return null
   if (name === '__dir__') return p.dir
   if (name === '__FILE__') return p.path
-  if (name === 'File' || name === 'JSON') {
+  if (name === 'File' || name === 'JSON' || name === 'Dir') {
     expect(p, '.')
     const method = expect(p, 'name').value
     expect(p, '(')
     return call(p, name, method, list(p, ')'))
   }
   if (name === 'ENV') {
-    expect(p, '[')
-    const key = expression(p)
-    expect(p, ']')
-    return typeof key === 'string' ? environment(p, key, token) : fail(p, 'a variable of the environment whose name is no text', token)
+    // `ENV['NAME']`, and whether it is set: `ENV.include?('NAME')`.
+    const asks = is(p, '.') && ['include?', 'key?', 'has_key?'].includes(p.tokens[p.at + 1].value)
+    if (asks) p.at += 2
+    expect(p, asks ? '(' : '[')
+    const [key, ...more] = list(p, asks ? ')' : ']')
+    const value = typeof key === 'string' && more.length === 0 ? environment(p, key, token) : fail(p, 'a variable of the environment whose name is no text', token)
+    return asks ? value !== null : value
   }
-  if (p.specs.has(name)) return ofSpec(p, token)
+  if (name === 'Pod' || name === 'Gem') return constant(p, token)
+  // A specification is a value only as what a helper is called with.
+  if (p.specs.has(name)) return is(p, '.') ? ofSpec(p, token) : p.specs.get(name)
   if (p.locals.has(name)) return p.locals.get(name)
   if (name === 'defined?' || name === 'respond_to?') return defined(p, token)
-  if (!HELPERS.has(name) || name === 'install_modules_dependencies') return fail(p, `\`${name}\``, token)
-  const helpers = reactNativeOf(p, token, `\`${name}\` is React Native's`)
-  if (is(p, '(')) {
-    next(p)
-    expect(p, ')')
-  }
-  return helpers.values[name]
+  // A helper, which may be one of a class: `Class.helper(...)`.
+  const of = is(p, '.') && isHelper(`${name}.${p.tokens[p.at + 1].value}`) ? { ...token, value: `${name}.${p.tokens[p.at + 1].value}` } : token
+  if (!isHelper(of.value)) return fail(p, `\`${name}\``, token)
+  if (of !== token) p.at += 2
+  const args = []
+  const parenthesized = is(p, '(')
+  if (parenthesized) next(p)
+  return helper(p, of, args, parenthesized ? pairs(p, ')', args) : new Map())
 }
 
 function primary(p) {
   const token = next(p)
   switch (token.type) {
     case 'string': return interpolate(p, token.parts)
-    case 'symbol': case 'number': case 'words': return token.value
+    case 'symbol': return SYMBOL + token.value
+    case 'number': case 'words': return token.value
     case '[': return list(p, ']')
-    case '{': return hash(p)
+    case '{': return pairs(p, '}')
     case '(': {
       const value = expression(p)
       expect(p, ')')
       return value
     }
     case 'name': return named(p, token)
+    case 'global': return global(p, token)
     default: return fail(p, `\`${token.value ?? token.type}\``, token)
   }
-}
-
-// The methods of a value that are read: each gives the value it makes of one, and of what it is called with.
-const METHODS = {
-  to_s: (p, value, args) => (args.length === 0 ? text(p, value) : fail(p, '`to_s` of a base')),
-  freeze: (p, value) => value,
-  join: (p, value, args) => (Array.isArray(value) && args.length <= 1 && typeof (args[0] ?? '') === 'string' ? value.map((one) => text(p, one)).join(args[0] ?? '') : fail(p, 'a `join` of what is no list, or by what is no text')),
 }
 
 function postfix(p) {
@@ -233,12 +144,14 @@ function postfix(p) {
       if (value instanceof Map) value = value.get(text(p, key)) ?? null
       else if (Array.isArray(value) && typeof key === 'number') value = value.at(key) ?? null
       else fail(p, 'an index of what is no hash or list')
-    } else if (is(p, '.') && Object.hasOwn(METHODS, p.tokens[p.at + 1].value)) {
-      p.at += 2
-      const method = METHODS[p.tokens[p.at - 1].value]
+    } else if ((is(p, '.') || is(p, '&.')) && Object.hasOwn(METHODS, p.tokens[p.at + 1].value)) {
+      // `&.` has the method of what is not nil alone; what it is called with is read all the same.
+      const safe = next(p).type === '&.'
+      const method = next(p)
       const parenthesized = is(p, '(')
       if (parenthesized) next(p)
-      value = method(p, value, parenthesized ? list(p, ')') : [])
+      const args = parenthesized ? list(p, ')') : []
+      if (!safe || value !== null) value = METHODS[method.value](p, value, args) ?? fail(p, `\`${method.value}\` of what it is not of, or with what it does not take`, method)
     } else return value
   }
 }
@@ -249,38 +162,42 @@ function unary(p) {
   return !truthy(unary(p))
 }
 
-function sum(p) {
+export function sum(p) {
   let value = unary(p)
-  while (is(p, '+')) {
+  while (is(p, '+') || is(p, '-')) {
     const at = next(p)
-    const other = unary(p)
-    if (typeof value === 'string' && typeof other === 'string') value += other
-    else if (Array.isArray(value) && Array.isArray(other)) value = [...value, ...other]
-    else fail(p, 'a `+` of what is not two strings or two lists', at)
+    value = plus(p, value, unary(p), at)
   }
   return value
 }
 
-// `==` and `!=`, of what is told apart as Ruby tells it: not a symbol, which is read as its text.
-function equal(p) {
-  const first = peek(p)
+function compared(p) {
   const value = sum(p)
+  if (!['<', '<=', '>', '>='].includes(peek(p).type)) return value
+  const operator = next(p)
+  return ordered(p, value, sum(p), operator)
+}
+
+// `==` and `!=`, of what is told apart as Ruby tells it: texts, symbols, numbers, true, false and nil.
+function equal(p) {
+  const value = compared(p)
   if (!is(p, '==') && !is(p, '!=')) return value
   const operator = next(p)
-  const second = peek(p)
-  const other = sum(p)
-  const compared = [value, other].every((one) => one === null || typeof one !== 'object') && first.type !== 'symbol' && second.type !== 'symbol'
-  return compared ? (value === other) === (operator.type === '==') : fail(p, `a \`${operator.type}\` of what is no text, number, true, false or nil`, operator)
+  const other = compared(p)
+  const told = [value, other].every((side) => side === null || typeof side !== 'object')
+  return told ? (value === other) === (operator.type === '==') : fail(p, `a \`${operator.type}\` of what is no text, symbol, number, true, false or nil`, operator)
 }
 
 // `&&` and `||`, each giving one of its sides, as Ruby's do.
 function logical(p, operator, operand) {
   let value = operand(p)
   while (is(p, operator)) {
-    next(p)
+    const token = next(p)
     skipLines(p)
+    const before = p.state.changes
     const other = operand(p)
     if (truthy(value) === (operator === '&&')) value = other
+    else untaken(p, p.state.changes !== before, token)
   }
   return value
 }
@@ -290,11 +207,14 @@ const both = (p) => logical(p, '&&', equal)
 export function expression(p) {
   const value = logical(p, '||', both)
   if (!is(p, '?')) return value
-  next(p)
+  const token = next(p)
   skipLines(p)
+  const before = p.state.changes
   const held = expression(p)
+  const between = p.state.changes
   expect(p, ':')
   skipLines(p)
   const other = expression(p)
+  untaken(p, truthy(value) ? p.state.changes !== between : between !== before, token)
   return truthy(value) ? held : other
 }

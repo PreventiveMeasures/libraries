@@ -37,6 +37,9 @@ const OPTIONS = {
   // a string, or null for one that is not set. Those a known React Native sets itself need not be given:
   // podspec-rn.js has them, USE_FRAMEWORKS as `frameworks` here is.
   env: [(value) => isObject(value) && Object.values(value).every((one) => one === null || typeof one === 'string'), 'an object of variables of the environment, each a string, or null for one that is not set'],
+  // The globals the Podfile set, which a podspec may read: `$RNFirebaseAsStaticFramework = true` is
+  // { "RNFirebaseAsStaticFramework": true }. One that is not given is not set.
+  globals: [(value) => isObject(value) && Object.keys(value).every((name) => /^[A-Za-z_]\w*$/u.test(name)), 'an object of globals by name, without the `$`'],
 }
 
 function check(options, values, prefix) {
@@ -72,5 +75,6 @@ export function readConfig(text) {
     buildSettings: given.buildSettings ?? {},
     prepareCommands: given.prepareCommands ?? [],
     env: given.env ?? {},
+    globals: given.globals ?? {},
   }
 }

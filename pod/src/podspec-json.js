@@ -14,6 +14,10 @@ const SINGULAR = {
 const ROOT = new Set(['name', 'version', 'swift_versions', 'cocoapods_version', 'authors', 'social_media_url', 'license', 'homepage', 'readme', 'changelog', 'source', 'summary', 'description', 'screenshots', 'documentation_url', 'prepare_command', 'static_framework', 'deprecated', 'deprecated_in_favor_of', 'module_name', 'default_subspecs', 'platforms', 'test_type'])
 const PER_PLATFORM = new Set(['info_plist', 'requires_arc', 'frameworks', 'weak_frameworks', 'libraries', 'compiler_flags', 'pod_target_xcconfig', 'user_target_xcconfig', 'xcconfig', 'prefix_header_contents', 'prefix_header_file', 'header_dir', 'header_mappings_dir', 'script_phases', 'source_files', 'public_header_files', 'project_header_files', 'private_header_files', 'vendored_frameworks', 'vendored_libraries', 'on_demand_resources', 'resource_bundles', 'resources', 'exclude_files', 'preserve_paths', 'module_map', 'requires_app_host', 'app_host_name', 'scheme'])
 export const PLATFORMS = ['osx', 'ios', 'tvos', 'visionos', 'watchos']
+// A symbol is the text of its name after this, so that it is told from a string of that text where Ruby tells
+// them apart, in a `==`; `plain` is the text of either, which is all that is written of one.
+export const SYMBOL = '\u{F0000}'
+export const plain = (value) => (typeof value === 'string' && value.startsWith(SYMBOL) ? value.slice(SYMBOL.length) : value)
 
 export const newSpec = (parent, name, kind = 'library') => ({ attributes: new Map([['name', name], ...(kind === 'test' ? [['test_type', 'unit']] : [])]), subspecs: [], parent, kind })
 
@@ -28,7 +32,7 @@ function stripped(text) {
 // `s.<platform>.<writer> = value`.
 export function setAttribute(spec, writer, value, platform, fail) {
   if (writer === 'platform' && platform === undefined) {
-    const [name, target] = Array.isArray(value) ? value : [value]
+    const [name, target] = (Array.isArray(value) ? value : [value]).map(plain)
     return void spec.attributes.set('platforms', name === null || name === undefined ? new Map() : new Map([[name === 'macos' ? 'osx' : String(name), target ?? null]]))
   }
   if (writer === 'deployment_target') {
@@ -56,8 +60,8 @@ export function addDependency(spec, args, platform, fail) {
 
 function platformHash(spec) {
   const value = spec.attributes.get('platforms')
-  if (typeof value === 'string') return new Map([[value, null]])
-  if (Array.isArray(value)) return new Map(value.map((name) => [name, null]))
+  if (typeof value === 'string') return new Map([[plain(value), null]])
+  if (Array.isArray(value)) return new Map(value.map((name) => [plain(name), null]))
   return value instanceof Map ? value : new Map()
 }
 function deploymentTarget(spec, name) {
@@ -101,14 +105,14 @@ function pretty(value, indent, compact) {
   const deeper = `${indent}  `
   if (value instanceof Map) {
     if (value.size === 0) return compact ? '{}' : `{\n${indent}}`
-    return `{\n${[...value].map(([key, item]) => `${deeper}${JSON.stringify(String(key))}: ${pretty(item, deeper, compact)}`).join(',\n')}\n${indent}}`
+    return `{\n${[...value].map(([key, item]) => `${deeper}${JSON.stringify(String(plain(key)))}: ${pretty(item, deeper, compact)}`).join(',\n')}\n${indent}}`
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return compact ? '[]' : `[\n\n${indent}]`
     return `[\n${value.map((item) => `${deeper}${pretty(item, deeper, compact)}`).join(',\n')}\n${indent}]`
   }
   if (value === undefined || value === null) return 'null'
-  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(plain(value))
   if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
   throw new PodError('its podspec has a value that is no text, number, list or hash')
 }

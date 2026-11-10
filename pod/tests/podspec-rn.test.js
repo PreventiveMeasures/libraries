@@ -8,7 +8,7 @@ import { podspecJson } from '../src/podspec-read.js'
 const FIXTURES = new URL('fixtures/podspecs/modules/', import.meta.url).pathname
 const sha1 = (text) => createHash('sha1').update(text).digest('hex')
 const context = ({ env = {}, ...rest } = {}) => ({ env: new Map(Object.entries(env)), prebuilt: {}, ...rest })
-const convert = (source, given) => podspecJson('/pod/Name.podspec', source, () => undefined, 'pods["Name"]', context(given))
+const convert = (source, given) => podspecJson('/pod/Name.podspec', source, { read: () => undefined }, 'pods["Name"]', context(given))
 const spec = (body, before = '') => `${before}Pod::Spec.new do |s|\n  s.name = 'Name'\n${body}end\n`
 const parsed = (source, given) => JSON.parse(convert(source, given).forms[1])
 
@@ -31,7 +31,7 @@ describe('a podspec of a React Native module', () => {
   for (const [name, given, checksum] of LOCKED) {
     it(`reads ${name} as the CocoaPods of a project on React Native ${given.reactNative} did${given.env ? ', in its environment' : ''}`, () => {
       const path = `${FIXTURES}${name}.podspec`
-      const { forms } = podspecJson(path, readFileSync(path, 'utf8'), () => undefined, name, context(given))
+      const { forms } = podspecJson(path, readFileSync(path, 'utf8'), { read: () => undefined }, name, context(given))
       assert.ok(forms.map(sha1).includes(checksum), forms[1])
     })
   }
@@ -48,7 +48,9 @@ describe('a podspec of a React Native module', () => {
       assert.throws(() => convert(source, { reactNative }), (error) => error.name === 'PodError' && error.message === `pods["Name"]: line 3: \`install_modules_dependencies\` is React Native's, which is known only of React Native 0.78.0 to 0.78.3, 0.83.0 to 0.83.10, 0.85.0 to 0.86.3, 0.88.0 and 0.88.1: the lockfile has React-Core at ${reactNative}`, reactNative)
     }
     assert.throws(() => convert(source), /line 3: `install_modules_dependencies` is React Native's, .*: the lockfile has no React-Core/u)
-    assert.throws(() => convert(spec('  install_modules_dependencies(t)\n'), { reactNative: '0.78.3' }), /line 3: `install_modules_dependencies` of what is no specification/u)
+    assert.throws(() => convert(spec('  install_modules_dependencies(t)\n'), { reactNative: '0.78.3' }), /line 3: `t`/u)
+    assert.throws(() => convert(spec("  install_modules_dependencies('s')\n"), { reactNative: '0.78.3' }), /line 3: a helper given what it does not take/u)
+    assert.throws(() => convert(spec('  podspec_sources([], [])\n'), { reactNative: '0.78.3' }), /line 3: `podspec_sources`, which React Native 0\.78\.3 has not/u)
   })
 
   it('adds to what the podspec has, in the order React Native 0.78.3 does', () => {

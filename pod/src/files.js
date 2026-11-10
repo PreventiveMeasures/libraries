@@ -73,6 +73,20 @@ export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = f
   return found
 }
 
+// Dir.glob(pattern) from `dir`, for a podspec that lists its files itself: the files and the directories whose
+// path from `dir` the pattern takes, in the order of their paths' bytes. Only what is under the directories
+// the pattern names before its first wildcard is looked at; and a letter is taken in either case, as Ruby
+// takes it on a volume that tells no case apart, which that of a Mac is unless it is made otherwise.
+export function dirGlob(dir, pattern, where) {
+  const segments = pattern.split('/')
+  const literal = segments.findIndex((segment) => /[*?[{\\]/u.test(segment))
+  if (pattern.startsWith('/') || literal === -1) throw new PodError(`a glob of ${quote(pattern)}, which is from no directory of the podspec's, or has no wildcard`, where)
+  const base = segments.slice(0, literal).join('/')
+  const list = listPod(join(dir, base), where)
+  const found = glob(list, [segments.slice(literal).join('/')], { includeDirs: true })
+  return found.map((path) => (base === '' ? path : `${base}/${path}`)).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+}
+
 const unique = (paths) => [...new Set(paths)]
 const isHeader = (path) => HEADERS.includes(extname(path))
 

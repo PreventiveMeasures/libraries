@@ -6,8 +6,8 @@ import { PodError } from './error.js'
 
 const ESCAPES = { n: '\n', t: '\t', r: '\r', s: ' ', e: '\u001B', 0: '\0', a: '\u0007', b: '\b', f: '\f', v: '\v' }
 const CLOSERS = { '(': ')', '[': ']', '{': '}', '<': '>' }
-const PUNCTUATION = ['=>', '==', '!=', '&&', '||', '<<', '::', '=', ',', '.', '(', ')', '[', ']', '{', '}', '|', '+', ';', ':', '!', '?']
-const REFUSED = /^(?:===|=~|!~|\+=|\|\|=|&&=|<<=)/u
+const PUNCTUATION = ['=>', '==', '!=', '&&', '&.', '||', '<<', '<=', '>=', '+=', '::', '=', ',', '.', '(', ')', '[', ']', '{', '}', '|', '+', '-', ';', ':', '!', '?', '<', '>']
+const REFUSED = /^(?:===|=~|!~|-=|->|\|\|=|&&=|<<=|<=>|>>)/u
 
 function fail(t, what) {
   throw new PodError(`line ${t.line}: ${what}, which is not in the form of a podspec that is read without Ruby`, t.where)
@@ -110,6 +110,13 @@ function literal(t, rest) {
   else if (rest[0] === '"' || rest[0] === "'") {
     t.at++
     push(t, 'string', undefined, { parts: rest[0] === '"' ? interpolated(t, '"') : single(t) })
+  } else if (rest[0] === '`') {
+    // A command: not read, but known for where it ends, so that a branch that does not hold is passed over.
+    const end = t.source.indexOf('`', t.at + 1)
+    if (end === -1) fail(t, 'a command that does not end')
+    push(t, 'command', t.source.slice(t.at, end + 1))
+    t.line += t.source.slice(t.at, end).split('\n').length - 1
+    t.at = end + 1
   } else if ((match = /^:([A-Za-z_]\w*[?!=]?)(?!:)/u.exec(rest)) !== null) {
     push(t, 'symbol', match[1])
     t.at += match[0].length
@@ -137,7 +144,8 @@ export function tokenize(source, where, line = 1) {
     const rest = source.slice(t.at)
     let match
     if (char === '\n') {
-      push(t, 'newline')
+      // A line that begins with `.name` goes on with the one before it.
+      if (t.pending.length > 0 || !/^\n[ \t]*\.[A-Za-z_]/u.test(rest)) push(t, 'newline')
       t.at++
       t.line++
       heredocs(t)
@@ -147,8 +155,9 @@ export function tokenize(source, where, line = 1) {
       t.at += 2
       t.line++
     } else if (literal(t, rest)) continue
-    else if ((match = /^[A-Za-z_]\w*(?:[?!](?![=~]))?/u.exec(rest)) !== null) {
-      push(t, 'name', match[0])
+    else if ((match = /^(\$?)([A-Za-z_]\w*(?:[?!](?![=~]))?)/u.exec(rest)) !== null) {
+      // A name; with a `$` before it, one of a global, which a Podfile may have set.
+      push(t, match[1] === '' ? 'name' : 'global', match[2])
       t.at += match[0].length
     } else if (!REFUSED.test(rest) && (match = PUNCTUATION.find((one) => rest.startsWith(one))) !== undefined) {
       push(t, match)
