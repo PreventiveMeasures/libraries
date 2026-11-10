@@ -5,7 +5,28 @@
   "type": "module",
   "files": [
     "LICENSE-APACHE",
-    "LICENSE-MIT"
+    "LICENSE-MIT",
+    "src/binaries.js",
+    "src/config.js",
+    "src/error.js",
+    "src/files.js",
+    "src/headers.js",
+    "src/load.js",
+    "src/plist.js",
+    "src/settings-aggregate.js",
+    "src/settings-pod.js",
+    "src/settings.js",
+    "src/spec.js",
+    "src/support.js",
+    "src/targets.js",
+    "src/user-project.js",
+    "src/xcconfig.js",
+    "src/scripts/README.md",
+    "src/scripts/dsyms-head.sh",
+    "src/scripts/frameworks-head.sh",
+    "src/scripts/resources-head.sh",
+    "src/scripts/resources-tail.sh",
+    "src/scripts/xcframeworks-head.sh"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -31,15 +52,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "devDependencies": {
-    "@ruby/prism": "^2.0.0"
-  },
-  "peerDependencies": {
-    "@ruby/prism": ">=2.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@ruby/prism": {
-      "optional": true
-    }
+  "dependencies": {
+    "@preventive/deptree": "^1.4.0",
+    "@preventive/lockfile": "^1.3.0"
   }
 }

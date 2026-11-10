@@ -27,6 +27,9 @@
     "./cocoapods.js": {
       "types": "./cocoapods.d.ts",
       "default": "./cocoapods.js"
+    },
+    "./src/cocoapods/fnmatch.js": {
+      "default": "./src/cocoapods/fnmatch.js"
     }
   },
   "bin": {

@@ -1,0 +1,103 @@
+// The files CocoaPods generates beside a target, in Target Support Files: its module map, umbrella and prefix
+// headers, dummy source, Info.plist, acknowledgements and the script that copies its resources.
+
+import { readFileSync } from 'node:fs'
+import { basename, join, posix } from 'node:path'
+
+import { licenseOf } from './files.js'
+import { compareVersions } from './targets.js'
+import { byBytes } from './xcconfig.js'
+
+const script = (name) => readFileSync(new URL(`scripts/${name}`, import.meta.url), 'utf8')
+
+const PLATFORM_HEADER = '#ifdef __OBJC__\n#import <UIKit/UIKit.h>\n#else\n#ifndef FOUNDATION_EXPORT\n#if defined(__cplusplus)\n#define FOUNDATION_EXPORT extern "C"\n#else\n#define FOUNDATION_EXPORT extern\n#endif\n#endif\n#endif\n\n'
+const header = (imports) => `${PLATFORM_HEADER}${imports.map((path) => `#import "${path}"\n`).join('')}`
+
+export const moduleMap = (target, extraHeaders = []) =>
+  `${target.framework ? 'framework ' : ''}module ${target.moduleName} {\n  ${[`umbrella header "${target.label}-umbrella.h"`, ...extraHeaders].join('\n  ')}\n\n  export *\n  module * { export * }\n}\n`
+
+// A pod's public headers as its umbrella header imports them: by name, by header_mappings_dir where a spec has
+// one, and under header_dir where it is not built as a framework.
+export function umbrellaImports(target) {
+  return target.accessors.flatMap((accessor) => {
+    const { header_dir: headerDir, header_mappings_dir: mappingsDir } = accessor.consumer
+    return accessor.publicHeaders.map((path) => {
+      const imported = mappingsDir ? posix.relative(mappingsDir, path) : basename(path)
+      return !target.framework && headerDir ? posix.join(headerDir, imported) : imported
+    })
+  })
+}
+export const umbrellaHeader = (target, imports = []) => `${header(imports)}\nFOUNDATION_EXPORT double ${target.moduleName}VersionNumber;\nFOUNDATION_EXPORT const unsigned char ${target.moduleName}VersionString[];\n\n`
+
+// The prefix header: each spec's own contents once, then the prefix header files they name.
+export function prefixHeader(target) {
+  const contents = [...new Set(target.consumers.map((consumer) => consumer.prefix_header_contents).filter((one) => one !== undefined))]
+  const files = [...new Set(target.accessors.map((accessor) => accessor.prefixHeader).filter((one) => one !== undefined))]
+  return `${header([])}${contents.map((one) => `${one}\n`).join('')}${files.map((path) => readFileSync(join(target.dir, path), 'utf8')).join('')}`
+}
+
+export const dummySource = (label) => {
+  const name = label.replaceAll(/[^a-zA-Z0-9_]/gu, '_')
+  return `#import <Foundation/Foundation.h>\n@interface PodsDummy_${name} : NSObject\n@end\n@implementation PodsDummy_${name}\n@end\n`
+}
+
+const XML_HEAD = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n'
+// Generator::InfoPlistFile#serialize: nothing is escaped, as CocoaPods escapes nothing.
+function plistValue(value, indent) {
+  if (Array.isArray(value)) return `${indent}<array>\n${value.map((item) => plistValue(item, `${indent}  `)).join('')}${indent}</array>\n`
+  if (typeof value === 'string') return `${indent}<string>${value}</string>\n`
+  if (typeof value === 'boolean') return `${indent}<${value}/>\n`
+  if (value === null || typeof value !== 'object') return ''
+  const entries = Object.entries(value).sort(([a], [b]) => byBytes(a, b))
+  return `${indent}<dict>\n${entries.map(([key, item]) => `${indent}  <key>${key}</key>\n${plistValue(item, `${indent}  `)}`).join('')}${indent}</dict>\n`
+}
+// `type` is `FMWK` for a framework, `BNDL` for a resource bundle.
+export function infoPlist(version, type, extra = {}) {
+  const info = {
+    CFBundleIdentifier: '${PRODUCT_BUNDLE_IDENTIFIER}',
+    CFBundleInfoDictionaryVersion: '6.0',
+    CFBundleName: '${PRODUCT_NAME}',
+    CFBundlePackageType: type,
+    CFBundleShortVersionString: version,
+    CFBundleSignature: '????',
+    CFBundleVersion: type === 'BNDL' ? '1' : '${CURRENT_PROJECT_VERSION}',
+    NSPrincipalClass: '',
+    CFBundleDevelopmentRegion: '${PODS_DEVELOPMENT_LANGUAGE}',
+    ...(type === 'BNDL' ? {} : { CFBundleExecutable: '${EXECUTABLE_NAME}' }),
+    ...extra,
+  }
+  return `${XML_HEAD}${plistValue(info, '')}</plist>\n`
+}
+
+// A pod's license as the acknowledgements quote it: its text, else the file it names, else the first license
+// file its directory has; undefined where it has none.
+function licenseText(target) {
+  const { license } = target.root
+  if (typeof license.text === 'string') return license.text
+  const file = typeof license.file === 'string' ? (target.list.files.includes(license.file) ? license.file : undefined) : licenseOf(target.list, {})
+  return file === undefined ? undefined : readFileSync(join(target.dir, file), 'utf8')
+}
+
+const HEADER_TEXT = 'This application makes use of the following third party libraries:'
+const FOOTNOTE = 'Generated by CocoaPods - https://cocoapods.org'
+const escapeXml = (text) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+
+// The two acknowledgements of an app target's pods, the Markdown one and the property list.
+export function acknowledgements(pods) {
+  const licensed = pods.map((pod) => ({ name: pod.name, type: pod.root.license.type, text: licenseText(pod) })).filter((one) => one.text !== undefined)
+  const markdown = `# Acknowledgements\n${HEADER_TEXT}\n${licensed.map((one) => `\n## ${one.name}\n\n${one.text}\n`).join('')}${FOOTNOTE}\n`
+  const group = (title, footer, type) => {
+    const entries = { FooterText: footer, ...(typeof type === 'string' ? { License: type } : {}), Title: title, Type: 'PSGroupSpecifier' }
+    return `\t\t<dict>\n${Object.entries(entries).map(([key, value]) => `\t\t\t<key>${key}</key>\n\t\t\t<string>${escapeXml(value)}</string>\n`).join('')}\t\t</dict>\n`
+  }
+  const groups = [group('Acknowledgements', HEADER_TEXT), ...licensed.map((one) => group(one.name, one.text, one.type)), group('', FOOTNOTE)]
+  const plist = `${XML_HEAD}<dict>\n\t<key>PreferenceSpecifiers</key>\n\t<array>\n${groups.join('')}\t</array>\n\t<key>StringsTable</key>\n\t<string>Acknowledgements</string>\n\t<key>Title</key>\n\t<string>Acknowledgements</string>\n</dict>\n</plist>\n`
+  return { markdown, plist }
+}
+
+// Generator::CopyResourcesScript: `byConfiguration` is the resources of each of the app's configurations.
+export function resourcesScript(byConfiguration, deploymentTarget) {
+  const head = compareVersions(deploymentTarget, '6.0') >= 0 ? script('resources-head.sh') : script('resources-head.sh').replaceAll(' --reference-external-strings-file', '')
+  const blocks = Object.entries(byConfiguration).filter(([, resources]) => resources.length > 0).map(([name, resources]) => `if [[ "$CONFIGURATION" == "${name}" ]]; then\n${resources.map((path) => `  install_resource "${path}"\n`).join('')}fi\n`)
+  return `${head}${blocks.join('')}${script('resources-tail.sh')}`
+}
