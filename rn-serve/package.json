@@ -1,6 +1,6 @@
 {
   "name": "@preventive/rn-serve",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.7",
   "description": "Metro-compatible React Native dev server",
   "type": "module",
   "bin": {
