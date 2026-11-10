@@ -39,12 +39,16 @@ const sourceSize = (source = '') => {
 // -> async (source, filename, without = []) => { code, imports, uncacheable? }, on up to `max` workers
 // (defaultWorkers() if null). `warm` starts them all now; `eager` starts them all once a build passes
 // IN_BAND files, rather than one per BACKLOG. Has close(), and fingerprint() with a fingerprinter.
+// options.processEnv, where given, is what of process.env the workers run with (NODE_ENV, BABEL_ENV), as
+// the config and its plugins read it; where this process's differs, nothing is transformed in band.
 export function babelWorkers(corePath, options, profile = null, max = null, { warm = false, eager = false } = {}) {
   const most = max ?? defaultWorkers()
+  const env = options.processEnv ?? null
+  const inBandOk = !options.keepPlugins && (env === null || Object.entries(env).every(([name, value]) => process.env[name] === value))
   const bySize = options.oneBuild && !options.sourceMaps
   const workers = []
   const made = () => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } }, resourceLimits: { maxYoungGenerationSizeMb: YOUNG_MB } })
+    const worker = new Worker(new URL(import.meta.url), { workerData: { babel: { corePath, options, profile: profile !== null } }, resourceLimits: { maxYoungGenerationSizeMb: YOUNG_MB }, ...(env !== null && { env: { ...process.env, ...env } }) })
     // `asked`: the answers it owes, in order.
     const info = { worker, asked: [], ready: false, load: 0 }
     worker.on('message', (answer) => {
@@ -88,7 +92,7 @@ export function babelWorkers(corePath, options, profile = null, max = null, { wa
   let inBand = null
   let handled = 0
   const ask = async (message) => {
-    if (options.keepPlugins || (handled >= IN_BAND && workers.some(({ ready }) => ready))) return inWorker(message)
+    if (!inBandOk || (handled >= IN_BAND && workers.some(({ ready }) => ready))) return inWorker(message)
     // Past IN_BAND, start a worker if there is none (or it died); `eager`, each.
     if (++handled >= IN_BAND) while (workers.length < (eager ? most : 1)) made()
     // No fingerprint: the main thread has loaded more than Babel. A failure to load is each file's.

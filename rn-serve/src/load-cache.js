@@ -55,7 +55,7 @@ export function createLoadCache(dir, { esbuild, flow = null }) {
 
 // The kept fingerprint if its stats or its digest still match, else a new one from the workers; null if none.
 async function fingerprintFor(babel, entries) {
-  const key = digest(JSON.stringify(['fingerprint', babel.workerOptions, envOf()]))
+  const key = digest(JSON.stringify(['fingerprint', babel.workerOptions, envOf(babel.workerOptions.processEnv)]))
   const kept = readEntry(entries, key)
   const signed = (made) => {
     writeEntry(entries, key, { ...made, signature: signatureOf(made) })
