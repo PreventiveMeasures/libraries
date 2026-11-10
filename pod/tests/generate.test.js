@@ -149,6 +149,38 @@ describe('generate, of the compiled resources of a pod with nothing to build', (
   })
 })
 
+describe('generate, with what is said of one pod over what is said of all', () => {
+  it('takes a pod out of modular headers and of inhibited warnings where it says false, as CocoaPods does', async () => {
+    // `use_modular_headers!` and `inhibit_all_warnings!` with `:modular_headers => false` and
+    // `:inhibit_warnings => false` on a pod each: `pod install` 1.16.2 writes these.
+    const input = await load(join(FIXTURES, 'libraries/project'))
+    Object.assign(input.config, { modularHeaders: true, inhibitWarnings: true })
+    Object.assign(input.config.pods, { Scripted: { modularHeaders: false }, Mapped: { inhibitWarnings: false } })
+    const { files, podTargets } = generate(input)
+    const said = Object.fromEntries(podTargets.map((target) => [target.name, [target.definesModule, target.inhibitWarnings]]))
+    assert.deepEqual([said.Scripted, said.Mapped, said.Local], [[false, true], [true, false], [true, true]])
+    assert.equal(files.has('Target Support Files/Scripted/Scripted.modulemap'), false)
+    assert.equal(files.has('Target Support Files/Local/Local.modulemap'), true)
+    const flags = Buffer.from(files.get('Target Support Files/Pods-App/Pods-App.debug.xcconfig')).toString('utf8')
+    assert.equal(flags.includes('Scripted.modulemap'), false)
+    assert.equal(flags.includes('-fmodule-map-file="${PODS_ROOT}/Headers/Public/Local/Local.modulemap"'), true)
+  })
+})
+
+describe('generate, for a project whose phases run what is written no more', () => {
+  it('refuses, as the project is not changed and its phase would run a script that is not there', async () => {
+    // Ext takes Core, which has a resource, and its target in the app's project runs Pods-Ext-resources.sh.
+    // With a pod that has none instead, CocoaPods writes no such script and takes the phase out of the project.
+    const input = await load(join(FIXTURES, 'libraries/project'))
+    assert.deepEqual(input.user.targets.map((target) => [target.name, target.scripts]), [
+      ['App', ['Pods-App/Pods-App-frameworks.sh', 'Pods-App/Pods-App-resources.sh']],
+      ['Ext', ['Pods-Ext/Pods-Ext-resources.sh']],
+    ])
+    input.config.targets.Ext = { pods: ['Overlap'] }
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message.startsWith('targets["Ext"]: a phase of it in the app\'s project runs Pods-Ext-resources.sh, which its pods have no more use for and is not written'))
+  })
+})
+
 describe('generate, of dynamic frameworks', () => {
   const staticFramework = (input, name, value) => {
     input.pods.find((pod) => pod.name === name).root.attributes.static_framework = value

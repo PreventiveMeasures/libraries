@@ -113,8 +113,10 @@ export function analyze(pods, user, config) {
   const podTargets = pods.map((pod) => podTarget(pod, platformName, {
     linkage: config.frameworks,
     swiftVersions,
-    modularHeaders: config.modularHeaders || config.pods[pod.name]?.modularHeaders === true,
-    inhibitWarnings: config.inhibitWarnings || config.pods[pod.name]?.inhibitWarnings === true,
+    // TargetDefinition#build_pod_as_module? and #inhibits_warnings_for_pod?: what is said of the pod itself,
+    // true or false, and else what is said of all.
+    modularHeaders: config.pods[pod.name]?.modularHeaders ?? config.modularHeaders,
+    inhibitWarnings: config.pods[pod.name]?.inhibitWarnings ?? config.inhibitWarnings,
   })).sort((a, b) => byBytes(a.name, b.name))
   wire(podTargets)
   const byName = new Map(podTargets.map((target) => [target.name, target]))

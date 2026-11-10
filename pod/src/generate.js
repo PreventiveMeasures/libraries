@@ -87,6 +87,18 @@ function checkStaticDependencies(aggregates) {
   }
 }
 
+// The two scripts of an app's target that CocoaPods writes for the phases it puts in the app's project, which
+// copy the pods' resources and embed their frameworks: a phase that runs one has to find it. CocoaPods takes
+// the phase out of the project when the target has no more use for the script; the project is not changed
+// here, and would run what is not there. A script of another's, as Expo's, is not looked at.
+function checkIntegration(aggregates, files) {
+  for (const { label, userTarget } of aggregates) {
+    const own = ['resources', 'frameworks'].map((kind) => `${label}/${label}-${kind}.sh`)
+    const missing = own.filter((path) => userTarget.scripts.includes(path) && !files.has(`Target Support Files/${path}`)).map((path) => posix.basename(path))
+    if (missing.length > 0) throw new PodError(`a phase of it in the app's project runs ${missing.join(', ')}, which its pods have no more use for and is not written: the project is integrated for other pods than the lockfile has, and has to be integrated again, or the phase taken out of it`, `targets[${JSON.stringify(userTarget.name)}]`)
+  }
+}
+
 // `input` is load.js's. The files come by their paths from Pods/, each as text; the links as headerLinks'.
 export function generate(input) {
   const { dir, sandbox, config, user } = input
@@ -127,6 +139,7 @@ export function generate(input) {
     for (const name of target.consumers.flatMap((consumer) => consumer.frameworks)) addSystemFramework(project, target.native, name)
   }
   for (const aggregate of aggregates) addAggregateTarget(project, aggregate, context)
+  checkIntegration(aggregates, files)
   wireDependencies(project, podTargets, aggregates)
   // What a post_install hook set: on every target of the project, and on one pod's own.
   for (const target of project.targets) {
