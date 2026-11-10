@@ -10,7 +10,7 @@ import { checkCloned, checkoutOf } from '../github.js'
 import { sha1Hex } from '../hash.js'
 import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { archiveOf } from './archive.js'
-import { checkHost, flagsOf, inputsOf, platformsOf } from './inputs.js'
+import { checkHost, flagsOf, inputsOf, onlyOf, platformsOf } from './inputs.js'
 import { installPod, planPod } from './install.js'
 import { given, readPodspec, specNamed } from './podspec.js'
 import { SourceRefusal, sourceOf } from './source.js'
@@ -178,6 +178,7 @@ export async function buildCocoaPodsTree(options) {
   const inputs = inputsOf(all)
   const platforms = platformsOf(all.platforms)
   const { manifest, partial } = flagsOf(all)
+  const only = onlyOf(all.only)
   const host = checkHost(all.host)
   const folded = host.os === 'darwin'
   // 1.13 to 1.15 copy a download into their cache with FileUtils.cp_r,
@@ -187,8 +188,11 @@ export async function buildCocoaPodsTree(options) {
   if (into !== undefined) checkNoPods(into, folded)
   const lock = await parsePodfileLock(inputs.lockfile, inputs.podfile === undefined ? {} : { podfile: inputs.podfile })
   const roots = Object.values(lock.roots)
+  const unknown = [...(only ?? [])].find((name) => !roots.some((root) => root.name === name))
+  if (unknown !== undefined) throw new DeptreeError('the lockfile has no pod of the name, which `only` has', about(unknown))
   const skipped = partial ? new Map() : undefined
-  const fetched = roots.filter((root) => unlessSkipped(() => isDownloaded(root, folded), root, skipped))
+  // A pod `only` leaves out is not looked at: not refused, skipped or fetched.
+  const fetched = roots.filter((root) => only?.has(root.name) !== false && unlessSkipped(() => isDownloaded(root, folded), root, skipped))
   if (github === undefined && fetched.length > 0) throw new TypeError(GITHUB)
   const { prepare } = all
   if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('prepare must be a function that runs a prepare_command, or left out')

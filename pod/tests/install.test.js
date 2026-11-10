@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -180,6 +180,25 @@ end
     rmSync(join(dir, 'Pods/Gamma'), { recursive: true })
     cpSync(join(dir, 'Podfile.lock'), join(dir, 'Pods/Manifest.lock'))
     await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
+  })
+
+  it('asks nothing of a pod Pods/ has already, where another has to be downloaded', async () => {
+    const { dir, asked } = await project()
+    // Epsilon, from trunk, is in Pods/ as its Manifest.lock records it, by a git tag; Gamma is not there.
+    const podspec = `${JSON.stringify({ name: 'Epsilon', version: '1.0.0', summary: 'Epsilon', homepage: 'https://example.com/epsilon', license: 'MIT', authors: 'Fixture', platforms: { ios: '15.1' }, source: { git: 'https://example.com/epsilon.git', tag: '1.0.0' }, source_files: '*.h' }, null, 2)}\n`
+    const lock = readFileSync(join(dir, 'Podfile.lock'), 'utf8')
+      .replace('  - Delta (0.3.0)\n', '  - Delta (0.3.0)\n  - Epsilon (1.0.0)\n')
+      .replace('  - Delta (from `local/Delta`)\n', '  - Delta (from `local/Delta`)\n  - Epsilon\n')
+      .replace('EXTERNAL SOURCES:\n', 'SPEC REPOS:\n  trunk:\n    - Epsilon\n\nEXTERNAL SOURCES:\n')
+      .replace(/(  Delta: [\da-f]{40}\n)/u, `$1  Epsilon: ${sha('sha1', podspec)}\n`)
+    writeFileSync(join(dir, 'Podfile.lock'), lock)
+    writeFileSync(join(dir, 'Podspecs/Epsilon.podspec.json'), podspec)
+    mkdirSync(join(dir, 'Pods/Epsilon'), { recursive: true })
+    writeFileSync(join(dir, 'Pods/Epsilon/Epsilon.h'), '')
+    writeFileSync(join(dir, 'Pods/Manifest.lock'), lock)
+    const result = await install(dir, GITHUB)
+    assert.deepEqual([result.pods, result.downloaded, asked], [['Alpha', 'Beta', 'Delta', 'Epsilon', 'Gamma'], ['Gamma'], [ARCHIVE]])
+    assert.ok(existsSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')))
   })
 
   it('runs a prepare_command only for a pod that pod.config.json names, before the pod is cleaned', async () => {

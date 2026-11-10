@@ -95,6 +95,13 @@ export interface CocoaPodsProject {
 // a hash the lockfile holds, or that a podspec it holds does, whether
 // `partial` is given or not.
 //
+// `only` names the pods to download, by the lockfile's names of them, each
+// once: for a Pods/ that has the others already, as its Manifest.lock
+// says. No other pod is looked at: its podspec is not fetched, nor its
+// source, its prepare_command is not run, and it is neither written,
+// refused nor listed in `skipped`. A name the lockfile has no pod of is
+// refused. Left out, every pod CocoaPods downloads is downloaded.
+//
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to be
 // the project's -- it may be `project` too; without one, a new Vfs holds
 // the tree alone. A Vfs that holds a `Pods` at its root, or on macOS a name
@@ -147,6 +154,7 @@ export interface CocoaPodsTreeGiven {
   podspecs?: Record<string, string | Uint8Array>
   manifest?: boolean
   partial?: boolean
+  only?: string[]
   prepare?: (pod: CocoaPodsPrepare) => CocoaPodsContents | Promise<CocoaPodsContents>
   vfs?: Vfs
   github?: Client
@@ -161,6 +169,7 @@ export interface CocoaPodsTreeRead {
   podspecs?: Record<string, string | Uint8Array>
   manifest?: boolean
   partial?: boolean
+  only?: string[]
   prepare?: (pod: CocoaPodsPrepare) => CocoaPodsContents | Promise<CocoaPodsContents>
   vfs?: Vfs
   github?: Client

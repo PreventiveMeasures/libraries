@@ -134,6 +134,24 @@ describe('buildCocoaPodsTree', () => {
     await assert.rejects(build({ partial: 1 }), /partial must be a boolean, or left out/u)
   })
 
+  it('downloads with only the pods it names, and looks at no other', async () => {
+    const calls = stubPods({ others: { 'Other@1.0.0': OTHER } })
+    // Local and Other are refused where they are looked at; left out, they are not, and nothing is asked of them.
+    const { vfs, stats, installed, skipped } = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), only: ['Acme'] })
+    assert.deepEqual([listing(vfs), stats.pods, stats.downloaded], [CORE, 3, 1])
+    assert.deepEqual([installed.map(({ name }) => name), skipped], [['Acme'], []])
+    assert.deepEqual(calls.trunk.map((at) => at.split('/').at(-1)), ['Acme.podspec.json'])
+    assert.equal(calls.github.some((call) => /local|other/iu.test(call)), false)
+    // One it names is refused, or skipped, as it is without it; and with none named, nothing is fetched.
+    await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), only: ['Acme', 'Other'] }), /pods\["Other"\]: an :http source from "https:\/\/example\.com\/other\.zip"/u)
+    const partial = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), only: ['Other'], partial: true })
+    assert.deepEqual([partial.installed, partial.skipped.map(({ name }) => name)], [[], ['Other']])
+    const none = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, only: [] })
+    assert.deepEqual([listing(none.vfs), none.stats.downloaded], [{}, 0])
+    await assert.rejects(build({ only: ['Acme', 'Missing'] }), (error) => error instanceof DeptreeError && /pods\["Missing"\]: the lockfile has no pod of the name, which `only` has/u.test(error.message))
+    for (const only of ['Acme', ['Acme', 'Acme'], [1]]) await assert.rejects(build({ only }), /only must be a list of the names of pods, each once, or left out/u)
+  })
+
   it('holds a pod partial skips to the lockfile all the same, and refuses with it all but where a pod is from', async () => {
     stubPods({ others: { 'Other@1.0.0': Buffer.from(`${OTHER}\n`) } })
     await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), partial: true }), /integrity mismatch for Other@1\.0\.0/u)

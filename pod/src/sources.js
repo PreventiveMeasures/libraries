@@ -50,11 +50,13 @@ export async function fetchPods(input, github) {
   const there = await installedPods(sandbox, remote)
   const needed = remote.filter((pod) => !there.has(pod.name))
   if (needed.length === 0) return []
-  // A pod by :podspec that is not needed is given no podspec, so that deptree passes it over.
+  // deptree is given the pods that are needed alone, `only`: one that is there is not looked at, neither its
+  // podspec nor its source fetched again, nor its prepare_command run.
   const podspecs = Object.fromEntries(needed.filter((pod) => pod.external).map((pod) => [pod.name, pod.bytes]))
   const host = { cocoapods: lock.cocoapods, os: process.platform }
-  const { vfs, installed, skipped } = await buildCocoaPodsTree({ lockfile: lockText.toString('utf8'), podspecs, host, platforms: [config.platform.name], github, partial: true, prepare: prepareDownload(config, lock.cocoapods) })
-  const isNeeded = ({ name }) => needed.some((pod) => pod.name === name)
+  const only = needed.map((pod) => pod.name)
+  const { vfs, installed, skipped } = await buildCocoaPodsTree({ lockfile: lockText.toString('utf8'), podspecs, host, platforms: [config.platform.name], github, partial: true, only, prepare: prepareDownload(config, lock.cocoapods) })
+  const isNeeded = ({ name }) => only.includes(name)
   const refused = skipped.filter(isNeeded)
   if (refused.length > 0) throw new PodError(`${refused.length === 1 ? 'a pod is' : `${refused.length} pods are`} not downloaded:\n${refused.map(({ reason }) => `  ${reason}`).join('\n')}`)
   const built = installed.filter(isNeeded)
