@@ -187,6 +187,8 @@ export function packDirectory(project, dir, manifest, version, where) {
     if (rel.split('/').some((part) => part === '' || part === '.')) throw new DeptreeError('pnpm keeps it as a pattern spells it, which is not supported', here)
     const { mode } = view.lstat(rel)
     if (!MODES.has(mode)) throw new DeptreeError(`its mode, ${mode.toString(8)}, is not 644, 664, 755 or 775, which is not supported`, here)
+    // pnpm 12.8.0 installs each at 644, whatever its own mode, which 12.8.1 fixed.
+    if (pnpm === '12.8.0' && mode !== 0o644) throw new DeptreeError(`its mode, ${mode.toString(8)}, is not 644, which pnpm 12.8.0 installs it at, and that is not supported`, here)
     files.set(rel, { data: view.bytes(rel), mode })
   }
   return files

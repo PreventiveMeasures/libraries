@@ -327,6 +327,21 @@ describe('packDirectory refuses', () => {
     }
   })
 
+  // pnpm 12.8.0 installs each file of a `file:` directory at 644, whatever
+  // its mode, and 12.8.1 keeps it again: a mode but 644 is refused for
+  // 12.8.0 alone, and 644 is taken.
+  it('for pnpm 12.8.0, a mode but 644', () => {
+    const manifest = { name: 'foo', version: '1.0.0' }
+    for (const mode of [0o664, 0o755, 0o775]) {
+      const vfs = createVfs({ 'd/package.json': JSON.stringify(manifest), 'd/a.sh': '' })
+      vfs.chmod('/d/a.sh', mode)
+      assert.throws(() => packDirectory(vfs, 'd', manifest, '12.8.0', 'x'), new RegExp(`^DeptreeError: x: "a\\.sh": its mode, ${mode.toString(8)}, is not 644, which pnpm 12\\.8\\.0 installs it at, and that is not supported$`, 'u'))
+      for (const pnpm of ['12.7.0', V12]) assert.equal(packDirectory(vfs, 'd', manifest, pnpm, 'x').get('a.sh').mode, mode, pnpm)
+    }
+    const vfs = createVfs({ 'd/package.json': JSON.stringify(manifest), 'd/a.js': '' })
+    assert.deepEqual([...packDirectory(vfs, 'd', manifest, '12.8.0', 'x')].map(([path, { mode }]) => [path, mode]), [['a.js', 0o644], ['package.json', 0o644]])
+  })
+
   // A link the rules leave out is never looked at.
   it('no link a .gitignore leaves out', () => {
     const manifest = { name: 'foo', version: '1.0.0' }

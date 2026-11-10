@@ -84,9 +84,9 @@ describe('buildPnpmTree with production', () => {
     assert.equal(full.vfs.readlink('/node_modules/is-number'), '.pnpm/is-number@7.0.0/node_modules/is-number')
   })
 
-  // From pnpm 11.28 and in pnpm 12, supports-color is only there for an
+  // From pnpm 11.28 and 12.7.0, supports-color is only there for an
   // optional peer of debug, which the root lists among its devDependencies.
-  for (const pnpm of ['11.28.9', '12.8.1', '12.16.1']) {
+  for (const pnpm of ['11.28.9', '12.7.0', '12.8.1', '12.16.1']) {
     it(`leaves out, for pnpm ${pnpm}, a devDependency only there to satisfy an optional peer`, async () => {
       const { vfs, installed } = await build(pnpm)
       assert.deepEqual(layout(vfs), [
@@ -104,6 +104,23 @@ describe('buildPnpmTree with production', () => {
     })
   }
 
+  // pnpm 12 before 12.7.0 walks debug's edge to supports-color, and installs
+  // it as pnpm 10 does: pnpm's bug, refused where it installs otherwise.
+  // Where the root lists supports-color among its dependencies, walking the
+  // edge installs the same, and that is taken.
+  it('refuses, for pnpm 12 before 12.7.0, a lockfile that walking such an edge installs otherwise', async () => {
+    const refused = /^DeptreeError: snapshots\["debug@4\.3\.7\(supports-color@8\.1\.1\)"\]: pnpm 12 before 12\.7\.0 walks its edge to its optional peer "supports-color", which pnpm 12\.7\.0 on does not, and installs otherwise with devDependencies left out, which is not supported$/u
+    for (const pnpm of ['12.0.0', '12.6.0']) {
+      await assert.rejects(build(pnpm), refused, pnpm)
+      assert.ok((await build(pnpm, { production: false })).vfs.isDirectory('/node_modules/.pnpm/supports-color@8.1.1/node_modules/supports-color'), pnpm)
+    }
+    const listed = `${head}  .:\n    dependencies:\n      debug:\n        specifier: 4.3.7\n        version: 4.3.7(supports-color@8.1.1)\n      is-odd:\n        specifier: 3.0.1\n        version: 3.0.1\n      supports-color:\n        specifier: 8.1.1\n        version: 8.1.1\n    devDependencies:\n      is-number:\n        specifier: 7.0.0\n        version: 7.0.0\n\n${DEBUG_PACKAGES}\n${DEBUG_SNAPSHOTS}`
+    const manifests = { '.': JSON.stringify({ name: 'root', version: '1.0.0', dependencies: { debug: '4.3.7', 'is-odd': '3.0.1', 'supports-color': '8.1.1' }, devDependencies: { 'is-number': '7.0.0' } }) }
+    const fixed = layout((await build('12.8.1', { lockfile: listed, manifests })).vfs)
+    assert.ok(fixed.includes('node_modules/supports-color -> .pnpm/supports-color@8.1.1/node_modules/supports-color'))
+    for (const pnpm of ['12.0.0', '12.6.0']) assert.deepEqual(layout((await build(pnpm, { lockfile: listed, manifests })).vfs), fixed, pnpm)
+  })
+
   // ajv-formats asks for ajv as its own dependency and as an optional peer,
   // which it resolved as its own: the root has it only by another alias.
   const AJV = `${head}  .:\n    dependencies:\n      ajv-formats:\n        specifier: 3.0.1\n        version: 3.0.1\n    devDependencies:\n      my-ajv:\n        specifier: npm:ajv@8.17.1\n        version: ajv@8.17.1\n\npackages:\n\n${packages(['ajv-formats@3.0.1', 'ajv@8.17.1'], { 'ajv-formats@3.0.1': '    peerDependencies:\n      ajv: ^8.0.0\n    peerDependenciesMeta:\n      ajv:\n        optional: true\n' })}\nsnapshots:\n\n  ajv-formats@3.0.1:\n    dependencies:\n      ajv: 8.17.1\n\n  ajv@8.17.1: {}\n`
@@ -114,7 +131,7 @@ describe('buildPnpmTree with production', () => {
   }
   const KEPT = ['node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv -> ../../ajv@8.17.1/node_modules/ajv', 'node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/', 'node_modules/.pnpm/ajv@8.17.1/node_modules/ajv/', 'node_modules/.pnpm/node_modules/ajv -> ../ajv@8.17.1/node_modules/ajv', 'node_modules/ajv-formats -> .pnpm/ajv-formats@3.0.1/node_modules/ajv-formats']
   const DROPPED = ['node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/', 'node_modules/ajv-formats -> .pnpm/ajv-formats@3.0.1/node_modules/ajv-formats']
-  for (const [pnpm, expected] of [['10.33.4', KEPT], ['11.27.1', KEPT], ['11.28.6', DROPPED], ['11.28.7', KEPT], ['12.14.0', DROPPED], ['12.15.0', KEPT]]) {
+  for (const [pnpm, expected] of [['10.33.4', KEPT], ['11.27.1', KEPT], ['11.28.6', DROPPED], ['11.28.7', KEPT], ['12.6.0', KEPT], ['12.14.0', DROPPED], ['12.15.0', KEPT]]) {
     it(`takes, for pnpm ${pnpm}, a dependency by an optional peer's name for one to it ${expected === KEPT ? 'only where the key binds it' : 'whatever the key binds'}`, async () => {
       const { vfs } = await buildAjv(pnpm)
       assert.deepEqual(layout(vfs), expected)
