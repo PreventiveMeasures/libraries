@@ -11,14 +11,16 @@ const COMPILED = { '.storyboard': '.storyboardc', '.xib': '.nib', '.xcdatamodel'
 const extensionOf = (path) => /\.[^./]+$/u.exec(path)?.[0] ?? ''
 
 // PodTarget#resource_paths, as AggregateTarget#resource_paths_by_config takes them: a pod's resources from
-// Pods/, a compiled one of a static framework where its build leaves it, and each of its bundles.
+// Pods/, a compiled one of a static framework where its build leaves it, and each of its bundles. CocoaPods
+// asks how the pod is built and not whether it is: one with nothing to build has its compiled resources named
+// in a framework all the same where it is a static one, and where they are where it is a dynamic one.
 function resourcePaths(pod) {
   if (pod.shouldBuild && pod.framework && !pod.static) return []
   const paths = pod.accessors.flatMap((accessor) => [
     ...accessor.resources.map((path) => `\${PODS_ROOT}/${join(pod.sandboxPath, path)}`),
     ...Object.keys(accessor.resourceBundles).map((name) => `${BUILD_DIR}/${pod.label}/${name}.bundle`),
   ])
-  if (!pod.framework) return [...new Set(paths)]
+  if (!pod.framework || !pod.static) return [...new Set(paths)]
   return [...new Set(paths.map((path) => {
     const extension = extensionOf(path)
     if (COMPILED[extension] === undefined) return path

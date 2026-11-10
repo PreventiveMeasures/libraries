@@ -111,6 +111,44 @@ describe('generate, of a header that more than one comes to the path of', () => 
   })
 })
 
+describe('generate, of a library\'s module map', () => {
+  const linked = (links, name) => links.map(([path]) => path).filter((path) => path.endsWith(`/${name}.modulemap`) || path.endsWith(`/${name}-umbrella.h`))
+  const textOf = (files, path) => Buffer.from(files.get(path)).toString('utf8')
+
+  it('links a module map and an umbrella header where they are written, and not where they are not', async () => {
+    // As `pod install` 1.16.2 leaves Pods/Headers in each of the three.
+    const input = await load(join(FIXTURES, 'libraries/project'))
+    assert.deepEqual(linked(generate(input).links, 'Core'), ['Headers/Public/core/Core.modulemap', 'Headers/Public/core/Core-umbrella.h'])
+    // A spec that says no module map is written has none, nor an umbrella header, and no link to either. Those
+    // that import the pod are given the path of one all the same, as CocoaPods gives it.
+    input.pods.find((pod) => pod.name === 'Core').root.attributes.module_map = false
+    const none = generate(input)
+    assert.deepEqual(linked(none.links, 'Core'), [])
+    assert.deepEqual([...none.files.keys()].filter((path) => /Core(?:\.modulemap|-umbrella\.h)$/u.test(path)), [])
+    assert.ok(textOf(none.files, 'Target Support Files/Pods-App/Pods-App.debug.xcconfig').includes('-fmodule-map-file="${PODS_ROOT}/Headers/Public/core/Core.modulemap"'))
+    // A module map of the pod's own is linked, and no umbrella header is written with it.
+    input.config.pods.Mapped = { ...input.config.pods.Mapped, modularHeaders: true }
+    const own = generate(input)
+    assert.deepEqual(linked(own.links, 'Mapped'), ['Headers/Private/Mapped/Mapped.modulemap'])
+    assert.equal(own.files.has('Target Support Files/Mapped/Mapped-umbrella.h'), false)
+  })
+})
+
+describe('generate, of the compiled resources of a pod with nothing to build', () => {
+  const resourcesOf = async (fixture) => {
+    const input = await load(join(FIXTURES, fixture, 'project'))
+    input.pods.find((pod) => pod.name === 'Local').root.attributes.source_files = 'src/*.h'
+    const text = Buffer.from(generate(input).files.get('Target Support Files/Pods-defaults-App/Pods-defaults-App-resources.sh')).toString('utf8')
+    return [...new Set(text.split('\n').filter((line) => line.includes('Main.storyboard')).map((line) => line.trim()))]
+  }
+
+  it('names them in the framework where the pod is a static one, and where they are where it is a dynamic one', async () => {
+    // CocoaPods asks how the pod is built, and not whether: `pod install` 1.16.2 writes these two.
+    assert.deepEqual(await resourcesOf('frameworks'), ['install_resource "${BUILT_PRODUCTS_DIR}/Local/Local.framework/Base.lproj/Main.storyboardc"'])
+    assert.deepEqual(await resourcesOf('dynamic'), ['install_resource "${PODS_ROOT}/../local/Local/ui/Base.lproj/Main.storyboard"'])
+  })
+})
+
 describe('generate, of dynamic frameworks', () => {
   const staticFramework = (input, name, value) => {
     input.pods.find((pod) => pod.name === name).root.attributes.static_framework = value

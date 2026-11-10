@@ -92,6 +92,8 @@ export function podSettings(target, targets) {
       ...(target.usesSwift ? ['/usr/lib/swift', '${TOOLCHAIN_DIR}/usr/lib/swift/${PLATFORM_NAME}'] : []),
       ...(target.framework || !target.shouldBuild ? [] : [ownBuildDir]),
     ],
+    // Whether a spec says no module map is written is not asked, as CocoaPods does not ask it: a library that
+    // defines a module has the path of one given to those that import it.
     moduleMapFileToImport: () => {
       if (!target.shouldBuild || target.framework || !target.definesModule) return undefined
       return target.usesSwift ? `${ownBuildDir}/${target.moduleName}.modulemap` : `\${PODS_ROOT}/${target.moduleMapLink}`

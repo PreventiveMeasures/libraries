@@ -36,9 +36,13 @@ function moduleMapLink(target) {
   return `Headers/${store}/${target.moduleName}/${target.label}.modulemap`
 }
 
+// PodTargetInstaller#install!: a module map is written for a target that is built and defines a module, unless
+// a spec of it says none is; and an umbrella header with it, unless the module map is the pod's own.
 function prepare(target, targets) {
   target.headerLinks = headersOf(target)
   target.moduleMapLink = moduleMapLink(target)
+  target.customModuleMap = target.accessors.map((accessor) => accessor.moduleMap).find((path) => path !== undefined)
+  target.writesModuleMap = target.shouldBuild && target.definesModule && target.consumers.every((consumer) => consumer.module_map !== false)
   target.specTargets = new Map(target.specs.map((spec) => [spec, deploymentTarget(spec, target.platform.name)]))
   target.developerFiles = target.local ? developerFiles(target) : []
   target.settings = podSettings(target, targets)
@@ -51,16 +55,17 @@ function podfileRef(project, dir) {
 
 // The links of Pods/Headers, each `[path, target]`, the target from the link's own directory. A path is linked
 // once: where more than one header comes to it, of two subspecs that both have the header or of two headers of
-// one name, the last does, as CocoaPods' `ln -sf` of each in turn leaves it.
+// one name, the last does, as CocoaPods' `ln -sf` of each in turn leaves it. A library's module map and its
+// umbrella header are linked where they are written, and not where they are not.
 function headerLinks(targets, sandbox) {
   const links = new Map()
   for (const target of targets) {
     for (const [store, mappings] of [['Private', target.headerLinks.private], ['Public', target.headerLinks.public]]) {
       for (const [dir, headers] of mappings) for (const header of headers) links.set(posix.join('Headers', store, dir, posix.basename(header)), pathFrom(join(sandbox, 'Headers', store, dir), join(target.dir, header)))
     }
-    if (target.shouldBuild && target.definesModule && !target.framework) {
+    if (target.writesModuleMap && !target.framework) {
       const dir = posix.dirname(target.moduleMapLink)
-      for (const name of [`${target.label}.modulemap`, `${target.label}-umbrella.h`]) links.set(posix.join(dir, name), pathFrom(join(sandbox, dir), join(sandbox, 'Target Support Files', target.label, name)))
+      for (const name of [`${target.label}.modulemap`, ...(target.customModuleMap === undefined ? [`${target.label}-umbrella.h`] : [])]) links.set(posix.join(dir, name), pathFrom(join(sandbox, dir), join(sandbox, 'Target Support Files', target.label, name)))
     }
   }
   return [...links]

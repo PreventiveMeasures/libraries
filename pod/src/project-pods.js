@@ -266,8 +266,8 @@ export function addPodTarget(project, target, context) {
   for (const configuration of configurationsOf(native)) for (const key of Object.keys(target.settings.merged)) delete configuration.buildSettings[key]
   const bundles = addBundles(project, target, { ...context, write: (one, name, text) => addSupport(name, text) })
   addSources(project, native, target)
-  if (target.definesModule && target.consumers.every((consumer) => consumer.module_map !== false)) {
-    const custom = target.accessors.map((accessor) => accessor.moduleMap).find((path) => path !== undefined)
+  if (target.writesModuleMap) {
+    const custom = target.customModuleMap
     addSupport(`${target.label}.modulemap`, custom === undefined ? support.moduleMap(target) : context.read(target, custom, !target.framework))
     setAll(native, 'MODULEMAP_FILE', target.moduleMapLink)
     if (custom === undefined) addFile(native, 'Headers', addSupport(`${target.label}-umbrella.h`, support.umbrellaHeader(target, support.umbrellaImports(target))), { ATTRIBUTES: [target.framework ? 'Public' : 'Project'] })
