@@ -211,7 +211,7 @@ describe('a dev server, of /reload', () => {
       server.listen(0, '127.0.0.1', done)
     })
     try {
-      const response = await fetch(`http://127.0.0.1:${server.address().port}/reload`)
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/reload`, { method: 'POST' })
       assert.deepEqual([response.status, await response.text(), calls], [200, 'OK', []])
     } finally {
       server.close()
