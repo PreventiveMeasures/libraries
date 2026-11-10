@@ -9,182 +9,33 @@
 //     s.ios.deployment_target = '13.0'     # an attribute of one platform
 //     s.dependency 'Other', '~> 1.0'
 //     s.subspec 'Sub' do |ss| ... end      # and test_spec, app_spec
+//     if ENV['RCT_NEW_ARCH_ENABLED'] == '1'  # a condition: if, unless, elsif, else, `... if`, ?:, ==, !=, !,
+//       install_modules_dependencies(s)    #   &&, ||; and React Native's helper, of a version whose is known
+//     end
 //   end
 //
-// Nothing is run: no condition, no loop, no method but these, no file read but a package.json. Anything else
-// is refused, and what is read is held to the lockfile's checksum by the caller, as the JSON CocoaPods wrote.
+// No loop, no method but these, no file read but a package.json, no variable of the environment but as
+// pod.config.json's `env` and the lockfile's React Native have it. Anything else is refused, but in the branch
+// of a condition that does not hold, which is passed over; and what is read is held to the lockfile's checksum
+// by the caller, as the JSON CocoaPods wrote.
 
-import { basename, dirname, isAbsolute, resolve } from 'node:path'
+import { dirname } from 'node:path'
 
 import { PodError } from './error.js'
-import { PLATFORMS, addDependency, newSpec, setAttribute, specJson } from './podspec-json.js'
+import { PROXIES, environment, expect, expression, fail, interpolate, is, list, next, peek, reactNativeOf, skipLines, truthy } from './podspec-expr.js'
+import { addDependency, newSpec, setAttribute, specJson } from './podspec-json.js'
 import { tokenize } from './podspec-tokens.js'
 
-const PROXIES = new Set([...PLATFORMS, 'macos'])
 const SPECS = { subspec: 'library', test_spec: 'test', app_spec: 'app' }
 const DEFAULT_NAMES = { test: 'Tests', app: 'App' }
+// What a value ends with, which an `if` on its line is then a modifier of; and the words that are no value.
+const ENDS = new Set(['name', 'string', 'symbol', 'number', 'words', ')', ']', '}'])
+const WORDS = new Set(['then', 'else', 'elsif', 'do', 'and', 'or', 'not'])
+// The blocks whose `end` is not told from their words alone, which a branch passed over may not have.
+const BLOCKS = new Set(['case', 'while', 'until', 'for', 'begin', 'def', 'class', 'module'])
 
-const peek = (p) => p.tokens[p.at]
-const next = (p) => p.tokens[p.at++]
-const is = (p, type, value) => peek(p).type === type && (value === undefined || peek(p).value === value)
-function fail(p, what, token = peek(p)) {
-  throw new PodError(`line ${token.line}: ${what}, which is not in the form of a podspec that is read without Ruby`, p.where)
-}
-function expect(p, type, value) {
-  if (!is(p, type, value)) fail(p, `\`${peek(p).value ?? peek(p).type}\` where \`${value ?? type}\` is expected`)
-  return next(p)
-}
-const skipLines = (p) => {
-  while (is(p, 'newline') || is(p, ';')) next(p)
-}
-
-// A value as Ruby's to_s has it in a string.
-function text(p, value) {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return String(value)
-  if (value === null) return ''
-  return fail(p, 'a list or a hash in a string')
-}
-
-// A hash of a package.json as a podspec reads it: its keys in their order. One whose keys are numbers, which
-// JSON.parse puts first, is refused.
-function fromJson(p, value) {
-  if (Array.isArray(value)) return value.map((item) => fromJson(p, item))
-  if (value === null || typeof value !== 'object') return value
-  if (Object.keys(value).some((key) => /^(?:0|[1-9]\d*)$/u.test(key))) fail(p, 'a package.json with a number for a key')
-  return new Map(Object.entries(value).map(([key, item]) => [key, fromJson(p, item)]))
-}
-
-function readJson(p, path) {
-  const file = isAbsolute(path) ? resolve(path) : resolve(p.dir, path)
-  if (basename(file) !== 'package.json') fail(p, 'a file read that is no package.json')
-  const content = p.read(file)
-  if (content === undefined) throw new PodError(`its podspec reads ${file}, which is not there`, p.where)
-  return content
-}
-
-// The calls a podspec may make: File's, of paths, and JSON.parse.
-function call(p, receiver, method, args) {
-  const strings = args.every((arg) => typeof arg === 'string')
-  if (receiver === 'File' && method === 'join' && strings) return args.join('/').replaceAll(/\/+/gu, '/')
-  if (receiver === 'File' && method === 'dirname' && strings && args.length === 1) return dirname(args[0])
-  if (receiver === 'File' && method === 'expand_path' && strings && args.length <= 2) return resolve(args[1] ?? p.dir, args[0])
-  if (receiver === 'File' && method === 'read' && strings && args.length === 1) return { file: readJson(p, args[0]) }
-  if (receiver === 'JSON' && method === 'parse' && args.length === 1 && typeof args[0]?.file === 'string') {
-    try {
-      return fromJson(p, JSON.parse(args[0].file))
-    } catch (error) {
-      if (error instanceof PodError) throw error
-      throw new PodError('its podspec reads a package.json that is not JSON', p.where, { cause: error })
-    }
-  }
-  return fail(p, `the call \`${receiver}.${method}\``)
-}
-
-function list(p, close) {
-  const items = []
-  for (skipLines(p); !is(p, close); skipLines(p)) {
-    items.push(expression(p))
-    skipLines(p)
-    if (!is(p, close)) expect(p, ',')
-  }
-  next(p)
-  return items
-}
-
-// `{ key => value, key: value }`.
-function hash(p) {
-  const pairs = new Map()
-  for (skipLines(p); !is(p, '}'); skipLines(p)) {
-    const shorthand = (is(p, 'name') || is(p, 'string')) && p.tokens[p.at + 1].type === ':'
-    const key = shorthand && is(p, 'name') ? next(p).value : expression(p)
-    expect(p, shorthand ? ':' : '=>')
-    skipLines(p)
-    pairs.set(text(p, key), expression(p))
-    skipLines(p)
-    if (!is(p, '}')) expect(p, ',')
-  }
-  next(p)
-  return pairs
-}
-
-function interpolate(p, parts) {
-  return parts.map((part) => {
-    if (typeof part === 'string') return part
-    const inner = { ...p, tokens: tokenize(part.code, p.where, part.line), at: 0 }
-    const value = expression(inner)
-    if (!is(inner, 'newline')) fail(inner, 'an interpolation of more than a value')
-    return text(p, value)
-  }).join('')
-}
-
-function primary(p) {
-  const token = next(p)
-  switch (token.type) {
-    case 'string': return interpolate(p, token.parts)
-    case 'symbol': case 'number': case 'words': return token.value
-    case '[': return list(p, ']')
-    case '{': return hash(p)
-    case '(': {
-      const value = expression(p)
-      expect(p, ')')
-      return value
-    }
-    case 'name': return named(p, token)
-    default: return fail(p, `\`${token.value ?? token.type}\``, token)
-  }
-}
-
-function named(p, token) {
-  const name = token.value
-  if (name === 'true' || name === 'false') return name === 'true'
-  if (name === 'nil') return null
-  if (name === '__dir__') return p.dir
-  if (name === '__FILE__') return p.path
-  if (name === 'File' || name === 'JSON') {
-    expect(p, '.')
-    const method = expect(p, 'name').value
-    expect(p, '(')
-    return call(p, name, method, list(p, ')'))
-  }
-  if (p.specs.has(name)) {
-    expect(p, '.')
-    const attribute = expect(p, 'name').value
-    const value = p.specs.get(name).attributes.get(attribute)
-    return (attribute === 'name' || attribute === 'version') && typeof value === 'string' ? value : fail(p, `\`${name}.${attribute}\` read`, token)
-  }
-  return p.locals.has(name) ? p.locals.get(name) : fail(p, `\`${name}\``, token)
-}
-
-function expression(p) {
-  let value = postfix(p)
-  while (is(p, '+')) {
-    const at = next(p)
-    const other = postfix(p)
-    if (typeof value === 'string' && typeof other === 'string') value += other
-    else if (Array.isArray(value) && Array.isArray(other)) value = [...value, ...other]
-    else fail(p, 'a `+` of what is not two strings or two lists', at)
-  }
-  return value
-}
-
-function postfix(p) {
-  let value = primary(p)
-  for (;;) {
-    if (is(p, '[') && peek(p).line === p.tokens[p.at - 1].line) {
-      next(p)
-      const key = expression(p)
-      expect(p, ']')
-      if (value instanceof Map) value = value.get(text(p, key)) ?? null
-      else if (Array.isArray(value) && typeof key === 'number') value = value.at(key) ?? null
-      else fail(p, 'an index of what is no hash or list')
-    } else if (is(p, '.') && p.tokens[p.at + 1].value === 'to_s') {
-      p.at += 2
-      value = text(p, value)
-    } else if (is(p, '.') && p.tokens[p.at + 1].value === 'freeze') p.at += 2
-    else return value
-  }
-}
+// What a podspec is read in where nothing is said of it: no variable given, and no React Native.
+const ALONE = { env: new Map(), prebuilt: {} }
 
 // What follows `=`, or a call's name: one value, or several, which are a list.
 function values(p) {
@@ -197,6 +48,7 @@ function values(p) {
   return items
 }
 const endStatement = (p) => (is(p, 'newline') || is(p, ';') ? next(p) : fail(p, `\`${peek(p).value ?? peek(p).type}\` after a statement`))
+const branchEnds = (p) => is(p, 'name', 'end') || is(p, 'name', 'else') || is(p, 'name', 'elsif')
 
 // `do |name| ... end`, of a specification.
 function block(p, spec) {
@@ -210,15 +62,8 @@ function block(p, spec) {
   p.specs.delete(name)
 }
 
-function statement(p) {
-  const token = expect(p, 'name')
-  const refuse = (what) => fail(p, what, token)
-  if (!p.specs.has(token.value)) {
-    if (!is(p, '=')) refuse(`\`${token.value}\``)
-    next(p)
-    p.locals.set(token.value, expression(p))
-    return void endStatement(p)
-  }
+// `s.attribute = ...`, `s.dependency ...`, `s.subspec ... do`, of the specification `token` names.
+function ofSpec(p, token, refuse) {
   const spec = p.specs.get(token.value)
   expect(p, '.')
   let member = expect(p, 'name').value
@@ -244,32 +89,128 @@ function statement(p) {
     const given = values(p)
     setAttribute(spec, member, given.length === 1 ? given[0] : given, platform, refuse)
   }
+}
+
+// `install_modules_dependencies(s)`: React Native's, as the version of the lockfile has it.
+function installModules(p, token, refuse) {
+  const parenthesized = is(p, '(')
+  if (parenthesized) next(p)
+  const spec = p.specs.get(expect(p, 'name').value) ?? refuse('`install_modules_dependencies` of what is no specification')
+  if (parenthesized) expect(p, ')')
+  const { prebuilt, reactNative: version } = p.context
+  reactNativeOf(p, token, "`install_modules_dependencies` is React Native's").install(spec, { env: (name) => environment(p, name, token), prebuilt, refuse })
+  p.helpers.add(`install_modules_dependencies of React Native ${version}${prebuilt.core ? ', its core prebuilt' : ''}${prebuilt.deps ? ', its dependencies prebuilt' : ''}`)
+}
+
+// One statement that is no condition: of a specification, a local name given a value or a list one more,
+// `require 'json'`, or React Native's helper called.
+function simple(p) {
+  const token = expect(p, 'name')
+  const refuse = (what) => fail(p, what, token)
+  if (p.specs.has(token.value)) ofSpec(p, token, refuse)
+  else if (token.value === 'require' && is(p, 'string') && interpolate(p, peek(p).parts) === 'json') next(p)
+  else if (is(p, '=')) {
+    next(p)
+    p.locals.set(token.value, expression(p))
+  } else if (is(p, '<<')) {
+    next(p)
+    const items = p.locals.get(token.value)
+    if (!Array.isArray(items)) refuse('a `<<` to what is no list')
+    items.push(expression(p))
+  } else if (token.value === 'install_modules_dependencies') installModules(p, token, refuse)
+  else refuse(`\`${token.value}\``)
   return void endStatement(p)
 }
 
-// The JSON of the podspec at `path`, whose text is `source`, as CocoaPods writes it, in each of the two forms
-// podspec-json.js's specJson gives; `read` gives a file's text by its path, or undefined. A PodError says what
-// of it is not in the form read.
-export function podspecJson(path, source, read, where) {
-  const p = { tokens: tokenize(source, where), at: 0, where, path, dir: dirname(path), read, locals: new Map(), specs: new Map() }
-  for (skipLines(p); !is(p, 'name', 'Pod'); skipLines(p)) {
-    const token = expect(p, 'name')
-    if (token.value === 'require' && is(p, 'string') && interpolate(p, peek(p).parts) === 'json') next(p)
-    else if (is(p, '=')) {
-      next(p)
-      p.locals.set(token.value, expression(p))
-    } else fail(p, `\`${token.value}\``, token)
-    endStatement(p)
+// Past the branch of a condition that does not hold, to the `else`, `elsif` or `end` that is its own: by the
+// words that open a block and the `end` of each, with nothing of it read.
+function pass(p) {
+  for (let depth = 0; ; next(p)) {
+    const token = peek(p)
+    const before = p.tokens[p.at - 1]
+    if (token.type === 'end of file') fail(p, 'a condition without its `end`')
+    if (token.type !== 'name' || before.type === '.' || p.tokens[p.at + 1].type === ':') continue
+    if (BLOCKS.has(token.value)) fail(p, `\`${token.value}\` where a condition does not hold`)
+    const modifies = before.line === token.line && ENDS.has(before.type) && !WORDS.has(before.value)
+    if (token.value === 'do' || ((token.value === 'if' || token.value === 'unless') && !modifies)) depth++
+    else if (depth === 0 && branchEnds(p)) return
+    else if (token.value === 'end') depth--
   }
-  next(p)
-  expect(p, '::')
-  if (!['Spec', 'Specification'].includes(expect(p, 'name').value)) fail(p, 'a constant of Pod but Spec')
-  expect(p, '.')
-  expect(p, 'name', 'new')
-  const root = newSpec(undefined, null)
-  block(p, root)
-  skipLines(p)
-  if (!is(p, 'end of file')) fail(p, 'more after the specification')
-  if (typeof root.attributes.get('name') !== 'string') throw new PodError('its podspec gives no name', where)
-  return specJson(root)
+}
+
+// `if ... elsif ... else ... end`, and `unless`: the statements of the branch that holds are read, the others
+// passed over.
+function conditional(p) {
+  let holds = (next(p).value === 'if') === truthy(expression(p))
+  for (let done = false; ; ) {
+    if (is(p, 'name', 'then')) next(p)
+    if (holds && !done) {
+      for (skipLines(p); !branchEnds(p); skipLines(p)) statement(p)
+      done = true
+    } else pass(p)
+    const word = next(p).value
+    if (word === 'end') return
+    holds = !done && (word === 'else' || truthy(expression(p)))
+  }
+}
+
+// Where the statement at hand has a modifier, `... if condition`, the place of its `if` or `unless`; else -1.
+function modifierAt(p) {
+  let depth = 0
+  for (let at = p.at; ; at++) {
+    const { type, value } = p.tokens[at]
+    if (type === 'end of file' || (depth === 0 && type === 'name' && value === 'do')) return -1
+    if (type === '(' || type === '[' || type === '{') depth++
+    else if (type === ')' || type === ']' || type === '}') depth--
+    else if (depth === 0 && (type === 'newline' || type === ';') && p.tokens[at - 1].type !== ',') return -1
+    else if (depth === 0 && at > p.at && type === 'name' && (value === 'if' || value === 'unless')) return at
+  }
+}
+
+function statement(p) {
+  if (is(p, 'name', 'if') || is(p, 'name', 'unless')) {
+    conditional(p)
+    return void endStatement(p)
+  }
+  const at = modifierAt(p)
+  if (at === -1) return simple(p)
+  const start = p.at
+  const modifier = p.tokens[at]
+  p.at = at + 1
+  const holds = truthy(expression(p)) === (modifier.value === 'if')
+  const after = p.at
+  if (holds) {
+    // The statement, read as one that ends where its modifier is.
+    p.tokens[at] = { type: 'newline', line: modifier.line }
+    p.at = start
+    simple(p)
+    p.tokens[at] = modifier
+  }
+  p.at = after
+  return void endStatement(p)
+}
+
+// The JSON of the podspec at `path`, whose text is `source`, as CocoaPods writes it: `forms`, each of the two
+// podspec-json.js's specJson gives. `read` gives a file's text by its path, or undefined. `context` is what a
+// podspec is read in: `env`, a Map of the variables of the environment given, null one that is not set;
+// `reactNative`, the version the lockfile has of it, if any; `prebuilt`, whether its `core` and its `deps` are;
+// `frameworks`, "static" or "dynamic" where pods are built as frameworks. `conditions` says what of these the
+// podspec was read by. A PodError says what of it is not in the form read.
+export function podspecJson(path, source, read, where, context = ALONE) {
+  const p = { tokens: tokenize(source, where), at: 0, where, path, dir: dirname(path), read, context, locals: new Map(), specs: new Map(), env: new Map(), helpers: new Set() }
+  let root
+  for (skipLines(p); !is(p, 'end of file'); skipLines(p)) {
+    if (root !== undefined) fail(p, 'more after the specification')
+    if (is(p, 'name', 'Pod')) {
+      next(p)
+      expect(p, '::')
+      if (!['Spec', 'Specification'].includes(expect(p, 'name').value)) fail(p, 'a constant of Pod but Spec')
+      expect(p, '.')
+      expect(p, 'name', 'new')
+      root = newSpec(undefined, null)
+      block(p, root)
+    } else statement(p)
+  }
+  if (typeof root?.attributes.get('name') !== 'string') throw new PodError('its podspec gives no name', where)
+  return { forms: specJson(root), conditions: [...[...p.env].map(([name, value]) => (value === null ? `${name} not set` : `${name}=${value}`)), ...p.helpers] }
 }

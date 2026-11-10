@@ -45,26 +45,31 @@ function podspecFiles(root, dir, podspecs) {
 // What CocoaPods would keep of the podspec in `file`, as bytes, in each form it may have written it: a JSON one
 // as it is, and as CocoaPods writes one it read; a Ruby one as podspec-read.js reads it, where it is in the
 // form that is read.
-function podspecForms(file, where) {
+function podspecForms(file, where, context) {
   const bytes = readFileSync(file)
   const text = bytes.toString('utf8')
-  if (!file.endsWith('.json')) return podspecJson(file, text, (path) => read(path)?.toString('utf8'), where).map((json) => Buffer.from(json))
+  if (!file.endsWith('.json')) {
+    const { forms, conditions } = podspecJson(file, text, (path) => read(path)?.toString('utf8'), where, context)
+    return { forms: forms.map((json) => Buffer.from(json)), conditions }
+  }
   try {
-    return [bytes, ...jsonSpecJson(text).map((json) => Buffer.from(json))]
+    return { forms: [bytes, ...jsonSpecJson(text).map((json) => Buffer.from(json))], conditions: [] }
   } catch {
-    return [bytes]
+    return { forms: [bytes], conditions: [] }
   }
 }
 
 // A pod's podspec, which has to be the one the lockfile has the checksum of, its sha1: the JSON CocoaPods
 // keeps of it, as Pods/Local Podspecs/<name>.podspec.json.
-function podspecOf(root, dir, podspecs, where) {
+function podspecOf(root, dir, podspecs, where, context) {
   const files = podspecFiles(root, dir, podspecs)
   const file = files.find((path) => existsSync(path))
   if (file === undefined) throw new PodError(`its podspec is not there, as ${files.map(quote).join(' or ')}`, where)
-  const forms = podspecForms(file, `${where}: ${posixOf(relative(dir, file))}`)
+  const { forms, conditions } = podspecForms(file, `${where}: ${posixOf(relative(dir, file))}`, context)
   const bytes = forms.find((form) => sha1(form) === root.checksum)
-  if (bytes === undefined) throw new PodError(`its podspec, ${quote(posixOf(relative(dir, file)))}, is not the one the lockfile has the checksum of: its sha1 is ${sha1(forms[0])}, not ${root.checksum}`, where)
+  // A podspec that is read by the environment may be read by another than the lockfile was written in.
+  const by = conditions.length === 0 ? '' : `, as read with ${conditions.join(', ')}`
+  if (bytes === undefined) throw new PodError(`its podspec, ${quote(posixOf(relative(dir, file)))}, is not the one the lockfile has the checksum of: its sha1 is ${sha1(forms[0])}, not ${root.checksum}${by}`, where)
   return { bytes, root: readSpec(bytes, root.name, root.version, where) }
 }
 
@@ -78,13 +83,16 @@ export async function load(dir) {
   const user = projectOf(dir, config)
   const sandbox = join(dir, 'Pods')
   const podspecs = resolve(dir, config.podspecs)
+  // What a podspec that is read without Ruby is read in: podspec-read.js's context.
+  const prebuilt = { core: lock.roots['React-Core-prebuilt'] !== undefined, deps: lock.roots.ReactNativeDependencies !== undefined }
+  const context = { env: new Map(Object.entries(config.env)), reactNative: lock.roots['React-Core']?.version, prebuilt, frameworks: config.frameworks }
   const pods = Object.values(lock.roots).map((root) => {
     const where = `pods[${quote(root.name)}]`
     const local = root.external?.type === 'path'
     if (root.external !== undefined && !local && root.external.type !== 'podspec') throw new PodError(`a pod from an external source by :${root.external.type} is not supported: only those by :path and :podspec, and from trunk, are`, where)
     // A local pod is where its path says, or where the podspec is that its path names.
     const podDir = local ? resolve(dir, root.external.path).replace(/[/\\][^/\\]+\.podspec(?:\.json)?$/u, '') : join(sandbox, root.name)
-    return { name: root.name, version: root.version, specs: root.pods, checksum: root.checksum, local, external: root.external !== undefined, dir: podDir, sandboxPath: posixOf(relative(sandbox, podDir)), ...podspecOf(root, dir, podspecs, where) }
+    return { name: root.name, version: root.version, specs: root.pods, checksum: root.checksum, local, external: root.external !== undefined, dir: podDir, sandboxPath: posixOf(relative(sandbox, podDir)), ...podspecOf(root, dir, podspecs, where, context) }
   })
   return { dir, lock, lockText, config, user, sandbox, pods }
 }

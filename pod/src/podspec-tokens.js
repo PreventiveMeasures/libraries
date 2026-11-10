@@ -1,11 +1,13 @@
-// The words of a podspec in the strict form pod reads, podspec-read.js's: names, literals and punctuation. A
-// podspec is Ruby, and anything of Ruby that is not one of these is refused, with its line.
+// The words of a podspec in the strict form pod reads, podspec-read.js's: names, literals, punctuation and the
+// operators of a condition. A podspec is Ruby, and anything of Ruby that is not one of these is refused, with
+// its line.
 
 import { PodError } from './error.js'
 
 const ESCAPES = { n: '\n', t: '\t', r: '\r', s: ' ', e: '\u001B', 0: '\0', a: '\u0007', b: '\b', f: '\f', v: '\v' }
 const CLOSERS = { '(': ')', '[': ']', '{': '}', '<': '>' }
-const PUNCTUATION = ['=>', '::', '=', ',', '.', '(', ')', '[', ']', '{', '}', '|', '+', ';', ':']
+const PUNCTUATION = ['=>', '==', '!=', '&&', '||', '<<', '::', '=', ',', '.', '(', ')', '[', ']', '{', '}', '|', '+', ';', ':', '!', '?']
+const REFUSED = /^(?:===|=~|!~|\+=|\|\|=|&&=|<<=)/u
 
 function fail(t, what) {
   throw new PodError(`line ${t.line}: ${what}, which is not in the form of a podspec that is read without Ruby`, t.where)
@@ -145,10 +147,10 @@ export function tokenize(source, where, line = 1) {
       t.at += 2
       t.line++
     } else if (literal(t, rest)) continue
-    else if ((match = /^[A-Za-z_]\w*[?!]?/u.exec(rest)) !== null) {
+    else if ((match = /^[A-Za-z_]\w*(?:[?!](?![=~]))?/u.exec(rest)) !== null) {
       push(t, 'name', match[0])
       t.at += match[0].length
-    } else if ((match = PUNCTUATION.find((one) => rest.startsWith(one))) !== undefined && !/^(?:==|=~|\+=|\|\||<<)/u.test(rest)) {
+    } else if (!REFUSED.test(rest) && (match = PUNCTUATION.find((one) => rest.startsWith(one))) !== undefined) {
       push(t, match)
       t.at += match.length
     } else fail(t, `\`${/^\S{1,12}/u.exec(rest)[0]}\``)

@@ -33,6 +33,10 @@ const OPTIONS = {
   buildSettings: settings,
   // The pods whose prepare_command is run, with bash, as CocoaPods runs it.
   prepareCommands: names,
+  // The variables of the environment a podspec is read with, as they were once the Podfile had been read: each
+  // a string, or null for one that is not set. Those a known React Native sets itself need not be given:
+  // podspec-rn.js has them, USE_FRAMEWORKS as `frameworks` here is.
+  env: [(value) => isObject(value) && Object.values(value).every((one) => one === null || typeof one === 'string'), 'an object of variables of the environment, each a string, or null for one that is not set'],
 }
 
 function check(options, values, prefix) {
@@ -67,5 +71,6 @@ export function readConfig(text) {
     targets: given.targets ?? {},
     buildSettings: given.buildSettings ?? {},
     prepareCommands: given.prepareCommands ?? [],
+    env: given.env ?? {},
   }
 }

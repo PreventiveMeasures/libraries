@@ -8,13 +8,13 @@ import { podspecJson } from '../src/podspec-read.js'
 // Specification.from_file(...).to_pretty_json, by a Ruby whose json writes an empty list over lines.
 const FIXTURES = new URL('fixtures/podspecs/', import.meta.url).pathname
 const read = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined)
-const convert = (source, files = {}) => podspecJson('/pod/Name.podspec', source, (path) => files[path], 'pods["Name"]')
+const convert = (source, files = {}, context = undefined) => podspecJson('/pod/Name.podspec', source, (path) => files[path], 'pods["Name"]', context).forms
 const spec = (body, before = '') => `${before}Pod::Spec.new do |s|\n  s.name = 'Name'\n${body}end\n`
 
 describe('podspecJson', () => {
   for (const path of ['Plain/ios/Plain.podspec', 'Rich/Rich.podspec']) {
     it(`reads ${path} as CocoaPods does`, () => {
-      const [lines, compact] = podspecJson(`${FIXTURES}${path}`, read(`${FIXTURES}${path}`), read, path)
+      const [lines, compact] = podspecJson(`${FIXTURES}${path}`, read(`${FIXTURES}${path}`), read, path).forms
       const expected = read(`${FIXTURES}${path}.json`)
       assert.equal(lines, expected)
       assert.equal(compact, expected.replaceAll(/\[\n\n\s*\]/gu, '[]').replaceAll(/\{\n\s*\}/gu, '{}'))
@@ -38,11 +38,12 @@ describe('podspecJson', () => {
 
   it('refuses what is not in the form, by its line', () => {
     for (const [source, message] of [
-      [spec("  if ENV['X']\n  end\n"), /line 3: `if`/u],
-      [spec("  s.version = ENV['RCT_NEW_ARCH_ENABLED'] == '1' ? '1' : '2'\n"), /line 3: `==`/u],
+      [spec("  while ENV['X']\n  end\n"), /line 3: `while`/u],
+      [spec("  s.version = ENV['A'] === '1' ? '1' : '2'\n"), /line 3: `===`/u],
+      [spec("  s.version = ENV.fetch('A')\n"), /line 3: `\.` where `\[` is expected/u],
       [spec("  s.version = `git describe`\n"), /line 3: ``git`/u],
       [spec("  s.version = '1.0'.strip\n"), /line 3: `\.` after a statement/u],
-      [spec("  install_modules_dependencies(s)\n"), /line 3: `install_modules_dependencies`/u],
+      [spec('  use_helper(s)\n'), /line 3: `use_helper`/u],
       [spec("  s.source_files = Dir['ios/*']\n"), /line 3: `Dir`/u],
       [spec("  s.unknown = 1\n"), /line 3: the attribute "unknown"/u],
       [spec("  s.version = 1.5\n"), /line 3: a number with a fraction/u],
@@ -53,6 +54,52 @@ describe('podspecJson', () => {
       [spec('', 'def helper; end\n'), /line 1: `def`/u],
       [`${spec('')}puts 'done'\n`, /line 4: more after the specification/u],
       ["Pod::Spec.new do |s|\n  s.version = '1'\nend\n", /its podspec gives no name/u],
+    ]) assert.throws(() => convert(source), (error) => error.name === 'PodError' && message.test(error.message), source)
+  })
+
+  it('reads the branch of a condition that holds, by the environment it is given', () => {
+    const body = `  if ENV['MODE'] == 'a' then
+    s.summary = 'A'
+  elsif ENV['MODE'] == 'b' && !ENV['OFF']
+    s.summary = 'B'
+  else
+    s.summary = ENV['MODE'] != nil || ENV['OFF'] ? 'other' : 'none'
+  end
+  unless debug
+    s.frameworks = flags.join(' ')
+  end
+  s.requires_arc = true unless ENV['MODE']
+  s.libraries = 'c++' if (ENV['MODE'] == 'a' || ENV['MODE'] == 'b') && s.respond_to?(:visionos)
+`
+    const before = "debug = ENV['DEBUG'] == '1'\nflags = ['-DA']\nflags << '-DB' if debug\nif debug\n  flags << '-DC'\nend\n"
+    const by = (env) => {
+      const { forms, conditions } = podspecJson('/pod/Name.podspec', spec(body, before), () => undefined, 'pods["Name"]', { env: new Map(Object.entries(env)), prebuilt: {} })
+      const said = JSON.parse(forms[1])
+      return [Object.fromEntries(['summary', 'frameworks', 'requires_arc', 'libraries'].filter((key) => key in said).map((key) => [key, said[key]])), conditions]
+    }
+    assert.deepEqual(by({}), [{ summary: 'none', frameworks: '-DA', requires_arc: true }, ['DEBUG not set', 'MODE not set', 'OFF not set']])
+    assert.deepEqual(by({ MODE: 'a', OFF: null })[0], { summary: 'A', frameworks: '-DA', libraries: 'c++' })
+    assert.deepEqual(by({ MODE: 'b', DEBUG: '0' }), [{ summary: 'B', frameworks: '-DA', libraries: 'c++' }, ['DEBUG=0', 'MODE=b', 'OFF not set']])
+    assert.deepEqual(by({ MODE: 'b', OFF: '' })[0], { summary: 'other', frameworks: '-DA', libraries: 'c++' })
+    assert.deepEqual(by({ MODE: 'c', DEBUG: '1' })[0], { summary: 'other' })
+  })
+
+  it('passes over the branch that does not hold, whatever is in it, and refuses what it comes to', () => {
+    const body = "  if ENV['X']\n    Pod::UI.puts `tput cols` if tty? { |io| io.end }\n    s.dependency 'A' unless a?\n    list.each do |one|\n      puts one\n    end\n  else\n    s.summary = 'B'\n  end\n"
+    assert.throws(() => convert(spec(body)), /line 4: ``tput`/u, 'what is no word of a podspec is not passed over')
+    const passable = body.replace('`tput cols`', 'columns')
+    assert.equal(JSON.parse(convert(spec(passable))[1]).summary, 'B')
+    assert.throws(() => convert(spec(passable), {}, { env: new Map([['X', '1']]), prebuilt: {} }), /line 4: `tty\?`/u)
+    for (const [source, message] of [
+      [spec("  if ENV['X']\n    while true\n    end\n  end\n"), /line 4: `while` where a condition does not hold/u],
+      [spec("  if ENV['X']\n    s.summary = 'A'\n"), /line 6: `end of file` where `name` is expected/u],
+      [spec('', "if ENV['X']\n  a = 1\n"), /line 6: a condition without its `end`/u],
+      [spec("  s.summary = :a == 'a' ? 'A' : 'B'\n"), /line 3: a `==` of what is no text, number, true, false or nil/u],
+      [spec("  s.summary = ['a'] != ['b'] ? 'A' : 'B'\n"), /line 3: a `!=` of what is no text/u],
+      [spec("  s.summary = 'a' << 'b'\n"), /line 3: `<<` after a statement/u],
+      [spec("  s.summary = name\n", "name = 'a'\nname << 'b'\n"), /line 2: a `<<` to what is no list/u],
+      [spec("  s.summary = 'A' if respond_to?(:install_modules_dependencies)\n"), /line 3: `\)` where `,` is expected/u],
+      [spec("  s.summary = 'A' if defined?(use_helper)\n"), /line 3: `defined\?` of `use_helper`/u],
     ]) assert.throws(() => convert(source), (error) => error.name === 'PodError' && message.test(error.message), source)
   })
 })
