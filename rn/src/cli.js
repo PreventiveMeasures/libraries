@@ -116,6 +116,33 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
     // Plugins read it for release builds: react-native-worklets omits worklets' locations and maps.
     const processEnv = envFor?.(dev) ?? null
     const envName = processEnv?.BABEL_ENV ?? (dev ? 'development' : process.env.BABEL_ENV || 'production')
+    // Where this process's env isn't the target's (rn-serve's release bundles), the config's plugins (which
+    // module-resolver's aliases, mapped outside Babel, are of) are read under the target's, at once, so that
+    // no other build's code runs meanwhile; a config with top-level await, which only loads asynchronously,
+    // under this process's.
+    const ownEnv = processEnv === null || Object.entries(processEnv).every(([name, value]) => process.env[name] === value)
+    const underEnv = (read) => {
+      if (ownEnv) return read()
+      const before = Object.fromEntries(Object.keys(processEnv).map((name) => [name, process.env[name]]))
+      Object.assign(process.env, processEnv)
+      try {
+        return read()
+      } finally {
+        for (const [name, value] of Object.entries(before)) {
+          if (value === undefined) delete process.env[name]
+          else process.env[name] = value
+        }
+      }
+    }
+    const targetOptions = (given) => {
+      if (ownEnv) return loadOptions(given)
+      try {
+        return Promise.resolve(underEnv(() => loadCore().loadOptionsSync(given)))
+      } catch (error) {
+        if (!/top-level await/u.test(error?.message ?? '')) throw error
+        return loadOptions(given)
+      }
+    }
     // What Metro's transformer gives the preset: 0.78's reads the profile from these, not the caller.
     const presetOptions = { projectRoot: cwd, dev, platform, inlinePlatform: true, unstable_transformProfile: transformProfile, customTransformOptions: {}, disableImportExportTransform: false, enableBabelRuntime: babelRuntime }
     // sourceType unambiguous: a file without import or export is a script, as in Metro's transformer.
@@ -135,9 +162,9 @@ export function projectBabel(cwd, project, fail, { sourceMaps = false, profile =
       // The config's plugins less those switched off, plus those switched on, FORCED; then Metro's
       // inline-requires, which the workers run last.
       babelPlugins: async (filename) => {
-        const plugins = pluginsByKey((await loadOptions({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
+        const plugins = pluginsByKey((await targetOptions({ ...options, filename, ...(finds?.(filename) === false && { babelrc: false }) }))?.plugins ?? [])
         if (switched.length > 0) {
-          switchedKeys ??= switchesOf(loadCore(), switched, { cwd, root: cwd, caller, envName }, { ...options, filename: join(cwd, 'index.js') })
+          switchedKeys ??= underEnv(() => switchesOf(loadCore(), switched, { cwd, root: cwd, caller, envName }, { ...options, filename: join(cwd, 'index.js') }))
           for (const key of switchedKeys.off) plugins.delete(key)
           for (const { key, plugin } of switchedKeys.added) {
             if (plugins.has(key) || plugin !== null) plugins.set(key, { ...(plugins.get(key) ?? plugin.options), [FORCED]: true })
