@@ -264,6 +264,29 @@ describe('generate, of a Core Data model', () => {
   })
 })
 
+describe('generate, of an .xcframework that holds a framework of another name than its own', () => {
+  it('refuses it, where CocoaPods writes it and links and embeds a framework that is not there', async () => {
+    // `pod install` 1.16.2 has -framework "Container" and Container.framework to embed for it, and its slices
+    // hold Dyn.framework: the pod is mistaken, and is told so.
+    const root = mkdtempSync(join(tmpdir(), 'pod-generate-test-'))
+    try {
+      cpSync(join(FIXTURES, 'libraries/project'), root, { recursive: true })
+      renameSync(join(root, 'Pods/Binary/Dyn.xcframework'), join(root, 'Pods/Binary/Container.xcframework'))
+      const input = await load(root)
+      input.pods.find((pod) => pod.name === 'Binary').root.subspecs[0].attributes.vendored_frameworks = 'Container.xcframework'
+      assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'pods["Binary"]: "Container.xcframework" holds the framework "Dyn.framework", which is not of its name: a framework of an .xcframework is linked and embedded by the .xcframework\'s name, here "Container.framework", which nothing is found by. The two have to be named alike')
+      // A library in one is linked by its own name, whatever the .xcframework is called.
+      renameSync(join(root, 'Pods/Binary/Container.xcframework'), join(root, 'Pods/Binary/Dyn.xcframework'))
+      renameSync(join(root, 'Pods/Binary/Stat.xcframework'), join(root, 'Pods/Binary/Other.xcframework'))
+      const libraries = await load(root)
+      libraries.pods.find((pod) => pod.name === 'Binary').root.subspecs[1].attributes.vendored_frameworks = 'Other.xcframework'
+      assert.ok(Buffer.from(generate(libraries).files.get('Target Support Files/Pods-App/Pods-App.debug.xcconfig')).toString('utf8').includes('-l"Stat"'))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('generate, of dynamic frameworks', () => {
   const staticFramework = (input, name, value) => {
     input.pods.find((pod) => pod.name === name).root.attributes.static_framework = value

@@ -1,6 +1,7 @@
 // A pod's prepare_command, run as CocoaPods runs it: by bash, in the pod's directory, under `set -e`, with
 // CDPATH unset and COCOAPODS_VERSION set. It is the podspec's own script, and what it makes of the download no
-// hash holds; so it is run for no pod but those pod.config.json names in `prepareCommands`.
+// hash holds; so it is run for no pod but those pod.config.json names in `prepareCommands`, and for none by
+// :path, which load.js refuses with one.
 
 import { spawnSync } from 'node:child_process'
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
