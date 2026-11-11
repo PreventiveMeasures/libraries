@@ -29,9 +29,17 @@ const URL_TYPES = [[/\.zip$/u, 'zip'], [/\.(?:tgz|tar\.gz)$/u, 'tgz'], [/\.tar$/
 const LOGIN = /^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu
 const REPO_NAME = /^(?!\.\.?$)[\w.-]{1,100}$/u
 const SEGMENT = /^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u
+// The URL, where the WHATWG parser writes it back out as it is, and it is
+// nothing but its origin and path, an empty `?` or `#` refused with the
+// rest, so that what is checked of its text is what is fetched; else
+// undefined.
+function parsedOf(url) {
+  const parsed = URL.canParse(url) ? new URL(url) : undefined
+  return parsed !== undefined && parsed.toString() === url && `${parsed.origin}${parsed.pathname}` === url ? parsed : undefined
+}
 function isGitHubUrl(url) {
-  const parsed = URL.parse(url)
-  if (parsed?.href !== url || parsed.origin !== 'https://github.com' || parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') return false
+  const parsed = parsedOf(url)
+  if (parsed?.origin !== 'https://github.com') return false
   const segments = parsed.pathname.slice(1).split('/')
   return segments.length >= 3 && LOGIN.test(segments[0]) && REPO_NAME.test(segments[1]) && segments.every((segment) => SEGMENT.test(segment))
 }
@@ -42,9 +50,8 @@ function isGitHubUrl(url) {
 const MAVEN_FACEBOOK = 'https://repo1.maven.org/maven2/com/facebook/'
 const MAVEN_TYPES = [[/\.tar\.gz$/u, 'tgz'], [/\.zip$/u, 'zip']]
 function isMavenUrl(url) {
-  const parsed = URL.parse(url)
-  if (parsed?.href !== url || !url.startsWith(MAVEN_FACEBOOK) || parsed.search !== '' || parsed.hash !== '') return false
-  return parsed.pathname.slice(1).split('/').every((segment) => SEGMENT.test(segment))
+  const parsed = parsedOf(url)
+  return parsed !== undefined && url.startsWith(MAVEN_FACEBOOK) && parsed.pathname.slice(1).split('/').every((segment) => SEGMENT.test(segment))
 }
 
 // A refusal of where a pod is downloaded from, which buildCocoaPodsTree's

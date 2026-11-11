@@ -300,6 +300,12 @@ describe('getPodArchive', () => {
       'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz?x=1', 'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz#x',
       'https://repo1.maven.org/maven2/com/facebook/../google/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook//x-1.tar.gz',
       'https://repo1.maven.org/maven2/com/facebook/x/1/x+1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook/a%2fb.tar.gz',
+      // Not as the parser writes it back out.
+      'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz?', 'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz#', 'HTTPS://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz',
+      'https://REPO1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook/x/1/x 1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook/./x/1/x-1.tar.gz',
+      'https://github.com/ekscrypto/Base64/archive/refs/tags/1.1.2.tar.gz?', 'https://github.com/ekscrypto/Base64/archive/refs/tags/1.1.2.tar.gz#', 'https://GITHUB.COM/ekscrypto/Base64/archive/refs/tags/1.1.2.tar.gz',
+      // Written under com/facebook/, normalized out of it.
+      'https://repo1.maven.org/maven2/com/facebook/../google/x/1/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook/%2e%2e/google/x/1/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook/%2E%2E/google/x/1/x-1.zip',
     ]) {
       const calls = stubGitHub({ url })
       await assert.rejects(getPodArchive(url, hash), /getPodArchive: url must be an https URL of a GitHub repository's, with a path under it, or of a \.tar\.gz or a \.zip under Maven Central's com\/facebook\//u, url)

@@ -434,6 +434,11 @@ describe('buildCocoaPodsTree', () => {
       [{ http: `${ACME_MAVEN}?x=1` }, /not https:\/\/github\.com/u],
       [{ http: 'https://repo1.maven.org/maven2/com/facebook/acme//acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
       [{ http: 'https://repo1.maven.org/maven2/com/facebook/acme/1+2/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
+      // Not as the parser writes it back out, or more than its origin and path.
+      ...[`${ACME_MAVEN}?`, `${ACME_MAVEN}#`, `${ACME_ARCHIVE}?`, `${ACME_ARCHIVE}#`, ACME_MAVEN.replace('https:', 'HTTPS:'), ACME_MAVEN.replace('repo1', 'REPO1'), ACME_ARCHIVE.replace('github.com', 'GitHub.com'),
+        ACME_MAVEN.replace('acme-artifacts-1', 'acme artifacts-1'), ACME_MAVEN.replace('/acme/', '/./acme/'),
+        // Written under com/facebook/, so its text starts as one would, normalized out of it.
+        ACME_MAVEN.replace('/facebook/', '/facebook/../google/'), ACME_MAVEN.replace('/facebook/', '/facebook/%2e%2e/google/'), ACME_MAVEN_ZIP.replace('/facebook/', '/facebook/%2E%2E/google/')].map((http) => [{ http }, /not https:\/\/github\.com\/<owner>\/<repo>\/ or https:\/\/repo1\.maven\.org/u]),
       ...['tgz', 'tar', 'tar.bz2', 'tbz', 'tar.xz', 'txz', 'jar', 'aar', 'dmg', 'TAR.GZ', 'ZIP', 'tar.gz.sha256'].map((extension) => [{ http: ACME_MAVEN.replace(/\.tar\.gz$/u, `.${extension}`) }, /an :http source from Maven Central of anything but a \.tar\.gz or a \.zip is not supported/u]),
       [{ http: ACME_MAVEN, type: 'tar' }, /its :type "tar" is not the tgz its URL on Maven Central names, as only a \.tar\.gz and a \.zip from there are supported/u],
       [{ http: ACME_MAVEN, type: 'zip' }, /its :type "zip" is not the tgz its URL on Maven Central names/u],

@@ -46,13 +46,15 @@ const MAVEN_ARCHIVE = /\.(?:tar\.gz|zip)$/u
 
 // https://github.com/<owner>/<repo>/ and a path under it, or
 // https://repo1.maven.org/maven2/com/facebook/ and a path under it to a
-// .tar.gz or a .zip, as buildUrl would write it: no query, fragment,
-// credentials or port, and nothing in a segment but what it lets through.
+// .tar.gz or a .zip, as the WHATWG parser writes it back out and as
+// buildUrl would write it: no query, fragment, credentials or port, and
+// nothing in a segment but what it lets through.
 function isArchiveUrl(value) {
-  const parsed = typeof value === 'string' ? URL.parse(value) : null
-  const segments = parsed?.pathname.slice(1).split('/') ?? []
-  const github = parsed?.origin === GITHUB_WEB && segments.length >= 3 && isRepo(`${segments[0]}/${segments[1]}`)
-  const maven = parsed?.origin === MAVEN_CENTRAL && segments.length > MAVEN_FACEBOOK.length && MAVEN_FACEBOOK.every((segment, i) => segments[i] === segment) && MAVEN_ARCHIVE.test(segments.at(-1))
+  const parsed = typeof value === 'string' && URL.canParse(value) ? new URL(value) : undefined
+  if (parsed === undefined || parsed.toString() !== value) return false
+  const segments = parsed.pathname.slice(1).split('/')
+  const github = parsed.origin === GITHUB_WEB && segments.length >= 3 && isRepo(`${segments[0]}/${segments[1]}`)
+  const maven = parsed.origin === MAVEN_CENTRAL && segments.length > MAVEN_FACEBOOK.length && MAVEN_FACEBOOK.every((segment, i) => segments[i] === segment) && MAVEN_ARCHIVE.test(segments.at(-1))
   if (!github && !maven) return false
   try {
     return buildUrl(parsed.origin, segments) === value
