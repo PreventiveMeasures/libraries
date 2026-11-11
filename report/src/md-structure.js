@@ -242,9 +242,9 @@ export function stripBold(text) { return text.replaceAll('**', '') }
 //
 // A backslash hides the character after it from every scan here.
 //
-// `index` comes back too, so a caller can ask that the value START with
-// a link (parse-deepview-fields.js readLink) rather than take the first
-// one in the line (parse-md.js).
+// `index` and `end` come back too, so a caller can ask that the value START
+// with a link (parse-deepview-fields.js readLink) rather than take the first
+// one in the line (parse-md.js), and read what follows it.
 export function findMdLink(s) {
   const text = String(s ?? '')
   // Where each reading would CLOSE, read off the text once rather than
@@ -262,8 +262,8 @@ export function findMdLink(s) {
       // An EMPTY label is no label: `![](badge.svg)` ahead of a
       // reference is a badge, and the link wanted is the one behind it.
       if (close === -1 || close === open + 1 || text[close + 1] !== '(') continue
-      const url = destination(text, close + 1, dests)
-      if (url !== null) return { label: text.slice(open + 1, close), url, index: open }
+      const dest = destination(text, close + 1, dests)
+      if (dest !== null) return { label: text.slice(open + 1, close), ...dest, index: open }
     }
   }
   return null
@@ -348,22 +348,22 @@ function destinationEnds(text) {
   return { balanced, nextClose, nextSpace, nextAngle, nextLine }
 }
 
-// The destination opened at `open`, as its url, or null: an
-// angle-bracket form, else the bare run its own parens close, else the
-// one the first `)` closes. An EMPTY destination is none of them --
-// `[a]()` is not a link -- while an empty `<>` falls through to the bare
-// readings, which take the angle brackets themselves as the url.
+// The destination opened at `open`, as its url and the index past its
+// `)`, or null: an angle-bracket form, else the bare run its own parens
+// close, else the one the first `)` closes. An EMPTY destination is none
+// of them -- `[a]()` is not a link -- while an empty `<>` falls through to
+// the bare readings, which take the angle brackets themselves as the url.
 function destination(text, open, dests) {
   const angled = angleDestination(text, open, dests)
-  if (angled) return angled
+  if (angled) return { url: angled, end: open + angled.length + 4 }
   const balanced = dests.balanced.get(open)
-  if (balanced !== undefined) return balanced > open + 1 ? text.slice(open + 1, balanced) : null
+  if (balanced !== undefined) return balanced > open + 1 ? { url: text.slice(open + 1, balanced), end: balanced + 1 } : null
   // Failing that, up to the first `)` -- all an unmatched paren leaves.
   // Whitespace before it disqualifies the candidate.
   const flat = dests.nextClose[open + 1]
   const space = dests.nextSpace[open + 1]
   if (flat === -1 || flat === open + 1 || (space !== -1 && space < flat)) return null
-  return text.slice(open + 1, flat)
+  return { url: text.slice(open + 1, flat), end: flat + 1 }
 }
 
 // The `<...>` form md-text.js `link` writes when a url can't sit bare,

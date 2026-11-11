@@ -44,28 +44,31 @@ function repositoryPath(parts, what) {
 
 function assignReferences(row, finding, text, repoPrefixes) {
   const refs = links(text)
-  const github = refs[0]?.repo
-  requireSupported(github && refs.every((link) => link.repo === github), `repository set for finding ${row.id}; expected exactly one repository`)
+  const github = assignEvidence(finding, refs, `finding ${row.id}`)
   requireSupported(!row.group.github || row.group.github === github, `repository set for product ${row.product}; expected exactly one repository`)
   const prefix = repoPrefixes.get(github)
   requireSupported(prefix === undefined || prefix === row.prefix, `repository ID prefixes for ${github}; expected ${prefix}, got ${row.prefix} (${row.id})`)
   repoPrefixes.set(github, row.prefix)
   row.group.github = github
   row.group.directories.push(...refs.map((link) => link.directory))
-  assignEvidence(finding, refs)
 }
 
-function assignEvidence(finding, refs) {
+// The references' one repository, returned, and their evidence on the finding.
+function assignEvidence(finding, refs, subject) {
+  const github = refs[0]?.repo
+  requireSupported(github && refs.every((link) => link.repo === github), `repository set for ${subject}; expected exactly one repository`)
   const evidence = refs.flatMap((link) => link.evidence ?? [])
-  if (!evidence.length) return
-  Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
-  // A reference's commit is where the code was read, not where the bug landed;
-  // stamped, in lowercase and at its longest spelling, only when every evidence
-  // row was read at that one commit: all links name one repository, so a hash
-  // the longest one starts with names the same commit.
-  const commits = refs.filter((link) => link.evidence).map((link) => link.ref.toLowerCase())
-  const longest = commits.reduce((a, b) => (b.length > a.length ? b : a))
-  if (commits.every((ref) => isCommitHash(ref) && longest.startsWith(ref))) finding.auditedCommit = longest
+  if (evidence.length) {
+    Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
+    // A reference's commit is where the code was read, not where the bug landed;
+    // stamped, in lowercase and at its longest spelling, only when every evidence
+    // row was read at that one commit: all links name one repository, so a hash
+    // the longest one starts with names the same commit.
+    const commits = refs.filter((link) => link.evidence).map((link) => link.ref.toLowerCase())
+    const longest = commits.reduce((a, b) => (b.length > a.length ? b : a))
+    if (commits.every((ref) => isCommitHash(ref) && longest.startsWith(ref))) finding.auditedCommit = longest
+  }
+  return github
 }
 
 function commonDirectory(directories) {
@@ -78,27 +81,34 @@ function commonDirectory(directories) {
   return common.join('/')
 }
 
+// Findings keep repository-root paths; the common directory describes the listing.
+function report(displayName, github, directories, findings, extra) {
+  const repo = { github, directory: commonDirectory(directories) }
+  return { displayName, data: { type: 'security', source: SOURCE, ...extra, repo, findings: findings.map((f) => ({ ...f, repo: { github } })) } }
+}
+
 // `- [label](GitHub file link) - explanation`, one item per affected site;
 // indented lines continue an item's explanation.
 function affectedCode(text, title) {
+  const unlisted = `Affected Code for "${title}"; expected a list of links`
   const items = []
   for (const line of text.split('\n')) {
     const marker = LIST_MARKER_RE.exec(line)
     if (marker && !marker[1]) items.push([line.slice(marker[0].length)])
     else if (line.trim()) {
-      requireSupported(items.length && /^[ \t]/u.test(line), `Affected Code for "${title}"; expected a list of links`)
+      requireSupported(items.length && /^[ \t]/u.test(line), unlisted)
       items.at(-1).push(line.trim())
     }
   }
-  requireSupported(items.length, `Affected Code for "${title}"; expected a list of links`)
+  requireSupported(items.length, unlisted)
   return items.map(([item, ...more]) => {
     const link = findMdLink(item)
-    const written = link?.index === 0 && [`[${link.label}](${link.url})`, `[${link.label}](<${link.url}>)`].find((form) => item.startsWith(form))
-    requireSupported(written && /^https?:\/\/\S+$/iu.test(link.url), `Affected Code item for "${title}"; expected [file](link) first`)
+    requireSupported(link?.index === 0 && /^https?:\/\/\S+$/iu.test(link.url), `Affected Code item for "${title}"; expected [file](link) first`)
     const ref = githubLink(link.url)
     requireSupported(ref.evidence, `Affected Code link for "${title}"; expected a link to a file`)
-    const note = [item.slice(written.length).replace(/^[ \t]*(?:[-\u2013\u2014:][ \t]*)?/u, ''), ...more].join('\n').trim()
-    return note ? { ...ref, evidence: { ...ref.evidence, text: note } } : ref
+    const note = [item.slice(link.end).replace(/^[ \t]*(?:[-\u2013\u2014:][ \t]*)?/u, ''), ...more].join('\n').trim()
+    if (note) ref.evidence.text = note
+    return ref
   })
 }
 
@@ -118,28 +128,26 @@ function parseSectionedReports(blocks) {
     const section = `# ${block}`.trim()
     requireSupported(!sections.has(section), `duplicate finding "${title}"`)
     sections.add(section)
-    const refs = affectedCode(fields.get('affected code'), title)
-    const github = refs[0].repo
-    requireSupported(refs.every((link) => link.repo === github), `repository set for "${title}"; expected exactly one repository`)
+    const [description, affected, fix, tests] = SECTIONS.map((key) => fields.get(key))
+    const refs = affectedCode(affected, title)
     // The format names no severity; the description's calibration is prose.
-    const finding = { _idBasis: { source: SOURCE, section }, severity: 'medium', security: true, file: 'unknown', line: '?' }
-    const tests = fields.get('tests')
-    finding.description = [title, fields.get('description'), tests && `**Tests:**\n${tests}`].filter(Boolean).join('\n\n')
-    if (fields.get('fix')) finding.recommendation = fields.get('fix')
-    assignEvidence(finding, refs)
+    const finding = { _idBasis: { source: SOURCE, section }, severity: 'medium', security: true,
+      description: [title, description, tests && `**Tests:**\n${tests}`].filter(Boolean).join('\n\n') }
+    if (fix) finding.recommendation = fix
+    const github = assignEvidence(finding, refs, `"${title}"`)
     const group = repos.get(github) ?? { directories: [], findings: [] }
     group.directories.push(...refs.map((link) => link.directory))
-    group.findings.push({ ...finding, repo: { github } })
+    group.findings.push(finding)
     repos.set(github, group)
   }
-  return [...repos].map(([github, { directories, findings }]) => (
-    { displayName: github, data: { type: 'security', source: SOURCE, repo: { github, directory: commonDirectory(directories) }, findings } }))
+  return [...repos].map(([github, { directories, findings }]) => report(github, github, directories, findings))
 }
 
 export function parseGenericMarkdownToReports(content) {
   const text = normalizeNewlines(content).trim()
-  if (text.startsWith('# ')) {
-    // Fence-aware: a `# comment` in a snippet is the snippet's.
+  // Split only where the heading is in the text at all, and fence-aware: a
+  // `# comment` in a snippet is the snippet's.
+  if (text.startsWith('# ') && /^### +Affected Code[ \t]*$/imu.test(text)) {
     const blocks = splitUnfenced(text, /^# /gmu).slice(1).map((block) => {
       const { title, body } = splitHeadingLine(block)
       return { block, title, ...splitLeading(body, SECTION_RE) }
@@ -198,12 +206,7 @@ export function parseGenericMarkdownToReports(content) {
     row.finding = finding
   }
   requireSupported([...rows.values()].every((row) => row.finding), 'missing finding sections')
-  return [...products].map(([product, group]) => {
-    const repo = { github: group.github, directory: commonDirectory(group.directories) }
-    // Findings keep repository-root paths; the common directory describes the listing.
-    const findings = group.rows.map(({ finding }) => ({ ...finding, repo: { github: group.github } }))
-    return { displayName: product, data: { type: 'security', source: SOURCE, product, repo, findings } }
-  })
+  return [...products].map(([product, group]) => report(product, group.github, group.directories, group.rows.map((row) => row.finding), { product }))
 }
 
 export function parseGenericMarkdown(content) {
