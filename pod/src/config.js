@@ -31,7 +31,8 @@ const OPTIONS = {
   targets: [(value) => isObject(value) && Object.values(value).every(isObject), "an object of the app's targets by name", TARGET],
   // Build settings a post_install hook set on every pod's target.
   buildSettings: settings,
-  // The pods whose prepare_command is run, with bash, as CocoaPods runs it.
+  // The downloaded pods whose prepare_command is run, with bash, as CocoaPods runs it. One of a pod by :path is
+  // never run: such a pod is refused.
   prepareCommands: names,
   // The variables of the environment a podspec is read with, as they were once the Podfile had been read: each
   // a string, or null for one that is not set. Those a known React Native sets itself need not be given:

@@ -8,7 +8,6 @@ import { parsePodfileLock } from '@preventive/lockfile/cocoapods.js'
 
 import { generate } from './generate.js'
 import { load } from './load.js'
-import { runPrepare } from './prepare.js'
 import { fetchPods } from './sources.js'
 
 const walk = (dir, prefix = '') => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name), `${prefix}${entry.name}/`) : [`${prefix}${entry.name}`])) : [])
@@ -53,12 +52,6 @@ export async function install(dir, github) {
   const input = await load(dir)
   await removeStale(input)
   const downloaded = await fetchPods(input, github)
-  // PodSourceInstaller#install!: a local pod is not downloaded, and its prepare_command is run all the same,
-  // where the pod is, at each installation.
-  for (const pod of input.pods) {
-    const command = pod.root.attributes.prepare_command
-    if (pod.local && typeof command === 'string') runPrepare(pod.name, command, pod.dir, input.config, input.lock.cocoapods)
-  }
   const { files, links, podTargets, aggregates } = generate(input)
   const written = writeGenerated(input.sandbox, files, links)
   return { pods: podTargets.map((target) => target.name), targets: aggregates.map((aggregate) => aggregate.label), downloaded, written }

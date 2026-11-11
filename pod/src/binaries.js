@@ -43,7 +43,8 @@ export function isDynamic(path) {
 // Xcode::XCFramework: `dir` is the .xcframework's directory, `specName` the spec that vends it, which its
 // intermediate directory is named after. Its slices come sorted by their identifiers; its type is its first's.
 // Its name is its directory's, as XCFramework#name is, and CocoaPods links and embeds a framework of it by that
-// name: one that holds a framework of another name is written no differently, and does not link there either.
+// name. One that holds a framework of another name it writes all the same, for the linker to find nothing by;
+// here that is refused, as a mistake of the pod's.
 export function readXcframework(dir, specName, where) {
   let plist
   try {
@@ -71,5 +72,8 @@ export function readXcframework(dir, specName, where) {
       headers: library.HeadersPath === undefined ? join(path, 'Headers') : join(dir, library.LibraryIdentifier, library.HeadersPath),
     }
   }).sort((a, b) => byBytes(a.identifier, b.identifier))
-  return { name: basename(dir, '.xcframework'), dir, targetName: specName, slices, framework: slices[0].framework, dynamic: slices[0].dynamic }
+  const name = basename(dir, '.xcframework')
+  const other = slices.find((slice) => slice.framework && basename(slice.path, '.framework') !== name)
+  if (other !== undefined) throw new PodError(`${quote(basename(dir))} holds the framework ${quote(basename(other.path))}, which is not of its name: a framework of an .xcframework is linked and embedded by the .xcframework's name, here ${quote(`${name}.framework`)}, which nothing is found by. The two have to be named alike`, where)
+  return { name, dir, targetName: specName, slices, framework: slices[0].framework, dynamic: slices[0].dynamic }
 }

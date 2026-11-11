@@ -202,21 +202,23 @@ end
     assert.ok(existsSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')))
   })
 
-  it('runs the prepare_command of a local pod where the pod is, as CocoaPods does, and only where it is named', async () => {
-    // `pod install` 1.16.2 runs it for a :path pod too, in the pod's own directory, at each installation.
+  it('refuses a pod by :path whose podspec has a prepare_command, named in prepareCommands or not, and runs nothing', async () => {
+    // `pod install` 1.16.2 runs it for a :path pod too, in the pod's own directory, at each installation. Here
+    // such a pod is a mistake of the project's: it is used where it is, and no script is run in it.
     const withCommand = async (config) => {
       const { dir } = await project((spec) => spec, config, true)
       const path = join(dir, 'Podspecs/Delta.podspec.json')
       const before = readFileSync(path)
-      const podspec = Buffer.from(`${JSON.stringify({ ...JSON.parse(before), prepare_command: 'echo "$COCOAPODS_VERSION in $(basename "$PWD")" > prepared.txt' }, null, 2)}\n`)
+      const podspec = Buffer.from(`${JSON.stringify({ ...JSON.parse(before), prepare_command: 'echo ran > prepared.txt' }, null, 2)}\n`)
       writeFileSync(path, podspec)
       for (const lock of ['Podfile.lock', 'Pods/Manifest.lock']) writeFileSync(join(dir, lock), readFileSync(join(dir, lock), 'utf8').replace(sha('sha1', before), sha('sha1', podspec)))
       return dir
     }
-    await assert.rejects(install(await withCommand({}), GITHUB), /pods\["Delta"\]: its podspec has a prepare_command.*name the pod in `prepareCommands`/u)
-    const dir = await withCommand({ prepareCommands: ['Delta'] })
-    assert.deepEqual((await install(dir, GITHUB)).downloaded, [])
-    assert.equal(readFileSync(join(dir, 'local/Delta/prepared.txt'), 'utf8'), '1.16.2 in Delta\n')
+    for (const config of [{}, { prepareCommands: ['Delta'] }]) {
+      const dir = await withCommand(config)
+      await assert.rejects(install(dir, GITHUB), (error) => error.name === 'PodError' && error.message.startsWith('pods["Delta"]: its podspec has a prepare_command, and the pod is one by :path, which is used where it is'))
+      assert.equal(existsSync(join(dir, 'local/Delta/prepared.txt')), false)
+    }
   })
 
   it('links a header that two subspecs both have once, where linking it again would fail', async () => {

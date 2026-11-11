@@ -111,7 +111,11 @@ export async function load(dir) {
     if (root.external !== undefined && !local && root.external.type !== 'podspec') throw new PodError(`a pod from an external source by :${root.external.type} is not supported: only those by :path and :podspec, and from trunk, are`, where)
     // A local pod is where its path says, or where the podspec is that its path names.
     const podDir = local ? resolve(dir, root.external.path).replace(/[/\\][^/\\]+\.podspec(?:\.json)?$/u, '') : join(sandbox, root.name)
-    return { name: root.name, version: root.version, specs: root.pods, checksum: root.checksum, local, external: root.external !== undefined, dir: podDir, sandboxPath: posixOf(relative(sandbox, podDir)), ...podspecOf(root, dir, podspecs, where, context) }
+    const pod = { name: root.name, version: root.version, specs: root.pods, checksum: root.checksum, local, external: root.external !== undefined, dir: podDir, sandboxPath: posixOf(relative(sandbox, podDir)), ...podspecOf(root, dir, podspecs, where, context) }
+    // CocoaPods runs a local pod's prepare_command where the pod is, at each installation. A pod by :path is
+    // the project's own files, used as they are, and no script of a podspec's is run in them: it is refused.
+    if (local && typeof pod.root.attributes.prepare_command === 'string') throw new PodError('its podspec has a prepare_command, and the pod is one by :path, which is used where it is: CocoaPods would run the script in the pod\'s own directory at each installation, and none is run there here. The prepare_command has to be taken out of the podspec, and what it makes be in the pod already', where)
+    return pod
   })
   return { dir, lock, lockText, config, user, sandbox, pods }
 }
