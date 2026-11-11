@@ -1,46 +1,26 @@
-// A zip archive in, its entries out, in the order of the central directory,
-// which is what a zip is read from. Strict throughout: the end record has to
-// sit at the very end, the central directory right before it, and the
-// entries have to tile everything before that from byte 0 -- no bytes belong
-// to nothing, no two entries share any. Each local header has to agree with
-// the central directory, the data has to inflate to exactly the declared
-// size and match its CRC-32, and what this package does not model -- zip64,
-// encryption, any method but stored and deflate, several disks -- is refused.
-// Given a limit, the sizes the entries declare may not add up to more than
-// it; since each has to come out at exactly its own, that bounds everything
-// unzip() puts out, and it is known from the central directory alone,
-// before a single byte is inflated.
-//
-// One reader serves both calls. It asks for the archive a range at a time:
-// views of it when it is in memory, and reads of just those bytes when it
-// is a Blob -- a File, or a file opened with fs.openAsBlob -- so a stream
-// over one holds no more of it than the entries' names and the entry it is
-// on. Everything about the layout is checked before the first entry is
-// handed over; what an entry's own data holds is checked as it is reached.
-
 import { crc32 } from '@exodus/bytes/crc.js'
 import { EMPTY, sameBytes } from '../bytes.js'
 import { DEFAULT_MODE } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
-import { CENTRAL, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './format.js'
-import { Names, cleanNames, levelsAbove } from '../names.js'
+import { Names, cleanNames } from '../names.js'
 import { decodeUtf8, quote } from '../text.js'
+import { CENTRAL, END, LOCAL, TYPE_BITS, TYPE_MASK, fromDos, inflate, view } from './format.js'
+
+// Strict: the end record ends the archive, the central directory ends at it, and the entries tile
+// everything before it from byte 0. Each local header agrees with the central directory, each entry
+// inflates to exactly its declared size and CRC-32; zip64, encryption and other methods are refused.
 
 const DESCRIPTOR = 0x08074b50
 const ZIP64_LOCATOR = 0x07064b50
 const ZIP64_EXTRA = 0x0001
 const TIMESTAMP_EXTRA = 0x5455
-// Info-ZIP's Unicode Path field: a second, UTF-8 name that unzip takes over
-// the one in the header when its CRC-32 matches that header name.
-const UNICODE_PATH_EXTRA = 0x7075
+const UNICODE_PATH_EXTRA = 0x7075 // a second name, which Info-ZIP's unzip takes over the header's
 
 const ENCRYPTED = 1
 const DESCRIBED = 8 // sizes and CRC follow the data, and may be 0 in the local header
 const DOS_DIRECTORY = 0x10
 
-// Bounds-checked little-endian reads over `bytes`, which sit at `base` in
-// the archive: offsets are the archive's own, and one past what was read,
-// which stops short only at the archive's end, is past its end.
+// Bounds-checked reads of `bytes`, which sit at `base` in the archive, by the archive's own offsets
 function reader(bytes, base = 0) {
   const data = view(bytes)
   const check = (at, width) => {
@@ -49,14 +29,11 @@ function reader(bytes, base = 0) {
   return {
     u16: (at) => (check(at, 2), data.getUint16(at - base, true)),
     u32: (at) => (check(at, 4), data.getUint32(at - base, true)),
-    slice: (at, width) => (check(at, width), bytes.subarray(at - base, at - base + width)),
+    range: (at, width) => (check(at, width), bytes.subarray(at - base, at - base + width)),
   }
 }
 
-// Where the archive's bytes come from, a range at a time: `read` for the
-// bytes themselves, `window` for a reader over them, cut short where the
-// archive ends. In memory, a range is a view and every window is the one
-// reader over the whole; a Blob reads each range as it is asked for.
+// The archive a range at a time: views of it in memory, reads of just that range from a Blob
 function sourceOf(archive) {
   if (archive instanceof Uint8Array) {
     const whole = reader(archive)
@@ -69,11 +46,8 @@ function sourceOf(archive) {
   throw new ArchiveError('the archive is not a Uint8Array or a Blob')
 }
 
-// A walk forward through records too small to be worth a read each: a
-// window over [at, at + width), cut short only where the archive ends,
-// and over what else the read it came from holds -- up to CHUNK bytes past
-// `at`, and short of `stop`, so that the records after it come in the same
-// read and nothing past them is read to no purpose.
+// Reads for a walk forward through small records: each window reads ahead up to CHUNK bytes,
+// short of `stop`, so the records after come in the same read and data past them is not read
 const CHUNK = 1 << 16
 
 function walk(source) {
@@ -91,9 +65,7 @@ function walk(source) {
   }
 }
 
-// The end record is the last 22 bytes plus its comment, and nothing after.
-// Read with the 20 bytes ahead of the furthest back it can start, where a
-// zip64 locator would sit.
+// The last 22 bytes and the comment they count, read with the 20 before, where a zip64 locator would be
 async function findEnd(source) {
   const { size } = source
   const r = await source.window(Math.max(0, size - 22 - 0xffff - 20), size)
@@ -106,8 +78,7 @@ async function findEnd(source) {
   throw new ArchiveError('no end of central directory record')
 }
 
-// Extra fields, each an id, a length and that many bytes, tiling the room,
-// in the order stored; copies, so that none holds on to the chunk read.
+// Each a copy, holding on to no chunk
 function extras(raw, at) {
   const fields = []
   const r = reader(raw)
@@ -116,8 +87,6 @@ function extras(raw, at) {
     const size = r.u16(pos + 2)
     if (pos + 4 + size > raw.length) throw new ArchiveError('an extra field runs past its room', at)
     if (id === ZIP64_EXTRA) throw new ArchiveError('zip64 is not supported', at)
-    // Every name here is UTF-8 already, so this field can only disagree with
-    // the name checked above -- and unzip would extract the name it carries.
     if (id === UNICODE_PATH_EXTRA) throw new ArchiveError('an entry carries a second name in a Unicode path extra field', at)
     fields.push({ id, data: raw.slice(pos + 4, pos + 4 + size) })
     pos += 4 + size
@@ -145,18 +114,15 @@ async function readCentral(read, at) {
     internal: r.u16(at + 36),
     attributes: r.u32(at + 38),
     offset: r.u32(at + 42),
-    // A copy, so that no entry holds on to the chunk it was read from.
-    name: r.slice(at + 46, nameLength).slice(),
+    name: r.range(at + 46, nameLength).slice(), // a copy, holding on to no chunk
     next: at + 46 + nameLength + extraLength + r.u16(at + 32),
   }
   if (r.u16(at + 34) !== 0) throw new ArchiveError('the archive spans several disks', at)
   if (entry.flags & ENCRYPTED) throw new ArchiveError('an entry is encrypted', at)
   if (entry.method !== 0 && entry.method !== 8) throw new ArchiveError(`compression method ${entry.method} is not stored or deflate`, at)
   if (entry.csize === 0xffffffff || entry.usize === 0xffffffff || entry.offset === 0xffffffff) throw new ArchiveError('zip64 is not supported', at)
-  // The DOS fields have to be a time even where the extended timestamp,
-  // an exact one, is the time kept.
-  entry.mtime = fromDos(entry.date, entry.time, at)
-  entry.extra = extras(r.slice(at + 46 + nameLength, extraLength), at)
+  entry.mtime = fromDos(entry.date, entry.time, at) // a valid DOS time even where the extended one is kept
+  entry.extra = extras(r.range(at + 46 + nameLength, extraLength), at)
   const stamp = entry.extra.find((field) => field.id === TIMESTAMP_EXTRA)?.data
   if (stamp !== undefined && stamp[0] & 1) {
     if (stamp.length < 5) throw new ArchiveError('an extended timestamp is cut short', at)
@@ -165,13 +131,8 @@ async function readCentral(read, at) {
   return entry
 }
 
-// The local header checked against the central entry; returns where the
-// entry's bytes end, which has to be `boundary`, the next record's start,
-// and notes where its data starts. The two records have to agree on
-// everything both carry -- flags included, since a descriptor bit set in
-// one and not the other is read two ways by two readers -- and the local
-// sizes and CRC may be 0 only where a descriptor carries them. `stop` is
-// as far as the header is read ahead of itself.
+// Checks the local header against the central one, flags included, as readers differ on a descriptor bit
+// set in one alone. Returns where the entry ends, which must be `boundary`; `stop` bounds the read-ahead.
 async function readLocal(read, entry, boundary, stop) {
   const at = entry.offset
   let r = await read(at, 30, stop)
@@ -179,21 +140,19 @@ async function readLocal(read, entry, boundary, stop) {
   const nameLength = r.u16(at + 26)
   const extraLength = r.u16(at + 28)
   r = await read(at, 30 + nameLength + extraLength, stop)
-  if (!sameBytes(r.slice(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
+  if (!sameBytes(r.range(at + 30, nameLength), entry.name)) throw new ArchiveError('the local header names a different entry', at)
   const shared = [[4, 'version', 'a different version'], [6, 'flags', 'different flags'], [8, 'method', 'a different compression method'], [10, 'time', 'a different time'], [12, 'date', 'a different date']]
   for (const [field, key, what] of shared) {
     if (r.u16(at + field) !== entry[key]) throw new ArchiveError(`the local header has ${what}`, at)
   }
-  extras(r.slice(at + 30 + nameLength, extraLength), at)
+  extras(r.range(at + 30 + nameLength, extraLength), at)
   const described = entry.flags & DESCRIBED
   const agrees = (field, value) => r.u32(at + field) === value || (described && r.u32(at + field) === 0)
   if (!agrees(14, entry.crc) || !agrees(18, entry.csize) || !agrees(22, entry.usize)) throw new ArchiveError('the local header disagrees with the central directory', at)
   entry.dataAt = at + 30 + nameLength + extraLength
   let end = entry.dataAt + entry.csize
   if (described) {
-    // The descriptor may start with its signature or not, and a CRC can be
-    // that very value, so both layouts are tried against the record; where
-    // both fit (every word the signature), the one reaching the boundary is it.
+    // With or without its signature, which a CRC can equal: where both fit, the one reaching `boundary`
     const d = await read(end, 16, boundary)
     const matches = (from) => d.u32(from) === entry.crc && d.u32(from + 4) === entry.csize && d.u32(from + 8) === entry.usize
     const signed = d.u32(end) === DESCRIPTOR && matches(end + 4)
@@ -204,9 +163,7 @@ async function readLocal(read, entry, boundary, stop) {
   return end
 }
 
-// A directory marker anywhere -- the Unix type bits, the DOS bit -- needs
-// the slash; the slash needs no marker, since Java writes no attributes at
-// all and every JAR has directories.
+// A directory marker needs the slash; the slash needs no marker, as Java writes no attributes
 function typeOf(entry, rawName, mode) {
   const format = mode & TYPE_MASK
   if (rawName.endsWith('/')) {
@@ -223,33 +180,29 @@ function typeOf(entry, rawName, mode) {
 async function entryOf(source, entry, names) {
   const { at, method, csize, usize } = entry
   const rawName = decodeUtf8(entry.name, 'entry name', at)
-  // Only a Unix maker's attributes carry a mode.
-  const mode = entry.madeBy >> 8 === 3 ? entry.attributes >>> 16 : 0
+  const mode = entry.madeBy >> 8 === 3 ? entry.attributes >>> 16 : 0 // only a Unix maker's carry one
   const type = typeOf(entry, rawName, mode)
   if (type === 'directory' && usize !== 0) throw new ArchiveError(`directory ${quote(rawName)} has data`, at)
   if (method === 0 && csize !== usize) throw new ArchiveError('a stored entry has two sizes', at)
-  // A Blob can come back short if what is behind it changed since the
-  // layout was checked; the bytes checked are the bytes read, or nothing.
+  // A Blob changed since the layout was checked can come back short
   const raw = await source.read(entry.dataAt, entry.dataAt + csize)
   if (raw.length !== csize) throw new ArchiveError('the archive is truncated', entry.dataAt)
   const body = method === 8 ? await inflate(raw, usize, at) : raw
   if (crc32(body) !== entry.crc) throw new ArchiveError('the data does not match its CRC-32', at)
   const target = type === 'symlink' ? decodeUtf8(body, 'symlink target', at) : ''
-  const named = located(() => cleanNames(rawName, type, target, names.above), at)
   const out = {
-    ...named, type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName,
+    ...located(() => cleanNames(rawName, type, target, names.above), at),
+    type, mode: mode === 0 ? DEFAULT_MODE[type] : mode & 0o7777, mtime: entry.mtime, data: type === 'file' ? body : EMPTY, storedName: rawName,
     system: entry.madeBy >> 8, version: entry.version, flags: entry.flags, internalAttributes: entry.internal, attributes: entry.attributes, extra: entry.extra,
   }
   located(() => names.add(out), at)
   return out
 }
 
-// The entries one at a time, the layout all checked before the first.
-// `keep` holds entries for a repeat to be compared with, which only the
-// in-memory call can afford.
+// The layout is checked whole before the first entry is read
 async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep = false) {
   if (limit !== Infinity && !(Number.isSafeInteger(limit) && limit >= 0)) throw new ArchiveError(`limit ${String(limit)} is not a whole number of bytes`)
-  const above = levelsAbove(symlinksAbove)
+  const names = new Names(keep, symlinksAbove)
   const { end, r } = await findEnd(source)
   const count = r.u16(end + 8)
   if (r.u16(end + 4) !== 0 || r.u16(end + 6) !== 0 || count !== r.u16(end + 10)) throw new ArchiveError('the archive spans several disks', end)
@@ -257,9 +210,7 @@ async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep =
   const start = r.u32(end + 16)
   if (count === 0xffff || size === 0xffffffff || start === 0xffffffff) throw new ArchiveError('zip64 is not supported', end)
   if (start + size !== end) throw new ArchiveError('the central directory does not end at the end record', end)
-  // A chunk at a time, not the whole of a directory that can near 4 GiB,
-  // and cut only at the archive's end, so a record counted past the
-  // directory meets the end record, as it would in the archive.
+  // A window at a time, cut only at the archive's end, so a record counted past the directory meets the end record
   const directory = walk(source)
   const list = []
   let pos = start
@@ -272,13 +223,9 @@ async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep =
     pos = entry.next
   }
   if (pos !== end) throw new ArchiveError('the central directory does not hold what the end record counts', pos)
-  let expected = 0
+  // Each entry ends where the next starts, the last at the directory. Headers are read ahead through,
+  // but not the data between: each `stop` is the next data's start, or past it while it is empty.
   const sorted = list.toSorted((a, b) => a.offset - b.offset)
-  // Each entry ends where the next starts, the last at the directory. The
-  // headers are read ahead through, but never the data between them, which
-  // is read again when its entry is reached: from each header to its own
-  // data, give or take a descriptor, by the directory's sizes, or on through
-  // the next header where it has none.
   const boundaries = []
   const stops = []
   for (let i = sorted.length - 1; i >= 0; i--) {
@@ -286,12 +233,12 @@ async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep =
     stops[i] = sorted[i].csize === 0 && i + 1 < sorted.length ? stops[i + 1] : boundaries[i] - sorted[i].csize
   }
   const locals = walk(source)
+  let expected = 0
   for (const [i, entry] of sorted.entries()) {
     if (entry.offset !== expected) throw new ArchiveError(entry.offset > expected ? 'bytes belong to no entry' : 'two entries overlap', expected)
     expected = await readLocal(locals, entry, boundaries[i], stops[i])
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
-  const names = new Names(keep, above)
   for (const entry of list) yield await entryOf(source, entry, names)
 }
 

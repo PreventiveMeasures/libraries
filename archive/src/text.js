@@ -1,26 +1,20 @@
-import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
+import { utf8toString } from '@exodus/bytes/utf8.js'
 import { ArchiveError } from './error.js'
 
 // Escaped, so a name in a message cannot carry a terminal sequence, and cut
-// short of a surrogate pair, so a long one cannot flood it.
+// short, not inside a surrogate pair, so a long one cannot flood it
 export function quote(text) {
   if (text.length <= 200) return JSON.stringify(text)
   return JSON.stringify(`${text.slice(0, text.codePointAt(199) > 0xffff ? 199 : 200)}\u2026`)
 }
 
-// A C0, DEL or C1 control (Cc is those three and nothing else); a line or
-// paragraph separator (Zl, Zp: one each); and every bidirectional control
-// Unicode names -- embeddings, overrides and isolates, and the three marks
-// that shift neutral characters about them unseen -- since each breaks or
-// reorders a name as shown. A backslash too, if asked.
+// Controls, line and paragraph separators, and bidi controls: each breaks or reorders a name as shown
 const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u
 const UNSAFE_OR_BACKSLASH = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 
 export const hasUnsafe = (text, backslash) => (backslash ? UNSAFE_OR_BACKSLASH : UNSAFE).test(text)
 
-// Every string taken from a caller goes through here first: a lone
-// surrogate has no UTF-8, and so no length or bytes for any later check
-// to look at, and JSON.stringify would only hide it.
+// Every string from a caller passes here first: a lone surrogate has no UTF-8 to measure or write
 export function checkString(value, what) {
   if (typeof value !== 'string') throw new ArchiveError(`${what} is not a string`)
   if (!value.isWellFormed()) throw new ArchiveError(`${what} is not well-formed Unicode`)
@@ -35,18 +29,8 @@ export function utf8Length(text) {
   return length
 }
 
-// Whether text is more than `max` bytes of UTF-8. A code unit is at least
-// a byte and at most three, so text of more units than `max` is over, and
-// of a third as many is not, without being counted.
+// A code unit is 1 to 3 bytes of UTF-8, so only text of max/3 to max units is counted
 export const tooLong = (text, max) => text.length > max || (text.length * 3 > max && utf8Length(text) > max)
-
-export function encodeUtf8(text, what) {
-  try {
-    return utf8fromString(text)
-  } catch {
-    throw new ArchiveError(`${what} is not well-formed Unicode`)
-  }
-}
 
 export function decodeUtf8(raw, what, at) {
   try {

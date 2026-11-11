@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { ArchiveError } from '../src/error.js'
-import { checkString, decodeUtf8, encodeUtf8, hasUnsafe, quote, utf8Length } from '../src/text.js'
+import { utf8 } from './helpers.js'
+import { checkString, decodeUtf8, hasUnsafe, quote, utf8Length } from '../src/text.js'
 
 // The text helpers are where a string that is not well-formed, or bytes
 // that are not UTF-8, are stopped: nothing past them sees either.
@@ -73,20 +74,17 @@ describe('utf8Length', () => {
   })
 })
 
-describe('encodeUtf8 and decodeUtf8', () => {
-  it('round-trip well-formed text', () => {
-    for (const text of ['', 'a', 'ü/日本', '😀', 'a\u0000b']) assert.equal(decodeUtf8(encodeUtf8(text, 'text'), 'text'), text)
+describe('decodeUtf8', () => {
+  it('reads well-formed text', () => {
+    for (const text of ['', 'a', 'ü/日本', '😀', 'a\u0000b']) assert.equal(decodeUtf8(utf8(text), 'text'), text)
   })
-  it('refuse a lone surrogate, naming the field', () => {
-    assert.throws(() => encodeUtf8('a\uD800', 'uname'), /uname is not well-formed Unicode/u)
-  })
-  it('refuse bytes that are not UTF-8: a surrogate, an overlong form, a cut sequence, a stray continuation', () => {
+  it('refuses bytes that are not UTF-8: a surrogate, an overlong form, a cut sequence, a stray continuation', () => {
     const bad = [[0xed, 0xa0, 0x80], [0xc0, 0xaf], [0xe2, 0x82], [0x80], [0xf8, 0x88, 0x80, 0x80, 0x80], [0xf4, 0x90, 0x80, 0x80]]
     for (const bytes of bad) {
       assert.throws(() => decodeUtf8(Uint8Array.from(bytes), 'entry name', 7), (error) => error instanceof ArchiveError && error.message === 'entry name is not valid UTF-8 at byte 7' && error.offset === 7)
     }
   })
-  it('hand back only well-formed strings', () => {
+  it('hands back only well-formed strings', () => {
     assert.ok(decodeUtf8(Uint8Array.from([0xf0, 0x9f, 0x98, 0x80]), 'text').isWellFormed())
   })
 })

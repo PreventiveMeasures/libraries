@@ -1,120 +1,125 @@
-// The typed contract for archive/zip.js, hand-written: keep it name for name
-// with zip.js, and change it in the same commit as the signature.
+/**
+ * Strict in-memory zip, as Info-ZIP lays it out, deflated by the platform's `CompressionStream`
+ *
+ * ```js
+ * import { unzip, unzipStream, zip } from '@preventive/archive/zip.js'
+ * ```
+ *
+ * Names and symlinks are held to the rules of `@preventive/archive/tar.js`. Neither writing nor reading
+ * takes zip64, so an archive holds at most 65534 entries and stays under 4 GiB.
+ *
+ * @module @preventive/archive/zip.js
+ */
 
-// A 'symlink' is stored the way Info-ZIP stores one: its target as the
-// entry's data, its type in the Unix mode.
-export type EntryType = 'file' | 'directory' | 'symlink'
+export { ArchiveError } from './src/error.js';
 
-// An entry read out of an archive. `name` is a relative path with `.`
-// segments and a directory's trailing slash dropped, or `.` for the
-// archive root itself, which only a directory names; `mode` is the Unix
-// permission bits, or the usual default where the maker recorded none;
-// `mtime` is whole seconds since the epoch, exact where the archive
-// carries an extended timestamp and DOS time read as UTC otherwise;
-// `linkname` is '' for anything but a symlink; `data` is empty for
-// anything but a file, and a view over the archive bytes where the entry
-// was stored and the archive is in memory rather than a Blob.
-// `storedName` is the name as the archive stores it, before any cleaning --
-// `./a` where `name` is `a`, `dir/` where it is `dir` -- and passed every
-// check the cleaned one did. A symlink's target is never rewritten, only
-// checked, so `linkname` is as stored.
-//
-// Beside those, what the central directory stores of the entry, for a
-// reader that follows another program's reading of it: `system` is the
-// maker's, the upper byte of the version made by, 3 for Unix, whose
-// attributes alone `mode` is read from; `version` the one needed to
-// extract, `flags` the general purpose bits, `internalAttributes` and
-// `attributes` the internal and external ones, each as stored; `extra` the
-// extra fields, each its id and data, in the order stored.
+/**
+ * A `'symlink'` is stored as Info-ZIP stores one: its target as data, its type in the Unix mode
+ */
+export type EntryType = 'file' | 'directory' | 'symlink';
+
+/**
+ * An entry read from an archive: the fields of `EntryInput`, then what the central directory stored
+ */
 export interface Entry {
-  name: string
-  type: EntryType
-  mode: number
-  mtime: number
-  linkname: string
-  data: Uint8Array
-  storedName: string
-  system: number
-  version: number
-  flags: number
-  internalAttributes: number
-  attributes: number
-  extra: ExtraField[]
+  /** Relative path with `.` segments and a trailing slash dropped, or `.` for the root directory */
+  name: string;
+  type: EntryType;
+  /** Permission bits, or the default where the maker recorded none */
+  mode: number;
+  /** Whole seconds since the epoch: exact from an extended timestamp, else DOS time read as UTC */
+  mtime: number;
+  /** A symlink's target, as stored, else `''` */
+  linkname: string;
+  /** A file's contents, else empty; a view of the archive where stored and given as a `Uint8Array` */
+  data: Uint8Array;
+  /** `name` before cleaning */
+  storedName: string;
+  /** The maker's system, the upper byte of "version made by": 3 for Unix, whose alone `mode` is read */
+  system: number;
+  /** The version needed to extract */
+  version: number;
+  /** The general purpose bits */
+  flags: number;
+  internalAttributes: number;
+  /** The external attributes */
+  attributes: number;
+  /** The extra fields, in stored order */
+  extra: ExtraField[];
 }
 
 export interface ExtraField {
-  id: number
-  data: Uint8Array
+  id: number;
+  data: Uint8Array;
 }
 
-// An entry to write. `name` is cleaned as above, so `./a`, `a/./b` and
-// `dir/` are taken; only a directory may end in a slash or name the root.
-// `type` defaults to 'file'; `mode` to 0o644, 0o755 for a directory, 0o777
-// for a symlink; `mtime` to 1980-01-01T00:00:00Z, the earliest DOS time,
-// and must lie between that and 2038-01-19, which the exact timestamp
-// holds. `linkname` is the target of a symlink. An entry read out is one
-// to write as it is; its stored name is not written again, its name is.
+/**
+ * An entry to write; an `Entry` read is one to write as is, what it stored aside
+ */
 export interface EntryInput {
-  name: string
-  type?: EntryType
-  data?: Uint8Array
-  mode?: number
-  mtime?: number
-  linkname?: string
+  /** Cleaned as `Entry.name`, so `./a` and `dir/` are taken; only a directory may end in a slash or be `.` */
+  name: string;
+  /** Default: `'file'` */
+  type?: EntryType;
+  data?: Uint8Array;
+  /** Default: 0o644, or 0o755 for a directory and 0o777 for a symlink */
+  mode?: number;
+  /** From 1980-01-01, the earliest DOS time and the default, to 2038-01-19, the latest extended timestamp */
+  mtime?: number;
+  /** A symlink's target */
+  linkname?: string;
 }
 
-// `symlinksAbove` lets a relative symlink target climb up to that many
-// levels above the archive's root, none by default, as tar.d.ts tells: past
-// the root, what a target passes through is the caller's to know. An
-// absolute target is refused regardless, and what one call reads with it,
-// another writes with it.
 export interface SymlinkOptions {
-  symlinksAbove?: number
+  /** How many levels above the root a relative symlink target may climb, as in `tar.js` (default: 0) */
+  symlinksAbove?: number;
 }
 
-// 'deflate' (the default) deflates each file and keeps the result only
-// where it is smaller, as Info-ZIP does; 'store' compresses nothing.
 export interface ZipOptions extends SymlinkOptions {
-  method?: 'deflate' | 'store'
+  /** `'deflate'` keeps a file deflated only where that is smaller, as Info-ZIP does (default); `'store'` does not */
+  method?: 'deflate' | 'store';
 }
 
-// `limit` bounds the entries' sizes, all of them together, in bytes --
-// stored and deflated alike, a symlink's target included. Each entry has to
-// come out at exactly the size it declares, so the sum is checked against
-// the central directory before anything is inflated, and past the limit
-// the call rejects, with `limited` set. No limit by default.
 export interface UnzipOptions extends SymlinkOptions {
-  limit?: number
+  /**
+   * How many bytes the entries may come to together, a symlink's target counted (default: no limit)
+   *
+   * Each has to inflate to exactly its declared size, so this is checked before anything is inflated;
+   * past it, rejects with `limited` set.
+   */
+  limit?: number;
 }
 
-// Both refuse a name that repeats as a different entry -- anything but the
-// same fields and the same bytes again, however either was stored -- an
-// entry inside something that is not a directory, and a symlink whose
-// target climbs out of the archive, further than `symlinksAbove` lets it,
-// or passes through anything in it but a directory. unzip() also refuses
-// an entry carrying a Unicode path extra field, a second name that other
-// readers take over the one in the header. Neither takes or makes zip64,
-// so an archive holds at most 65534 entries and stays under 4 GiB.
-export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>
-export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>
+/**
+ * Write a zip archive
+ *
+ * @param entries - The entries, in order
+ * @param options - Zip options
+ * @returns The archive
+ */
+export function zip(entries: Iterable<EntryInput>, options?: ZipOptions): Promise<Uint8Array>;
 
-// The same one entry at a time, as an async generator: over the archive in
-// memory, or over a Blob -- a File, or a file opened with fs.openAsBlob --
-// read a range at a time, so that no more of it is held than the entries'
-// names and the entry it is on, whose data is then its own rather than a
-// view of the archive.
-// The layout is checked whole before the first entry comes out; what an
-// entry holds is checked as it is reached, so a bad one ends the stream
-// after the ones before it. A stream keeps no entry's data, so a name that
-// repeats with the same fields is refused there, and such an archive is
-// for the in-memory call.
-export function unzipStream(archive: Uint8Array | Blob, options?: UnzipOptions): AsyncGenerator<Entry, void, undefined>
+/**
+ * Read a zip archive
+ *
+ * Every header, size and checksum is checked against every other, and the entries have to tile the archive.
+ * An entry with a Unicode path extra field, a second name other readers take over its own, is refused.
+ *
+ * @param bytes - The archive
+ * @param options - Unzip options
+ * @returns The entries, in central directory order
+ */
+export function unzip(bytes: Uint8Array, options?: UnzipOptions): Promise<Entry[]>;
 
-// `offset` is where in the archive the reader gave up; unset from the writer.
-// `limited` is true where a bound the caller set stopped it, rather than
-// anything wrong with the archive.
-export class ArchiveError extends Error {
-  constructor(detail: string, offset?: number, options?: { limited?: boolean })
-  offset: number | undefined
-  limited: boolean
-}
+/**
+ * `unzip()` an entry at a time, over the archive in memory or a `Blob` read a range at a time
+ *
+ * From a `Blob`, such as a `File` or `fs.openAsBlob()`, no more is held than the names and the entry at hand.
+ * The layout is checked before the first entry, each entry's contents as it is reached. No entry's data is
+ * kept, so a name that repeats is refused: such an archive is for `unzip()`.
+ *
+ * @param archive - The archive
+ * @param options - Unzip options
+ * @returns The entries, in central directory order
+ */
+export function unzipStream(archive: Uint8Array | Blob, options?: UnzipOptions): AsyncGenerator<Entry, void, undefined>;

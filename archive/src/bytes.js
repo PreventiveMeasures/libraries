@@ -1,5 +1,3 @@
-// Byte helpers both halves use.
-
 export const EMPTY = new Uint8Array(0)
 
 export const isAscii = (raw) => raw.every((byte) => byte < 0x80)

@@ -1,24 +1,22 @@
-// Entries in, a zip archive out, laid out the way Info-ZIP lays one out: a
-// Unix maker, the mode in the external attributes, a symlink as a stored
-// entry whose data is its target, an extended-timestamp extra field for an
-// exact UTC mtime, and each file deflated only where that made it smaller.
-
 import { crc32 } from '@exodus/bytes/crc.js'
+import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { concat, isAscii } from '../bytes.js'
 import { DEFAULT_MODE, checkEntry, wireName } from '../entry.js'
 import { ArchiveError } from '../error.js'
+import { Names, cleanNames } from '../names.js'
+import { quote } from '../text.js'
 import { CENTRAL, END, LOCAL, TYPE_BITS, deflate, record, toDos } from './format.js'
-import { Names, cleanNames, levelsAbove } from '../names.js'
-import { encodeUtf8, quote } from '../text.js'
+
+// Laid out as Info-ZIP does: a Unix maker with the mode in the external attributes, a symlink stored
+// with its target as data, an extended timestamp, and each file deflated only where that is smaller
 
 const METHODS = new Set(['deflate', 'store'])
 
 const MADE_BY = (3 << 8) | 20 // Unix, spec 2.0
 const UTF8_NAME = 0x800
-const DOS_EPOCH = 315532800 // 1980-01-01T00:00:00Z, the earliest DOS time
-const LAST_STAMP = 0x7fffffff // the extended timestamp is a signed 32-bit time
-// A count of 0xffff or a size or offset of 0xffffffff sends a reader to
-// zip64, so the last value short of each is the most this writes.
+const DOS_EPOCH = 315532800 // 1980-01-01T00:00:00Z
+const LAST_STAMP = 0x7fffffff // the extended timestamp is signed 32-bit
+// 0xffff entries or 0xffffffff bytes send a reader to zip64
 const MAX_ENTRIES = 0xfffe
 const MAX_SIZE = 0xfffffffe
 
@@ -27,34 +25,34 @@ function integer(value, what, min, max) {
   return value
 }
 
-function normalize(entry) {
+function normalize(entry, above) {
   const checked = checkEntry(entry, TYPE_BITS)
+  const { name, type, linkname } = checked
   return {
     ...checked,
-    mode: integer(entry.mode ?? DEFAULT_MODE[checked.type], 'mode', 0, 0o7777),
+    mode: integer(entry.mode ?? DEFAULT_MODE[type], 'mode', 0, 0o7777),
     mtime: integer(entry.mtime ?? DOS_EPOCH, 'mtime', DOS_EPOCH, LAST_STAMP),
+    ...cleanNames(name, type, linkname, above),
   }
 }
 
-// 0x5455: flag bit 0 and the mtime, as Info-ZIP writes in the central copy.
+// 0x5455 with flag bit 0 and the mtime, as Info-ZIP writes it in the central directory
 const timestamp = (mtime) => record([[2, 0x5455], [2, 5], [1, 1], [4, mtime]])
 
 export async function zip(entries, { method = 'deflate', symlinksAbove } = {}) {
   if (!METHODS.has(method)) throw new ArchiveError(`method ${quote(String(method))} is not deflate or store`)
-  const names = new Names(true, levelsAbove(symlinksAbove))
+  const names = new Names(true, symlinksAbove)
   const locals = []
   const centrals = []
   let offset = 0
   let count = 0
-  for (const given of entries) {
-    const entry = normalize(given)
-    const e = { ...entry, ...cleanNames(entry.name, entry.type, entry.linkname, names.above) }
+  for (const entry of entries) {
+    const e = normalize(entry, names.above)
     names.add(e)
     if (++count > MAX_ENTRIES) throw new ArchiveError(`more than ${MAX_ENTRIES} entries would need zip64`)
-    const name = encodeUtf8(wireName(e), 'entry name')
-    const body = e.type === 'symlink' ? encodeUtf8(e.linkname, 'symlink target') : e.data
-    // Before deflating, which is all the work an entry takes, and is only
-    // ever kept where it made the entry smaller.
+    const name = utf8fromString(wireName(e))
+    const body = e.type === 'symlink' ? utf8fromString(e.linkname) : e.data
+    // Before deflating, which may not make it smaller
     if (body.length > MAX_SIZE || offset > MAX_SIZE) throw new ArchiveError(`${quote(e.name)} would need zip64`)
     let stored = body
     let compression = 0
