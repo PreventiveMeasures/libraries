@@ -33,16 +33,21 @@ export { HttpError } from './npm.js'
 // getPodArchive's.
 export function getPodspec(name: string, version: string, checksum: string): Promise<Uint8Array>
 
-// An archive a podspec's `source` names by :http, from GitHub alone, whole,
-// in memory: `url` is https://github.com/<owner>/<repo>/ and a path under
-// it, such as GitHub's archive of a tag, `archive/refs/tags/<tag>.tar.gz`,
-// or a release's asset, `releases/download/<tag>/<file>`, as written, with
-// no query, fragment, credentials or port, and each segment of the path
-// letters, digits, `_`, `.`, `~`, `@`, `-` or a %-escape in capitals. The
-// hash is the podspec's :sha256, in lowercase hex, as cocoapods-downloader
-// checks it; a sha1, which two archives made to collide share, is not
-// taken. GitHub answers with a
-// redirect, to codeload.github.com or to where it keeps a release's files,
+// An archive a podspec's `source` names by :http, from GitHub or Meta's
+// namespace on Maven Central alone, whole, in memory: `url` is
+// https://github.com/<owner>/<repo>/ and a path under it, such as GitHub's
+// archive of a tag, `archive/refs/tags/<tag>.tar.gz`, or a release's asset,
+// `releases/download/<tag>/<file>`; or
+// https://repo1.maven.org/maven2/com/facebook/ and a path under it ending
+// in `.tar.gz` or `.zip`, such as React Native's
+// `react/react-native-artifacts/<version>/<file>.tar.gz`. Either as
+// written, with no query, fragment, credentials or port, and each segment
+// of the path letters, digits, `_`, `.`, `~`, `@`, `-` or a %-escape in
+// capitals. The hash is the podspec's :sha256, in lowercase hex, as
+// cocoapods-downloader checks it; a sha1, which two archives made to
+// collide share, is not taken. GitHub answers with a redirect, to
+// codeload.github.com or to where it keeps a release's files, and Maven
+// Central with one to repo.reactnative.dev for React Native's archives,
 // which is followed, as the bytes are held to the hash whoever answers,
 // downloaded (before they are cached) or read from setCacheDir's cache. They
 // are cached by the hash alone; one in the cache that does not match throws.

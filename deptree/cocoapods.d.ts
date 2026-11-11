@@ -261,8 +261,8 @@ export interface CocoaPodsTree {
 // Each root's podspec is fetched from trunk and held to the lockfile's
 // checksum, its sha1, with @preventive/upstream/cocoapods.js's getPodspec;
 // that of a pod by :podspec is `podspecs`', held to it alike. Its `source`
-// has to be a git repository on GitHub, by a full commit, or an archive on
-// GitHub by :http, as below. A git source by a tag is refused: CocoaPods
+// has to be a git repository on GitHub, by a full commit, or an archive by
+// :http, as below. A git source by a tag is refused: CocoaPods
 // records no commit for one, and GitHub can move it, so nothing would hold
 // what is downloaded to a hash. Of git, CocoaPods clones the repository and
 // checks the commit out, and here GitHub's tarball of the commit's tree is
@@ -290,16 +290,24 @@ export interface CocoaPodsTree {
 // An archive by :http has to be on GitHub, over https: its URL
 // https://github.com/<owner>/<repo>/ and a path under it, such as GitHub's
 // archive of a tag, `archive/refs/tags/<tag>.tar.gz` or `.zip`, or a
-// release's asset, with no query, fragment, credentials or port, each
-// segment of the path letters, digits, `_`, `.`, `~`, `@`, `-` or a
-// %-escape in capitals. The podspec has to hold it to its :sha256, in
-// lowercase hex, as RemoteFile checks one before a :sha1, and does: so the
-// lockfile's checksum of the podspec is the archive's as well. One held to
-// a :sha1 alone, which two archives can be made to share, is refused. It is
-// fetched with upstream's getPodArchive, which follows GitHub's redirects
-// and holds the bytes to that hash. Its type is RemoteFile's, by :type or
-// else by the end of its URL's path: tgz, tar, tbz or txz, which it
-// extracts with `tar xf`, or zip, with `unzip`; a dmg is refused.
+// release's asset; or in Meta's namespace on Maven Central, which React
+// Native publishes its archives under: its URL
+// https://repo1.maven.org/maven2/com/facebook/ and a path under it, such as
+// `react/react-native-artifacts/<version>/<file>.tar.gz`, ending in
+// `.tar.gz` or `.zip` alone, with no :type, or the tgz or the zip that
+// names. Either with no query, fragment, credentials or port, each segment
+// of the path letters, digits, `_`, `.`, `~`, `@`, `-` or a %-escape in
+// capitals. The podspec has to hold it to its :sha256, in lowercase hex, as
+// RemoteFile checks one before a :sha1, and does: so the lockfile's
+// checksum of the podspec is the archive's as well. One held to a :sha1
+// alone, which two archives can be made to share, is refused, and so is one
+// held to no hash, as React Native's own podspecs, hermes-engine's and
+// ReactNativeDependencies', name theirs on Maven Central. It is fetched
+// with upstream's getPodArchive, which follows GitHub's redirects, and
+// Maven Central's to repo.reactnative.dev, and holds the bytes to that
+// hash. Its type is RemoteFile's, by :type or else by the end of its URL's
+// path: tgz, tar, tbz or txz, which it extracts with `tar xf`, or zip, with
+// `unzip`; a dmg is refused.
 //
 // A tar is read by what it is, as `tar xf` reads it, gzipped or not, as GNU
 // tar and bsdtar extract one for a user other than root, under a umask of

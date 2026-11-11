@@ -271,6 +271,42 @@ describe('getPodArchive', () => {
     await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), /getPodArchive: integrity mismatch for .* from the cache/u)
   })
 
+  it("fetches a .tar.gz or a .zip under Maven Central's com/facebook/, following its redirect, held to the sha256", async () => {
+    for (const url of [
+      'https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/0.76.0/react-native-artifacts-0.76.0-hermes-ios-debug.tar.gz',
+      'https://repo1.maven.org/maven2/com/facebook/hermes/hermes-ios/0.14.0/hermes-ios-0.14.0.zip',
+    ]) {
+      await rm(CACHE_DIR, { recursive: true, force: true })
+      const calls = stubGitHub({ url })
+      assert.deepEqual(new Uint8Array(await getPodArchive(url, sha256(BYTES))), BYTES, url)
+      assert.deepEqual(calls, [[url, 'follow']], url)
+      stubGitHub({ url, served: new Uint8Array([...BYTES, 0]) })
+      await rm(CACHE_DIR, { recursive: true, force: true })
+      await assert.rejects(getPodArchive(url, sha256(BYTES)), /getPodArchive: integrity mismatch for https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u, url)
+    }
+  })
+
+  it("refuses a URL on Maven Central but a .tar.gz or a .zip under com/facebook/, before any request", async () => {
+    const hash = sha256(BYTES)
+    const under = 'https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/0.76.0'
+    for (const url of [
+      `${under}/react-native-artifacts-0.76.0.tgz`, `${under}/react-native-artifacts-0.76.0.tar`, `${under}/react-native-artifacts-0.76.0.tar.bz2`,
+      `${under}/react-native-artifacts-0.76.0.jar`, `${under}/react-native-artifacts-0.76.0.aar`, `${under}/react-native-artifacts-0.76.0.TAR.GZ`,
+      `${under}/react-native-artifacts-0.76.0.tar.gz.sha256`, `${under}/`, 'https://repo1.maven.org/maven2/com/facebook/', 'https://repo1.maven.org/maven2/com/facebook.tar.gz',
+      'https://repo1.maven.org/maven2/com/google/x/1/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/facebookx/x/1/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/Facebook/x/1/x-1.tar.gz',
+      'https://repo1.maven.org/com/facebook/x/1/x-1.tar.gz', 'https://repo1.maven.org/maven3/com/facebook/x/1/x-1.tar.gz', 'https://repo1.maven.org/x.tar.gz',
+      'http://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz', 'https://repo.maven.apache.org/maven2/com/facebook/x/1/x-1.tar.gz', 'https://repo.reactnative.dev/maven2/com/facebook/x/1/x-1.tar.gz',
+      'https://repo1.maven.org:443/maven2/com/facebook/x/1/x-1.tar.gz', 'https://user@repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz',
+      'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz?x=1', 'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz#x',
+      'https://repo1.maven.org/maven2/com/facebook/../google/x-1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook//x-1.tar.gz',
+      'https://repo1.maven.org/maven2/com/facebook/x/1/x+1.tar.gz', 'https://repo1.maven.org/maven2/com/facebook/a%2fb.tar.gz',
+    ]) {
+      const calls = stubGitHub({ url })
+      await assert.rejects(getPodArchive(url, hash), /getPodArchive: url must be an https URL of a GitHub repository's, with a path under it, or of a \.tar\.gz or a \.zip under Maven Central's com\/facebook\//u, url)
+      assert.deepEqual(calls, [])
+    }
+  })
+
   it('throws on an archive GitHub does not have', async () => {
     stubGitHub({ url: 'nowhere' })
     await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), (error) => error instanceof HttpError && error.status === 404)

@@ -62,7 +62,8 @@ pod with GITHUB_TOKEN or GH_TOKEN, else anonymously.
                      out each it does not for where it is from -- a spec
                      repo but trunk, an external source but :path and
                      :podspec, a source but git by a commit and :http
-                     from GitHub, a prepare_command -- and saying why
+                     from GitHub or Maven Central's com/facebook/, a
+                     prepare_command -- and saying why
   --node <version>   the Node it installed with; by default this one
   --production       devDependencies were left out, as by pnpm install
                      --prod, npm ci --omit=dev or yarn install --production

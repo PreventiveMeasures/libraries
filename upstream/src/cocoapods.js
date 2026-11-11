@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 
 import { assertPod, assertSha1, assertSha256, assertion, isRepo } from './args.js'
 import { verifiedDownload } from './download.js'
-import { COCOAPODS_CDN, GITHUB_WEB, buildUrl, encodeSegment } from './http.js'
+import { COCOAPODS_CDN, GITHUB_WEB, MAVEN_CENTRAL, buildUrl, encodeSegment } from './http.js'
 
 // No expiry, but kept by checksum as well: trunk refuses a version it
 // already has, yet rewrites a podspec it has, as `pod trunk deprecate`
@@ -39,29 +39,38 @@ async function localPaths(name, version) {
 // Where pod archives are kept: by their hash alone, which names them.
 const ARCHIVES = 'cocoapods/archives'
 
-// https://github.com/<owner>/<repo>/ and a path under it, as buildUrl
-// would write it: no query, fragment, credentials or port, and nothing in
-// a segment but what it lets through.
-function isGitHubUrl(value) {
+// Meta's namespace on Maven Central, which React Native's archives are
+// published under, and the two kinds of archive taken from it.
+const MAVEN_FACEBOOK = ['maven2', 'com', 'facebook']
+const MAVEN_ARCHIVE = /\.(?:tar\.gz|zip)$/u
+
+// https://github.com/<owner>/<repo>/ and a path under it, or
+// https://repo1.maven.org/maven2/com/facebook/ and a path under it to a
+// .tar.gz or a .zip, as buildUrl would write it: no query, fragment,
+// credentials or port, and nothing in a segment but what it lets through.
+function isArchiveUrl(value) {
   const parsed = typeof value === 'string' ? URL.parse(value) : null
-  if (parsed?.origin !== GITHUB_WEB) return false
-  const segments = parsed.pathname.slice(1).split('/')
-  if (segments.length < 3 || !isRepo(`${segments[0]}/${segments[1]}`)) return false
+  const segments = parsed?.pathname.slice(1).split('/') ?? []
+  const github = parsed?.origin === GITHUB_WEB && segments.length >= 3 && isRepo(`${segments[0]}/${segments[1]}`)
+  const maven = parsed?.origin === MAVEN_CENTRAL && segments.length > MAVEN_FACEBOOK.length && MAVEN_FACEBOOK.every((segment, i) => segments[i] === segment) && MAVEN_ARCHIVE.test(segments.at(-1))
+  if (!github && !maven) return false
   try {
-    return buildUrl(GITHUB_WEB, segments) === value
+    return buildUrl(parsed.origin, segments) === value
   } catch {
     return false
   }
 }
-const assertGitHubUrl = assertion('an https URL of a GitHub repository\'s, with a path under it', isGitHubUrl)
+const assertArchiveUrl = assertion('an https URL of a GitHub repository\'s, with a path under it, or of a .tar.gz or a .zip under Maven Central\'s com/facebook/', isArchiveUrl)
 
 // An archive a podspec's source names by :http, held to the sha256 the
 // podspec gives of it: a sha1 alone, which two archives made to collide
 // share, is not taken. GitHub's answer for a tag's archive or a release's
 // asset is a redirect, to codeload.github.com or to where it keeps the
-// files, which is followed: the bytes are held to the hash whoever answers.
+// files, and Maven Central's for React Native's is one to
+// repo.reactnative.dev, which is followed: the bytes are held to the hash
+// whoever answers.
 export async function getPodArchive(url, sha256) {
-  assertGitHubUrl('getPodArchive', 'url', url)
+  assertArchiveUrl('getPodArchive', 'url', url)
   assertSha256('getPodArchive', 'sha256', sha256)
   return await verifiedDownload({
     method: 'getPodArchive', dir: ARCHIVES, what: url, entry: `sha256-${sha256}`, ext: 'archive', algorithm: 'sha256', expected: sha256,

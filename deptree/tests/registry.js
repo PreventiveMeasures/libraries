@@ -314,15 +314,18 @@ export function stubTrunk(podspecs) {
   return calls
 }
 
-// Beside the fetch stubbed already, GitHub's web host for `archives`, each
-// an archive's bytes by its URL there, as GitHub serves a tag's archive
-// once its redirect to codeload is followed. Returns what was asked of it.
+// Beside the fetch stubbed already, GitHub's web host and Maven Central for
+// `archives`, each an archive's bytes by its URL there, as GitHub serves a
+// tag's archive once its redirect to codeload is followed, and Maven
+// Central React Native's once its redirect to repo.reactnative.dev is.
+// Returns what was asked of it.
 export function stubArchives(archives) {
   const served = globalThis.fetch
   const calls = []
   globalThis.fetch = (input, init) => {
     const asked = String(input)
-    if (!asked.startsWith('https://github.com/') || asked.endsWith('/git-upload-pack')) return served(input, init)
+    const archive = (asked.startsWith('https://github.com/') && !asked.endsWith('/git-upload-pack')) || asked.startsWith('https://repo1.maven.org/')
+    if (!archive) return served(input, init)
     calls.push(asked)
     return Promise.resolve(Object.hasOwn(archives, asked) ? new Response(archives[asked]) : new Response('Not Found', { status: 404 }))
   }

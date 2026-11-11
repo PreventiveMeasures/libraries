@@ -569,7 +569,7 @@ globalThis.fetch = (input) => Promise.resolve(answers[String(input)]?.() ?? Resp
     const r = run(['--partial'], mixed)
     assert.equal(r.stdout, '~ Pods/Manifest.lock  (content)\n', r.stderr)
     assert.match(r.stderr, /^not compared: pods\["Local"\]: a pod from an external source by :git is not supported: only those from trunk, by :podspec and by :path are$/mu)
-    assert.match(r.stderr, /^not compared: pods\["Other"\]: an :http source from "https:\/\/example\.com\/other\.zip", not https:\/\/github\.com\/<owner>\/<repo>\/ and a path of letters, digits and `_\.~@-%` under it, is not supported$/mu)
+    assert.match(r.stderr, /^not compared: pods\["Other"\]: an :http source from "https:\/\/example\.com\/other\.zip", not https:\/\/github\.com\/<owner>\/<repo>\/ or https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\/ and a path of letters, digits and `_\.~@-%` under it, is not supported$/mu)
     assert.equal(r.status, 1)
   })
 })
