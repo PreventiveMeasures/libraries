@@ -1,6 +1,6 @@
 // What a spec's FileAccessor makes of a pod's files, as pathlist.js lists them. Paths are from the pod's directory.
 
-import { extname } from 'node:path'
+import { extname, posix } from 'node:path'
 
 import { glob } from '../pathlist.js'
 
@@ -24,7 +24,7 @@ export function accessorOf(list, consumer) {
   const hidden = new Set([...projectHeaders, ...privateHeaders])
   const vendoredFrameworks = paths('vendored_frameworks', true)
   const requiresArc = consumer.requires_arc
-  const arc = requiresArc === true ? sourceFiles : requiresArc === false ? [] : unique(glob(list, [requiresArc].flat(), { exclude })).filter((path) => sourceFiles.includes(path))
+  const arcSourceFiles = requiresArc === true ? sourceFiles : requiresArc === false ? [] : unique(glob(list, [requiresArc].flat(), { exclude })).filter((path) => sourceFiles.includes(path))
   return {
     spec: consumer.spec,
     consumer,
@@ -34,7 +34,7 @@ export function accessorOf(list, consumer) {
     publicHeaders: (publicGiven.length === 0 ? headers : publicGiven).filter((path) => !hidden.has(path)),
     projectHeaders,
     privateHeaders,
-    arcSourceFiles: arc,
+    arcSourceFiles,
     resources: paths('resources', true),
     resourceBundles: Object.fromEntries(Object.entries(consumer.resource_bundles).map(([name, patterns]) => [name, unique(glob(list, patterns, { exclude, includeDirs: true }))])),
     vendoredFrameworks,
@@ -49,4 +49,14 @@ export function accessorOf(list, consumer) {
 export function licenseOf(list, license) {
   if (typeof license.file === 'string' && list.files.includes(license.file)) return license.file
   return glob(list, ['licen{c,s}e{*,.*}'])[0]
+}
+
+// FileAccessor#developer_files of a local pod.
+export function developerFiles(target) {
+  const { list } = target
+  const podspecs = glob(list, ['*.{podspec,podspec.json}'])
+  const own = target.accessors.flatMap((accessor) => [accessor.moduleMap, accessor.prefixHeader])
+  const license = licenseOf(list, target.root.license)
+  const rest = podspecs.length <= 1 ? [license, glob(list, ['readme{*,.*}'])[0], ...podspecs, ...glob(list, ['doc{s}{*,.*}/**/*'])] : [podspecs.find((path) => posix.basename(path, posix.extname(path)) === target.name), license]
+  return [...new Set([...own, ...rest].filter((path) => path !== undefined))].sort()
 }

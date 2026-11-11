@@ -1,13 +1,11 @@
 // Stage 4: what `pod install` generates in Pods/ beside the pods: the Pods project, every target's support files
 // and the header links, all worked out before anything is written.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join, posix } from 'node:path'
 
 import { PodError } from '../error.js'
 import { compareVersions } from '../order.js'
-import { glob } from '../pathlist.js'
-import { licenseOf } from './files.js'
 import { headersOf } from './headers.js'
 import { writeProject } from './pbxproj.js'
 import { addAggregateTarget, wireDependencies } from './project-aggregate.js'
@@ -15,23 +13,12 @@ import { addPodFiles, addPodTarget } from './project-pods.js'
 import { addSystemFramework, configurationsOf, newGroup, newProject, normalizeSettings, pathFrom, sortProject } from './project.js'
 import { aggregateConfig } from './settings-aggregate.js'
 import { podSettings } from './settings-pod.js'
-import { deploymentTarget } from './spec.js'
 import { analyze } from './targets.js'
 import { configText } from './xcconfig.js'
 
 // What load.js reads for this stage: a podspec's JSON as a spec, and the app's project.
 export { readSpec } from './spec.js'
 export { readUserProject } from './user-project.js'
-
-// FileAccessor#developer_files of a local pod.
-function developerFiles(target) {
-  const { list } = target
-  const podspecs = glob(list, ['*.{podspec,podspec.json}'])
-  const own = target.accessors.flatMap((accessor) => [accessor.moduleMap, accessor.prefixHeader])
-  const license = licenseOf(list, target.root.license)
-  const rest = podspecs.length <= 1 ? [license, glob(list, ['readme{*,.*}'])[0], ...podspecs, ...glob(list, ['doc{s}{*,.*}/**/*'])] : [podspecs.find((path) => posix.basename(path, posix.extname(path)) === target.name), license]
-  return [...new Set([...own, ...rest].filter((path) => path !== undefined))].sort()
-}
 
 // Where importers find a pod's module map: in its support files for a framework, else linked among its
 // headers, the private ones where the pod brings its own.
@@ -48,8 +35,6 @@ function prepare(target, targets) {
   target.moduleMapLink = moduleMapLink(target)
   target.customModuleMap = target.accessors.map((accessor) => accessor.moduleMap).find((path) => path !== undefined)
   target.writesModuleMap = target.shouldBuild && target.definesModule && target.consumers.every((consumer) => consumer.module_map !== false)
-  target.specTargets = new Map(target.specs.map((spec) => [spec, deploymentTarget(spec, target.platform.name)]))
-  target.developerFiles = target.local ? developerFiles(target) : []
   target.settings = podSettings(target, targets)
 }
 
@@ -123,30 +108,19 @@ export function generate(input) {
   project.developmentPods = newGroup(project.mainGroup, 'Development Pods')
   podfileRef(project, dir)
   const files = new Map()
-  const context = {
-    sandbox,
-    objectVersion: user.objectVersion,
-    write: (target, name, text) => files.set(`Target Support Files/${target.label}/${name}`, text),
-    read: (target, path, plain) => {
-      const text = readFileSync(join(target.dir, path), 'utf8')
-      return plain ? text.replaceAll(/^(\s*)framework\s+(module[^{}]+)\{/gmu, '$1$2{') : text
-    },
-    config: (aggregate) => aggregateConfig(aggregate, { podfileDir: pathFrom(user.dir, dir), podsDir: pathFrom(user.dir, sandbox), pods: podTargets }),
-    paths: (target, base, inputs, outputs) => {
-      if (Number(user.objectVersion) < 50) return { inputPaths: inputs, outputPaths: outputs }
-      const lists = { inputFileListPaths: [`${base}-input-files.xcfilelist`, inputs], outputFileListPaths: [`${base}-output-files.xcfilelist`, outputs] }
-      for (const [name, paths] of Object.values(lists)) files.set(`Target Support Files/${target.label}/${name}`, paths.join('\n'))
-      return Object.fromEntries(Object.entries(lists).map(([key, [name]]) => [key, [`\${PODS_ROOT}/Target Support Files/${target.label}/${name}`]]))
-    },
-  }
-  for (const target of podTargets) addPodFiles(project, target, sandbox)
-  for (const target of podTargets) addPodTarget(project, target, context)
+  // A file of a target's support files, by its name there.
+  const write = (target, name, text) => files.set(`Target Support Files/${target.label}/${name}`, text)
+  for (const target of podTargets) addPodFiles(project, target)
+  for (const target of podTargets) addPodTarget(project, target, write)
   // PodsProjectGenerator#add_system_framework_dependencies: a dynamic framework links its podspec's system
   // frameworks itself; a static one leaves them to the app.
   for (const target of podTargets.filter((one) => one.shouldBuild && !one.static)) {
     for (const name of target.consumers.flatMap((consumer) => consumer.frameworks)) addSystemFramework(project, target.native, name)
   }
-  for (const aggregate of aggregates) addAggregateTarget(project, aggregate, context)
+  for (const aggregate of aggregates) {
+    aggregate.configText = configText(aggregateConfig(aggregate, { podfileDir: pathFrom(user.dir, dir), podsDir: pathFrom(user.dir, sandbox), pods: podTargets }))
+    addAggregateTarget(project, aggregate, write)
+  }
   checkIntegration(aggregates, files)
   wireDependencies(project, podTargets, aggregates)
   // What a post_install hook set, on every target and on a pod's own.

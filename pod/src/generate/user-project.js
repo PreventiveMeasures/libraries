@@ -61,7 +61,7 @@ export function readUserProject(text, where) {
       label: [...labels][0],
       dependencies: dependencies.filter((one) => one !== undefined),
       scripts: phases.flatMap((phase) => [...String(phase.shellScript ?? '').matchAll(/Target Support Files\/([^/"\n]+\/[^/"\n]+\.sh)/gu)].map((match) => match[1])),
-      configurations: objects[target.buildConfigurationList].buildConfigurations.map((id) => objects[id].name),
+      configurations: own.map((configuration) => configuration.name),
       productType: PRODUCT_TYPES[target.productType] ?? target.productType,
       swiftVersion: common(objects, lists, 'SWIFT_VERSION', at),
       deploymentTarget: common(objects, lists, 'IPHONEOS_DEPLOYMENT_TARGET', at),

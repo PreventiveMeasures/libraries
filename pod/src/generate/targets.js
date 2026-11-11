@@ -13,7 +13,6 @@ function fail(detail, where) {
   throw new PodError(detail, where)
 }
 
-
 // The product types whose pods' frameworks their host embeds, and those of an app extension.
 const HOSTED = new Set(['app_extension', 'framework', 'static_library', 'messages_extension', 'watch_extension', 'xpc_service'])
 const EXTENSIONS = new Set(['app_extension', 'watch_extension', 'watch2_extension', 'tv_extension', 'messages_extension'])
