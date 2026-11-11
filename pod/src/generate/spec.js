@@ -4,40 +4,18 @@
 import { PodError, quote } from '../error.js'
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-const A = { container: 'array' }
-const AI = { container: 'array', inherited: true }
 const HI = { container: 'hash', inherited: true }
-const I = { inherited: true }
-// Each attribute: its container, whether a subspec inherits it, whether it is a flag (the last one given stands),
-// whether a platform has no value of its own (`single`), and its default.
+const kind = (attribute, names) => Object.fromEntries(names.map((name) => [name, attribute]))
+// The attributes a Consumer gives, by kind: its container, whether a subspec inherits it, whether it is a flag
+// (the last one given stands), and its default.
 const ATTRIBUTES = {
-  dependencies: HI,
-  info_plist: { container: 'hash' },
+  ...kind({ container: 'array' }, ['script_phases', 'source_files', 'public_header_files', 'project_header_files', 'private_header_files', 'vendored_frameworks', 'vendored_libraries', 'resources', 'exclude_files']),
+  ...kind({ container: 'array', inherited: true }, ['frameworks', 'weak_frameworks', 'libraries', 'compiler_flags']),
+  ...kind(HI, ['dependencies', 'xcconfig', 'pod_target_xcconfig', 'user_target_xcconfig']),
+  ...kind({ inherited: true }, ['prefix_header_contents', 'header_dir', 'header_mappings_dir']),
+  ...kind({ flag: true, inherited: true }, ['prefix_header_file', 'module_map']),
   requires_arc: { flag: true, inherited: true, default: true },
-  frameworks: AI,
-  weak_frameworks: AI,
-  libraries: AI,
-  compiler_flags: AI,
-  xcconfig: HI,
-  pod_target_xcconfig: HI,
-  user_target_xcconfig: HI,
-  prefix_header_contents: I,
-  prefix_header_file: { flag: true, inherited: true },
-  module_name: { inherited: true, single: true },
-  header_dir: I,
-  header_mappings_dir: I,
-  script_phases: A,
-  source_files: A,
-  public_header_files: A,
-  project_header_files: A,
-  private_header_files: A,
-  vendored_frameworks: A,
-  vendored_libraries: A,
   resource_bundles: { container: 'hash' },
-  resources: A,
-  exclude_files: A,
-  preserve_paths: A,
-  module_map: { flag: true, inherited: true },
 }
 // Specification#c99ext_identifier, of ASCII, which I18n.transliterate leaves as it is.
 function c99ext(name, where) {
@@ -121,7 +99,6 @@ function merge(attribute, existing, value) {
   const merged = { ...existing }
   for (const [key, one] of Object.entries(value)) {
     if (!Object.hasOwn(existing, key)) merged[key] = one
-    else if (attribute === ATTRIBUTES.info_plist) merged[key] = one
     else if (Array.isArray(one) || Array.isArray(existing[key])) merged[key] = [...listOf(existing[key]), ...listOf(one)]
     else merged[key] = `${existing[key]} ${one}`
   }
@@ -130,7 +107,6 @@ function merge(attribute, existing, value) {
 
 function raw(spec, name, attribute, platform) {
   const own = prepare(name, attribute, spec.attributes[name])
-  if (attribute.single) return own
   const onPlatform = spec.attributes[platform]
   return isObject(onPlatform) ? merge(attribute, own, prepare(name, attribute, onPlatform[name])) : own
 }

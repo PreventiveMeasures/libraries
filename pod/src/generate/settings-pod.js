@@ -39,6 +39,7 @@ function vendored(target) {
   const dynamicFrameworks = frameworks.filter((path) => isDynamic(posix.join(full(path), stem(path))))
   const libraries = target.accessors.flatMap((accessor) => accessor.vendoredLibraries)
   const dynamicLibraries = libraries.filter((path) => isDynamic(full(path)))
+  const staticLibraries = libraries.filter((path) => !dynamicLibraries.includes(path))
   const artifacts = target.accessors.map((accessor) => [...accessor.vendoredLibraries.filter((path) => dynamicLibraries.includes(path)), ...accessor.vendoredFrameworks.filter((path) => dynamicFrameworks.includes(path))])
   return {
     artifacts,
@@ -47,57 +48,51 @@ function vendored(target) {
     frameworkDirs: target.accessors.flatMap((accessor) => accessor.vendoredFrameworks).map(fromSandbox),
     staticFrameworks: frameworks.filter((path) => !dynamicFrameworks.includes(path)),
     dynamicFrameworks,
-    staticLibraries: libraries.filter((path) => !dynamicLibraries.includes(path)),
+    staticLibraries,
     dynamicLibraries,
-    staticLibraryDirs: libraries.filter((path) => !dynamicLibraries.includes(path)).map(fromSandbox),
+    staticLibraryDirs: staticLibraries.map(fromSandbox),
     dynamicLibraryDirs: dynamicLibraries.map(fromSandbox),
   }
 }
 
-// Each computed when first read, as targets read one another's. `targets` are all the pod targets.
+// The names of the .xcframeworks of a kind, a library's as it is linked.
+const xcframeworkNames = (xcframeworks, framework, dynamic) => [...new Set(xcframeworks.filter((one) => one.framework === framework && one.dynamic === dynamic).map((one) => (framework ? one.name : linkerName(one.slices[0].binary))))]
+const frameworksOf = (target) => target.consumers.flatMap((consumer) => consumer.frameworks)
+
+// What other targets read of a target's, each computed when first read. `targets` are all the pod targets.
 export function podSettings(target, targets) {
   const builtDynamic = target.shouldBuild && !target.static
   const ownBuildDir = `${BUILD_DIR}/${target.label}`
-  const dependents = target.recursiveDependencies
-  const consumers = target.consumers
   return lazy({
     vendored: () => vendored(target),
     xcframeworks: (my) => my.vendored.xcframeworks,
-    consumerFrameworks: () => consumers.flatMap((consumer) => consumer.frameworks),
-    staticXcframeworkNames: (my) => [...new Set(my.xcframeworks.filter((one) => one.framework && !one.dynamic).map((one) => one.name))],
-    staticFrameworksToImport: (my) => [
-      ...(builtDynamic ? [] : [...my.vendored.staticFrameworks.map(stem), ...my.staticXcframeworkNames]),
-      ...(target.shouldBuild && target.framework && target.static ? [target.productBasename] : []),
-    ],
     dynamicFrameworksToImport: (my) => [
       ...my.vendored.dynamicFrameworks.map(stem),
-      ...new Set(my.xcframeworks.filter((one) => one.framework && one.dynamic).map((one) => one.name)),
+      ...xcframeworkNames(my.xcframeworks, true, true),
       ...(target.shouldBuild && target.framework && !target.static ? [target.productBasename] : []),
-      ...my.consumerFrameworks,
+      ...frameworksOf(target),
     ],
-    frameworksToImport: (my) => uniqueSorted([...my.staticFrameworksToImport, ...my.dynamicFrameworksToImport]),
-    weakFrameworksToImport: () => uniqueSorted(consumers.flatMap((consumer) => consumer.weak_frameworks)),
-    frameworks: (my) => {
-      if (target.static) return []
-      const imported = target.shouldBuild
-        ? [...my.vendored.staticFrameworks.map(stem), ...my.staticXcframeworkNames, ...target.dependencies.flatMap((other) => other.settings.dynamicFrameworksToImport)]
-        : dependents.filter((other) => !other.shouldBuild).flatMap((other) => other.settings.dynamicFrameworksToImport)
-      return uniqueSorted([...my.consumerFrameworks, ...imported])
-    },
-    weakFrameworks: (my) => (target.static ? [] : [...my.weakFrameworksToImport, ...dependents.flatMap((other) => other.settings.weakFrameworksToImport)]),
-    vendoredFrameworkSearchPaths: (my) => [...my.vendored.frameworkDirs, ...new Set(my.xcframeworks.filter((one) => one.framework).map(intermediate))],
-    frameworkSearchPathsToImport: (my) => [...developerPaths(my.consumerFrameworks), ...my.vendoredFrameworkSearchPaths, ...(target.framework && target.shouldBuild ? [ownBuildDir] : [])],
+    frameworksToImport: (my) => uniqueSorted([
+      ...(builtDynamic ? [] : [...my.vendored.staticFrameworks.map(stem), ...xcframeworkNames(my.xcframeworks, true, false)]),
+      ...(target.shouldBuild && target.framework && target.static ? [target.productBasename] : []),
+      ...my.dynamicFrameworksToImport,
+    ]),
+    weakFrameworksToImport: () => uniqueSorted(target.consumers.flatMap((consumer) => consumer.weak_frameworks)),
+    frameworkSearchPathsToImport: (my) => [
+      ...developerPaths(frameworksOf(target)),
+      ...my.vendored.frameworkDirs,
+      ...new Set(my.xcframeworks.filter((one) => one.framework).map(intermediate)),
+      ...(target.framework && target.shouldBuild ? [ownBuildDir] : []),
+    ],
     frameworkHeaderSearchPath: () => (target.framework ? `${ownBuildDir}/${target.productName}/Headers` : undefined),
     staticLibrarySearchPaths: (my) => [...my.vendored.staticLibraryDirs, ...my.xcframeworks.filter((one) => !one.framework && !one.dynamic).map(intermediate)],
     dynamicLibrarySearchPaths: (my) => [...my.vendored.dynamicLibraryDirs, ...my.xcframeworks.filter((one) => !one.framework && one.dynamic).map(intermediate)],
-    xcframeworkLibraries: (my) => [...new Set(my.xcframeworks.filter((one) => !one.framework && !one.dynamic).map((one) => linkerName(one.slices[0].binary)))],
-    staticLibrariesToImport: (my) => [
-      ...(builtDynamic ? [] : [...my.vendored.staticLibraries.map(linkerName), ...my.xcframeworkLibraries]),
+    librariesToImport: (my) => uniqueSorted([
+      ...(builtDynamic ? [] : [...my.vendored.staticLibraries.map(linkerName), ...xcframeworkNames(my.xcframeworks, false, false)]),
       ...(target.shouldBuild && !target.framework && target.static ? [target.productBasename] : []),
-    ],
-    dynamicLibrariesToImport: (my) => [...my.vendored.dynamicLibraries.map(linkerName), ...consumers.flatMap((consumer) => consumer.libraries)],
-    librariesToImport: (my) => uniqueSorted([...my.staticLibrariesToImport, ...my.dynamicLibrariesToImport]),
-    libraries: (my) => (target.static ? [] : uniqueSorted([...my.vendored.staticLibraries.map(linkerName), ...my.librariesToImport, ...my.xcframeworkLibraries])),
+      ...my.vendored.dynamicLibraries.map(linkerName),
+      ...target.consumers.flatMap((consumer) => consumer.libraries),
+    ]),
     librarySearchPathsToImport: (my) => [
       ...my.staticLibrarySearchPaths,
       ...my.dynamicLibrarySearchPaths,
@@ -110,10 +105,9 @@ export function podSettings(target, targets) {
       if (!target.shouldBuild || target.framework || !target.definesModule) return undefined
       return target.usesSwift ? `${ownBuildDir}/${target.moduleName}.modulemap` : `\${PODS_ROOT}/${target.moduleMapLink}`
     },
-    moduleMapFiles: () => sorted(dependents.map((other) => other.settings.moduleMapFileToImport).filter((file) => file !== undefined)),
     swiftIncludePathsToImport: () => (target.usesSwift && !target.framework ? [ownBuildDir] : []),
     publicHeaderSearchPaths: () => sorted(headerSearchPaths(target, targets, false)),
-    merged: () => mergedXcconfigs(consumers.map((consumer) => consumer.pod_target_xcconfig)),
+    merged: () => mergedXcconfigs(target.consumers.map((consumer) => consumer.pod_target_xcconfig)),
     config: (my) => configOf(settingsOf(target, targets, my), my.merged),
   })
 }
@@ -126,9 +120,9 @@ function headerSearchPaths(target, targets, includePrivate) {
   return [...new Set(paths)]
 }
 
-function swiftFlagsOf(target, my) {
+function swiftFlagsOf(target, moduleMaps) {
   if (!target.usesSwift) return undefined
-  const flags = swiftFlags(my.moduleMapFiles)
+  const flags = swiftFlags(moduleMaps)
   if (target.inhibitWarnings) flags.push('-suppress-warnings')
   if (!target.framework && target.definesModule) flags.push('-import-underlying-module', '-Xcc', '-fmodule-map-file=${SRCROOT}/${MODULEMAP_FILE}')
   return flags
@@ -137,16 +131,23 @@ function swiftFlagsOf(target, my) {
 function settingsOf(target, targets, my) {
   const dependents = target.recursiveDependencies
   const ownBuildDir = `${BUILD_DIR}/${target.label}`
+  const imported = target.shouldBuild
+    ? [...my.vendored.staticFrameworks.map(stem), ...xcframeworkNames(my.xcframeworks, true, false), ...target.dependencies.flatMap((other) => other.settings.dynamicFrameworksToImport)]
+    : dependents.filter((other) => !other.shouldBuild).flatMap((other) => other.settings.dynamicFrameworksToImport)
+  const frameworks = target.static ? [] : uniqueSorted([...frameworksOf(target), ...imported])
+  const weakFrameworks = target.static ? [] : [...my.weakFrameworksToImport, ...dependents.flatMap((other) => other.settings.weakFrameworksToImport)]
+  const libraries = target.static ? [] : uniqueSorted([...my.vendored.staticLibraries.map(linkerName), ...my.librariesToImport, ...xcframeworkNames(my.xcframeworks, false, false)])
+  const moduleMaps = sorted(dependents.map((other) => other.settings.moduleMapFileToImport).filter((file) => file !== undefined))
   const xcframeworkHeaders = [...my.xcframeworks, ...dependents.flatMap((other) => other.settings.xcframeworks)].filter((one) => !one.framework && !one.dynamic).map((one) => `${intermediate(one)}/Headers`)
-  const frameworkSearchPaths = [...developerPaths([...my.frameworks, ...my.weakFrameworks]), ...dependents.flatMap((other) => other.settings.frameworkSearchPathsToImport), ...my.frameworkSearchPathsToImport]
+  const frameworkSearchPaths = [...developerPaths([...frameworks, ...weakFrameworks]), ...dependents.flatMap((other) => other.settings.frameworkSearchPathsToImport), ...my.frameworkSearchPathsToImport]
   const librarySearchPaths = target.static ? [] : [...my.librarySearchPathsToImport, ...dependents.flatMap((other) => other.settings.dynamicLibrarySearchPaths)]
   return {
     ...COMMON,
     FRAMEWORK_SEARCH_PATHS: uniqueSorted(frameworkSearchPaths).filter((path) => path !== ownBuildDir),
-    OTHER_CFLAGS: my.moduleMapFiles.map((file) => `-fmodule-map-file=${file}`),
+    OTHER_CFLAGS: moduleMaps.map((file) => `-fmodule-map-file=${file}`),
     OTHER_MODULE_VERIFIER_FLAGS: [],
-    OTHER_SWIFT_FLAGS: swiftFlagsOf(target, my),
-    OTHER_LDFLAGS: linkerFlags(my.libraries, my.frameworks, my.weakFrameworks),
+    OTHER_SWIFT_FLAGS: swiftFlagsOf(target, moduleMaps),
+    OTHER_LDFLAGS: linkerFlags(libraries, frameworks, weakFrameworks),
     PODS_ROOT: '${SRCROOT}',
     PODS_TARGET_SRCROOT: `\${PODS_ROOT}/${target.sandboxPath}`,
     PODS_DEVELOPMENT_LANGUAGE: '${DEVELOPMENT_LANGUAGE}',

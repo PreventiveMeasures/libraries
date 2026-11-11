@@ -7,7 +7,6 @@ import { COMPILED } from './project-resources.js'
 import { addDependency, addFile, addSystemFramework, configurationsOf, newFile, newGroup, newTarget, setAll, targetDefaults } from './project.js'
 import { BUILD_DIR, XCFRAMEWORKS_DIR } from './settings.js'
 import * as support from './support.js'
-import { configText } from './xcconfig.js'
 
 const extensionOf = (path) => /\.[^./]+$/u.exec(path)?.[0] ?? ''
 const fileName = (path) => path.split('/').at(-1)
@@ -47,10 +46,10 @@ function resourceOutputs(resources) {
   }))]
 }
 
-// `context` is generate.js's.
-export function addAggregateTarget(project, aggregate, context) {
+// `write` writes a file of the target's support files; `aggregate.configText` is its .xcconfig.
+export function addAggregateTarget(project, aggregate, write) {
   const settings = {
-    ...targetDefaults(aggregate.platform.target, context.objectVersion),
+    ...targetDefaults(aggregate.platform.target, project.objectVersion),
     MACH_O_TYPE: 'staticlib',
     OTHER_LDFLAGS: '',
     OTHER_LIBTOOLFLAGS: '',
@@ -61,14 +60,13 @@ export function addAggregateTarget(project, aggregate, context) {
   }
   const native = newTarget(project, aggregate.label, aggregate.framework ? 'framework' : 'static_library', aggregate.productName, settings, aggregate.platform.target)
   if (aggregate.framework) addSystemFramework(project, native, 'Foundation')
-  const dir = join(context.sandbox, 'Target Support Files', aggregate.label)
+  const dir = join(project.dir, 'Target Support Files', aggregate.label)
   const group = newGroup(project.supportFiles, aggregate.label, dir)
   const addSupport = (name, text) => {
-    context.write(aggregate, name, text)
+    write(aggregate, name, text)
     return newFile(project, group, join(dir, name))
   }
-  const text = configText(context.config(aggregate))
-  for (const configuration of configurationsOf(native)) configuration.baseConfigurationReference = addSupport(`${aggregate.label}.${configuration.name.replaceAll('/', '-').toLowerCase()}.xcconfig`, text)
+  for (const configuration of configurationsOf(native)) configuration.baseConfigurationReference = addSupport(`${aggregate.label}.${configuration.name.replaceAll('/', '-').toLowerCase()}.xcconfig`, aggregate.configText)
   if (aggregate.framework) {
     addSupport(`${aggregate.label}-Info.plist`, support.infoPlist('1.0.0', 'FMWK'))
     setAll(native, 'INFOPLIST_FILE', `Target Support Files/${aggregate.label}/${aggregate.label}-Info.plist`)
@@ -80,11 +78,11 @@ export function addAggregateTarget(project, aggregate, context) {
   }
   // The input and output file lists of the app's script phase, for each of its configurations.
   const lists = (kind, inputs, outputs) => {
-    if (Number(context.objectVersion) < 50) return
+    if (Number(project.objectVersion) < 50) return
     const script = `\${PODS_ROOT}/Target Support Files/${aggregate.label}/${aggregate.label}-${kind}.sh`
     for (const name of Object.keys(project.configurations)) {
-      context.write(aggregate, `${aggregate.label}-${kind}-${name}-input-files.xcfilelist`, [script, ...inputs].join('\n'))
-      context.write(aggregate, `${aggregate.label}-${kind}-${name}-output-files.xcfilelist`, outputs.join('\n'))
+      write(aggregate, `${aggregate.label}-${kind}-${name}-input-files.xcfilelist`, [script, ...inputs].join('\n'))
+      write(aggregate, `${aggregate.label}-${kind}-${name}-output-files.xcfilelist`, outputs.join('\n'))
     }
   }
   const configurations = Object.keys(project.configurations)

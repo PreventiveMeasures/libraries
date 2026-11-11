@@ -1,14 +1,16 @@
 // A pod in the Pods project, as FileReferencesInstaller and PodTargetInstaller add it: its group of files, its
 // target and build phases, its resource bundles' targets, and its script phases.
 
+import { readFileSync } from 'node:fs'
 import { extname, join, posix } from 'node:path'
 
 import { PodError, quote } from '../error.js'
 import { compareVersions } from '../order.js'
-import { SOURCES as SOURCE_EXTENSIONS } from './files.js'
+import { SOURCES as SOURCE_EXTENSIONS, developerFiles } from './files.js'
 import { COMPILED, addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
 import { addFile, addSystemFramework, configurationsOf, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, phaseOf, setAll, targetDefaults } from './project.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
+import { deploymentTarget } from './spec.js'
 import * as support from './support.js'
 
 const SOURCES = new Set(SOURCE_EXTENSIONS)
@@ -56,7 +58,7 @@ function addPaths(project, target, podGroup, accessor, given, key, reflect) {
   })
 }
 
-export function addPodFiles(project, target, sandbox) {
+export function addPodFiles(project, target) {
   const parent = target.local ? project.developmentPods : project.pods
   const podGroup = target.group = newGroup(parent, target.name, target.dir)
   for (const accessor of target.accessors) {
@@ -67,15 +69,16 @@ export function addPodFiles(project, target, sandbox) {
     const bundled = addPaths(project, target, podGroup, accessor, Object.values(accessor.resourceBundles).flat(), 'resources', true)
     addKnownRegions(project, [...resources, ...bundled])
   }
-  if (target.local) for (const path of target.developerFiles) newFile(project, groupForSpec(podGroup, target.name, target.name, 'developer'), join(target.dir, path))
-  target.supportGroup = newGroup(podGroup, 'Support Files', join(sandbox, 'Target Support Files', target.label))
+  if (target.local) for (const path of developerFiles(target)) newFile(project, groupForSpec(podGroup, target.name, target.name, 'developer'), join(target.dir, path))
+  target.supportGroup = newGroup(podGroup, 'Support Files', join(project.dir, 'Target Support Files', target.label))
 }
 
 // PodTargetInstaller#compiler_flags_for_consumer.
 function compilerFlags(target, consumer, arc, swift) {
   const flags = [...consumer.compiler_flags]
+  const specTarget = deploymentTarget(consumer.spec, target.platform.name)
   if (!arc && !swift) flags.push('-fno-objc-arc')
-  else if (target.specTargets.get(consumer.spec) === undefined || compareVersions(target.specTargets.get(consumer.spec), '6.0') < 0) flags.push('-DOS_OBJECT_USE_OBJC=0')
+  else if (specTarget === undefined || compareVersions(specTarget, '6.0') < 0) flags.push('-DOS_OBJECT_USE_OBJC=0')
   if (target.inhibitWarnings && !swift) flags.push('-w -Xanalyzer -analyzer-disable-all-checks')
   return flags.join(' ')
 }
@@ -181,7 +184,7 @@ function addBundles(project, target, addSupport) {
 
 // The phases that copy a pod's dSYMs and its .xcframeworks' slices, and its own `[CP-User]` script phases, each
 // where its podspec puts it.
-function addScriptPhases(native, target, addSupport, paths) {
+function addScriptPhases(native, target, addSupport, lists) {
   const move = (phase, kind, before) => {
     const at = native.buildPhases.findIndex((one) => one.isa === `PBX${kind}BuildPhase`)
     const from = native.buildPhases.indexOf(phase)
@@ -189,25 +192,25 @@ function addScriptPhases(native, target, addSupport, paths) {
     native.buildPhases.splice(from, 1)
     native.buildPhases.splice(at, 0, phase)
   }
+  const scriptOf = (base) => `\${PODS_ROOT}/Target Support Files/${target.label}/${base}.sh`
+  // A phase that runs the support script `base`.sh, whose text is `text`.
+  const runs = (name, base, text, inputs, outputs) => {
+    addSupport(`${base}.sh`, text)
+    const phase = newPhase('ShellScript', { name, shellPath: '/bin/sh', shellScript: `"${scriptOf(base)}"\n`, showEnvVarsInLog: '0', ...lists(base, inputs, outputs) })
+    native.buildPhases.push(phase)
+    return phase
+  }
   // PodTargetIntegrator#add_copy_dsyms_script_phase.
   const { dsyms, bcsymbolmaps } = target.settings.vendored
-  if (dsyms.length + bcsymbolmaps.length > 0) {
-    const base = `${target.label}-copy-dsyms`
-    addSupport(`${base}.sh`, support.dsymsScript(dsyms, bcsymbolmaps))
-    const copied = [...dsyms, ...bcsymbolmaps]
-    const lists = paths(target, base, copied, copied.map((path) => `\${DWARF_DSYM_FOLDER_PATH}/${posix.basename(path)}`))
-    native.buildPhases.push(newPhase('ShellScript', { name: '[CP] Copy dSYMs', shellPath: '/bin/sh', shellScript: `"\${PODS_ROOT}/Target Support Files/${target.label}/${base}.sh"\n`, showEnvVarsInLog: '0', ...lists }))
-  }
+  const copied = [...dsyms, ...bcsymbolmaps]
+  if (copied.length > 0) runs('[CP] Copy dSYMs', `${target.label}-copy-dsyms`, support.dsymsScript(dsyms, bcsymbolmaps), copied, copied.map((path) => `\${DWARF_DSYM_FOLDER_PATH}/${posix.basename(path)}`))
   const xcframeworks = target.settings.xcframeworks
   if (xcframeworks.length > 0) {
-    const script = `\${PODS_ROOT}/Target Support Files/${target.label}/${target.label}-xcframeworks.sh`
+    const base = `${target.label}-xcframeworks`
     const fromSandbox = (one) => posix.join(target.sandboxPath, posix.relative(target.dir, one.dir))
-    addSupport(`${target.label}-xcframeworks.sh`, support.xcframeworksScript(xcframeworks, fromSandbox))
-    const inputs = [script, ...xcframeworks.map((one) => `\${PODS_ROOT}/${fromSandbox(one)}`)]
+    const inputs = [scriptOf(base), ...xcframeworks.map((one) => `\${PODS_ROOT}/${fromSandbox(one)}`)]
     const outputs = xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
-    const phase = newPhase('ShellScript', { name: '[CP] Copy XCFrameworks', shellPath: '/bin/sh', shellScript: `"${script}"\n`, showEnvVarsInLog: '0', ...paths(target, `${target.label}-xcframeworks`, inputs, outputs) })
-    native.buildPhases.push(phase)
-    move(phase, 'Headers', true)
+    move(runs('[CP] Copy XCFrameworks', base, support.xcframeworksScript(xcframeworks, fromSandbox), inputs, outputs), 'Headers', true)
   }
   for (const script of target.consumers.flatMap((consumer) => consumer.script_phases)) {
     const optional = { inputPaths: script.input_files, outputPaths: script.output_files, inputFileListPaths: script.input_file_lists, outputFileListPaths: script.output_file_lists, dependencyFile: script.dependency_file, alwaysOutOfDate: script.always_out_of_date }
@@ -248,18 +251,32 @@ function compatibilityHeaderPhase(target) {
   })
 }
 
-// `context` is generate.js's.
-export function addPodTarget(project, target, context) {
+// A pod's own module map, as a library's has it: of no framework.
+function ownModuleMap(target, path) {
+  const text = readFileSync(join(target.dir, path), 'utf8')
+  return target.framework ? text : text.replaceAll(/^(\s*)framework\s+(module[^{}]+)\{/gmu, '$1$2{')
+}
+
+// `write` writes a file of the target's support files.
+export function addPodTarget(project, target, write) {
   const addSupport = (name, text) => {
-    context.write(target, name, text)
+    write(target, name, text)
     return newFile(project, target.supportGroup, join(target.supportGroup._real, name))
   }
-  const settings = targetSettings(target, context.objectVersion)
+  // A script phase's input and output file lists, from Xcode 9.3's format on; before it, the paths themselves.
+  const lists = (base, inputs, outputs) => {
+    if (Number(project.objectVersion) < 50) return { inputPaths: inputs, outputPaths: outputs }
+    write(target, `${base}-input-files.xcfilelist`, inputs.join('\n'))
+    write(target, `${base}-output-files.xcfilelist`, outputs.join('\n'))
+    const from = `\${PODS_ROOT}/Target Support Files/${target.label}/${base}`
+    return { inputFileListPaths: [`${from}-input-files.xcfilelist`], outputFileListPaths: [`${from}-output-files.xcfilelist`] }
+  }
+  const settings = targetSettings(target, project.objectVersion)
   if (!target.shouldBuild) {
     const placeholder = newAggregateTarget(project, target.label, { ENABLE_USER_SCRIPT_SANDBOXING: 'NO', ...(settings.ARCHS === undefined ? {} : { ARCHS: settings.ARCHS }) }, target.platform.target)
     // A pod with nothing to build still has its resource bundles built.
     const bundles = addBundles(project, target, addSupport)
-    addScriptPhases(placeholder, target, addSupport, context.paths)
+    addScriptPhases(placeholder, target, addSupport, lists)
     return finish(project, target, placeholder, bundles, addSupport)
   }
   const native = newTarget(project, target.label, target.framework ? 'framework' : 'static_library', target.productName, settings, target.platform.target)
@@ -269,7 +286,7 @@ export function addPodTarget(project, target, context) {
   addSources(project, native, target)
   if (target.writesModuleMap) {
     const custom = target.customModuleMap
-    addSupport(`${target.label}.modulemap`, custom === undefined ? support.moduleMap(target) : context.read(target, custom, !target.framework))
+    addSupport(`${target.label}.modulemap`, custom === undefined ? support.moduleMap(target) : ownModuleMap(target, custom))
     setAll(native, 'MODULEMAP_FILE', target.moduleMapLink)
     if (custom === undefined) addFile(native, 'Headers', addSupport(`${target.label}-umbrella.h`, support.umbrellaHeader(target, support.umbrellaImports(target))), { ATTRIBUTES: [target.framework ? 'Public' : 'Project'] })
   }
@@ -284,7 +301,7 @@ export function addPodTarget(project, target, context) {
     setAll(native, 'GCC_PREFIX_HEADER', `Target Support Files/${target.label}/${target.label}-prefix.pch`)
   }
   addFile(native, 'Sources', addSupport(`${target.label}-dummy.m`, support.dummySource(target.label)))
-  addScriptPhases(native, target, addSupport, context.paths)
+  addScriptPhases(native, target, addSupport, lists)
   return finish(project, target, native, bundles, addSupport)
 }
 

@@ -27,7 +27,6 @@ function shellsplit(line) {
   return words
 }
 
-
 // OtherLinkerFlagsParser.parse.
 function parseLinkerFlags(flags) {
   const result = Object.fromEntries(FLAG_KEYS.map((key) => [key, []]))
@@ -44,7 +43,7 @@ function parseLinkerFlags(flags) {
   return result
 }
 
-export function newConfig(settings = {}) {
+export function newConfig(settings) {
   const config = { attributes: {}, flags: Object.fromEntries(FLAG_KEYS.map((key) => [key, new Set()])) }
   mergeSettings(config, settings)
   return config
