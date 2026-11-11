@@ -1,30 +1,24 @@
-// A push parser: chunks go in, entries come out as each completes, so the
-// in-memory call and the streams share one reader. Extended headers are
-// the kinds GNU writes: pax `x` and `g`, and the `L`/`K` long-name blocks.
-// An entry's data views the chunk it arrived in where one chunk held it
-// whole, and is a copy otherwise.
-
 import { EMPTY } from '../bytes.js'
 import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
-import { BLOCK, EXTENDED_TYPEFLAGS, TYPEFLAGS, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
-import { Names, cleanNames, levelsAbove } from '../names.js'
-import { Records, decodePax } from './pax.js'
+import { Names, cleanNames } from '../names.js'
 import { decodeUtf8, hasUnsafe, quote } from '../text.js'
+import { BLOCK, EXTENDED_TYPEFLAGS, TYPEFLAGS, decodeHeader, isDevice, isZeroBlock, untilNul } from './header.js'
+import { Records, decodePax } from './pax.js'
 
-// Type flag -> name. NUL is the pre-POSIX regular file.
 const byFlag = (flags) => Object.entries(flags).map(([name, flag]) => [flag, name])
-const TYPES = new Map([...byFlag(TYPEFLAGS), [0, 'file']])
+const TYPES = new Map([...byFlag(TYPEFLAGS), [0, 'file']]) // NUL is the pre-POSIX file
 const EXTENDED = new Map(byFlag(EXTENDED_TYPEFLAGS))
 const MAX_EXTENDED = 1 << 20
 
-// A sparse file is stored as a map and a body that is not the file, so
-// handing back that body under the file's name and size would be a lie.
-// libarchive reads one from star's real size and Solaris' map of holes as
-// it does from GNU's keys, so those are refused alike.
-const SPARSE_KEYS = new Set(['SCHILY.realsize', 'SUN.holesdata'])
+const NO_RECORDS = new Records()
+const NO_EXTENDED = Object.freeze([])
+const magicOf = (header) => (header.gnu ? 'gnu' : 'ustar')
+const blocks = (size) => Math.ceil(size / BLOCK) * BLOCK
 
-function sparse(keys, at) {
+// A sparse entry's body is not the file; libarchive also takes star's and Solaris' keys for one
+const SPARSE_KEYS = new Set(['SCHILY.realsize', 'SUN.holesdata'])
+function refuseSparse(keys, at) {
   if (keys.some((key) => key.startsWith('GNU.sparse.') || SPARSE_KEYS.has(key))) throw new ArchiveError('sparse entries are not supported', at)
 }
 
@@ -33,11 +27,7 @@ function paxNumber(value, what, at) {
   return Number(value)
 }
 
-// Whole seconds, a fraction floored as GNU does for a format without one.
-// Read from the digits, not through a double: near today a double steps by
-// a quarter of a microsecond, so .9999999 of a second would round up to the
-// next one before any floor saw it. Flooring moves a negative time with any
-// fraction a second earlier, and nothing else.
+// Whole seconds, floored as GNU does. From the digits, as a double would round .9999999 up to the next second.
 function paxTime(value, what, at) {
   const match = /^(-?)([0-9]+)(?:\.([0-9]+))?$/u.exec(value)
   if (!match) throw new ArchiveError(`pax ${what}=${quote(value)} is not a time`, at)
@@ -47,66 +37,52 @@ function paxTime(value, what, at) {
   return seconds
 }
 
-// The extended headers waiting on the entry they describe: none, to start
-// with and once each entry has taken them.
-const nonePending = () => ({ pax: null, longname: null, longlink: null })
+function headerName(header, at) {
+  const name = decodeUtf8(header.name, 'entry name', at)
+  return header.prefix.length ? `${decodeUtf8(header.prefix, 'name prefix', at)}/${name}` : name
+}
 
-// The records of every entry with no pax header of its own, or under no
-// global one.
-const NO_RECORDS = new Records()
-
-// The extended headers of every entry with none ahead of it.
-const NO_EXTENDED = Object.freeze([])
-const magicOf = (header) => (header.gnu ? 'gnu' : 'ustar')
-
+// Chunks in, entries out as each completes; the in-memory call and the stream share it
 class Unpacker {
-  #chunks = []
+  #chunks = [] // unread input, from #offset in the first
   #offset = 0
   #buffered = 0
-  #position = 0
+  #position = 0 // in the archive, of the first byte unread
   #names
-  #pending = nonePending()
-  // The extended headers read since the last entry, in order: each its
-  // kind and its magic.
-  #extended = []
+  #pending = { pax: null, longname: null, longlink: null } // extended headers awaiting their entry
+  #extended = [] // each extended header since the last entry, as entries list them
   #global = null
-  // The header whose body is due: { extended, size, at, entry }.
-  #awaiting = null
+  #awaiting = null // the header whose body is next: { at, size, entry } or { at, size, extended }
   #zeros = 0
   #done = false
   #count = 0
   #maxEntries
   #trailingGlobal
 
-  // `keep` holds entries for a repeat to be compared with, which only the
-  // in-memory call can afford; the options are unpack's.
   constructor(keep, { symlinksAbove, maxEntries = Infinity, trailingGlobal = false } = {}) {
     if (maxEntries !== Infinity && !(Number.isSafeInteger(maxEntries) && maxEntries >= 0)) throw new ArchiveError(`maxEntries ${String(maxEntries)} is not a whole number of entries`)
     if (typeof trailingGlobal !== 'boolean') throw new ArchiveError(`trailingGlobal ${String(trailingGlobal)} is not a boolean`)
-    this.#names = new Names(keep, levelsAbove(symlinksAbove))
+    this.#names = new Names(keep, symlinksAbove)
     this.#maxEntries = maxEntries
     this.#trailingGlobal = trailingGlobal
   }
 
-  // The entries a chunk completes, each as it is read, so that a chunk
-  // holding many has no more of them held than the one being read.
+  // Each entry as it is read, so a chunk holding many holds no more of them than the one being read
   *push(chunk) {
     if (!(chunk instanceof Uint8Array)) throw new ArchiveError('a chunk is not a Uint8Array')
-    if (this.#done) {
-      this.#trailing(chunk, this.#position)
-      this.#position += chunk.length
-      return
-    }
     if (chunk.length) {
       this.#chunks.push(chunk)
       this.#buffered += chunk.length
     }
-    const out = []
-    let more = true
-    while (more && !this.#done) {
-      more = this.#awaiting === null ? this.#header() : this.#body(out)
-      yield* out.splice(0)
+    while (!this.#done) {
+      const bytes = this.#take(this.#awaiting ? blocks(this.#awaiting.size) : BLOCK)
+      if (bytes === null) return
+      if (!this.#awaiting) this.#header(bytes)
+      else if (this.#awaiting.entry) yield this.#entry(bytes)
+      else this.#extendedHeader(bytes)
     }
+    const at = this.#position
+    if (!isZeroBlock(this.#take(this.#buffered))) throw new ArchiveError('data after the end of the archive', at)
   }
 
   end() {
@@ -116,9 +92,7 @@ class Unpacker {
     throw new ArchiveError('the archive is truncated', this.#position)
   }
 
-  // The next `size` bytes, or null until they have all arrived: a view
-  // when one chunk holds them, else a copy of just that span out of the
-  // chunks it crosses, however much more those chunks hold.
+  // The next `size` bytes once all have arrived: a view where one chunk holds them, else a copy
   #take(size) {
     if (this.#buffered < size) return null
     if (size === 0) return EMPTY
@@ -135,7 +109,7 @@ class Unpacker {
         at += piece.length
         this.#offset = from + piece.length
       }
-      this.#chunks = this.#chunks.slice(i - 1)
+      this.#chunks.splice(0, i - 1)
     }
     if (this.#offset === this.#chunks[0].length) {
       this.#chunks.shift()
@@ -146,81 +120,69 @@ class Unpacker {
     return out
   }
 
-  #trailing(bytes, at) {
-    if (!isZeroBlock(bytes)) throw new ArchiveError('data after the end of the archive', at)
-  }
-
-  // False when more bytes are needed.
-  #header() {
-    const block = this.#take(BLOCK)
-    if (block === null) return false
+  #header(block) {
     const at = this.#position - BLOCK
     if (isZeroBlock(block)) {
-      // A global header too: one with no entry after it stands for nothing,
-      // unless the caller takes it as GNU tar does (trailingGlobal).
+      // A global header may trail if the caller takes it so, as GNU tar does
       if (this.#extended.some(({ kind }) => kind !== 'global' || !this.#trailingGlobal)) throw new ArchiveError('an extended header is not followed by an entry', at)
-      if (++this.#zeros === 2) {
-        this.#done = true
-        const after = this.#position
-        this.#trailing(this.#take(this.#buffered), after)
-      }
-      return true
+      this.#done = ++this.#zeros === 2
+      return
     }
     if (this.#zeros) throw new ArchiveError('a lone zero block where a header should be', at)
     const header = decodeHeader(block, at)
-    const extended = EXTENDED.get(header.typeflag)
-    if (extended === undefined) {
-      // Counted at its header, before anything is made of it or its data read.
+    const kind = EXTENDED.get(header.typeflag)
+    if (kind === undefined) {
+      // Counted before anything is made of it
       if (++this.#count > this.#maxEntries) throw new ArchiveError(`the archive holds more than ${this.#maxEntries} entries`, at, { limited: true })
-      this.#awaiting = { extended: null, at, ...this.#resolve(header, at) }
+      this.#awaiting = { at, ...this.#resolve(header, at) }
     } else {
-      if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${extended} header of ${header.size} bytes is longer than any tar writes`, at)
-      this.#awaiting = { extended, size: header.size, at, entry: null, magic: magicOf(header), octal: header.octal }
+      if (header.size > MAX_EXTENDED) throw new ArchiveError(`a ${kind} header of ${header.size} bytes is longer than any tar writes`, at)
+      this.#awaiting = { at, size: header.size, extended: Object.freeze({ kind, magic: magicOf(header), octal: header.octal }) }
     }
-    return true
   }
 
-  #body(out) {
-    const { extended, size, at, entry, magic, octal } = this.#awaiting
-    const whole = Math.ceil(size / BLOCK) * BLOCK
-    const body = this.#take(whole)
-    if (body === null) return false
-    if (!isZeroBlock(body.subarray(size))) throw new ArchiveError('the padding after an entry is not zero', at)
+  #body(bytes) {
+    const { at, size } = this.#awaiting
+    if (!isZeroBlock(bytes.subarray(size))) throw new ArchiveError('the padding after an entry is not zero', at)
+    return bytes.subarray(0, size)
+  }
+
+  #entry(bytes) {
+    const { at, entry } = this.#awaiting
+    entry.data = this.#body(bytes)
     this.#awaiting = null
-    const raw = body.subarray(0, size)
-    if (extended === null) {
-      entry.data = raw
-      located(() => this.#names.add(entry), at)
-      out.push(entry)
-      return true
-    }
-    if (extended === 'global') {
+    located(() => this.#names.add(entry), at)
+    return entry
+  }
+
+  #extendedHeader(bytes) {
+    const { at, extended } = this.#awaiting
+    const raw = this.#body(bytes)
+    this.#awaiting = null
+    const { kind } = extended
+    if (kind === 'global') {
       this.#global = decodePax(raw, at)
       const set = ['path', 'linkpath', 'size'].find((key) => this.#global.has(key))
       if (set !== undefined) throw new ArchiveError(`a global header sets ${set}`, at)
-      // Once, here: a global header stands until another replaces it, and
-      // re-reading its keys under every entry is work an archive can ask for.
-      sparse(this.#global.keys(), at)
+      refuseSparse(this.#global.keys(), at) // once here, not under every entry it stands for
     } else {
-      if (this.#pending[extended] !== null) throw new ArchiveError(`two ${extended} headers ahead of one entry`, at)
-      this.#pending[extended] = extended === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${extended} header`, at)
+      if (this.#pending[kind] !== null) throw new ArchiveError(`two ${kind} headers ahead of one entry`, at)
+      this.#pending[kind] = kind === 'pax' ? decodePax(raw, at) : decodeUtf8(untilNul(raw), `a ${kind} header`, at)
     }
-    this.#extended.push(Object.freeze({ kind: extended, magic, octal }))
-    return true
+    this.#extended.push(extended)
   }
 
-  // The entry a header stands for, with the extended headers ahead of it
-  // applied: a pax record wins over the field it stands in for.
+  // The entry a header stands for, a pax record winning over the field it stands in for
   #resolve(header, at) {
     const type = TYPES.get(header.typeflag)
     if (type === undefined) throw new ArchiveError(`entry type ${quote(String.fromCodePoint(header.typeflag))} is not one this package reads`, at)
     const { pax, longname, longlink } = this.#pending
-    this.#pending = nonePending()
+    this.#pending = { pax: null, longname: null, longlink: null }
     const record = (key) => pax?.get(key) ?? this.#global?.get(key)
-    if (pax !== null) sparse(pax.keys(), at)
+    if (pax !== null) refuseSparse(pax.keys(), at)
     if (longname !== null && record('path') !== undefined) throw new ArchiveError('both a long name header and a pax path name one entry', at)
     if (longlink !== null && record('linkpath') !== undefined) throw new ArchiveError('both a long link header and a pax linkpath name one entry', at)
-    const rawName = longname ?? record('path') ?? this.#headerName(header, at)
+    const rawName = longname ?? record('path') ?? headerName(header, at)
     const rawTarget = longlink ?? record('linkpath') ?? decodeUtf8(header.linkname, 'link target', at)
     const { name, linkname } = located(() => cleanNames(rawName, type, rawTarget, this.#names.above), at)
     const number = (key, parse = paxNumber) => {
@@ -261,11 +223,6 @@ class Unpacker {
     }
     this.#extended = []
     return { entry, size }
-  }
-
-  #headerName(header, at) {
-    const name = decodeUtf8(header.name, 'entry name', at)
-    return header.prefix.length ? `${decodeUtf8(header.prefix, 'name prefix', at)}/${name}` : name
   }
 }
 

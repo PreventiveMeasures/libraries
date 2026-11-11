@@ -1,39 +1,59 @@
-// The typed contract for archive/compression.js, hand-written: keep it
-// name for name with compression.js, and change it in the same commit as
-// the signature.
+/**
+ * Bytes through the platform's `CompressionStream` and `DecompressionStream`, whole
+ *
+ * ```js
+ * import { compress, decompress, supports } from '@preventive/archive/compression.js'
+ * ```
+ *
+ * @module @preventive/archive/compression.js
+ */
 
-// A format is what the platform's streams take: 'gzip', 'deflate' and
-// 'deflate-raw' everywhere, 'brotli' where it was added. `supports` says
-// whether this runtime has one both ways.
-export function supports(format: string): boolean
+import { ArchiveError } from './src/error.js';
 
-// `limit` bounds the output in bytes; past it the call rejects with
-// `limited` set rather than going on.
+export { ArchiveError };
+
+/**
+ * Whether this runtime has a format both ways
+ *
+ * @param format - `'gzip'`, `'deflate'` and `'deflate-raw'` are everywhere, `'brotli'` only where added
+ */
+export function supports(format: string): boolean;
+
 export interface Options {
-  limit?: number
+  /** Most bytes of output; past it, rejects with `limited` set (default: no limit) */
+  limit?: number;
 }
 
-// The whole input through one stream, the whole output back. gzip is
-// decompressed past zero bytes after its last member, as gzip(1) and zlib
-// take them for padding, where the platform's stream refuses them; nothing
-// else after the end is passed over.
-export function compress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>
-export function decompress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>
+/**
+ * Compress bytes
+ *
+ * @param bytes - The input
+ * @param format - A `CompressionStream` format; one the runtime lacks rejects with the platform's error
+ * @param options - The output bound
+ * @returns The output
+ */
+export function compress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>;
 
-// `offset` is where in the archive the reader gave up; unset here.
-// `limited` is true where a bound the caller set stopped it.
-export class ArchiveError extends Error {
-  constructor(detail: string, offset?: number, options?: { limited?: boolean })
-  offset: number | undefined
-  limited: boolean
-}
+/**
+ * Decompress bytes
+ *
+ * gzip is read past zero bytes after its last member, as gzip(1) and zlib take them for padding and the
+ * platform does not; nothing else after the end is passed over.
+ *
+ * @param bytes - The input
+ * @param format - A `DecompressionStream` format; one the runtime lacks rejects with the platform's error
+ * @param options - The output bound
+ * @returns The output
+ */
+export function decompress(bytes: Uint8Array, format: string, options?: Options): Promise<Uint8Array>;
 
-// What a stream refused: `bytes` is what it had put out by then, kept for a
-// caller that wants it as gzip does; `limited` is true when the output
-// bound stopped it rather than the data; `cause` is the platform's error.
+/**
+ * What a stream refused
+ */
 export class CompressionError extends ArchiveError {
-  constructor(detail: string, options: { bytes: Uint8Array; limited?: boolean; cause?: unknown })
-  bytes: Uint8Array
-  limited: boolean
-  cause: unknown
+  constructor(detail: string, options: { bytes: Uint8Array; limited?: boolean; cause?: unknown });
+  /** The output made before the failure, for a caller that keeps it as gzip(1) does */
+  bytes: Uint8Array;
+  /** The platform's error */
+  cause: unknown;
 }

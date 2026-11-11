@@ -1,8 +1,3 @@
-// The 512-byte ustar header block, as GNU tar 1.35 writes and reads it.
-// String fields come back as bytes cut at the first NUL, not text: GNU cuts
-// a long name at 100 bytes wherever the real name went, and that is not
-// always a whole character, so only the field that counts gets decoded.
-
 import { EMPTY } from '../bytes.js'
 import { ArchiveError } from '../error.js'
 
@@ -10,8 +5,6 @@ export const BLOCK = 512
 
 export const isDevice = (type) => type === 'character-device' || type === 'block-device'
 
-// Each entry type's type flag, and each extended header's: those GNU
-// writes, under the names unpack reads them by.
 export const TYPEFLAGS = {
   file: 0x30,
   hardlink: 0x31,
@@ -26,11 +19,9 @@ export const EXTENDED_TYPEFLAGS = { pax: 0x78, global: 0x67, longname: 0x4c, lon
 
 export const NAME_SIZE = 100
 export const PREFIX_SIZE = 155
-// 32 bytes, and GNU always ends them with a NUL, so 31 is the most.
-export const OWNER_SIZE = 32
+export const OWNER_SIZE = 32 // GNU always ends one with a NUL, so 31 bytes at most
 
 const NAME = 0
-// The numbers from mode to mtime, [key, offset, size], in the block's order.
 const NUMBERS = [['mode', 100, 8], ['uid', 108, 8], ['gid', 116, 8], ['size', 124, 12], ['mtime', 136, 12]]
 const CHKSUM = 148
 const TYPEFLAG = 156
@@ -41,29 +32,22 @@ const GNAME = 297
 const DEVMAJOR = 329
 const DEVMINOR = 337
 const PREFIX = 345
-// Under the gnu magic: the old GNU sparse map, its isextended flag and the
-// file's real size. libarchive reads them whatever the type flag says --
-// taking the real size as the file's, and the map and any extension blocks
-// after the header as its layout -- where GNU tar and the rest read them for
-// a sparse entry alone.
+// Under the gnu magic, the old sparse map and real size: libarchive reads them whatever the type flag
 const OLD_SPARSE = 386
 const OLD_SPARSE_END = 495
 
-const USTAR_MAGIC = 'ustar\u000000' // "ustar", NUL, "00": ustar and pax
+const USTAR_MAGIC = 'ustar\u000000' // ustar and pax
 const GNU_MAGIC = 'ustar  \0'
 
 const latin1 = (text) => Uint8Array.from(text, (c) => c.codePointAt(0))
 const ascii = (raw) => String.fromCodePoint(...raw)
-// Throws (RangeError) rather than overwriting the next field.
-const put = (block, offset, size, bytes) => block.subarray(offset, offset + size).set(bytes)
+const put = (block, offset, size, bytes) => block.subarray(offset, offset + size).set(bytes) // throws rather than overflow
 const field = (block, offset, size) => untilNul(block.subarray(offset, offset + size))
 
 export const octalMax = (size) => 8 ** (size - 1) - 1
 export const fitsOctal = (value, size) => value >= 0 && value <= octalMax(size)
 
-// A number is size-1 octal digits and a NUL. GNU's format falls back to
-// 0x80 (0xff when negative) and the value in base 256, big-endian, two's
-// complement, over the rest of the field.
+// Octal digits and a NUL, or for gnu, 0x80 (0xff if negative) and two's complement base 256 after it
 export function writeNumber(block, offset, size, value, gnu) {
   if (fitsOctal(value, size)) {
     put(block, offset, size, latin1(value.toString(8).padStart(size - 1, '0')))
@@ -78,12 +62,8 @@ export function writeNumber(block, offset, size, value, gnu) {
   }
 }
 
-// Older tars wrote leading spaces, and either spaces or NULs after; a field
-// left blank (npm's packer wrote uid and gid so for years) is 0, as GNU tar,
-// libarchive and the rest read it. A NUL ends the number wherever it sits, so
-// a field that opens with one is 0 however it goes on -- GNU stops there, and
-// reading the digits past it instead would give a size, and so an archive,
-// that only this package sees. Only a time may be negative.
+// Spaces around the digits and a blank field (0) are read as GNU tar and libarchive do. A NUL ends
+// the number wherever it sits, as in GNU tar, which reading past it would disagree with.
 export function readNumber(block, offset, size, what, at, signed = false) {
   const first = block[offset]
   if (first === 0x80 || first === 0xff) {
@@ -104,7 +84,7 @@ export function untilNul(raw) {
   return end === -1 ? raw : raw.subarray(0, end)
 }
 
-// Every byte, with the checksum field itself counted as spaces.
+// The checksum field itself counts as spaces
 function checksum(block) {
   let sum = 8 * 0x20
   for (let i = 0; i < CHKSUM; i++) sum += block[i]
@@ -114,9 +94,7 @@ function checksum(block) {
 
 export const isZeroBlock = (block) => block.every((byte) => byte === 0)
 
-// String fields are bytes already cut to size; numbers already fit the
-// format. `devmajor` and `devminor` are null except for a device, since
-// GNU leaves those fields NUL for everything else.
+// Strings are bytes already cut to size, numbers already fit; device numbers are null but for a device
 export function encodeHeader(f) {
   const block = new Uint8Array(BLOCK)
   put(block, NAME, NAME_SIZE, f.name)
@@ -129,15 +107,13 @@ export function encodeHeader(f) {
   if (f.devmajor !== null) writeNumber(block, DEVMAJOR, 8, f.devmajor, f.gnu)
   if (f.devminor !== null) writeNumber(block, DEVMINOR, 8, f.devminor, f.gnu)
   put(block, PREFIX, PREFIX_SIZE, f.prefix)
-  // The one field written as digits, NUL, space.
   put(block, CHKSUM, 8, latin1(`${checksum(block).toString(8).padStart(6, '0')}\0 `))
   return block
 }
 
-// Whether a numeric field holds octal digits, as POSIX writes it, rather
-// than nothing or GNU's base 256, both of which readNumber reads.
 const isOctal = (block, offset, size) => /^ *[0-7]+ *$/u.test(ascii(field(block, offset, size)))
 
+// Strings come back as bytes: GNU cuts a long name at 100 bytes, not always on a whole character
 export function decodeHeader(block, at) {
   if (checksum(block) !== readNumber(block, CHKSUM, 8, 'checksum', at)) throw new ArchiveError('header checksum does not match', at)
   const magic = ascii(block.subarray(MAGIC, MAGIC + 8))
@@ -146,19 +122,18 @@ export function decodeHeader(block, at) {
   if (gnu && !isZeroBlock(block.subarray(OLD_SPARSE, OLD_SPARSE_END))) throw new ArchiveError('header carries an old GNU sparse map or real size', at)
   const typeflag = block[TYPEFLAG]
   const device = typeflag === TYPEFLAGS['character-device'] || typeflag === TYPEFLAGS['block-device']
+  const numbers = [['checksum', CHKSUM, 8], ...NUMBERS, ...(device ? [['devmajor', DEVMAJOR, 8], ['devminor', DEVMINOR, 8]] : [])]
   return {
     gnu,
     typeflag,
     name: field(block, NAME, NAME_SIZE),
-    // Under the gnu magic those bytes belong to the old GNU header instead.
-    prefix: gnu ? EMPTY : field(block, PREFIX, PREFIX_SIZE),
+    prefix: gnu ? EMPTY : field(block, PREFIX, PREFIX_SIZE), // gnu has its own fields there
     linkname: field(block, LINKNAME, NAME_SIZE),
     uname: field(block, UNAME, OWNER_SIZE),
     gname: field(block, GNAME, OWNER_SIZE),
     ...Object.fromEntries(NUMBERS.map(([key, offset, size]) => [key, readNumber(block, offset, size, key, at, key === 'mtime')])),
     devmajor: device ? readNumber(block, DEVMAJOR, 8, 'devmajor', at) : 0,
     devminor: device ? readNumber(block, DEVMINOR, 8, 'devminor', at) : 0,
-    octal: [['checksum', CHKSUM, 8], ...NUMBERS, ...device ? [['devmajor', DEVMAJOR, 8], ['devminor', DEVMINOR, 8]] : []]
-      .every(([, offset, size]) => isOctal(block, offset, size)),
+    octal: numbers.every(([, offset, size]) => isOctal(block, offset, size)),
   }
 }

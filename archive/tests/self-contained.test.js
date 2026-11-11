@@ -72,7 +72,8 @@ describe('archive/ is self-contained and needs no node:', () => {
     assert.ok(files.length > 8, `expected the archive/ modules, found ${files.length}`)
   })
 
-  const declared = new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])
+  // The package's own name resolves inside it, as the usage examples in the .d.ts files import it
+  const declared = new Set([manifest.name, ...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])
 
   for (const file of files) {
     const name = file.href.slice(ARCHIVE_DIR.href.length)

@@ -1,25 +1,19 @@
-// What an entry to write is in either format: checked here, and each
-// format adds the fields it stores.
-
 import { EMPTY } from './bytes.js'
 import { ArchiveError } from './error.js'
 import { checkString, quote } from './text.js'
 
 export const DEFAULT_MODE = { file: 0o644, directory: 0o755, symlink: 0o777 }
 
-// A contiguous file is a file for every purpose here.
 export const isFile = (type) => type === 'file' || type === 'contiguous-file'
 
-// The name as the archive stores it, a directory's with its slash.
+// The name as stored: a directory's with its slash
 export const wireName = (entry) => (entry.type === 'directory' ? `${entry.name}/` : entry.name)
 
-// `types` holds what the format writes; `data` is for a file and a link
-// target for a link, whatever the format allows.
+// The fields both formats share, checked; `types` has a key for each type the format writes
 export function checkEntry(entry, types) {
   if (entry === null || typeof entry !== 'object') throw new ArchiveError('an entry is not an object')
   const type = entry.type ?? 'file'
-  // A key lookup would take anything that stringifies to a type this package
-  // writes, and everything after compares `type` as the string it is not.
+  // Before Object.hasOwn, which would take anything that stringifies to a type
   if (typeof type !== 'string') throw new ArchiveError('entry type is not a string')
   if (!Object.hasOwn(types, type)) throw new ArchiveError(`entry type ${quote(type)} is not one this package writes`)
   const { name } = entry

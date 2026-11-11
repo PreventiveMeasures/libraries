@@ -25,6 +25,7 @@
     "src/bytes.js",
     "src/compression.js",
     "src/entry.js",
+    "src/error.d.ts",
     "src/error.js",
     "src/names.js",
     "src/tar/header.js",
