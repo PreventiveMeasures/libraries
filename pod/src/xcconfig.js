@@ -1,14 +1,15 @@
-// An .xcconfig as Xcodeproj's Config holds one: its settings, with OTHER_LDFLAGS taken apart into the libraries
-// and frameworks it links, so that two merged name each once; written with its keys in order.
+// An .xcconfig as Xcodeproj's Config holds one: OTHER_LDFLAGS taken apart into what it links, so that two merged
+// name each once.
 
 import { PodError } from './error.js'
 
 const INHERITED = new Set(['$(inherited)', '${inherited}'])
 const FLAG_KEYS = ['simple', 'frameworks', 'weak_frameworks', 'libraries', 'arg_files', 'force_load']
-// A word of a shell line, as Ruby's Shellwords.split reads one: bare, in single or double quotes, or escaped.
+const FLAG_OPTIONS = { '-framework': 'frameworks', '-weak_framework': 'weak_frameworks', '-l': 'libraries', '@': 'arg_files', '-force_load': 'force_load' }
+// A word as Ruby's Shellwords.split reads one: bare, in single or double quotes, or escaped.
 const WORD = /\s*(?:([^\0\s\\'"]+)|'([^\0']*)'|"((?:[^\0"\\]|\\[^\0])*)"|(\\[^\0]?)|(\S))(\s)?/gsuy
 
-export function shellsplit(line) {
+function shellsplit(line) {
   const words = []
   let field = ''
   WORD.lastIndex = 0
@@ -25,23 +26,16 @@ export function shellsplit(line) {
   return words
 }
 
-// Strings in the order of their code points, as Ruby sorts them by their bytes.
-export function byBytes(a, b) {
-  if (a === b) return 0
-  const x = [...a]
-  const y = [...b]
-  for (let i = 0; i < x.length && i < y.length; i++) if (x[i] !== y[i]) return x[i].codePointAt(0) - y[i].codePointAt(0)
-  return x.length - y.length
-}
+// Ruby's order of strings, by their UTF-8 bytes.
+export const byBytes = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))
 
 // OtherLinkerFlagsParser.parse.
 function parseLinkerFlags(flags) {
   const result = Object.fromEntries(FLAG_KEYS.map((key) => [key, []]))
-  const KEYS = { '-framework': 'frameworks', '-weak_framework': 'weak_frameworks', '-l': 'libraries', '@': 'arg_files', '-force_load': 'force_load' }
   let key
   const tokens = shellsplit(flags.trim()).flatMap((word) => (/^-l./u.test(word) ? ['-l', word.slice(2)] : /^@./u.test(word) ? ['@', word.slice(1)] : [word]))
   for (const token of tokens) {
-    if (Object.hasOwn(KEYS, token)) key = KEYS[token]
+    if (Object.hasOwn(FLAG_OPTIONS, token)) key = FLAG_OPTIONS[token]
     else if (key === undefined) result.simple.push(token)
     else {
       result[key].push(token)
@@ -81,8 +75,8 @@ export function mergeSettings(config, settings) {
   return config
 }
 
-// Config#to_hash: the settings, OTHER_LDFLAGS put together again, less each that only inherits.
-export function settingsOf(config) {
+// Config#to_hash: OTHER_LDFLAGS put together again, less each setting that only inherits.
+function settingsOf(config) {
   const sorted = (key) => [...config.flags[key]].sort(byBytes)
   const list = [
     ...sorted('simple'),

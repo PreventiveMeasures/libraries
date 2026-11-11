@@ -1,9 +1,9 @@
-// Pods/Headers: the headers of each pod that is not built as a framework, linked under Private/<pod> for its own
-// build and Public/<pod> for those that depend on it, by header_dir and header_mappings_dir.
+// Pods/Headers: the headers of each pod not built as a framework, linked under Private/<pod> for its own build
+// and Public/<pod> for those that depend on it.
 
 import { posix } from 'node:path'
 
-// PodTarget#header_mappings: the headers by the directory each is linked in, from Headers/Private or Public.
+// PodTarget#header_mappings: headers by the directory each is linked in, by header_dir and header_mappings_dir.
 function mappingsOf(target, pick) {
   const mappings = new Map()
   for (const accessor of target.accessors) {
@@ -19,14 +19,13 @@ function mappingsOf(target, pick) {
   return mappings
 }
 
-// What SandboxHeaderPathsInstaller and link_headers make of a pod target: its links, each `[directory, header]`,
-// and whether each store has a search path for it. A pod built as a framework carries its headers itself.
+// SandboxHeaderPathsInstaller: a pod built as a framework carries its headers itself.
 export function headersOf(target) {
   if (target.framework && target.shouldBuild) return { private: new Map(), public: new Map() }
   return { private: mappingsOf(target, (accessor) => accessor.headers), public: mappingsOf(target, (accessor) => accessor.publicHeaders) }
 }
 
-// HeadersStore#search_paths of the public store, for one pod or, with no name, for every pod that has an entry.
+// HeadersStore#search_paths of the public store, for the pod `name`, or for every pod with headers there.
 export function publicSearchPaths(targets, name, modular) {
   const paths = []
   for (const target of targets) {

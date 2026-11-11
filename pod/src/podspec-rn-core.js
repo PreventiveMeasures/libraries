@@ -1,8 +1,6 @@
-// The helpers React Native's podspecs are written with, scripts/react_native_pods.rb's and those it loads: what
-// each gives, and what each does to a specification. Each is a port of one family's own Ruby; podspec-rn.js
-// has the families. A helper is called with `{ args, options, env, prebuilt, refuse }`: what it is given in
-// its place and by name, `env(name)` a variable of the environment or null, `prebuilt` whether React Native's
-// `core` and its `deps` are, and `refuse(what)`, which throws.
+// React Native's podspec helpers, of scripts/react_native_pods.rb and what it loads, each a port of a family's
+// Ruby (podspec-rn.js). A helper takes `{ args, options, env, prebuilt, refuse }`: its arguments in place and by
+// name, `env(name)` of the environment or null, whether the `core` and `deps` are prebuilt, and a refusal.
 
 import { addDependency, setAttribute } from './podspec-json.js'
 import { CXX, FOLLY_FLAGS, FOLLY_FLAGS_78, FOLLY_VERSION, configOf, frameworkPath, install78, installLater, isText, prebuiltCore, store, thirdParty, words } from './podspec-rn-modules.js'
@@ -14,8 +12,8 @@ const GIT = { glog: 'https://github.com/google/glog.git', fast_float: 'https://g
 const isSpec = (value) => value !== null && typeof value === 'object' && value.attributes instanceof Map
 const truthy = (value) => value !== null && value !== undefined && value !== false
 
-// What a helper is given, held to what it takes: `count` values in their places, the first a specification
-// where `ofSpec`, and by name none but `names`, as Ruby holds a call to a method's parameters.
+// A call held to the helper's parameters, as Ruby holds it: `count` in their places, the first a specification
+// where `ofSpec`, and none by name but `names`.
 function given({ args, options, refuse }, count, names = [], ofSpec = false) {
   if (args.length !== count || [...options.keys()].some((name) => !names.includes(name)) || (ofSpec && !isSpec(args[0]))) refuse('a helper given what it does not take')
   return [...args, ...names.map((name) => options.get(name))]
@@ -27,7 +25,7 @@ const ofSpec = (change) => (call) => {
   return null
 }
 
-// Helpers::Constants: the config of each of the pods React Native is built on, a hash of its own each time.
+// Helpers::Constants: the config of each pod React Native is built on, a new hash at each call.
 function configs(family) {
   const folly = [['version', FOLLY_VERSION], ['git', 'https://github.com/facebook/folly.git'], ['compiler_flags', family === 78 ? FOLLY_FLAGS_78 : FOLLY_FLAGS], ...(family === 78 ? [] : [['config_file', FOLLY_CONFIG_FILE]]), ['dep_name', 'RCT-Folly/Fabric']]
   return {
@@ -38,8 +36,8 @@ function configs(family) {
   }
 }
 
-// add_dependency: a dependency on `pod`, with where the headers of its framework are among the header search
-// paths, whether or not pods are frameworks. The subspec it is given by name it does not pass on, in any family.
+// add_dependency: a dependency on `pod`, and its framework's headers in the search paths, whether or not pods are
+// frameworks. No family passes on the `subspec` it is given.
 const addPod = (family) => (call) => {
   const [spec, pod, , extra = [], name = null, version = null, base = 'PODS_CONFIGURATION_BUILD_DIR'] = given(call, 2, ['subspec', 'additional_framework_paths', 'framework_name', 'version', 'base_dir'], true)
   const { prebuilt, refuse } = call
@@ -50,8 +48,8 @@ const addPod = (family) => (call) => {
   const texts = (value) => Array.isArray(value) && value.every(isText)
   if (!isText(pod) || !(isText(current) || texts(current)) || !texts(extra) || !isText(base)) refuse('`add_dependency` of what is no text')
   const paths = frameworkPath(pod, name ?? pod.replaceAll('-', '_'), extra, family > 78 && prebuilt.core, base)
-  // The paths at hand are split at their spaces: those of a list, as ActiveSupport has `split` of a list do,
-  // into the lists between those of them that are a space, each of which is then joined in its place.
+  // The paths at hand split at their spaces: a list as ActiveSupport's Array#split(' ') splits it, at the items
+  // that are a space, each part then joined.
   const had = isText(current) ? words(current) : current.reduce((parts, path) => (path === ' ' ? [...parts, []] : [...parts.slice(0, -1), [...parts.at(-1), path]]), [[]]).map((part) => part.join(' '))
   config.set('HEADER_SEARCH_PATHS', [...had, ...paths.map((path) => `"${path}"`)].join(' '))
   store(spec, config, refuse)
@@ -59,15 +57,15 @@ const addPod = (family) => (call) => {
   return null
 }
 
-// create_header_search_path_for_frameworks: the paths add_dependency adds, for a podspec to add them itself.
+// create_header_search_path_for_frameworks: the paths add_dependency adds.
 const searchPaths = (family) => (call) => {
   const [pod, extra = [], name = null, base = 'PODS_CONFIGURATION_BUILD_DIR', own = true] = given(call, 1, ['additional_framework_paths', 'framework_name', 'base_dir', 'include_base_folder'])
   if (!isText(pod) || !Array.isArray(extra) || !extra.every(isText) || !isText(base)) call.refuse('`create_header_search_path_for_frameworks` of what is no text')
   return frameworkPath(pod, name ?? pod.replaceAll('-', '_'), extra, family > 78 && call.prebuilt.core, base, truthy(own))
 }
 
-// resolve_use_frameworks: the module's name, and where its headers are mapped from, where pods are frameworks;
-// the latter only where the core is built, a prebuilt one being no framework.
+// resolve_use_frameworks: under frameworks, the module's name, and where its headers are mapped from unless the
+// core is prebuilt, which is no framework.
 function resolveFrameworks(call) {
   const [spec, mappings = null, name = null] = given(call, 1, ['header_mappings_dir', 'module_name'], true)
   if (call.env('USE_FRAMEWORKS') === null) return null
@@ -76,7 +74,7 @@ function resolveFrameworks(call) {
   return null
 }
 
-// mark_as_react_native_build, 88's: the definition that says a pod is built as part of React Native.
+// mark_as_react_native_build, 88's: RN_BUILDING=1 among the definitions.
 function markBuild(spec, depend, { refuse }) {
   const config = configOf(spec, refuse)
   const had = config.get('GCC_PREPROCESSOR_DEFINITIONS') || '$(inherited)'
@@ -88,7 +86,6 @@ function markBuild(spec, depend, { refuse }) {
   store(spec, config, refuse)
 }
 
-// The helpers of `family`, by name.
 export function helpersOf(family) {
   const jsc = (call) => call.env('USE_THIRD_PARTY_JSC') === '1'
   const all = {

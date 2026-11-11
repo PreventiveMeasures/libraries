@@ -1,7 +1,5 @@
-// The values of a podspec in the form podspec-read.js reads: literals, the few names and calls it may read, and
-// the conditions over them, a variable of the environment among those. Reading one changes nothing but where it
-// calls a helper of React Native's with a specification, so both sides of a `&&`, a `||` and a `?:` are read,
-// and one that is refused refuses the podspec.
+// The values of a podspec read without Ruby: literals, the few names and calls it may read, and conditions over
+// them. Both sides of a `&&`, a `||` and a `?:` are read, so one that is refused refuses the podspec.
 
 import { call, defined, environment, global, helper, isHelper } from './podspec-calls.js'
 import { PLATFORMS, SYMBOL } from './podspec-json.js'
@@ -22,8 +20,7 @@ export function list(p, close) {
   return items
 }
 
-// `key => value, key: value`, to `close`: of a hash, and of a call, whose values without a key, which come
-// first, go to `args`.
+// `key => value, key: value` to `close`, of a hash or a call; a call's leading values without a key go to `args`.
 function pairs(p, close, args) {
   const byName = new Map()
   for (skipLines(p); !is(p, close); skipLines(p)) {
@@ -52,7 +49,7 @@ export function interpolate(p, parts) {
   }).join('')
 }
 
-// What a specification is read of: its name and its version, and whether it has a platform.
+// `s.name`, `s.version` and `s.respond_to?(:platform)`.
 function ofSpec(p, token) {
   expect(p, '.')
   const attribute = expect(p, 'name').value
@@ -66,7 +63,7 @@ function ofSpec(p, token) {
   return (attribute === 'name' || attribute === 'version') && typeof value === 'string' ? value : fail(p, `\`${token.value}.${attribute}\` read`, token)
 }
 
-// `Pod::VERSION`, the CocoaPods the lockfile is of; and `Gem::Version.new(text)`, a version, to compare.
+// `Pod::VERSION`, the lockfile's CocoaPods; and `Gem::Version.new(text)`.
 function constant(p, token) {
   expect(p, '::')
   const name = expect(p, 'name').value
@@ -92,7 +89,7 @@ function named(p, token) {
     return call(p, name, method, list(p, ')'))
   }
   if (name === 'ENV') {
-    // `ENV['NAME']`, and whether it is set: `ENV.include?('NAME')`.
+    // `ENV['NAME']`, and `ENV.include?('NAME')`.
     const asks = is(p, '.') && ['include?', 'key?', 'has_key?'].includes(p.tokens[p.at + 1].value)
     if (asks) p.at += 2
     expect(p, asks ? '(' : '[')
@@ -105,7 +102,7 @@ function named(p, token) {
   if (p.specs.has(name)) return is(p, '.') ? ofSpec(p, token) : p.specs.get(name)
   if (p.locals.has(name)) return p.locals.get(name)
   if (name === 'defined?' || name === 'respond_to?') return defined(p, token)
-  // A helper, which may be one of a class: `Class.helper(...)`.
+  // A helper, or one of a class: `Class.helper(...)`.
   const of = is(p, '.') && isHelper(`${name}.${p.tokens[p.at + 1].value}`) ? { ...token, value: `${name}.${p.tokens[p.at + 1].value}` } : token
   if (!isHelper(of.value)) return fail(p, `\`${name}\``, token)
   if (of !== token) p.at += 2
@@ -145,7 +142,7 @@ function postfix(p) {
       else if (Array.isArray(value) && typeof key === 'number') value = value.at(key) ?? null
       else fail(p, 'an index of what is no hash or list')
     } else if ((is(p, '.') || is(p, '&.')) && Object.hasOwn(METHODS, p.tokens[p.at + 1].value)) {
-      // `&.` has the method of what is not nil alone; what it is called with is read all the same.
+      // `&.` calls nothing on nil, but its arguments are read all the same.
       const safe = next(p).type === '&.'
       const method = next(p)
       const parenthesized = is(p, '(')
@@ -178,7 +175,7 @@ function compared(p) {
   return ordered(p, value, sum(p), operator)
 }
 
-// `==` and `!=`, of what is told apart as Ruby tells it: texts, symbols, numbers, true, false and nil.
+// `==` and `!=`, of texts, symbols, numbers, true, false and nil alone, which are told apart as Ruby does.
 function equal(p) {
   const value = compared(p)
   if (!is(p, '==') && !is(p, '!=')) return value
@@ -203,7 +200,6 @@ function logical(p, operator, operand) {
 }
 const both = (p) => logical(p, '&&', equal)
 
-// A value: what a `?:` gives, of what its condition is.
 export function expression(p) {
   const value = logical(p, '||', both)
   if (!is(p, '?')) return value

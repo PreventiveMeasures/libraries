@@ -1,13 +1,12 @@
-// Property lists as an Xcode project and an .xcframework hold them: the old ASCII form of a project.pbxproj,
-// read; the XML form of an Info.plist, read. Dictionaries are objects without a prototype, arrays arrays, the
-// rest strings, but for XML's true and false.
+// Property lists, read: the ASCII form of a project.pbxproj and the XML form of an Info.plist. Dictionaries are
+// objects without a prototype, and the rest strings, but for arrays and XML's true and false.
 
 import { PodError } from './error.js'
 
 const BARE = /[\w$./:-]/u
 const ESCAPES = { n: '\n', t: '\t', r: '\r', a: '\u0007', b: '\b', f: '\f', v: '\v', '"': '"', "'": "'", '\\': '\\', '\n': '\n' }
 
-// The ASCII form: `{ key = value; }`, `( value, )`, a bare or a quoted string, and comments.
+// `{ key = value; }`, `( value, )`, a bare or a quoted string, and comments.
 export function parseAscii(text, where) {
   let at = 0
   const fail = (what) => { throw new PodError(`${what} at ${at} of the project file`, where) }
@@ -80,7 +79,7 @@ export function parseAscii(text, where) {
 const ENTITIES = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" }
 const unescapeXml = (text) => text.replaceAll(/&(?:#(\d+)|#x([\da-f]+)|(\w+));/giu, (all, decimal, hex, name) => (decimal ? String.fromCodePoint(Number(decimal)) : hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : ENTITIES[name] ?? all))
 
-// The XML form, of the elements an Info.plist is made of.
+// Of the elements an Info.plist is made of.
 export function parseXml(text, where) {
   const tokens = text.replaceAll(/<\?[^>]*\?>|<!DOCTYPE[^>]*>|<!--.*?-->/gsu, '').matchAll(/<(\/?)([\w-]+)[^>]*?(\/?)>|([^<]+)/gu)
   const stack = [{ tag: 'root', items: [] }]

@@ -1,5 +1,5 @@
-// A project written as Xcodeproj writes a project.pbxproj: the old ASCII property list, its objects by their
-// kinds, each kind's in the order of their ids, with the comments Xcode has beside an id.
+// A project.pbxproj as Xcodeproj writes it: an ASCII property list, the objects by kind and id, with the
+// comments Xcode has beside an id.
 
 import { createHash } from 'node:crypto'
 
@@ -11,7 +11,7 @@ const PHASE_NAMES = { PBXHeadersBuildPhase: 'Headers', PBXSourcesBuildPhase: 'So
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && typeof value.isa === 'string'
 const nameOf = (object) => object.name ?? object.path?.split('/').at(-1) ?? PHASE_NAMES[object.isa]
 
-// Every object the project holds, each once, from its root, with what holds it where a comment needs that.
+// Every object the project holds, once each, by what holds it.
 function collect(root) {
   const objects = new Map()
   const visit = (object, owner) => {
@@ -26,7 +26,6 @@ function collect(root) {
   return objects
 }
 
-// The comment beside an object's id.
 function commentOf(object, owner, root) {
   switch (object.isa) {
     case 'PBXProject': return 'Project object'
@@ -37,7 +36,7 @@ function commentOf(object, owner, root) {
   }
 }
 
-// Ids that stay as they are from one run to the next: by an object's kind, its name and where it is held.
+// Ids that stay the same from one run to the next: by an object's kind and name, and those of what holds it.
 function assignIds(objects) {
   const ids = new Map()
   const taken = new Set()

@@ -1,17 +1,17 @@
-// A pod in the Pods project, as CocoaPods' FileReferencesInstaller and PodTargetInstaller put one there: its
-// group of files, its target with their build phases, the targets of its resource bundles, and its script
-// phases. What is written beside it, in Target Support Files, is gathered in `files`, by its path from Pods/.
+// A pod in the Pods project, as FileReferencesInstaller and PodTargetInstaller add it: its group of files, its
+// target and build phases, its resource bundles' targets, and its script phases.
 
 import { extname, join, posix } from 'node:path'
 
 import { PodError, quote } from './error.js'
-import { HEADERS } from './files.js'
-import { addFile, addSystemFramework, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, only64Bit, phaseOf } from './project.js'
+import { SOURCES as SOURCE_EXTENSIONS } from './files.js'
+import { addFile, addSystemFramework, configurationsOf, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, phaseOf, setAll, targetDefaults } from './project.js'
 import { addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
+import * as support from './support.js'
 import { compareVersions } from './targets.js'
 
-const SOURCES = new Set(['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS])
+const SOURCES = new Set(SOURCE_EXTENSIONS)
 const SUBGROUPS = { resources: 'Resources', frameworks: 'Frameworks', developer: 'Pod' }
 const COMPILED_RESOURCES = new Set(['.storyboard', '.xib', '.xcdatamodel', '.xcdatamodeld', '.xcmappingmodel'])
 const SYMLINK_HEADERS = 'cd "$CONFIGURATION_BUILD_DIR/$WRAPPER_NAME" || exit 1\nif [ ! -d Versions ]; then\n  # Not a versioned framework, so no need to do anything\n  exit 0\nfi\n\npublic_path="${PUBLIC_HEADERS_FOLDER_PATH#$CONTENTS_FOLDER_PATH/}"\nif [ ! -f "$public_path" ]; then\n  ln -fs "${PUBLIC_HEADERS_FOLDER_PATH#$WRAPPER_NAME/}" "$public_path"\nfi\n\nprivate_path="${PRIVATE_HEADERS_FOLDER_PATH#$CONTENTS_FOLDER_PATH/}"\nif [ ! -f "$private_path" ]; then\n  ln -fs "${PRIVATE_HEADERS_FOLDER_PATH#$WRAPPER_NAME/}" "$private_path"\nfi\n'
@@ -23,7 +23,7 @@ function groupForSpec(podGroup, pod, specName, key) {
   return key === undefined ? group : groupNamed(group, SUBGROUPS[key]) ?? newGroup(group, SUBGROUPS[key])
 }
 
-// FileReferencesInstaller#common_path: the directory that the least and the greatest of the files' own share.
+// FileReferencesInstaller#common_path: the directory the least and the greatest of the files' own share.
 function commonDir(paths) {
   const dirs = paths.map((path) => posix.dirname(path)).sort()
   const least = dirs[0].split('/')
@@ -34,9 +34,8 @@ function commonDir(paths) {
   return dir === '' || dir === '.' ? undefined : dir
 }
 
-// The references of an accessor's files: of a local pod's sources and resources, in groups as its directories
-// are, from the directory they share and down to an .lproj; else under `key`'s group of the spec. A file that
-// has one, as of another subspec, keeps it, and no group is made for it.
+// The references of an accessor's files. A local pod's sources and resources are grouped as its directories
+// are, from the one they share down to an .lproj; others go in `key`'s group of the spec. A reference is reused.
 function addPaths(project, target, podGroup, accessor, given, key, reflect) {
   const paths = allowablePaths(target.list, given)
   if (paths.length === 0) return []
@@ -82,8 +81,8 @@ function compilerFlags(target, consumer, arc, swift) {
   return flags.join(' ')
 }
 
-// PodTargetInstaller#add_header: a header's visibility; where the pod is a framework with a header_mappings_dir,
-// one that is not of the project is copied into its directory by a phase of its own, moved before the sources.
+// PodTargetInstaller#add_header. In a framework with a header_mappings_dir, a header that is not the project's
+// is copied into its directory by a phase of its own, before the sources.
 function addHeader(native, target, accessor, file, path) {
   const visibility = accessor.publicHeaders.includes(path) ? 'Public' : accessor.projectHeaders.includes(path) ? 'Project' : accessor.privateHeaders.includes(path) ? 'Private' : 'Project'
   const acl = target.framework ? visibility : 'Project'
@@ -119,42 +118,36 @@ function addSources(project, native, target) {
     for (const path of accessor.headers) addHeader(native, target, accessor, addFile(native, 'Headers', refOf(path)), path)
     for (const path of mergeDocc(target.list, accessor.sourceFiles.filter((one) => !SOURCES.has(extname(one))))) addFile(native, 'Sources', refOf(path))
     if (!target.framework) continue
-    // A static framework's resources are copied by the app, but for those that are compiled.
+    // The app copies a static framework's resources, but for the compiled ones.
     const resources = resourceRefs(project, target, accessor.resources)
     for (const ref of resources.compiled) addFile(native, 'Sources', ref)
     for (const ref of resources.copied) if (!target.static || COMPILED_RESOURCES.has(extname(ref.name ?? ref.path))) addFile(native, 'Resources', ref)
   }
 }
 
-// The settings CocoaPods gives a pod's target over Xcodeproj's own, less those its specs set themselves.
-function targetSettings(target, project, objectVersion) {
-  const settings = {
-    ...(only64Bit(target.platform.target, objectVersion) ? { ARCHS: '$(ARCHS_STANDARD_64_BIT)' } : {}),
-    ...(target.framework ? { MACH_O_TYPE: 'staticlib' } : { OTHER_LDFLAGS: '', OTHER_LIBTOOLFLAGS: '', PRIVATE_HEADERS_FOLDER_PATH: '', PUBLIC_HEADERS_FOLDER_PATH: '' }),
-    ENABLE_USER_SCRIPT_SANDBOXING: 'NO',
-    ENABLE_MODULE_VERIFIER: 'NO',
+// The settings CocoaPods gives a pod's target over Xcodeproj's.
+function targetSettings(target, objectVersion) {
+  return {
+    ...targetDefaults(target.platform.target, objectVersion),
+    ...(target.framework ? {} : { OTHER_LDFLAGS: '', OTHER_LIBTOOLFLAGS: '', PRIVATE_HEADERS_FOLDER_PATH: '', PUBLIC_HEADERS_FOLDER_PATH: '' }),
+    ...(target.framework && target.static ? { MACH_O_TYPE: 'staticlib' } : {}),
     PRODUCT_NAME: target.productBasename,
     PRODUCT_MODULE_NAME: target.moduleName,
-    'CODE_SIGN_IDENTITY[sdk=appletvos*]': '',
-    'CODE_SIGN_IDENTITY[sdk=iphoneos*]': '',
-    'CODE_SIGN_IDENTITY[sdk=watchos*]': '',
     SWIFT_ACTIVE_COMPILATION_CONDITIONS: '$(inherited) ',
     GENERATE_INFOPLIST_FILE: 'NO',
     SWIFT_INSTALL_OBJC_HEADER: 'YES',
     ...(target.swiftVersion === undefined ? {} : { SWIFT_VERSION: target.swiftVersion }),
   }
-  if (target.framework && !target.static) delete settings.MACH_O_TYPE
-  return settings
 }
 
-const configurationsOf = (native) => native.buildConfigurationList.buildConfigurations
-function setAll(native, key, value) {
-  for (const configuration of configurationsOf(native)) configuration.buildSettings[key] = value
+// What the specs' pod_target_xcconfig sets is left to the target's .xcconfig.
+function leaveToXcconfig(native, target) {
+  for (const configuration of configurationsOf(native)) for (const key of Object.keys(target.settings.merged)) delete configuration.buildSettings[key]
 }
 
-// A resource bundle is a target of its own, by its name. CocoaPods makes one of each spec that has the name,
-// both under one id, and warns of the project it then writes; here it is refused.
-function addBundles(project, target, context) {
+// A target for each resource bundle. Two specs with a bundle of one name are refused: CocoaPods writes both
+// under one id.
+function addBundles(project, target, addSupport) {
   const bundles = []
   const named = target.accessors.flatMap((accessor) => Object.keys(accessor.resourceBundles).map((name) => [name, accessor.spec.name]))
   const [twice] = named.find(([name], at) => named.findIndex(([other]) => other === name) !== at) ?? []
@@ -168,7 +161,7 @@ function addBundles(project, target, context) {
       const { compiled, copied } = resourceRefs(project, target, paths)
       for (const ref of [...copied, ...compiled]) addFile(bundle, 'Resources', ref)
       const plist = `ResourceBundle-${name}-${target.label}-Info.plist`
-      context.write(target, plist, context.support.infoPlist(target.version, 'BNDL'))
+      addSupport(plist, support.infoPlist(target.version, 'BNDL'))
       for (const configuration of configurationsOf(bundle)) {
         Object.assign(configuration.buildSettings, {
           IPHONEOS_DEPLOYMENT_TARGET: target.platform.target,
@@ -179,17 +172,17 @@ function addBundles(project, target, context) {
           CODE_SIGNING_ALLOWED: 'NO',
           TARGETED_DEVICE_FAMILY: '1,2',
         })
-        for (const key of Object.keys(target.settings.merged)) delete configuration.buildSettings[key]
       }
+      leaveToXcconfig(bundle, target)
       bundles.push(bundle)
     }
   }
   return bundles
 }
 
-// The script phases of a pod's own, each `[CP-User] <name>`, put where its podspec says, and the one that
-// copies its .xcframeworks' slices, before its headers.
-function addScriptPhases(native, target, context) {
+// The phases that copy a pod's dSYMs and its .xcframeworks' slices, and its own `[CP-User]` script phases, each
+// where its podspec puts it.
+function addScriptPhases(native, target, addSupport, paths) {
   const move = (phase, kind, before) => {
     const at = native.buildPhases.findIndex((one) => one.isa === `PBX${kind}BuildPhase`)
     const from = native.buildPhases.indexOf(phase)
@@ -197,23 +190,23 @@ function addScriptPhases(native, target, context) {
     native.buildPhases.splice(from, 1)
     native.buildPhases.splice(at, 0, phase)
   }
-  // PodTargetIntegrator#add_copy_dsyms_script_phase: the symbols of what the pod vends, copied for the app's.
+  // PodTargetIntegrator#add_copy_dsyms_script_phase.
   const { dsyms, bcsymbolmaps } = target.settings.vendored
   if (dsyms.length + bcsymbolmaps.length > 0) {
     const base = `${target.label}-copy-dsyms`
-    context.addSupport(`${base}.sh`, context.support.dsymsScript(dsyms, bcsymbolmaps))
+    addSupport(`${base}.sh`, support.dsymsScript(dsyms, bcsymbolmaps))
     const copied = [...dsyms, ...bcsymbolmaps]
-    const lists = context.paths(target, base, copied, copied.map((path) => `\${DWARF_DSYM_FOLDER_PATH}/${posix.basename(path)}`))
+    const lists = paths(target, base, copied, copied.map((path) => `\${DWARF_DSYM_FOLDER_PATH}/${posix.basename(path)}`))
     native.buildPhases.push(newPhase('ShellScript', { name: '[CP] Copy dSYMs', shellPath: '/bin/sh', shellScript: `"\${PODS_ROOT}/Target Support Files/${target.label}/${base}.sh"\n`, showEnvVarsInLog: '0', ...lists }))
   }
   const xcframeworks = target.settings.xcframeworks
   if (xcframeworks.length > 0) {
-    const support = `\${PODS_ROOT}/Target Support Files/${target.label}/${target.label}-xcframeworks`
+    const script = `\${PODS_ROOT}/Target Support Files/${target.label}/${target.label}-xcframeworks.sh`
     const fromSandbox = (one) => posix.join(target.sandboxPath, posix.relative(target.dir, one.dir))
-    context.addSupport(`${target.label}-xcframeworks.sh`, context.support.xcframeworksScript(xcframeworks, fromSandbox))
-    const inputs = [`${support}.sh`, ...xcframeworks.map((one) => `\${PODS_ROOT}/${fromSandbox(one)}`)]
+    addSupport(`${target.label}-xcframeworks.sh`, support.xcframeworksScript(xcframeworks, fromSandbox))
+    const inputs = [script, ...xcframeworks.map((one) => `\${PODS_ROOT}/${fromSandbox(one)}`)]
     const outputs = xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
-    const phase = newPhase('ShellScript', { name: '[CP] Copy XCFrameworks', shellPath: '/bin/sh', shellScript: `"${support}.sh"\n`, showEnvVarsInLog: '0', ...context.paths(target, `${target.label}-xcframeworks`, inputs, outputs) })
+    const phase = newPhase('ShellScript', { name: '[CP] Copy XCFrameworks', shellPath: '/bin/sh', shellScript: `"${script}"\n`, showEnvVarsInLog: '0', ...paths(target, `${target.label}-xcframeworks`, inputs, outputs) })
     native.buildPhases.push(phase)
     move(phase, 'Headers', true)
   }
@@ -229,7 +222,7 @@ function addScriptPhases(native, target, context) {
 }
 
 // PodTargetInstaller#add_swift_library_compatibility_header_phase: a Swift library's generated header, put
-// where those that import the library find it, with a module map that names it.
+// where importers find it, with a module map that names it.
 function compatibilityHeaderPhase(target) {
   if (target.accessors.some((accessor) => accessor.moduleMap !== undefined)) throw new PodError('a Swift pod built as a static library with a module map of its own is not supported, as CocoaPods refuses it', target.where)
   const moduleMap = `\${PODS_ROOT}/${target.moduleMapLink}`
@@ -256,25 +249,24 @@ function compatibilityHeaderPhase(target) {
   })
 }
 
-// One pod's target. `context` writes its support files, and has the text of each, support.js's.
+// `context` is generate.js's.
 export function addPodTarget(project, target, context) {
-  const { support } = context
   const addSupport = (name, text) => {
     context.write(target, name, text)
     return newFile(project, target.supportGroup, join(target.supportGroup._real, name))
   }
-  const settings = targetSettings(target, project, context.objectVersion)
+  const settings = targetSettings(target, context.objectVersion)
   if (!target.shouldBuild) {
     const placeholder = newAggregateTarget(project, target.label, { ENABLE_USER_SCRIPT_SANDBOXING: 'NO', ...(settings.ARCHS === undefined ? {} : { ARCHS: settings.ARCHS }) }, target.platform.target)
-    // A pod with nothing to build has its resource bundles built all the same, each a target of its own.
-    const bundles = addBundles(project, target, { ...context, write: (one, name, text) => addSupport(name, text) })
-    addScriptPhases(placeholder, target, { ...context, addSupport })
+    // A pod with nothing to build still has its resource bundles built.
+    const bundles = addBundles(project, target, addSupport)
+    addScriptPhases(placeholder, target, addSupport, context.paths)
     return finish(project, target, placeholder, bundles, addSupport)
   }
   const native = newTarget(project, target.label, target.framework ? 'framework' : 'static_library', target.productName, settings, target.platform.target)
   if (target.framework) addSystemFramework(project, native, 'Foundation')
-  for (const configuration of configurationsOf(native)) for (const key of Object.keys(target.settings.merged)) delete configuration.buildSettings[key]
-  const bundles = addBundles(project, target, { ...context, write: (one, name, text) => addSupport(name, text) })
+  leaveToXcconfig(native, target)
+  const bundles = addBundles(project, target, addSupport)
   addSources(project, native, target)
   if (target.writesModuleMap) {
     const custom = target.customModuleMap
@@ -293,11 +285,11 @@ export function addPodTarget(project, target, context) {
     setAll(native, 'GCC_PREFIX_HEADER', `Target Support Files/${target.label}/${target.label}-prefix.pch`)
   }
   addFile(native, 'Sources', addSupport(`${target.label}-dummy.m`, support.dummySource(target.label)))
-  addScriptPhases(native, target, { ...context, addSupport })
+  addScriptPhases(native, target, addSupport, context.paths)
   return finish(project, target, native, bundles, addSupport)
 }
 
-// The .xcconfig of each kind of configuration, which the target and its bundles' are based on.
+// The .xcconfig of each type of configuration, which the target's and its bundles' are based on.
 function finish(project, target, native, bundles, addSupport) {
   const text = target.configText
   const refs = Object.fromEntries([...new Set(Object.values(project.configurations))].map((type) => [type, addSupport(`${target.label}.${type}.xcconfig`, text)]))

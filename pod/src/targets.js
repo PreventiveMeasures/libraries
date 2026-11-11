@@ -1,5 +1,5 @@
-// The targets CocoaPods' analyzer makes of an installation: one for each pod, of the specs installed of it, and
-// one for each of the app's targets that takes pods. Each pod is built once, alike for every target.
+// The targets CocoaPods' analyzer makes: one for each pod, of its specs installed, and one for each of the app's
+// targets that takes pods. Each pod is built once, alike for every target.
 
 import { extname } from 'node:path'
 
@@ -8,14 +8,18 @@ import { accessorOf, listPod } from './files.js'
 import { consumerOf, deploymentTarget, rootOf, specNamed, supports } from './spec.js'
 import { byBytes } from './xcconfig.js'
 
-// Pod::Version's order, of the numbers a version is made of.
+function fail(detail, where) {
+  throw new PodError(detail, where)
+}
+
+// Pod::Version's order, by the numbers a version is made of.
 export function compareVersions(a, b) {
   const x = String(a).split('.').map(Number)
   const y = String(b).split('.').map(Number)
   for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
   return 0
 }
-const maxVersion = (versions) => versions.reduce((most, version) => (compareVersions(version, most) > 0 ? version : most))
+export const maxVersion = (versions) => versions.reduce((most, version) => (compareVersions(version, most) > 0 ? version : most))
 
 // The product types whose pods' frameworks their host embeds, and those of an app extension.
 const HOSTED = new Set(['app_extension', 'framework', 'static_library', 'messages_extension', 'watch_extension', 'xpc_service'])
@@ -38,13 +42,7 @@ function platformOf(specs, name, framework) {
   return { name, target: maxVersion(targets) }
 }
 
-function swiftVersionOf(root, userVersions) {
-  if (root.swiftVersions.length === 0) return userVersions[0]
-  return maxVersion(root.swiftVersions)
-}
-
-// A pod's target. `pod` is its name, version, the names of its specs installed, its root spec, its directory,
-// that from Pods/, and whether it is a local pod; `options` what the config says of it.
+// A pod's target, of load.js's `pod`; `options` is what the config says of it.
 function podTarget(pod, platformName, options) {
   const where = `pods[${quote(pod.name)}]`
   const root = rootOf(pod.root, where)
@@ -64,7 +62,7 @@ function podTarget(pod, platformName, options) {
     static: buildType.linkage === 'static',
     platform: platformOf(specs, platformName, framework),
     version: shortVersion(root.version),
-    swiftVersion: swiftVersionOf(root, options.swiftVersions),
+    swiftVersion: root.swiftVersions.length === 0 ? options.swiftVersions[0] : maxVersion(root.swiftVersions),
     inhibitWarnings: options.inhibitWarnings,
     local: pod.local,
     dir: pod.dir,
@@ -79,11 +77,7 @@ function podTarget(pod, platformName, options) {
   }
 }
 
-function fail(detail, where) {
-  throw new PodError(detail, where)
-}
-
-// Each target's dependencies, direct and all of them, the nearest first as a Set gathers them.
+// Each target's dependencies, direct and all of them, the nearest first.
 function wire(podTargets) {
   const byName = new Map(podTargets.map((target) => [target.name, target]))
   for (const target of podTargets) {
@@ -103,9 +97,8 @@ function wire(podTargets) {
   }
 }
 
-// Analyzer#embedded_target_pod_targets_by_host: the pods of the targets embedded in `host` that it does not
-// take itself and has to have all the same. Under frameworks, those built as dynamic ones, which are loaded
-// from the host's bundle; else those of a static library, which the host links.
+// Analyzer#embedded_target_pod_targets_by_host: the pods of targets embedded in `host` that it has to have too.
+// Under frameworks, those built dynamic, loaded from the host's bundle; else a static library's, which it links.
 function embeddedPods(host, aggregates) {
   if (host.requiresHostTarget) return []
   const own = new Set(host.podTargets)
@@ -113,8 +106,8 @@ function embeddedPods(host, aggregates) {
   return [...new Set(embedded.flatMap((one) => one.podTargets.filter((target) => !own.has(target) && !(one.framework && target.static))))]
 }
 
-// `pods` are the lockfile's, each with its root spec and directory; `user` the app's project, user-project.js's;
-// `config` the installation's, config.js's. The pod targets come sorted by name, as CocoaPods installs them.
+// `pods` are load.js's, `user` is user-project.js's, `config` config.js's. The pod targets come sorted by name,
+// as CocoaPods installs them.
 export function analyze(pods, user, config) {
   const platformName = config.platform.name
   const integrated = user.targets.filter((target) => target.label !== undefined)
@@ -123,8 +116,7 @@ export function analyze(pods, user, config) {
   const podTargets = pods.map((pod) => podTarget(pod, platformName, {
     linkage: config.frameworks,
     swiftVersions,
-    // TargetDefinition#build_pod_as_module? and #inhibits_warnings_for_pod?: what is said of the pod itself,
-    // true or false, and else what is said of all.
+    // TargetDefinition#build_pod_as_module? and #inhibits_warnings_for_pod?: what is said of the pod, else of all.
     modularHeaders: config.pods[pod.name]?.modularHeaders ?? config.modularHeaders,
     inhibitWarnings: config.pods[pod.name]?.inhibitWarnings ?? config.inhibitWarnings,
   })).sort((a, b) => byBytes(a.name, b.name))
@@ -153,8 +145,8 @@ export function analyze(pods, user, config) {
   }
   const embedded = new Map(aggregates.map((aggregate) => [aggregate, embeddedPods(aggregate, aggregates)]))
   for (const aggregate of aggregates) aggregate.podTargets = [...aggregate.podTargets, ...embedded.get(aggregate)]
-  // The configurations of the app's targets that take pods, in their order, each `debug` or `release` by its
-  // name, as TargetInspector#compute_build_configurations has them.
+  // TargetInspector#compute_build_configurations: the integrated targets' configurations, Debug as debug and
+  // the rest as release.
   const configurations = Object.fromEntries(integrated.flatMap((target) => target.configurations).map((name) => [name, name === 'Debug' ? 'debug' : 'release']))
   return { podTargets, aggregates, configurations }
 }
