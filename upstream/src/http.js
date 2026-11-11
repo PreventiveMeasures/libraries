@@ -22,9 +22,10 @@ export const RUBYGEMS = 'https://rubygems.org'
 export const RUBYGEMS_INDEX = 'https://index.rubygems.org'
 export const PYPI = 'https://pypi.org'
 export const GITHUB_WEB = 'https://github.com'
+export const MAVEN_CENTRAL = 'https://repo1.maven.org'
 export const MAX_BYTES = 512 * 1024 * 1024
 
-const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, OSV_EXPORTS, CRATES_API, PACKAGIST_REPO, PACKAGIST, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, PYPI, GITHUB_WEB])
+const ORIGINS = new Set([NPM_REGISTRY, GITHUB_API, OSV_API, OSV_EXPORTS, CRATES_API, PACKAGIST_REPO, PACKAGIST, CRATES_INDEX, CRATES_STATIC, SOLDEER_API, SOLDEER_REVISIONS, COCOAPODS_CDN, RUBYGEMS, RUBYGEMS_INDEX, PYPI, GITHUB_WEB, MAVEN_CENTRAL])
 const isSegment = matches(/^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u)
 const isQueryKey = matches(/^[a-z_]+(?:\[\])?$/u)
 const isQueryValue = (value) => (typeof value === 'string' && value !== '') || (Number.isSafeInteger(value) && value >= 0)

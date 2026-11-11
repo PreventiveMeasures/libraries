@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, afterEach, beforeEach, describe, it } from 'node:test'
 
-import { HttpError, getPodArchive, getPodspec } from '../cocoapods.js'
+import { HttpError, getPodArchive, getPodspec, isPodArchiveUrl } from '../cocoapods.js'
 import { setCacheDir } from '../npm.js'
 
 const CACHE_DIR = join(tmpdir(), `upstream-cocoapods-test-${process.pid}`)
@@ -271,6 +271,41 @@ describe('getPodArchive', () => {
     await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), /getPodArchive: integrity mismatch for .* from the cache/u)
   })
 
+  it("fetches a .tar.gz or a .zip under Maven Central's com/facebook/, following its redirect, held to the sha256", async () => {
+    for (const url of [
+      'https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/0.76.0/react-native-artifacts-0.76.0-hermes-ios-debug.tar.gz',
+      'https://repo1.maven.org/maven2/com/facebook/hermes/hermes-ios/0.14.0/hermes-ios-0.14.0.zip',
+    ]) {
+      assert.equal(isPodArchiveUrl(url), true, url)
+      await rm(CACHE_DIR, { recursive: true, force: true })
+      const calls = stubGitHub({ url })
+      assert.deepEqual(new Uint8Array(await getPodArchive(url, sha256(BYTES))), BYTES, url)
+      assert.deepEqual(calls, [[url, 'follow']], url)
+      stubGitHub({ url, served: new Uint8Array([...BYTES, 0]) })
+      await rm(CACHE_DIR, { recursive: true, force: true })
+      await assert.rejects(getPodArchive(url, sha256(BYTES)), /getPodArchive: integrity mismatch for https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u, url)
+    }
+  })
+
+  it("refuses a URL on Maven Central but a .tar.gz or a .zip under com/facebook/, as the URL parser writes it, before any request", async () => {
+    const url = 'https://repo1.maven.org/maven2/com/facebook/x/1/x-1.tar.gz'
+    for (const refused of [
+      ...['.tgz', '.tar', '.tar.bz2', '.jar', '.aar', '.TAR.GZ', '.tar.gz.sha256', '/'].map((end) => url.replace('.tar.gz', end)),
+      ...[['/facebook/', '/google/'], ['/facebook/', '/facebookx/'], ['/facebook/', '/Facebook/'], ['/maven2/', '/'], ['/maven2/', '/maven3/'], ['https:', 'http:'],
+        ['repo1.maven.org', 'repo.maven.apache.org'], ['repo1.maven.org', 'repo.reactnative.dev'], ['repo1.maven.org', 'repo1.maven.org:443'], ['https://', 'https://user@'],
+        ['/x/1/', '//'], ['x-1', 'x+1'], ['x/1/x-1', 'a%2fb']].map(([from, to]) => url.replace(from, to)),
+      ...['?x=1', '#x', '?', '#'].map((end) => `${url}${end}`),
+      // Normalized, its text would not be the URL fetched: out from under com/facebook/, by `..` above all.
+      ...[['https:', 'HTTPS:'], ['repo1', 'REPO1'], ['x-1', 'x 1'], ['/x/', '/./x/'], ['/x/', '/../google/x/'], ['/x/', '/%2e%2e/google/x/'], ['/x/', '/%2E%2E/google/x/']].map(([from, to]) => url.replace(from, to)),
+      'https://repo1.maven.org/maven2/com/facebook/', 'https://repo1.maven.org/maven2/com/facebook.tar.gz',
+    ]) {
+      assert.equal(isPodArchiveUrl(refused), false, refused)
+      const calls = stubGitHub({ url: refused })
+      await assert.rejects(getPodArchive(refused, sha256(BYTES)), /getPodArchive: url must be an https URL of a GitHub repository's, with a path under it, or of a \.tar\.gz or a \.zip under Maven Central's com\/facebook\//u, refused)
+      assert.deepEqual(calls, [])
+    }
+  })
+
   it('throws on an archive GitHub does not have', async () => {
     stubGitHub({ url: 'nowhere' })
     await assert.rejects(getPodArchive(ARCHIVE, sha256(BYTES)), (error) => error instanceof HttpError && error.status === 404)
@@ -282,7 +317,7 @@ describe('getPodArchive', () => {
       ['http://github.com/ekscrypto/Base64/archive/refs/tags/1.1.2.tar.gz', hash], ['https://gitlab.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
       ['https://codeload.github.com/ekscrypto/Base64/tar.gz/refs/tags/1.1.2', hash], ['https://GitHub.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
       ['https://github.com/ekscrypto/Base64', hash], ['https://github.com/ekscrypto/Base64/', hash], ['https://github.com/ekscrypto', hash],
-      [`${ARCHIVE}?x=1`, hash], [`${ARCHIVE}#x`, hash], ['https://user@github.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
+      [`${ARCHIVE}?x=1`, hash], [`${ARCHIVE}#x`, hash], [`${ARCHIVE}?`, hash], [`${ARCHIVE}#`, hash], ['https://user@github.com/ekscrypto/Base64/archive/1.1.2.tar.gz', hash],
       ['https://github.com:443/ekscrypto/Base64/archive/1.1.2.tar.gz', hash], ['https://github.com/ekscrypto/Base64/../x/archive/1.tar.gz', hash],
       ['https://github.com/ekscrypto/Base64/archive//1.tar.gz', hash], ['https://github.com/ekscrypto/Base64/archive/a%2fb.tar.gz', hash],
       ['https://github.com/ekscrypto/Base64/archive/v1+2.tar.gz', hash], ['https://github.com/-acme/Base64/archive/1.tar.gz', hash], [undefined, hash],

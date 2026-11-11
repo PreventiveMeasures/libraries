@@ -55,6 +55,11 @@ export const httpPodspecOf = (source = {}, rest = {}) => podspecOf({ source: { h
 // tree: a plain file or a directory by its MS-DOS attributes alone, an
 // executable or a symlink by its Unix mode, each file deflated.
 export const ACME_ZIP = 'https://github.com/acme/acme/archive/refs/tags/v1.2.0.zip'
+// The same archives under Meta's namespace on Maven Central, as React
+// Native publishes its own there.
+const MAVEN = 'https://repo1.maven.org/maven2/com/facebook/acme/acme-artifacts/1.2.0/acme-artifacts-1.2.0'
+export const ACME_MAVEN = `${MAVEN}.tar.gz`
+export const ACME_MAVEN_ZIP = `${MAVEN}.zip`
 export async function acmeZip() {
   return rawZip(unpack(await decompress(ACME.tarball, 'gzip')).map((entry) => {
     if (entry.type === 'directory') return { name: `${entry.name}/`, system: 0, attributes: 0x10 }

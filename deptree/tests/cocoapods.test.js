@@ -12,7 +12,7 @@ import { compress } from '@preventive/archive/compression.js'
 import { pack } from '@preventive/archive/tar.js'
 import { zip } from '@preventive/archive/zip.js'
 import { archiveOf } from '../src/cocoapods/archive.js'
-import { ACME, ACME_ARCHIVE, ACME_ZIP, OTHER, PODFILE, PODSPEC, acmeZip, allLock, coreLock, httpPodspecOf, mixedLock, podspecLock, podspecOf, sha1, sha256 } from './cocoapods-fixture.js'
+import { ACME, ACME_ARCHIVE, ACME_MAVEN, ACME_MAVEN_ZIP, ACME_ZIP, OTHER, PODFILE, PODSPEC, acmeZip, allLock, coreLock, httpPodspecOf, mixedLock, podspecLock, podspecOf, sha1, sha256 } from './cocoapods-fixture.js'
 import { rawZip, stubArchives, stubGitHub, stubTrunk } from './registry.js'
 
 // No spec repo of CocoaPods' own on this machine answers for the stubs.
@@ -126,7 +126,7 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(installed.map(({ name }) => name), ['Acme'])
     assert.deepEqual(skipped, [
       { name: 'Local', version: '0.1.0', reason: 'pods["Local"]: a pod from an external source by :git is not supported: only those from trunk, by :podspec and by :path are' },
-      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: an :http source from "https://example.com/other.zip", not https://github.com/<owner>/<repo>/ and a path of letters, digits and `_.~@-%` under it, is not supported' },
+      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: an :http source from "https://example.com/other.zip", not https://github.com/<owner>/<repo>/ and a path under it, or https://repo1.maven.org/maven2/com/facebook/ and one under it to a .tar.gz or a .zip, as the URL parser writes it back out and of letters, digits and `_.~@-%`, is not supported' },
     ])
     // Other's podspec is fetched, to know where it is from; nothing more of it.
     assert.deepEqual(calls.trunk.map((at) => at.split('/').at(-1)).sort(), ['Acme.podspec.json', 'Other.podspec.json'])
@@ -237,7 +237,7 @@ describe('buildCocoaPodsTree', () => {
   it('refuses a source but git from GitHub by a commit, or :http, and a prepare_command', async () => {
     for (const [extra, message] of [
       [{ source: { http: 'https://example.com/acme.zip' } }, /an :http source from "https:\/\/example\.com\/acme\.zip", not https:\/\/github\.com/u],
-      [{ source: { svn: 'https://example.com/acme' } }, /a source by :svn is not supported: only git from GitHub, and :http from GitHub, are/u],
+      [{ source: { svn: 'https://example.com/acme' } }, /a source by :svn is not supported: only git from GitHub, and :http from GitHub or Maven Central's com\/facebook\/, are/u],
       [{ source: { git: 'https://gitlab.com/acme/acme.git', commit: ACME.commit } }, /not a GitHub repository over https or ssh/u],
       [{ source: { git: 'https://github.com/acme/acme.git', commit: ACME.commit, submodules: true } }, /with its submodules is not supported/u],
       [{ source: { git: 'https://github.com/acme/acme.git', branch: 'main' } }, /by a branch, which locks no commit/u],
@@ -380,6 +380,28 @@ describe('buildCocoaPodsTree', () => {
     await assert.rejects(fromTrunk(httpPodspecOf({ type: 'zip' })), /pods\["Acme"\]: its archive cannot be read: no end of central directory record/u)
   })
 
+  it("downloads a .tar.gz or a .zip under Maven Central's com/facebook/, held to its podspec's hash, as from GitHub", async () => {
+    const zipped = await acmeZip()
+    const fromTrunk = async (podspec) => {
+      stubTrunk({ 'Acme@1.2.0': podspec })
+      const calls = stubArchives({ [ACME_MAVEN]: ACME.tarball, [ACME_MAVEN_ZIP]: zipped })
+      return { ...await buildCocoaPodsTree({ lockfile: coreLock(podspec), host: HOST, github: client() }), calls }
+    }
+    const tar = { http: ACME_MAVEN, sha256: sha256(ACME.tarball) }
+    const unzipped = { http: ACME_MAVEN_ZIP, sha256: sha256(zipped), flatten: true }
+    for (const source of [tar, { ...tar, type: 'tgz' }, unzipped, { ...unzipped, type: 'zip' }]) {
+      const { vfs, installed, calls } = await fromTrunk(httpPodspecOf(source))
+      assert.deepEqual(listing(vfs), CORE, JSON.stringify(source))
+      assert.deepEqual(calls, [source.http], JSON.stringify(source))
+      assert.deepEqual([installed[0].http, installed[0].sha256], [source.http, source.sha256], JSON.stringify(source))
+    }
+    const top = 'acme-acme-ef76ec6'
+    const { vfs: kept } = await fromTrunk(httpPodspecOf({ http: ACME_MAVEN_ZIP, sha256: sha256(zipped) }, { subspecs: [{ name: 'Core', source_files: `${top}/Sources/Core` }] }))
+    assert.equal(listing(kept)[`Pods/Acme/${top}/Sources/Core/Acme.h`], '444 #import <Foundation/Foundation.h>\n', 'a zip is not flattened unless :flatten says so')
+    const wrong = httpPodspecOf({ http: ACME_MAVEN, sha256: 'a'.repeat(64) })
+    await assert.rejects(fromTrunk(wrong), (error) => error instanceof DeptreeError && /integrity mismatch for https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u.test(error.message))
+  })
+
   it('refuses an archive its hash is not of, partial or not', async () => {
     for (const partial of [false, true]) {
       const podspec = httpPodspecOf({ sha256: 'a'.repeat(64) })
@@ -405,6 +427,20 @@ describe('buildCocoaPodsTree', () => {
       [{ type: 'gz' }, /its :type "gz" names no type of archive/u],
       [{ http: 'https://github.com/acme/acme/releases/download/v1.2.0/acme' }, /its URL names no type of archive/u],
       [{ shallow: true }, /its source has :shallow, which cocoapods-downloader refuses of :http/u],
+      // Off Maven Central's com/facebook/, or not a .tar.gz or a .zip there, or not as the URL parser writes it back out:
+      // normalized, the text checked would not be the URL fetched.
+      ...[...[['/facebook/', '/google/'], ['/facebook/', '/facebookx/'], ['/facebook/', '/Facebook/'], ['https:', 'http:'], ['repo1.maven.org', 'repo.maven.apache.org'], ['repo1.maven.org', 'repo1.maven.org:8443'],
+        ['/1.2.0/', '//'], ['/1.2.0/', '/1+2/'], ['https:', 'HTTPS:'], ['repo1', 'REPO1'], ['acme-artifacts-1', 'acme artifacts-1'], ['/acme/', '/./acme/'],
+        ['/facebook/', '/facebook/../google/'], ['/facebook/', '/facebook/%2e%2e/google/'], ['/facebook/', '/facebook/%2E%2E/google/']].map(([from, to]) => ACME_MAVEN.replace(from, to)),
+      ...['tgz', 'tar', 'tar.bz2', 'tbz', 'tar.xz', 'txz', 'jar', 'aar', 'dmg', 'TAR.GZ', 'ZIP', 'tar.gz.sha256'].map((extension) => ACME_MAVEN.replace(/\.tar\.gz$/u, `.${extension}`)),
+      ...['?x=1', '?', '#'].flatMap((end) => [`${ACME_MAVEN}${end}`, `${ACME_ARCHIVE}${end}`]), ACME_ARCHIVE.replace('github.com', 'GitHub.com')]
+        .map((http) => [{ http }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it, or https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\/ and one under it to a \.tar\.gz or a \.zip/u]),
+      [{ http: ACME_MAVEN, type: 'tar' }, /its :type "tar" is not the tgz its URL on Maven Central names, as only a \.tar\.gz and a \.zip from there are supported/u],
+      [{ http: ACME_MAVEN, type: 'zip' }, /its :type "zip" is not the tgz its URL on Maven Central names/u],
+      [{ http: ACME_MAVEN_ZIP, type: 'tgz' }, /its :type "tgz" is not the zip its URL on Maven Central names/u],
+      [{ http: ACME_MAVEN, sha256: null }, /with no :sha256 to hold the download to is not supported/u],
+      [{ http: ACME_MAVEN, sha256: null, sha1: sha1(ACME.tarball) }, /held to a :sha1 alone/u],
+      [{ http: ACME_MAVEN, headers: ['Authorization: x'] }, /with :headers, which curl sends with the request, is not supported/u],
     ]) {
       const podspec = httpPodspecOf(source)
       await assert.rejects(build({ lockfile: coreLock(podspec), podspec }), (error) => error instanceof DeptreeError && error.where === 'pods["Acme"]' && message.test(error.message), JSON.stringify(source))
