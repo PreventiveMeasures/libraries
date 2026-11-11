@@ -36,23 +36,23 @@ function isArchiveUrl(url) {
 // under; whether it is flattened, by :flatten or else for a tar alone; and its sha256. Any other source is refused.
 export function sourceOf(podspec, where) {
   const source = podspec.attributes.source
-  if (!isObject(source)) throw new PodError('its podspec has no source to download it from', where)
+  if (!isObject(source)) throw new PodError('its podspec has no source', where)
   const strategies = STRATEGIES.filter((strategy) => Object.hasOwn(source, strategy))
-  if (strategies.length !== 1) throw new PodError('its podspec\'s source names no one way to download it, which CocoaPods fails on', where)
-  if (strategies[0] !== 'http') throw new PodError(`a source by :${strategies[0]} is not supported: only :http from GitHub or Maven Central's com/facebook/, held to its :sha256, is`, where)
+  if (strategies.length !== 1) throw new PodError('its source names not exactly one strategy', where)
+  if (strategies[0] !== 'http') throw new PodError(`a :${strategies[0]} source is not supported`, where)
   const other = Object.keys(source).find((key) => !HTTP_OPTIONS.has(key))
-  if (other !== undefined) throw new PodError(`its source has :${other}, which cocoapods-downloader refuses of :http`, where)
+  if (other !== undefined) throw new PodError(`:${other} is not an :http option`, where)
   const { http: url, type: named, flatten, headers } = source
-  if (!isArchiveUrl(url)) throw new PodError(`an :http source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not https://github.com/<owner>/<repo>/ and a path under it, or ${MAVEN_FACEBOOK} and one under it to a .tar.gz or a .zip, as the URL parser writes it back out and of letters, digits and \`_.~@-%\`, is not supported`, where)
-  if (given(headers)) throw new PodError('an :http source with :headers, which curl sends with the request, is not supported', where)
+  if (!isArchiveUrl(url)) throw new PodError(`${quote(String(url))} is not a GitHub URL, or a .tar.gz or .zip under ${MAVEN_FACEBOOK}`, where)
+  if (given(headers)) throw new PodError(':headers is not supported', where)
   // isArchiveUrl's URL ends with its path, which RemoteFile reads a type off.
   const byUrl = URL_TYPES.find(([pattern]) => pattern.test(url))?.[1]
-  if (url.startsWith(MAVEN_FACEBOOK) && given(named) && named !== byUrl) throw new PodError(`its :type ${quote(String(named))} is not the ${byUrl} its URL on Maven Central names, as only a .tar.gz and a .zip from there are supported`, where)
+  if (url.startsWith(MAVEN_FACEBOOK) && given(named) && named !== byUrl) throw new PodError(`its :type ${quote(String(named))} is not its URL's ${byUrl}`, where)
   const type = given(named) ? named : byUrl
-  if (typeof type !== 'string' || !TYPES.has(type)) throw new PodError(`${given(named) ? `its :type ${quote(String(named))}` : 'its URL'} names no type of archive cocoapods-downloader extracts`, where)
-  if (type === 'dmg') throw new PodError('an :http source of a dmg, which hdiutil mounts, is not supported: only a zip, and tgz, tar, tbz and txz, which `tar xf` extracts, are', where)
-  if (!given(source.sha256)) throw new PodError(given(source.sha1) ? 'an :http source held to a :sha1 alone, which two archives can be made to share, is not supported: only one held to a :sha256 is' : 'an :http source with no :sha256 to hold the download to is not supported', where)
+  if (typeof type !== 'string' || !TYPES.has(type)) throw new PodError(`${given(named) ? `its :type ${quote(String(named))}` : 'its URL'} names no archive type`, where)
+  if (type === 'dmg') throw new PodError('a dmg is not supported', where)
+  if (!given(source.sha256)) throw new PodError(`its source has no :sha256${given(source.sha1) ? ', only a :sha1' : ''}`, where)
   const { sha256 } = source
-  if (!(typeof sha256 === 'string' && SHA256.test(sha256))) throw new PodError('its :sha256 is not one in lowercase hex, which no download matches', where)
+  if (!(typeof sha256 === 'string' && SHA256.test(sha256))) throw new PodError('its :sha256 is not lowercase hex', where)
   return { url, archive: type, file: `file.${type}`, flatten: Object.hasOwn(source, 'flatten') ? given(flatten) : TARS.has(type), sha256 }
 }

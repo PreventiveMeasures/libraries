@@ -100,7 +100,7 @@ describe('installPod', () => {
     const files = Object.fromEntries(Array.from({ length: 50_000 }, (_, i) => [`f${i}.h`, '']))
     const spec = { source_files: Array.from({ length: 12 }, (_, i) => `{a${i},b${i}}`).join('') }
     const started = Date.now()
-    assert.throws(() => install({ files, links: {}, spec }), /take more than 200000000 matches/u)
+    assert.throws(() => install({ files, links: {}, spec }), /its file patterns take over 200000000 matches/u)
     assert.ok(Date.now() - started < 10_000)
   })
 })
@@ -151,15 +151,15 @@ describe('archiveOf', () => {
 
   it('refuses what tar would make otherwise on another machine, or what the moves would meet', async () => {
     for (const [entries, message] of [
-      [[{ name: 'x/._a', data: Buffer.from('') }], /a name starting with `\._`/u],
-      [[{ name: 'x/.git/config', data: Buffer.from('') }], /a path with a \.git in it/u],
-      [[{ name: 'x/fifo', type: 'fifo' }], /a fifo, which a pod's download cannot hold/u],
-      [[{ name: 'file.tgz', data: Buffer.from('') }], /the archive holds "file\.tgz", the name RemoteFile downloads it under/u],
-      [[{ name: 'x', type: 'symlink', linkname: 'y' }], /the one thing in the archive is a link/u],
-      [[{ name: 'x./a', data: Buffer.from('') }], /has a name ending in `\.`/u],
-      [[{ name: 'x/x.tmp', data: Buffer.from('') }], /holds "x\.tmp", the name it is moved to/u],
+      [[{ name: 'x/._a', data: Buffer.from('') }], /a `\._` name, which bsdtar on macOS takes as metadata/u],
+      [[{ name: 'x/.git/config', data: Buffer.from('') }], /a \.git, which CocoaPods 1\.16 drops/u],
+      [[{ name: 'x/fifo', type: 'fifo' }], /a fifo entry/u],
+      [[{ name: 'file.tgz', data: Buffer.from('') }], /the archive holds "file\.tgz", its own download's name/u],
+      [[{ name: 'x', type: 'symlink', linkname: 'y' }], /"x": a link to flatten/u],
+      [[{ name: 'x./a', data: Buffer.from('') }], /"x\.": a name ending in `\.` to flatten/u],
+      [[{ name: 'x/x.tmp', data: Buffer.from('') }], /holds "x\.tmp", which flattening uses/u],
     ]) await assert.rejects(extract(entries), (error) => error.name === 'PodError' && message.test(error.message), JSON.stringify(entries))
-    await assert.rejects(archiveOf(Buffer.from('not a tar at all'), tgz, 'pod'), /its archive cannot be read/u)
+    await assert.rejects(archiveOf(Buffer.from('not a tar at all'), tgz, 'pod'), /unreadable archive/u)
   })
 
   const zipSource = { archive: 'zip', file: 'file.zip', flatten: false }
@@ -192,12 +192,12 @@ describe('archiveOf', () => {
 
   it('refuses what unzip asks about, and what CocoaPods would fail on', async () => {
     for (const [entries, message] of [
-      [[], /an empty archive, which unzip warns of, and CocoaPods fails on the warning/u],
-      [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x' }], /"a": a name again, which unzip asks whether to replace/u],
-      [[{ name: 'x/.git/config', data: '' }], /a path with a \.git in it/u],
-      [[{ name: 'file.zip', data: '' }], /the archive holds "file\.zip", the name RemoteFile downloads it under/u],
-      [[{ name: 'x', data: 'y', attributes: U(0o120777) }], /the one thing in the archive is a link/u],
-      [[{ name: 'a', data: '', extra: Buffer.from([0x75, 0x70, 1, 0, 1]) }], /its archive cannot be read: .*Unicode path extra field/u],
+      [[], /an empty zip, which CocoaPods fails on/u],
+      [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x' }], /"a": a name twice, which unzip prompts on/u],
+      [[{ name: 'x/.git/config', data: '' }], /a \.git, which CocoaPods 1\.16 drops/u],
+      [[{ name: 'file.zip', data: '' }], /the archive holds "file\.zip", its own download's name/u],
+      [[{ name: 'x', data: 'y', attributes: U(0o120777) }], /"x": a link to flatten/u],
+      [[{ name: 'a', data: '', extra: Buffer.from([0x75, 0x70, 1, 0, 1]) }], /unreadable archive: .*Unicode path extra field/u],
     ]) await assert.rejects(unzipped(rawZip(entries), { ...zipSource, flatten: true }), (error) => error.name === 'PodError' && message.test(error.message), JSON.stringify(entries))
   })
 })
@@ -221,9 +221,9 @@ describe('layoutPods', () => {
     globalThis.fetch = served
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
   })
-  // Acme by `source`, from an archive served at `url`: what is written of it, by path and mode. What is fetched is
-  // kept in `asked`.
-  async function layout(source, url = source.http, archive = ARCHIVES.tgz, asked = []) {
+  // Acme by `source`, from an archive served at `url`, and the pods named `also` by its podspec: what is written of
+  // Acme, by path and mode. What is fetched is kept in `asked`.
+  async function layout(source, url = source.http, archive = ARCHIVES.tgz, asked = [], also = []) {
     globalThis.fetch = (input) => {
       asked.push(String(input))
       return Promise.resolve(String(input) === url ? new Response(archive) : new Response('Not Found', { status: 404 }))
@@ -233,7 +233,8 @@ describe('layoutPods', () => {
     dirs.push(root)
     const sandbox = join(root, 'Pods')
     const pod = { name: 'Acme', version: '1.0.0', checksum: '0'.repeat(40), specs: ['Acme'], dir: join(sandbox, 'Acme'), local: false, external: false, repo: 'trunk', checkout: false, podspec }
-    const downloaded = await layoutPods({ sandbox, cocoapods: '1.16.2', platform: 'ios', pods: [pod] }, () => assert.fail('no prepare_command'))
+    const pods = [pod, ...also.map((name) => ({ ...pod, name, dir: join(sandbox, name) }))]
+    const downloaded = await layoutPods({ sandbox, cocoapods: '1.16.2', platform: 'ios', pods }, () => assert.fail('no prepare_command'))
     const files = Object.fromEntries(readdirSync(join(sandbox, 'Acme')).map((name) => [name, (lstatSync(join(sandbox, 'Acme', name)).mode & 0o777).toString(8)]))
     return { downloaded, files }
   }
@@ -252,12 +253,12 @@ describe('layoutPods', () => {
 
   it('refuses any source but such an archive, held to its sha256, before fetching anything', async () => {
     for (const [source, message] of [
-      [{ git: 'https://github.com/acme/acme.git', commit: 'c'.repeat(40) }, /a source by :git is not supported: only :http from GitHub or Maven Central's com\/facebook\/, held to its :sha256, is/u],
-      [{ http: `${MAVEN}.tar.gz`.replace('/facebook/', '/facebookx/') }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it, or https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u],
-      [{ http: `${MAVEN}.jar` }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it/u],
-      [{ http: `${MAVEN}.tar.gz`.replace('/facebook/', '/facebook/../google/') }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it/u],
-      [{ http: `${MAVEN}.tar.gz`, type: 'zip' }, /its :type "zip" is not the tgz its URL on Maven Central names/u],
-      [{ http: `${RELEASE}.tar.gz`, sha256: null, sha1: 'a'.repeat(40) }, /held to a :sha1 alone/u],
+      [{ git: 'https://github.com/acme/acme.git', commit: 'c'.repeat(40) }, /pods\["Acme"\]: a :git source is not supported/u],
+      [{ http: `${MAVEN}.tar.gz`.replace('/facebook/', '/facebookx/') }, /"https:\/\/repo1\.maven\.org\/maven2\/com\/facebookx\/.*" is not a GitHub URL, or a \.tar\.gz or \.zip under https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u],
+      [{ http: `${MAVEN}.jar` }, /\.jar" is not a GitHub URL/u],
+      [{ http: `${MAVEN}.tar.gz`.replace('/facebook/', '/facebook/../google/') }, /\/\.\.\/google\/.*" is not a GitHub URL/u],
+      [{ http: `${MAVEN}.tar.gz`, type: 'zip' }, /its :type "zip" is not its URL's tgz/u],
+      [{ http: `${RELEASE}.tar.gz`, sha256: null, sha1: 'a'.repeat(40) }, /its source has no :sha256, only a :sha1/u],
     ]) {
       const asked = []
       await assert.rejects(layout(source, 'nowhere', ARCHIVES.tgz, asked), (error) => error.name === 'PodError' && message.test(error.message), JSON.stringify(source))
@@ -267,6 +268,23 @@ describe('layoutPods', () => {
 
   it('refuses an archive that is not the one its sha256 is of', async () => {
     const url = `${MAVEN}.tar.gz`
-    await assert.rejects(layout({ http: url, sha256: 'b'.repeat(64) }, url), (error) => error.name === 'PodError' && /its archive, "https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\/.*", is not the one its :sha256 is of: its sha256 is [\da-f]{64}, not b{64}/u.test(error.message))
+    await assert.rejects(layout({ http: url, sha256: 'b'.repeat(64) }, url), (error) => error.name === 'PodError' && /pods\["Acme"\]: "https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\/.*" has sha256 [\da-f]{64}, not b{64}/u.test(error.message))
+  })
+
+  it('refuses on macOS two pods whose directories are one there, before fetching anything', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    const url = `${RELEASE}.tar.gz`
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' })
+      const asked = []
+      assert.deepEqual((await layout({ http: url }, url, ARCHIVES.tgz, asked, ['acme'])).downloaded, ['Acme', 'acme'])
+      assert.deepEqual(asked, [url], 'one archive is fetched once')
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      asked.length = 0
+      await assert.rejects(layout({ http: url }, url, ARCHIVES.tgz, asked, ['acme']), /pods\["acme"\]: "Acme" and "acme" are one name on macOS/u)
+      assert.deepEqual(asked, [])
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
   })
 })

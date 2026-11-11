@@ -18,24 +18,24 @@ const UNIX_HOSTS = new Set([2, 3, 5, 12, 13, 16, 17, 30])
 
 // A `.git`, as git's checkout names one: dots and spaces after it dropped, in any case.
 const isGit = (name) => name.replace(/[. ]+$/u, '').toLowerCase() === '.git'
-const gitRefusal = (at) => new PodError('a path with a .git in it, which CocoaPods 1.16 leaves out of its cache and those before keep', at)
+const gitRefusal = (at) => new PodError('a .git, which CocoaPods 1.16 drops and others keep', at)
 // The names at the archive's root.
 const topsOf = ({ dirs, files, links }) => new Set([...dirs, ...files.keys(), ...links.keys()].map((path) => path.split('/')[0]))
 
 // The archive at `url`, held to `sha256`: whoever answers a redirect, the bytes are what is checked.
 export async function downloadArchive(url, sha256, where) {
   const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(TIMEOUT) })
-  if (!response.ok) throw new PodError(`its archive, ${quote(url)}, is not served: ${response.status}`, where)
+  if (!response.ok) throw new PodError(`${quote(url)} answers ${response.status}`, where)
   const chunks = []
   let size = 0
   for await (const chunk of response.body ?? []) {
     size += chunk.byteLength
-    if (size > MAX_BYTES) throw new PodError(`its archive, ${quote(url)}, is larger than ${MAX_BYTES} bytes`, where)
+    if (size > MAX_BYTES) throw new PodError(`${quote(url)} is over ${MAX_BYTES} bytes`, where)
     chunks.push(chunk)
   }
   const bytes = Buffer.concat(chunks)
   const actual = createHash('sha256').update(bytes).digest('hex')
-  if (actual !== sha256) throw new PodError(`its archive, ${quote(url)}, is not the one its :sha256 is of: its sha256 is ${actual}, not ${sha256}`, where)
+  if (actual !== sha256) throw new PodError(`${quote(url)} has sha256 ${actual}, not ${sha256}`, where)
   return bytes
 }
 
@@ -51,13 +51,13 @@ function untarred(entries, where) {
     const at = `${where}: ${quote(name)}`
     const segments = name.split('/')
     if (segments.some(isGit)) throw gitRefusal(at)
-    if (segments.some((segment) => segment.startsWith('._'))) throw new PodError('a name starting with `._`, which bsdtar on macOS reads as the extended attributes of another', at)
+    if (segments.some((segment) => segment.startsWith('._'))) throw new PodError('a `._` name, which bsdtar on macOS takes as metadata', at)
     if (type === 'directory') dirs.add(name)
     else if (type === 'file' || type === 'contiguous-file') files.set(name, { data: entry.data, mode: entry.mode & 0o777 & ~UMASK })
     else if (type === 'symlink') links.set(name, entry.linkname)
     else if (type === 'hardlink' && files.has(entry.linkname)) files.set(name, { ...files.get(entry.linkname) })
     else if (type === 'hardlink' && links.has(entry.linkname)) links.set(name, links.get(entry.linkname))
-    else throw new PodError(`a ${type}, which a pod's download cannot hold`, at)
+    else throw new PodError(`a ${type} entry`, at)
   }
   return { dirs, files, links }
 }
@@ -74,7 +74,7 @@ function zipMode({ system, attributes }) {
 // Each entry as unzip writes it out. An empty archive, which unzip warns of, and a name twice, which it asks about,
 // fail CocoaPods and are refused.
 function unzipped(entries, where) {
-  if (entries.length === 0) throw new PodError('an empty archive, which unzip warns of, and CocoaPods fails on the warning', where)
+  if (entries.length === 0) throw new PodError('an empty zip, which CocoaPods fails on', where)
   const dirs = new Set()
   const files = new Map()
   const links = new Map()
@@ -83,7 +83,7 @@ function unzipped(entries, where) {
     if (name === '.') continue
     const at = `${where}: ${quote(entry.storedName)}`
     if (name.split('/').some(isGit)) throw gitRefusal(at)
-    if (files.has(name) || links.has(name)) throw new PodError('a name again, which unzip asks whether to replace', at)
+    if (files.has(name) || links.has(name)) throw new PodError('a name twice, which unzip prompts on', at)
     if (type === 'directory') dirs.add(name)
     else if (type === 'symlink') links.set(name, entry.linkname)
     else files.set(name, { data: entry.data, mode: zipMode(entry) })
@@ -99,13 +99,13 @@ function flattened(contents, where) {
   const [top] = tops
   if (contents.files.has(top)) return contents
   const at = `${where}: ${quote(top)}`
-  if (contents.links.has(top)) throw new PodError('the one thing in the archive is a link, which flattening it would follow', at)
-  if (top.endsWith('.')) throw new PodError('the one directory in the archive has a name ending in `.`, which flattening it reads otherwise', at)
+  if (contents.links.has(top)) throw new PodError('a link to flatten', at)
+  if (top.endsWith('.')) throw new PodError('a name ending in `.` to flatten', at)
   const strip = (path) => path.slice(top.length + 1)
   const inside = (path) => path.startsWith(`${top}/`)
   const stripped = (map) => new Map([...map].map(([path, value]) => [strip(path), value]))
   const moved = { dirs: new Set([...contents.dirs].filter(inside).map(strip)), files: stripped(contents.files), links: stripped(contents.links) }
-  if (topsOf(moved).has(`${top}.tmp`)) throw new PodError(`the one directory in the archive holds ${quote(`${top}.tmp`)}, the name it is moved to while it is flattened`, at)
+  if (topsOf(moved).has(`${top}.tmp`)) throw new PodError(`holds ${quote(`${top}.tmp`)}, which flattening uses`, at)
   return moved
 }
 
@@ -116,9 +116,9 @@ export async function archiveOf(bytes, source, where) {
     if (source.archive === 'zip') contents = unzipped(await unzip(bytes, { limit: MAX_BYTES }), where)
     else contents = untarred(unpack(bytes[0] === 0x1f && bytes[1] === 0x8b ? await decompress(bytes, 'gzip', { limit: MAX_BYTES }) : bytes, { trailingGlobal: true }), where)
   } catch (error) {
-    if (error instanceof ArchiveError) throw new PodError(`its archive cannot be read: ${error.message}`, where, { cause: error })
+    if (error instanceof ArchiveError) throw new PodError(`unreadable archive: ${error.message}`, where, { cause: error })
     throw error
   }
-  if (topsOf(contents).has(source.file)) throw new PodError(`the archive holds ${quote(source.file)}, the name RemoteFile downloads it under where it extracts it`, where)
+  if (topsOf(contents).has(source.file)) throw new PodError(`the archive holds ${quote(source.file)}, its own download's name`, where)
   return source.flatten ? flattened(contents, where) : contents
 }

@@ -59,14 +59,14 @@ export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = f
   const all = includeDirs ? [...list.files, ...list.dirs] : list.files
   const exact = new Set(all)
   let found = patterns.flatMap((pattern) => {
-    if (typeof pattern !== 'string') throw new PodError(`a file pattern that is no text, ${JSON.stringify(pattern)}`, list.where)
+    if (typeof pattern !== 'string') throw new PodError(`a file pattern that is not text: ${JSON.stringify(pattern)}`, list.where)
     if (exact.has(pattern)) return [pattern]
     const isDir = list.lowerDirs.has(downcase(pattern).replace(/\/$/u, ''))
     const full = isDir && dirPattern !== undefined ? `${pattern.endsWith('/') ? pattern : `${pattern}/`}${dirPattern}` : pattern
     const expanded = expandBraces(full)
-    if (expanded === undefined) throw new PodError(`the file pattern ${quote(pattern)} is too long, expands to too many, or has a backslash in braces`, list.where)
+    if (expanded === undefined) throw new PodError(`the file pattern ${quote(pattern)} cannot be expanded`, list.where)
     list.budget.matches += expanded.length * all.length
-    if (list.budget.matches > MAX_MATCHES) throw new PodError(`its file patterns take more than ${MAX_MATCHES} matches of a path, which is not followed`, list.where)
+    if (list.budget.matches > MAX_MATCHES) throw new PodError(`its file patterns take over ${MAX_MATCHES} matches`, list.where)
     const matchers = expanded.map(matcher)
     return all.filter((path) => matchers.some((matches) => matches(path)))
   })
@@ -83,7 +83,7 @@ export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = f
 export function dirGlob(dir, pattern, where) {
   const segments = pattern.split('/')
   const literal = segments.findIndex((segment) => /[*?[{\\]/u.test(segment))
-  if (pattern.startsWith('/') || literal === -1) throw new PodError(`a glob of ${quote(pattern)}, which is from no directory of the podspec's, or has no wildcard`, where)
+  if (pattern.startsWith('/') || literal === -1) throw new PodError(`the glob ${quote(pattern)} is absolute or has no wildcard`, where)
   const base = segments.slice(0, literal).join('/')
   const list = listPod(join(dir, base), where)
   const found = glob(list, [segments.slice(literal).join('/')], { includeDirs: true })

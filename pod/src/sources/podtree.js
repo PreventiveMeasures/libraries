@@ -6,7 +6,7 @@ import { PodError, quote } from '../error.js'
 // The links a path is followed through before it leads nowhere, as each system gives up with ELOOP.
 const LINKS = { linux: 40, darwin: 32 }
 // As macOS takes a name, whatever its case and normalization.
-const fold = (name) => name.normalize('NFD').toLowerCase()
+export const fold = (name) => name.normalize('NFD').toLowerCase()
 
 const parentOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
@@ -50,7 +50,7 @@ export class PodTree {
       const name = pending.pop()
       if (name === '' || name === '.') continue
       if (name === '..') {
-        if (at === '') throw new PodError(`${quote(path)} leads out of the pod's directory through a link`, this.where)
+        if (at === '') throw new PodError(`${quote(path)} links out of the pod`, this.where)
         at = parentOf(at)
         continue
       }

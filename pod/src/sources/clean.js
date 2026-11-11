@@ -25,7 +25,7 @@ function listOf(tree, budget) {
 // set order could be first.
 function firstOf(list, pattern) {
   const [one, two] = glob(list, [pattern])
-  if (two !== undefined && one.toUpperCase() === two.toUpperCase()) throw new PodError(`${quote(one)} and ${quote(two)} differ in case alone, and CocoaPods takes either as the first ${pattern}`, list.where)
+  if (two !== undefined && one.toUpperCase() === two.toUpperCase()) throw new PodError(`${pattern}: ${quote(one)} and ${quote(two)} differ only in case`, list.where)
   return one
 }
 
@@ -98,7 +98,7 @@ function lock(tree, accessors, budget) {
   const list = listOf(tree, budget)
   for (const path of new Set(uniqueOf(accessors).flatMap((values) => sourceFiles(list, values)))) {
     const resolved = tree.resolve(path)
-    if (resolved === undefined) throw new PodError(`the source file ${quote(path)} links to nothing, and CocoaPods fails on it as it makes it read-only`, tree.where)
+    if (resolved === undefined) throw new PodError(`the source file ${quote(path)} links to nothing`, tree.where)
     if (resolved.node.type === 'file') resolved.node.mode &= ~0o200
   }
 }

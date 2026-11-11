@@ -10,6 +10,7 @@ import { PodError, quote } from '../error.js'
 import { archiveOf, downloadArchive } from './archive.js'
 import { installPod, planPod } from './clean.js'
 import { given, readPodspec, specNamed } from './podspec.js'
+import { fold } from './podtree.js'
 import { sourceOf } from './source.js'
 
 // CocoaPods 1.13 to 1.17, which download, clean and lock an archive alike.
@@ -41,25 +42,24 @@ function foldedOn(cocoapods) {
 }
 
 // What is downloaded of a pod, all of it worked out before anything is fetched: its source, its prepare_command,
-// and what of its download it keeps.
-function planOf(pod, platform, folded) {
+// and what of its download it keeps. `key` is a name as the machine finds it.
+function planOf(pod, platform, key) {
   const where = about(pod.name)
-  if (pod.checkout) throw new PodError('a pod by :podspec that CocoaPods downloads by its CHECKOUT OPTIONS is not supported', where)
-  if (!pod.external && !isTrunk(pod.repo)) throw new PodError(`a pod from the spec repo ${quote(String(pod.repo))} is not supported: only those from trunk are`, where)
-  const key = (name) => (folded ? name.normalize('NFD').toLowerCase() : name)
-  if (GENERATED.some((name) => key(name) === key(pod.name)) || key(pod.name).endsWith(key('.xcodeproj'))) throw new PodError('a pod named as what CocoaPods writes beside the pods in Pods/ is not supported', where)
+  if (pod.checkout) throw new PodError('CHECKOUT OPTIONS are not supported', where)
+  if (!pod.external && !isTrunk(pod.repo)) throw new PodError(`the spec repo ${quote(String(pod.repo))} is not trunk`, where)
+  if (GENERATED.some((name) => key(name) === key(pod.name)) || key(pod.name).endsWith(key('.xcodeproj'))) throw new PodError('its name is one CocoaPods uses in Pods/', where)
   // PodDirCleaner globs the pod's directory by its path as it is.
-  if (/[*?[\]{}]/u.test(pod.name)) throw new PodError('a name with a glob\'s `*`, `?`, `[`, `]`, `{` or `}` in it, which CocoaPods cleans the pod by, is not supported', where)
-  if (pod.name.length > 255) throw new PodError('a name too long for a directory, which CocoaPods fails to make', where)
+  if (/[*?[\]{}]/u.test(pod.name)) throw new PodError('its name has glob characters', where)
+  if (pod.name.length > 255) throw new PodError('its name is too long for a directory', where)
   const podspec = readPodspec(pod.podspec)
   const source = sourceOf(podspec, where)
   const command = given(podspec.attributes.prepare_command) ? podspec.attributes.prepare_command : undefined
-  if (command !== undefined && typeof command !== 'string') throw new PodError('its prepare_command is not text, which CocoaPods fails on', where)
+  if (command !== undefined && typeof command !== 'string') throw new PodError('its prepare_command is not text', where)
   const specs = pod.specs.map((name) => specNamed(podspec, name) ?? podspecRefusal(name, where))
   return { pod, source, command, files: planPod(podspec, specs, platform) }
 }
 function podspecRefusal(name, where) {
-  throw new PodError(`its podspec has no ${quote(name)}, which the lockfile installs`, where)
+  throw new PodError(`its podspec has no ${quote(name)}`, where)
 }
 
 // `job` of each of `items`, a few at a time; the first failure thrown once each started has ended, as a PodError
@@ -113,10 +113,17 @@ export async function layoutPods({ sandbox, cocoapods, platform, pods }, prepare
   const needed = pods.filter((pod) => !pod.local && !installed(pod, before?.roots[pod.name]))
   if (needed.length === 0) return []
   const folded = foldedOn(cocoapods)
+  const key = (name) => (folded ? fold(name) : name)
   const refusals = []
+  // Each pod's directory is Pods/<name>, which on macOS two names may share.
+  const named = new Map()
+  for (const { name } of pods.filter((pod) => !pod.local)) {
+    if (named.has(key(name))) refusals.push(`${about(name)}: ${quote(named.get(key(name)))} and ${quote(name)} are one name on macOS`)
+    named.set(key(name), name)
+  }
   const plans = needed.map((pod) => {
     try {
-      return planOf(pod, platform, folded)
+      return planOf(pod, platform, key)
     } catch (error) {
       if (!(error instanceof PodError)) throw error
       refusals.push(error.message)

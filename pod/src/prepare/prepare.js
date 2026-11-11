@@ -18,16 +18,16 @@ function scriptOf(command) {
 // CocoaPods runs a local pod's prepare_command in it at each installation; a pod by :path is the project's own
 // files, which no podspec's script is run in.
 export function refuseLocal(name, command) {
-  if (typeof command === 'string') throw new PodError('its podspec has a prepare_command, and the pod is one by :path, which is used where it is: CocoaPods would run the script in the pod\'s own directory at each installation, and none is run there here. The prepare_command has to be taken out of the podspec, and what it makes be in the pod already', `pods[${quote(name)}]`)
+  if (typeof command === 'string') throw new PodError('a :path pod\'s prepare_command is not run: run it, and take it out of the podspec', `pods[${quote(name)}]`)
 }
 
 function runPrepare(name, command, dir, allowed, version) {
   const where = `pods[${quote(name)}]`
-  if (!allowed.includes(name)) throw new PodError('its podspec has a prepare_command, a script CocoaPods runs in the pod: to run it, name the pod in `prepareCommands` of pod.config.json', where)
+  if (!allowed.includes(name)) throw new PodError('its prepare_command runs only if `prepareCommands` in pod.config.json names the pod', where)
   const { CDPATH: _unset, ...env } = process.env
   const result = spawnSync('bash', ['-c', scriptOf(command)], { cwd: dir, env: { ...env, COCOAPODS_VERSION: version }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   if (result.error) throw new PodError('bash cannot be run for its prepare_command', where, { cause: result.error })
-  if (result.status !== 0) throw new PodError(`its prepare_command failed, with status ${result.status ?? result.signal}:\n${result.stderr.trim()}`, where)
+  if (result.status !== 0) throw new PodError(`its prepare_command failed (${result.status ?? result.signal}):\n${result.stderr.trim()}`, where)
 }
 
 // What a directory holds, by paths from it, as stage 2 holds a download.
@@ -40,7 +40,7 @@ function read(dir, prefix, contents) {
       contents.dirs.push(path)
       read(full, `${path}/`, contents)
     } else if (entry.isFile()) contents.files.set(path, { data: readFileSync(full), mode: lstatSync(full).mode & 0o777 })
-    else throw new PodError(`its prepare_command left ${quote(path)}, which is no file, directory or link`)
+    else throw new PodError(`its prepare_command left ${quote(path)}, a special file`)
   }
   return contents
 }

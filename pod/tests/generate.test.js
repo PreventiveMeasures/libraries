@@ -175,18 +175,18 @@ describe('generate, for a project that has no phase for what is written now', ()
     // project has only the phase that embeds frameworks: `pod install` puts the other in, and nothing here does.
     const input = await load(join(FIXTURES, 'dynamic/project'))
     input.pods.find((pod) => pod.name === 'Local').root.attributes.source_files = 'src/*.h'
-    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'targets["App"]: its pods have resources to copy, and no phase of it in the app\'s project runs Pods-defaults-App-resources.sh, which does it: the project is integrated for other pods than the lockfile has, and has to be integrated again')
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'targets["App"]: its pods have resources to copy, but no phase runs Pods-defaults-App-resources.sh: integrate the project again')
     // An extension embeds no frameworks and a static library copies no resources: neither has such a phase.
     const hosted = await load(join(FIXTURES, 'libraries/project'))
     const ext = hosted.user.targets.find((target) => target.name === 'Ext')
     Object.assign(ext, { productType: 'static_library', scripts: [] })
     assert.ok(generate(hosted).files.has('Target Support Files/Pods-Ext/Pods-Ext-resources.sh'))
     Object.assign(ext, { productType: 'app_extension' })
-    assert.throws(() => generate(hosted), /^PodError: targets\["Ext"\]: its pods have resources to copy, and no phase of it in the app's project runs Pods-Ext-resources\.sh/u)
+    assert.throws(() => generate(hosted), /^PodError: targets\["Ext"\]: its pods have resources to copy, but no phase runs Pods-Ext-resources\.sh/u)
     const app = hosted.user.targets.find((target) => target.name === 'App')
     Object.assign(ext, { scripts: ['Pods-Ext/Pods-Ext-resources.sh'] })
     app.scripts = app.scripts.filter((path) => !path.endsWith('-frameworks.sh'))
-    assert.throws(() => generate(hosted), /^PodError: targets\["App"\]: its pods have frameworks to embed, and no phase of it in the app's project runs Pods-App-frameworks\.sh/u)
+    assert.throws(() => generate(hosted), /^PodError: targets\["App"\]: its pods have frameworks to embed, but no phase runs Pods-App-frameworks\.sh/u)
   })
 })
 
@@ -200,7 +200,7 @@ describe('generate, for a project whose phases run what is written no more', () 
       ['Ext', ['Pods-Ext/Pods-Ext-resources.sh']],
     ])
     input.config.targets.Ext = { pods: ['Overlap'] }
-    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message.startsWith('targets["Ext"]: a phase of it in the app\'s project runs Pods-Ext-resources.sh, which its pods have no more use for and is not written'))
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'targets["Ext"]: a phase runs Pods-Ext-resources.sh, which its pods no longer need: integrate the project again')
   })
 })
 
@@ -274,7 +274,7 @@ describe('generate, of an .xcframework that holds a framework of another name th
       renameSync(join(root, 'Pods/Binary/Dyn.xcframework'), join(root, 'Pods/Binary/Container.xcframework'))
       const input = await load(root)
       input.pods.find((pod) => pod.name === 'Binary').root.subspecs[0].attributes.vendored_frameworks = 'Container.xcframework'
-      assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'pods["Binary"]: "Container.xcframework" holds the framework "Dyn.framework", which is not of its name: a framework of an .xcframework is linked and embedded by the .xcframework\'s name, here "Container.framework", which nothing is found by. The two have to be named alike')
+      assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'pods["Binary"]: "Container.xcframework" holds "Dyn.framework", not "Container.framework"')
       // A library in one is linked by its own name, whatever the .xcframework is called.
       renameSync(join(root, 'Pods/Binary/Container.xcframework'), join(root, 'Pods/Binary/Dyn.xcframework'))
       renameSync(join(root, 'Pods/Binary/Stat.xcframework'), join(root, 'Pods/Binary/Other.xcframework'))
@@ -317,7 +317,7 @@ describe('generate, of resource bundles', () => {
     const input = await load(join(FIXTURES, 'frameworks/project'))
     const gamma = input.pods.find((pod) => pod.name === 'Gamma').root
     for (const spec of gamma.subspecs) spec.attributes.resource_bundles = { Shared: ['LICENSE'] }
-    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'pods["Gamma"]: the resource bundle "Shared" is of more than one of its specs, Gamma/Core and Gamma/Extra, which CocoaPods writes no sound project for: two targets of one id')
+    assert.throws(() => generate(input), (error) => error.name === 'PodError' && error.message === 'pods["Gamma"]: the resource bundle "Shared" is in more than one spec: Gamma/Core and Gamma/Extra')
     // In one spec alone it is a target, and one of the same name in another pod is another.
     delete gamma.subspecs[1].attributes.resource_bundles
     input.pods.find((pod) => pod.name === 'Delta').root.attributes.resource_bundles = { Shared: ['include/**/*.h'] }

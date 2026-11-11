@@ -63,11 +63,11 @@ function podspecForms(file, where, context) {
 export function podspecOf(root, dir, podspecs, where, context) {
   const files = podspecFiles(root, dir, podspecs)
   const file = files.find((path) => existsSync(path))
-  if (file === undefined) throw new PodError(`its podspec is not there, as ${files.map(quote).join(' or ')}`, where)
+  if (file === undefined) throw new PodError(`its podspec is not at ${files.map(quote).join(' or ')}`, where)
   const { forms, conditions } = podspecForms(file, `${where}: ${posixOf(relative(dir, file))}`, context)
   const bytes = forms.find((form) => sha1(form) === root.checksum)
   // A podspec that reads the environment may have been read in another one when the lockfile was written.
   const by = conditions.length === 0 ? '' : `, as read with ${conditions.join(', ')}`
-  if (bytes === undefined) throw new PodError(`its podspec, ${quote(posixOf(relative(dir, file)))}, is not the one the lockfile has the checksum of: its sha1 is ${sha1(forms[0])}, not ${root.checksum}${by}`, where)
+  if (bytes === undefined) throw new PodError(`its podspec, ${quote(posixOf(relative(dir, file)))}, has sha1 ${sha1(forms[0])}, not the lockfile's ${root.checksum}${by}`, where)
   return bytes
 }

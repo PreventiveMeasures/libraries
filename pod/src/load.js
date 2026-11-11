@@ -38,7 +38,7 @@ export async function load(dir) {
   const pods = Object.values(lock.roots).map((root) => {
     const where = `pods[${quote(root.name)}]`
     const local = root.external?.type === 'path'
-    if (root.external !== undefined && !local && root.external.type !== 'podspec') throw new PodError(`a pod from an external source by :${root.external.type} is not supported: only those by :path and :podspec, and from trunk, are`, where)
+    if (root.external !== undefined && !local && root.external.type !== 'podspec') throw new PodError(`a :${root.external.type} source is not supported`, where)
     // A local pod's path may name its podspec rather than its directory.
     const podDir = local ? resolve(dir, root.external.path).replace(/[/\\][^/\\]+\.podspec(?:\.json)?$/u, '') : join(sandbox, root.name)
     const bytes = podspecOf(root, dir, podspecs, where, context)

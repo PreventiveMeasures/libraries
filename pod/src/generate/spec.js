@@ -20,7 +20,7 @@ const ATTRIBUTES = {
 // Specification#c99ext_identifier, of ASCII, which I18n.transliterate leaves as it is.
 function c99ext(name, where) {
   if (name === undefined || name === null) return undefined
-  if (typeof name !== 'string' || !/^[ -~]*$/u.test(name)) throw new PodError(`${quote(String(name))} is not a name in ASCII, which a module is named after`, where)
+  if (typeof name !== 'string' || !/^[ -~]*$/u.test(name)) throw new PodError(`${quote(String(name))} is not an ASCII name`, where)
   return name.replace(/^(\d)/u, '_$1').replaceAll(/[^a-zA-Z0-9_]/gu, '_').replaceAll(/_+/gu, '_')
 }
 
