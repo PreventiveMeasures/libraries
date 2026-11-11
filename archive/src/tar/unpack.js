@@ -1,4 +1,4 @@
-import { EMPTY } from '../bytes.js'
+import { EMPTY, concat } from '../bytes.js'
 import { isFile } from '../entry.js'
 import { ArchiveError, located } from '../error.js'
 import { Names, cleanNames } from '../names.js'
@@ -77,9 +77,8 @@ class Unpacker {
     while (!this.#done) {
       const bytes = this.#take(this.#awaiting ? blocks(this.#awaiting.size) : BLOCK)
       if (bytes === null) return
-      if (!this.#awaiting) this.#header(bytes)
-      else if (this.#awaiting.entry) yield this.#entry(bytes)
-      else this.#extendedHeader(bytes)
+      const entry = this.#awaiting ? this.#body(bytes) : this.#header(bytes)
+      if (entry) yield entry
     }
     const at = this.#position
     if (!isZeroBlock(this.#take(this.#buffered))) throw new ArchiveError('data after the end of the archive', at)
@@ -97,21 +96,17 @@ class Unpacker {
     if (this.#buffered < size) return null
     if (size === 0) return EMPTY
     let out
-    if (this.#offset + size <= this.#chunks[0].length) {
-      out = this.#chunks[0].subarray(this.#offset, this.#offset + size)
-      this.#offset += size
+    let end = this.#offset + size
+    if (end <= this.#chunks[0].length) {
+      out = this.#chunks[0].subarray(this.#offset, end)
     } else {
-      out = new Uint8Array(size)
       let i = 0
-      for (let at = 0, from = this.#offset; at < size; i++, from = 0) {
-        const piece = this.#chunks[i].subarray(from, from + size - at)
-        out.set(piece, at)
-        at += piece.length
-        this.#offset = from + piece.length
-      }
-      this.#chunks.splice(0, i - 1)
+      while (end > this.#chunks[i].length) end -= this.#chunks[i++].length
+      out = concat([this.#chunks[0].subarray(this.#offset), ...this.#chunks.slice(1, i), this.#chunks[i].subarray(0, end)])
+      this.#chunks.splice(0, i)
     }
-    if (this.#offset === this.#chunks[0].length) {
+    this.#offset = end
+    if (end === this.#chunks[0].length) {
       this.#chunks.shift()
       this.#offset = 0
     }
@@ -141,24 +136,17 @@ class Unpacker {
     }
   }
 
+  // An entry's data, returning the entry, or an extended header's records
   #body(bytes) {
-    const { at, size } = this.#awaiting
+    const { at, size, entry, extended } = this.#awaiting
+    this.#awaiting = null
     if (!isZeroBlock(bytes.subarray(size))) throw new ArchiveError('the padding after an entry is not zero', at)
-    return bytes.subarray(0, size)
-  }
-
-  #entry(bytes) {
-    const { at, entry } = this.#awaiting
-    entry.data = this.#body(bytes)
-    this.#awaiting = null
-    located(() => this.#names.add(entry), at)
-    return entry
-  }
-
-  #extendedHeader(bytes) {
-    const { at, extended } = this.#awaiting
-    const raw = this.#body(bytes)
-    this.#awaiting = null
+    const raw = bytes.subarray(0, size)
+    if (entry) {
+      entry.data = raw
+      located(() => this.#names.add(entry), at)
+      return entry
+    }
     const { kind } = extended
     if (kind === 'global') {
       this.#global = decodePax(raw, at)

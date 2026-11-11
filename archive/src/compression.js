@@ -22,16 +22,6 @@ function checkBytes(bytes) {
   if (!(bytes instanceof Uint8Array)) throw new ArchiveError('the data is not a Uint8Array')
 }
 
-// A reader rather than async iteration, which not every platform has; cancels the stream if left early
-async function* chunksOf(stream) {
-  const reader = stream.getReader()
-  try {
-    for (let next = await reader.read(); !next.done; next = await reader.read()) yield next.value
-  } finally {
-    reader.cancel().catch(() => {})
-  }
-}
-
 // Output past `limit` is refused as it comes (NaN refuses all). Given `target`, output is written
 // into it while it fits, rather than gathered in pieces and joined, which holds it twice.
 async function through(bytes, Stream, format, limit, verb, target) {
@@ -39,11 +29,13 @@ async function through(bytes, Stream, format, limit, verb, target) {
   const writer = transform.writable.getWriter()
   writer.write(bytes).catch(() => {}) // the stream's failure is read from its output
   writer.close().catch(() => {})
+  const reader = transform.readable.getReader() // not async iteration, which not every platform has
   const chunks = []
   let length = 0
   const made = () => (target ? target.subarray(0, length) : chunks.length === 1 ? chunks[0] : concat(chunks))
   try {
-    for await (const chunk of chunksOf(transform.readable)) {
+    for (let next = await reader.read(); !next.done; next = await reader.read()) {
+      const chunk = next.value
       if (!(length + chunk.length <= limit)) throw new RangeError(`output past ${limit} bytes`)
       if (target && length + chunk.length > target.length) {
         chunks.push(target.subarray(0, length))
@@ -54,6 +46,7 @@ async function through(bytes, Stream, format, limit, verb, target) {
       length += chunk.length
     }
   } catch (cause) {
+    reader.cancel().catch(() => {})
     const limited = cause instanceof RangeError
     throw new CompressionError(limited ? `the data ${verb}es past ${limit} bytes` : `the data does not ${verb}`, { bytes: made(), limited, cause })
   }

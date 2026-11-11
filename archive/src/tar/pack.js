@@ -73,13 +73,10 @@ function paxHeader(e, records) {
 function splitName(raw, display) {
   const { length } = raw
   if (length > PREFIX_SIZE + NAME_SIZE + 1) throw new ArchiveError(`name ${quote(display)} is longer than 256 bytes, which ustar cannot hold`)
-  let limit = length
-  if (limit > PREFIX_SIZE + 1) limit = PREFIX_SIZE + 1
-  else if (raw[limit - 1] === SLASH) limit--
-  let i = limit - 1
-  while (i > 0 && raw[i] !== SLASH) i--
+  const limit = length > PREFIX_SIZE + 1 ? PREFIX_SIZE + 1 : raw[length - 1] === SLASH ? length - 1 : length
+  const i = raw.lastIndexOf(SLASH, limit - 1)
   const rest = length - i - 1
-  if (i === 0 || rest > NAME_SIZE || rest === 0) throw new ArchiveError(`name ${quote(display)} cannot be split into ustar's prefix and name fields`)
+  if (i <= 0 || rest > NAME_SIZE || rest === 0) throw new ArchiveError(`name ${quote(display)} cannot be split into ustar's prefix and name fields`)
   return { prefix: raw.subarray(0, i), name: raw.subarray(i + 1) }
 }
 
@@ -154,8 +151,7 @@ function packer({ format = 'gnu', blocking = 20, symlinksAbove } = {}, keep = fa
     // Two zero blocks, then zeros to a whole record
     end() {
       const record = blocking * BLOCK
-      const rest = (total + 2 * BLOCK) % record
-      return [new Uint8Array(2 * BLOCK + (rest ? record - rest : 0))]
+      return [new Uint8Array(Math.ceil((total + 2 * BLOCK) / record) * record - total)]
     },
   }
 }

@@ -34,18 +34,15 @@ const MAX_RATIO = 1032
 // Exactly the declared size, room for which is only made where the data could inflate to it
 export async function inflate(bytes, size, at) {
   if (size > bytes.length * MAX_RATIO) throw new ArchiveError('an entry declares more than its data can inflate to', at)
-  let out
-  try {
-    out = await decompressInto(bytes, 'deflate-raw', new Uint8Array(size))
-  } catch (error) {
+  const out = await decompressInto(bytes, 'deflate-raw', new Uint8Array(size)).catch((error) => {
     throw new ArchiveError(error.limited ? 'an entry inflates to more than its declared size' : 'an entry does not inflate', at)
-  }
+  })
   if (out.length !== size) throw new ArchiveError('an entry inflates to less than its declared size', at)
   return out
 }
 
-// Two-second resolution from 1980, in the maker's local time, read and written here as UTC
-function dos(seconds) {
+// Two-second resolution from 1980 to 2107, in the maker's local time, read and written here as UTC
+export function toDos(seconds) {
   const date = new Date(seconds * 1000)
   const year = date.getUTCFullYear()
   if (year < 1980 || year > 2107) return null
@@ -55,16 +52,10 @@ function dos(seconds) {
   }
 }
 
-export function toDos(mtime) {
-  const fields = dos(mtime)
-  if (fields === null) throw new ArchiveError(`mtime ${mtime} is outside DOS time, 1980 to 2107`)
-  return fields
-}
-
 // Fields that do not come back as themselves name no date
 export function fromDos(date, time, at) {
   const seconds = Date.UTC(1980 + (date >> 9), ((date >> 5) & 15) - 1, date & 31, time >> 11, (time >> 5) & 63, (time & 31) * 2) / 1000
-  const fields = dos(seconds)
+  const fields = toDos(seconds)
   if (fields === null || fields.time !== time || fields.date !== date) throw new ArchiveError('an entry has an invalid DOS time', at)
   return seconds
 }
