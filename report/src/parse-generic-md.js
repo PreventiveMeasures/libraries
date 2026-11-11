@@ -1,29 +1,37 @@
-import { isCommitHash, normalizeNewlines } from './md-structure.js'
+import { LIST_MARKER_RE, findMdLink, isCommitHash, normalizeNewlines, splitHeadingLine, splitLeading, splitUnfenced } from './md-structure.js'
 
 const SOURCE = 'markdown-generic'
 const HEADERS = ['#', 'id', 'product', 'priority', 'vulnerability']
 const FIELDS = ['title', 'description', 'root cause', 'code references', 'attack scenario', 'steps to reproduce', 'impact', 'patch']
 const FIELD_RE = /^(?:#{3,6}[ \t]+)?(?:\*\*)?(Title|Description|Root Cause|Code references|Attack Scenario|Steps to Reproduce(?:[ \t]+.*?)?|Impact|Patch):?(?:\*\*)?(?:[ \t]+#+)?[ \t]*$/gimu
 const SEVERITY = { P0: 'critical', P1: 'high', P2: 'medium', P3: 'low', P4: 'informational' }
+// The other layout: `# <title>` findings, concatenated, each with these
+// sections and its repository named only by its Affected Code links.
+const SECTION_RE = /^### +(Description|Affected Code|Fix|Tests)[ \t]*$/gimu
+const SECTIONS = ['description', 'affected code', 'fix', 'tests']
 const cells = (line) => line.trim().slice(1, -1).split('|').map((cell) => cell.trim())
 function requireSupported(ok, detail) { if (!ok) throw new Error(`Markdown (generic): unsupported ${detail}`) }
 
 function links(text) {
   return [...new Set(text.split('\n').map((line) => line.trim()).filter(Boolean))].map((raw) => {
     requireSupported(/^https?:\/\/[^\s()[\]{}"'<>`\\]+$/iu.test(raw) && !/[.,;!?]$/u.test(raw), 'link syntax; use bare URLs on separate lines')
-    let url
-    try { url = new URL(raw) } catch { requireSupported(false, 'URL') }
-    const [owner, name, kind, ref, ...path] = url.pathname.slice(1).split('/')
-    requireSupported(['github.com', 'www.github.com'].includes(url.hostname) && !url.username && !url.password && !url.port
-      && [owner, name].every((part) => part && /^[\w-][\w.-]*$/u.test(part)), 'repository URL')
-    requireSupported(path.every(Boolean), 'repository path; empty components')
-    const repo = `${owner}/${name.replace(/\.git$/iu, '')}`.toLowerCase()
-    const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
-    let directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
-    try { directory = directory.map(decodeURIComponent) } catch { requireSupported(false, 'repository directory encoding') }
-    requireSupported(directory.every((part) => part === part.trim() && !/[\\/:?#\p{Cc}]/u.test(part)), 'repository directory')
-    return { repo, ref, directory, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
+    return githubLink(raw)
   })
+}
+
+function githubLink(raw) {
+  let url
+  try { url = new URL(raw) } catch { requireSupported(false, 'URL') }
+  const [owner, name, kind, ref, ...path] = url.pathname.slice(1).split('/')
+  requireSupported(['github.com', 'www.github.com'].includes(url.hostname) && !url.username && !url.password && !url.port
+    && [owner, name].every((part) => part && /^[\w-][\w.-]*$/u.test(part)), 'repository URL')
+  requireSupported(path.every(Boolean), 'repository path; empty components')
+  const repo = `${owner}/${name.replace(/\.git$/iu, '')}`.toLowerCase()
+  const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
+  let directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
+  try { directory = directory.map(decodeURIComponent) } catch { requireSupported(false, 'repository directory encoding') }
+  requireSupported(directory.every((part) => part === part.trim() && !/[\\/:?#\p{Cc}]/u.test(part)), 'repository directory')
+  return { repo, ref, directory, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
 }
 
 function assignReferences(row, finding, text, repoPrefixes) {
@@ -36,17 +44,20 @@ function assignReferences(row, finding, text, repoPrefixes) {
   repoPrefixes.set(github, row.prefix)
   row.group.github = github
   row.group.directories.push(...refs.map((link) => link.directory))
+  assignEvidence(finding, refs)
+}
+
+function assignEvidence(finding, refs) {
   const evidence = refs.flatMap((link) => link.evidence ?? [])
-  if (evidence.length) {
-    Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
-    // A reference's commit is where the code was read, not where the bug landed;
-    // stamped, in lowercase and at its longest spelling, only when every evidence
-    // row was read at that one commit: all links name one repository, so a hash
-    // the longest one starts with names the same commit.
-    const commits = refs.filter((link) => link.evidence).map((link) => link.ref.toLowerCase())
-    const longest = commits.reduce((a, b) => (b.length > a.length ? b : a))
-    if (commits.every((ref) => isCommitHash(ref) && longest.startsWith(ref))) finding.auditedCommit = longest
-  }
+  if (!evidence.length) return
+  Object.assign(finding, { file: evidence[0].file, line: evidence[0].line, location: evidence[0].url, evidence })
+  // A reference's commit is where the code was read, not where the bug landed;
+  // stamped, in lowercase and at its longest spelling, only when every evidence
+  // row was read at that one commit: all links name one repository, so a hash
+  // the longest one starts with names the same commit.
+  const commits = refs.filter((link) => link.evidence).map((link) => link.ref.toLowerCase())
+  const longest = commits.reduce((a, b) => (b.length > a.length ? b : a))
+  if (commits.every((ref) => isCommitHash(ref) && longest.startsWith(ref))) finding.auditedCommit = longest
 }
 
 function commonDirectory(directories) {
@@ -59,8 +70,74 @@ function commonDirectory(directories) {
   return common.join('/')
 }
 
+// `- [label](GitHub file link) - explanation`, one item per affected site;
+// indented lines continue an item's explanation.
+function affectedCode(text, title) {
+  const items = []
+  for (const line of text.split('\n')) {
+    const marker = LIST_MARKER_RE.exec(line)
+    if (marker && !marker[1]) items.push([line.slice(marker[0].length)])
+    else if (line.trim()) {
+      requireSupported(items.length && /^[ \t]/u.test(line), `Affected Code for "${title}"; expected a list of links`)
+      items.at(-1).push(line.trim())
+    }
+  }
+  requireSupported(items.length, `Affected Code for "${title}"; expected a list of links`)
+  return items.map(([item, ...more]) => {
+    const link = findMdLink(item)
+    const written = link?.index === 0 && [`[${link.label}](${link.url})`, `[${link.label}](<${link.url}>)`].find((form) => item.startsWith(form))
+    requireSupported(written && /^https?:\/\/\S+$/iu.test(link.url), `Affected Code item for "${title}"; expected [file](link) first`)
+    const ref = githubLink(link.url)
+    requireSupported(ref.evidence, `Affected Code link for "${title}"; expected a link to a file`)
+    const note = [item.slice(written.length).replace(/^[ \t]*(?:[-\u2013\u2014:][ \t]*)?/u, ''), ...more].join('\n').trim()
+    return note ? { ...ref, evidence: { ...ref.evidence, text: note } } : ref
+  })
+}
+
+function parseSectionedReports(blocks) {
+  const repos = new Map(), sections = new Set()
+  for (const { block, title, head, subs } of blocks) {
+    requireSupported(title, 'finding without a title')
+    requireSupported(!head.trim(), `text before section headers for "${title}"`)
+    const fields = new Map()
+    for (const sub of subs) {
+      const key = sub.heading.toLowerCase()
+      requireSupported(!fields.has(key), `duplicate section ${sub.heading} for "${title}"`)
+      fields.set(key, sub.body.trim())
+    }
+    requireSupported(SECTIONS.every((key) => fields.has(key)), `missing required headers for "${title}"`)
+    // FROZEN: the complete raw finding; never parsed display fields.
+    const section = `# ${block}`.trim()
+    requireSupported(!sections.has(section), `duplicate finding "${title}"`)
+    sections.add(section)
+    const refs = affectedCode(fields.get('affected code'), title)
+    const github = refs[0].repo
+    requireSupported(refs.every((link) => link.repo === github), `repository set for "${title}"; expected exactly one repository`)
+    // The format names no severity; the description's calibration is prose.
+    const finding = { _idBasis: { source: SOURCE, section }, severity: 'medium', security: true, file: 'unknown', line: '?' }
+    const tests = fields.get('tests')
+    finding.description = [title, fields.get('description'), tests && `**Tests:**\n${tests}`].filter(Boolean).join('\n\n')
+    if (fields.get('fix')) finding.recommendation = fields.get('fix')
+    assignEvidence(finding, refs)
+    const group = repos.get(github) ?? { directories: [], findings: [] }
+    group.directories.push(...refs.map((link) => link.directory))
+    group.findings.push({ ...finding, repo: { github } })
+    repos.set(github, group)
+  }
+  return [...repos].map(([github, { directories, findings }]) => (
+    { displayName: github, data: { type: 'security', source: SOURCE, repo: { github, directory: commonDirectory(directories) }, findings } }))
+}
+
 export function parseGenericMarkdownToReports(content) {
   const text = normalizeNewlines(content).trim()
+  if (text.startsWith('# ')) {
+    // Fence-aware: a `# comment` in a snippet is the snippet's.
+    const blocks = splitUnfenced(text, /^# /gmu).slice(1).map((block) => {
+      const { title, body } = splitHeadingLine(block)
+      return { block, title, ...splitLeading(body, SECTION_RE) }
+    })
+    if (blocks.some(({ subs }) => subs.some(({ heading }) => heading.toLowerCase() === 'affected code'))) return parseSectionedReports(blocks)
+  }
   const marks = [...text.matchAll(/^## +(.*)$/gmu)]
   if (!marks.some((mark) => /^\d+\.\s+\S+/u.test(mark[1])) && (marks.length || text.startsWith('# '))) return null
   const header = [...text.matchAll(/^\|[^\n]*\|$/gmu)].find(([line]) => cells(line).map((cell) => cell.toLowerCase()).join() === HEADERS.join())
