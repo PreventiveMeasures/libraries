@@ -1,6 +1,7 @@
 // Where a pod is downloaded from: its podspec's `source`, as
 // cocoapods-downloader takes it, held to what is fetched here alike.
 
+import { isPodArchiveUrl } from '@preventive/upstream/cocoapods.js'
 import { DeptreeError, quote } from '../error.js'
 import { githubRepoOf } from '../github.js'
 import { given, isObject } from './podspec.js'
@@ -23,36 +24,9 @@ const SHA256 = /^[\da-f]{64}$/u
 const TARS = new Set(['tgz', 'tar', 'tbz', 'txz'])
 const TYPES = new Set([...TARS, 'zip', 'dmg'])
 const URL_TYPES = [[/\.zip$/u, 'zip'], [/\.(?:tgz|tar\.gz)$/u, 'tgz'], [/\.tar$/u, 'tar'], [/\.(?:tbz|tar\.bz2)$/u, 'tbz'], [/\.(?:txz|tar\.xz)$/u, 'txz'], [/\.dmg$/u, 'dmg']]
-// https://github.com/<owner>/<repo>/ and a path under it, as upstream's
-// getPodArchive fetches one: no query, fragment, credentials or port, and
-// each segment as its buildUrl lets one through.
-const LOGIN = /^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu
-const REPO_NAME = /^(?!\.\.?$)[\w.-]{1,100}$/u
-const SEGMENT = /^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u
-// The URL, where the WHATWG parser writes it back out as it is, and it is
-// nothing but its origin and path, an empty `?` or `#` refused with the
-// rest, so that what is checked of its text is what is fetched; else
-// undefined.
-function parsedOf(url) {
-  const parsed = URL.canParse(url) ? new URL(url) : undefined
-  return parsed !== undefined && parsed.toString() === url && `${parsed.origin}${parsed.pathname}` === url ? parsed : undefined
-}
-function isGitHubUrl(url) {
-  const parsed = parsedOf(url)
-  if (parsed?.origin !== 'https://github.com') return false
-  const segments = parsed.pathname.slice(1).split('/')
-  return segments.length >= 3 && LOGIN.test(segments[0]) && REPO_NAME.test(segments[1]) && segments.every((segment) => SEGMENT.test(segment))
-}
-// Or Meta's namespace on Maven Central, which React Native's archives are
-// published under: https://repo1.maven.org/maven2/com/facebook/ and a path
-// under it, as upstream's getPodArchive fetches one; of a .tar.gz or a .zip
-// alone, by the end of its path, as RemoteFile reads a type off it.
+// Meta's namespace on Maven Central, a .tar.gz or a .zip under which
+// upstream's isPodArchiveUrl takes.
 const MAVEN_FACEBOOK = 'https://repo1.maven.org/maven2/com/facebook/'
-const MAVEN_TYPES = [[/\.tar\.gz$/u, 'tgz'], [/\.zip$/u, 'zip']]
-function isMavenUrl(url) {
-  const parsed = parsedOf(url)
-  return parsed !== undefined && url.startsWith(MAVEN_FACEBOOK) && parsed.pathname.slice(1).split('/').every((segment) => SEGMENT.test(segment))
-}
 
 // A refusal of where a pod is downloaded from, which buildCocoaPodsTree's
 // `partial` leaves the pod to CocoaPods for; a DeptreeError otherwise.
@@ -87,27 +61,24 @@ export function sourceOf(podspec, where, prepares = false) {
   return { type: 'git', url, repo, commit }
 }
 
-// An :http source: its URL, on GitHub over https, or under Maven Central's
-// com/facebook/ to a .tar.gz or a .zip, of the type its URL names, by
-// :type too; what RemoteFile takes it to be, and so the name it downloads
-// it under, `file.<type>`, in the directory it extracts it into; whether it
-// flattens it, by :flatten where that is given, as Ruby reads a value, and
-// else by its type, a tar and not a zip; and the sha256 it checks it
-// against. A download held to no hash, or to a sha1 alone, is refused, as
-// is one with :headers, which curl would send.
+// An :http source: its URL, one upstream's getPodArchive fetches, on GitHub
+// or a .tar.gz or a .zip under Maven Central's com/facebook/, of the type
+// its URL names, by :type too; what RemoteFile takes it to be, and so the
+// name it downloads it under, `file.<type>`, in the directory it extracts
+// it into; whether it flattens it, by :flatten where that is given, as Ruby
+// reads a value, and else by its type, a tar and not a zip; and the sha256
+// it checks it against. A download held to no hash, or to a sha1 alone, is
+// refused, as is one with :headers, which curl would send.
 function httpSourceOf(source, where) {
   const other = Object.keys(source).find((key) => !HTTP_OPTIONS.has(key))
   if (other !== undefined) throw new SourceRefusal(`its source has :${other}, which cocoapods-downloader refuses of :http`, where)
   const { http: url, type: named, flatten, headers } = source
-  const maven = typeof url === 'string' && isMavenUrl(url)
-  if (!maven && !(typeof url === 'string' && isGitHubUrl(url))) throw new SourceRefusal(`an :http source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not https://github.com/<owner>/<repo>/ or ${MAVEN_FACEBOOK} and a path of letters, digits and \`_.~@-%\` under it, is not supported`, where)
+  if (!isPodArchiveUrl(url)) throw new SourceRefusal(`an :http source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not https://github.com/<owner>/<repo>/ and a path under it, or ${MAVEN_FACEBOOK} and one under it to a .tar.gz or a .zip, as the URL parser writes it back out and of letters, digits and \`_.~@-%\`, is not supported`, where)
   if (given(headers)) throw new SourceRefusal('an :http source with :headers, which curl sends with the request, is not supported', where)
-  if (maven) {
-    const byUrl = MAVEN_TYPES.find(([pattern]) => pattern.test(URL.parse(url).pathname))?.[1]
-    if (byUrl === undefined) throw new SourceRefusal('an :http source from Maven Central of anything but a .tar.gz or a .zip is not supported', where)
-    if (given(named) && named !== byUrl) throw new SourceRefusal(`its :type ${quote(String(named))} is not the ${byUrl} its URL on Maven Central names, as only a .tar.gz and a .zip from there are supported`, where)
-  }
-  const type = given(named) ? named : URL_TYPES.find(([pattern]) => pattern.test(URL.parse(url).pathname))?.[1]
+  // isPodArchiveUrl's URL ends with its path, which RemoteFile reads a type off.
+  const byUrl = URL_TYPES.find(([pattern]) => pattern.test(url))?.[1]
+  if (url.startsWith(MAVEN_FACEBOOK) && given(named) && named !== byUrl) throw new SourceRefusal(`its :type ${quote(String(named))} is not the ${byUrl} its URL on Maven Central names, as only a .tar.gz and a .zip from there are supported`, where)
+  const type = given(named) ? named : byUrl
   if (typeof type !== 'string' || !TYPES.has(type)) throw new SourceRefusal(`${given(named) ? `its :type ${quote(String(named))}` : 'its URL'} names no type of archive cocoapods-downloader extracts`, where)
   if (type === 'dmg') throw new SourceRefusal('an :http source of a dmg, which hdiutil mounts, is not supported: only a zip, and tgz, tar, tbz and txz, which `tar xf` extracts, are', where)
   if (!given(source.sha256)) throw new SourceRefusal(given(source.sha1) ? 'an :http source held to a :sha1 alone, which two archives can be made to share, is not supported: only one held to a :sha256 is' : 'an :http source with no :sha256 to hold the download to is not supported', where)

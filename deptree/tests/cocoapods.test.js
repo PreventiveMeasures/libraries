@@ -126,7 +126,7 @@ describe('buildCocoaPodsTree', () => {
     assert.deepEqual(installed.map(({ name }) => name), ['Acme'])
     assert.deepEqual(skipped, [
       { name: 'Local', version: '0.1.0', reason: 'pods["Local"]: a pod from an external source by :git is not supported: only those from trunk, by :podspec and by :path are' },
-      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: an :http source from "https://example.com/other.zip", not https://github.com/<owner>/<repo>/ or https://repo1.maven.org/maven2/com/facebook/ and a path of letters, digits and `_.~@-%` under it, is not supported' },
+      { name: 'Other', version: '1.0.0', reason: 'pods["Other"]: an :http source from "https://example.com/other.zip", not https://github.com/<owner>/<repo>/ and a path under it, or https://repo1.maven.org/maven2/com/facebook/ and one under it to a .tar.gz or a .zip, as the URL parser writes it back out and of letters, digits and `_.~@-%`, is not supported' },
     ])
     // Other's podspec is fetched, to know where it is from; nothing more of it.
     assert.deepEqual(calls.trunk.map((at) => at.split('/').at(-1)).sort(), ['Acme.podspec.json', 'Other.podspec.json'])
@@ -387,11 +387,13 @@ describe('buildCocoaPodsTree', () => {
       const calls = stubArchives({ [ACME_MAVEN]: ACME.tarball, [ACME_MAVEN_ZIP]: zipped })
       return { ...await buildCocoaPodsTree({ lockfile: coreLock(podspec), host: HOST, github: client() }), calls }
     }
-    for (const [source, bytes] of [[{ http: ACME_MAVEN, sha256: sha256(ACME.tarball) }, ACME.tarball], [{ http: ACME_MAVEN, sha256: sha256(ACME.tarball), type: 'tgz' }, ACME.tarball], [{ http: ACME_MAVEN_ZIP, sha256: sha256(zipped), flatten: true }, zipped], [{ http: ACME_MAVEN_ZIP, sha256: sha256(zipped), type: 'zip', flatten: true }, zipped]]) {
+    const tar = { http: ACME_MAVEN, sha256: sha256(ACME.tarball) }
+    const unzipped = { http: ACME_MAVEN_ZIP, sha256: sha256(zipped), flatten: true }
+    for (const source of [tar, { ...tar, type: 'tgz' }, unzipped, { ...unzipped, type: 'zip' }]) {
       const { vfs, installed, calls } = await fromTrunk(httpPodspecOf(source))
       assert.deepEqual(listing(vfs), CORE, JSON.stringify(source))
       assert.deepEqual(calls, [source.http], JSON.stringify(source))
-      assert.deepEqual([installed[0].http, installed[0].sha256], [source.http, sha256(bytes)], JSON.stringify(source))
+      assert.deepEqual([installed[0].http, installed[0].sha256], [source.http, source.sha256], JSON.stringify(source))
     }
     const top = 'acme-acme-ef76ec6'
     const { vfs: kept } = await fromTrunk(httpPodspecOf({ http: ACME_MAVEN_ZIP, sha256: sha256(zipped) }, { subspecs: [{ name: 'Core', source_files: `${top}/Sources/Core` }] }))
@@ -425,21 +427,14 @@ describe('buildCocoaPodsTree', () => {
       [{ type: 'gz' }, /its :type "gz" names no type of archive/u],
       [{ http: 'https://github.com/acme/acme/releases/download/v1.2.0/acme' }, /its URL names no type of archive/u],
       [{ shallow: true }, /its source has :shallow, which cocoapods-downloader refuses of :http/u],
-      [{ http: 'https://repo1.maven.org/maven2/com/google/acme/1.2.0/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com\/<owner>\/<repo>\/ or https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u],
-      [{ http: 'https://repo1.maven.org/maven2/com/facebookx/acme/1.2.0/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ http: 'https://repo1.maven.org/maven2/com/Facebook/acme/1.2.0/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ http: 'http://repo1.maven.org/maven2/com/facebook/acme/1.2.0/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ http: 'https://repo.maven.apache.org/maven2/com/facebook/acme/1.2.0/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ http: 'https://repo1.maven.org:8443/maven2/com/facebook/acme/1.2.0/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ http: `${ACME_MAVEN}?x=1` }, /not https:\/\/github\.com/u],
-      [{ http: 'https://repo1.maven.org/maven2/com/facebook/acme//acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      [{ http: 'https://repo1.maven.org/maven2/com/facebook/acme/1+2/acme-1.2.0.tar.gz' }, /not https:\/\/github\.com/u],
-      // Not as the parser writes it back out, or more than its origin and path.
-      ...[`${ACME_MAVEN}?`, `${ACME_MAVEN}#`, `${ACME_ARCHIVE}?`, `${ACME_ARCHIVE}#`, ACME_MAVEN.replace('https:', 'HTTPS:'), ACME_MAVEN.replace('repo1', 'REPO1'), ACME_ARCHIVE.replace('github.com', 'GitHub.com'),
-        ACME_MAVEN.replace('acme-artifacts-1', 'acme artifacts-1'), ACME_MAVEN.replace('/acme/', '/./acme/'),
-        // Written under com/facebook/, so its text starts as one would, normalized out of it.
-        ACME_MAVEN.replace('/facebook/', '/facebook/../google/'), ACME_MAVEN.replace('/facebook/', '/facebook/%2e%2e/google/'), ACME_MAVEN_ZIP.replace('/facebook/', '/facebook/%2E%2E/google/')].map((http) => [{ http }, /not https:\/\/github\.com\/<owner>\/<repo>\/ or https:\/\/repo1\.maven\.org/u]),
-      ...['tgz', 'tar', 'tar.bz2', 'tbz', 'tar.xz', 'txz', 'jar', 'aar', 'dmg', 'TAR.GZ', 'ZIP', 'tar.gz.sha256'].map((extension) => [{ http: ACME_MAVEN.replace(/\.tar\.gz$/u, `.${extension}`) }, /an :http source from Maven Central of anything but a \.tar\.gz or a \.zip is not supported/u]),
+      // Off Maven Central's com/facebook/, or not a .tar.gz or a .zip there, or not as the URL parser writes it back out:
+      // normalized, the text checked would not be the URL fetched.
+      ...[...[['/facebook/', '/google/'], ['/facebook/', '/facebookx/'], ['/facebook/', '/Facebook/'], ['https:', 'http:'], ['repo1.maven.org', 'repo.maven.apache.org'], ['repo1.maven.org', 'repo1.maven.org:8443'],
+        ['/1.2.0/', '//'], ['/1.2.0/', '/1+2/'], ['https:', 'HTTPS:'], ['repo1', 'REPO1'], ['acme-artifacts-1', 'acme artifacts-1'], ['/acme/', '/./acme/'],
+        ['/facebook/', '/facebook/../google/'], ['/facebook/', '/facebook/%2e%2e/google/'], ['/facebook/', '/facebook/%2E%2E/google/']].map(([from, to]) => ACME_MAVEN.replace(from, to)),
+      ...['tgz', 'tar', 'tar.bz2', 'tbz', 'tar.xz', 'txz', 'jar', 'aar', 'dmg', 'TAR.GZ', 'ZIP', 'tar.gz.sha256'].map((extension) => ACME_MAVEN.replace(/\.tar\.gz$/u, `.${extension}`)),
+      ...['?x=1', '?', '#'].flatMap((end) => [`${ACME_MAVEN}${end}`, `${ACME_ARCHIVE}${end}`]), ACME_ARCHIVE.replace('github.com', 'GitHub.com')]
+        .map((http) => [{ http }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it, or https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\/ and one under it to a \.tar\.gz or a \.zip/u]),
       [{ http: ACME_MAVEN, type: 'tar' }, /its :type "tar" is not the tgz its URL on Maven Central names, as only a \.tar\.gz and a \.zip from there are supported/u],
       [{ http: ACME_MAVEN, type: 'zip' }, /its :type "zip" is not the tgz its URL on Maven Central names/u],
       [{ http: ACME_MAVEN_ZIP, type: 'tgz' }, /its :type "tgz" is not the zip its URL on Maven Central names/u],

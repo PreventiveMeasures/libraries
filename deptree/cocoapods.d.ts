@@ -295,19 +295,21 @@ export interface CocoaPodsTree {
 // https://repo1.maven.org/maven2/com/facebook/ and a path under it, such as
 // `react/react-native-artifacts/<version>/<file>.tar.gz`, ending in
 // `.tar.gz` or `.zip` alone, with no :type, or the tgz or the zip that
-// names. Either with no query, fragment, credentials or port, each segment
-// of the path letters, digits, `_`, `.`, `~`, `@`, `-` or a %-escape in
-// capitals. The podspec has to hold it to its :sha256, in lowercase hex, as
-// RemoteFile checks one before a :sha1, and does: so the lockfile's
-// checksum of the podspec is the archive's as well. One held to a :sha1
-// alone, which two archives can be made to share, is refused, and so is one
-// held to no hash, as React Native's own podspecs, hermes-engine's and
-// ReactNativeDependencies', name theirs on Maven Central. It is fetched
-// with upstream's getPodArchive, which follows GitHub's redirects, and
-// Maven Central's to repo.reactnative.dev, and holds the bytes to that
-// hash. Its type is RemoteFile's, by :type or else by the end of its URL's
-// path: tgz, tar, tbz or txz, which it extracts with `tar xf`, or zip, with
-// `unzip`; a dmg is refused.
+// names. Either as upstream's isPodArchiveUrl takes it: exactly as the URL
+// parser writes it back out, so that no `..` takes it out from under the
+// prefix it is written with, with no query, fragment, credentials or port,
+// each segment of the path letters, digits, `_`, `.`, `~`, `@`, `-` or a
+// %-escape in capitals. The podspec has to hold it to its :sha256, in
+// lowercase hex, as RemoteFile checks one before a :sha1, and does: so the
+// lockfile's checksum of the podspec is the archive's as well. One held to
+// a :sha1 alone, which two archives can be made to share, is refused, and
+// so is one held to no hash, as React Native's own podspecs,
+// hermes-engine's and ReactNativeDependencies', name theirs on Maven
+// Central. It is fetched with upstream's getPodArchive, which follows
+// GitHub's redirects, and Maven Central's to repo.reactnative.dev, and
+// holds the bytes to that hash. Its type is RemoteFile's, by :type or else
+// by the end of its URL's path: tgz, tar, tbz or txz, which it extracts
+// with `tar xf`, or zip, with `unzip`; a dmg is refused.
 //
 // A tar is read by what it is, as `tar xf` reads it, gzipped or not, as GNU
 // tar and bsdtar extract one for a user other than root, under a umask of

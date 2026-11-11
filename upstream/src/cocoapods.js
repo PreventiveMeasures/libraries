@@ -41,20 +41,19 @@ const ARCHIVES = 'cocoapods/archives'
 
 // Meta's namespace on Maven Central, which React Native's archives are
 // published under, and the two kinds of archive taken from it.
-const MAVEN_FACEBOOK = ['maven2', 'com', 'facebook']
+const MAVEN_FACEBOOK = `${MAVEN_CENTRAL}/maven2/com/facebook/`
 const MAVEN_ARCHIVE = /\.(?:tar\.gz|zip)$/u
 
-// https://github.com/<owner>/<repo>/ and a path under it, or
-// https://repo1.maven.org/maven2/com/facebook/ and a path under it to a
-// .tar.gz or a .zip, as the WHATWG parser writes it back out and as
-// buildUrl would write it: no query, fragment, credentials or port, and
-// nothing in a segment but what it lets through.
-function isArchiveUrl(value) {
-  const parsed = typeof value === 'string' && URL.canParse(value) ? new URL(value) : undefined
-  if (parsed === undefined || parsed.toString() !== value) return false
+// As the URL parser writes it back out, so that what its text is checked
+// for, a prefix above all, holds of what is fetched; and as buildUrl writes
+// it, with no query, fragment, credentials or port, and nothing in a
+// segment but what it lets through.
+export function isPodArchiveUrl(value) {
+  const parsed = typeof value === 'string' ? URL.parse(value) : null
+  if (parsed === null || parsed.toString() !== value) return false
   const segments = parsed.pathname.slice(1).split('/')
   const github = parsed.origin === GITHUB_WEB && segments.length >= 3 && isRepo(`${segments[0]}/${segments[1]}`)
-  const maven = parsed.origin === MAVEN_CENTRAL && segments.length > MAVEN_FACEBOOK.length && MAVEN_FACEBOOK.every((segment, i) => segments[i] === segment) && MAVEN_ARCHIVE.test(segments.at(-1))
+  const maven = value.startsWith(MAVEN_FACEBOOK) && MAVEN_ARCHIVE.test(value)
   if (!github && !maven) return false
   try {
     return buildUrl(parsed.origin, segments) === value
@@ -62,7 +61,7 @@ function isArchiveUrl(value) {
     return false
   }
 }
-const assertArchiveUrl = assertion('an https URL of a GitHub repository\'s, with a path under it, or of a .tar.gz or a .zip under Maven Central\'s com/facebook/', isArchiveUrl)
+const assertPodArchiveUrl = assertion('an https URL of a GitHub repository\'s, with a path under it, or of a .tar.gz or a .zip under Maven Central\'s com/facebook/', isPodArchiveUrl)
 
 // An archive a podspec's source names by :http, held to the sha256 the
 // podspec gives of it: a sha1 alone, which two archives made to collide
@@ -72,7 +71,7 @@ const assertArchiveUrl = assertion('an https URL of a GitHub repository\'s, with
 // repo.reactnative.dev, which is followed: the bytes are held to the hash
 // whoever answers.
 export async function getPodArchive(url, sha256) {
-  assertArchiveUrl('getPodArchive', 'url', url)
+  assertPodArchiveUrl('getPodArchive', 'url', url)
   assertSha256('getPodArchive', 'sha256', sha256)
   return await verifiedDownload({
     method: 'getPodArchive', dir: ARCHIVES, what: url, entry: `sha256-${sha256}`, ext: 'archive', algorithm: 'sha256', expected: sha256,
