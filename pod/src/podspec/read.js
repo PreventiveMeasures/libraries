@@ -4,12 +4,12 @@
 
 import { dirname } from 'node:path'
 
-import { PodError } from './error.js'
-import { PROXIES, expression, interpolate, list, sum } from './podspec-expr.js'
-import { addDependency, newSpec, setAttribute, specJson } from './podspec-json.js'
-import { plus } from './podspec-methods.js'
-import { changed, expect, fail, is, next, peek, skipLines, text, truthy } from './podspec-parse.js'
-import { tokenize } from './podspec-tokens.js'
+import { PodError } from '../error.js'
+import { PROXIES, expression, interpolate, list, sum } from './expr.js'
+import { addDependency, newSpec, setAttribute, specJson } from './json.js'
+import { plus } from './methods.js'
+import { changed, expect, fail, is, next, peek, skipLines, text, truthy } from './parse.js'
+import { tokenize } from './tokens.js'
 
 const SPECS = { subspec: 'library', test_spec: 'test', app_spec: 'app' }
 const DEFAULT_NAMES = { test: 'Tests', app: 'App' }
@@ -269,8 +269,8 @@ function statement(p) {
   return void endStatement(p)
 }
 
-// The two forms of specJson of the podspec at `path`, whose text is `source`. `files` is `{ read, glob, kind }`
-// (load.js's), `context` what it is read in (load.js's); `conditions` says what of the context it was read by.
+// The two forms of specJson of the podspec at `path`, whose text is `source`. `files` is `{ read, glob, kind }` and
+// `context` what it is read in, both podspec.js's; `conditions` says what of the context it was read by.
 export function podspecJson(path, source, files, where, context = ALONE) {
   const p = { tokens: tokenize(source, where), at: 0, where, path, dir: dirname(path), files, context, locals: new Map(), globals: new Map(), specs: new Map(), env: new Map(), helpers: new Set(), state: { changes: 0, braces: 0 }, frozen: /^#\s*frozen_string_literal:\s*true/mu.test(source) }
   let root

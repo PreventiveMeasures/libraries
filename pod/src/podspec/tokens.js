@@ -1,7 +1,7 @@
-// The tokens of a podspec in podspec-read.js's form: names, literals, punctuation and the operators of a
+// The tokens of a podspec in read.js's form: names, literals, punctuation and the operators of a
 // condition. Anything else of Ruby is refused, with its line.
 
-import { PodError } from './error.js'
+import { PodError } from '../error.js'
 
 const ESCAPES = { n: '\n', t: '\t', r: '\r', s: ' ', e: '\u001B', 0: '\0', a: '\u0007', b: '\b', f: '\f', v: '\v' }
 const CLOSERS = { '(': ')', '[': ']', '{': '}', '<': '>' }

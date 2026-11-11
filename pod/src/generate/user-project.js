@@ -3,7 +3,7 @@
 
 import { basename } from 'node:path'
 
-import { PodError, quote } from './error.js'
+import { PodError, quote } from '../error.js'
 import { parseAscii } from './plist.js'
 
 const PRODUCT_TYPES = {

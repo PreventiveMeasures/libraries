@@ -1,9 +1,9 @@
 // React Native's podspec helpers, of scripts/react_native_pods.rb and what it loads, each a port of a family's
-// Ruby (podspec-rn.js). A helper takes `{ args, options, env, prebuilt, refuse }`: its arguments in place and by
+// Ruby (rn.js). A helper takes `{ args, options, env, prebuilt, refuse }`: its arguments in place and by
 // name, `env(name)` of the environment or null, whether the `core` and `deps` are prebuilt, and a refusal.
 
-import { addDependency, setAttribute } from './podspec-json.js'
-import { CXX, FOLLY_FLAGS, FOLLY_FLAGS_78, FOLLY_VERSION, configOf, frameworkPath, install78, installLater, isText, prebuiltCore, store, thirdParty, words } from './podspec-rn-modules.js'
+import { addDependency, setAttribute } from './json.js'
+import { CXX, FOLLY_FLAGS, FOLLY_FLAGS_78, FOLLY_VERSION, configOf, frameworkPath, install78, installLater, isText, prebuiltCore, store, thirdParty, words } from './rn-modules.js'
 
 const IOS = '15.1'
 const FOLLY_CONFIG_FILE = ['#pragma once', '', '#define FOLLY_MOBILE 1', '#define FOLLY_USE_LIBCPP 1', '#define FOLLY_HAVE_PTHREAD 1', '#define FOLLY_CFG_NO_COROUTINES 1', '#define FOLLY_HAVE_CLOCK_GETTIME 1', '', '#pragma clang diagnostic ignored "-Wcomma"']

@@ -1,8 +1,8 @@
 // A specification as CocoaPods' DSL builds one, and its to_pretty_json: what Pods/Local Podspecs keeps and
 // Podfile.lock has the sha1 of. A hash is a Map, so that its keys keep their order.
 
-import { PodError, quote } from './error.js'
-import { compareVersions, maxVersion } from './targets.js'
+import { PodError, quote } from '../error.js'
+import { compareVersions, maxVersion } from '../order.js'
 
 // The attribute each singular writer sets.
 const SINGULAR = {

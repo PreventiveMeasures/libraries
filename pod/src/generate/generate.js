@@ -1,11 +1,13 @@
-// What `pod install` generates in Pods/ beside the pods: the Pods project, every target's support files and the
-// header links, all worked out before anything is written.
+// Stage 4: what `pod install` generates in Pods/ beside the pods: the Pods project, every target's support files
+// and the header links, all worked out before anything is written.
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 
-import { PodError } from './error.js'
-import { glob, licenseOf } from './files.js'
+import { PodError } from '../error.js'
+import { compareVersions } from '../order.js'
+import { glob } from '../pathlist.js'
+import { licenseOf } from './files.js'
 import { headersOf } from './headers.js'
 import { writeProject } from './pbxproj.js'
 import { addAggregateTarget, wireDependencies } from './project-aggregate.js'
@@ -14,8 +16,12 @@ import { addSystemFramework, configurationsOf, newGroup, newProject, normalizeSe
 import { aggregateConfig } from './settings-aggregate.js'
 import { podSettings } from './settings-pod.js'
 import { deploymentTarget } from './spec.js'
-import { analyze, compareVersions } from './targets.js'
+import { analyze } from './targets.js'
 import { configText } from './xcconfig.js'
+
+// What load.js reads for this stage: a podspec's JSON as a spec, and the app's project.
+export { readSpec } from './spec.js'
+export { readUserProject } from './user-project.js'
 
 // FileAccessor#developer_files of a local pod.
 function developerFiles(target) {

@@ -1,8 +1,7 @@
 // The operators and the few methods of a value that a podspec read without Ruby may use.
 
-import { changed, fail, text } from './podspec-parse.js'
-import { compareVersions } from './targets.js'
-import { byBytes } from './xcconfig.js'
+import { byBytes, compareVersions } from '../order.js'
+import { changed, fail, text } from './parse.js'
 
 const isList = Array.isArray
 const isText = (value) => typeof value === 'string'

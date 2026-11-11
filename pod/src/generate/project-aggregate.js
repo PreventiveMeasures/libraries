@@ -3,8 +3,8 @@
 
 import { join } from 'node:path'
 
-import { addDependency, addFile, addSystemFramework, configurationsOf, newFile, newGroup, newTarget, setAll, targetDefaults } from './project.js'
 import { COMPILED } from './project-resources.js'
+import { addDependency, addFile, addSystemFramework, configurationsOf, newFile, newGroup, newTarget, setAll, targetDefaults } from './project.js'
 import { BUILD_DIR, XCFRAMEWORKS_DIR } from './settings.js'
 import * as support from './support.js'
 import { configText } from './xcconfig.js'

@@ -1,7 +1,7 @@
 // A podspec as cocoapods-core 1.16 reads one from JSON, and its Consumer's attributes on a platform: a spec's own
 // value, the platform's over it, and an inherited attribute's parent's under both. Test and app specs are skipped.
 
-import { PodError, quote } from './error.js'
+import { PodError, quote } from '../error.js'
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const A = { container: 'array' }

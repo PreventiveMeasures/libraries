@@ -3,23 +3,16 @@
 
 import { extname } from 'node:path'
 
-import { PodError, quote } from './error.js'
-import { accessorOf, listPod } from './files.js'
+import { PodError, quote } from '../error.js'
+import { byBytes, maxVersion } from '../order.js'
+import { listPod } from '../pathlist.js'
+import { accessorOf } from './files.js'
 import { consumerOf, deploymentTarget, rootOf, specNamed, supports } from './spec.js'
-import { byBytes } from './xcconfig.js'
 
 function fail(detail, where) {
   throw new PodError(detail, where)
 }
 
-// Pod::Version's order, by the numbers a version is made of.
-export function compareVersions(a, b) {
-  const x = String(a).split('.').map(Number)
-  const y = String(b).split('.').map(Number)
-  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
-  return 0
-}
-export const maxVersion = (versions) => versions.reduce((most, version) => (compareVersions(version, most) > 0 ? version : most))
 
 // The product types whose pods' frameworks their host embeds, and those of an app extension.
 const HOSTED = new Set(['app_extension', 'framework', 'static_library', 'messages_extension', 'watch_extension', 'xpc_service'])

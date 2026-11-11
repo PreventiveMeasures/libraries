@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { newGroup, newProject } from '../src/project.js'
-import { addKnownRegions, addLocalized, allowablePaths, mergeDocc, resourceRefs } from '../src/project-resources.js'
+import { newGroup, newProject } from '../src/generate/project.js'
+import { addKnownRegions, addLocalized, allowablePaths, mergeDocc, resourceRefs } from '../src/generate/project-resources.js'
 
 // What the fixtures hold too, of CocoaPods 1.16.2's own output; here by the case, and what no fixture has.
 const listOf = (files, dirs) => ({ files, dirs })

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { podspecJson } from '../src/podspec-read.js'
+import { podspecJson } from '../src/podspec/read.js'
 
 // Each fixture is a podspec in the form read, with the JSON CocoaPods 1.16.2 itself writes of it beside it,
 // Specification.from_file(...).to_pretty_json, by a Ruby whose json writes an empty list over lines.

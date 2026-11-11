@@ -1,18 +1,13 @@
-// A pod's files as CocoaPods' PathList lists and globs them, and what a spec's FileAccessor makes of them.
-// Paths are from the pod's directory.
+// A pod's directory as CocoaPods' PathList lists it and matches its file patterns, and Dir.glob, which a podspec
+// read without Ruby may call. Paths are from the pod's directory.
 
 import { readdirSync, statSync } from 'node:fs'
-import { extname, join } from 'node:path'
+import { join } from 'node:path'
 
 import { expandBraces, matcher } from '@preventive/deptree/src/cocoapods/fnmatch.js'
 
 import { PodError, quote } from './error.js'
-import { byBytes } from './xcconfig.js'
-
-// Xcodeproj's header extensions, and FileAccessor's source extensions.
-export const HEADERS = ['.h', '.hh', '.hpp', '.ipp', '.tpp', '.hxx', '.def', '.inl', '.inc']
-export const SOURCES = ['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS]
-const DIR_PATTERNS = { source_files: `*{${SOURCES.join(',')}}`, public_header_files: `*{${HEADERS.join(',')}}` }
+import { byBytes } from './order.js'
 
 // Ruby's sort_by(&:upcase), each path's key computed once.
 const byUpcase = (paths) => paths.map((path) => [path, Buffer.from(path.toUpperCase())]).sort(([, a], [, b]) => Buffer.compare(a, b)).map(([path]) => path)
@@ -77,46 +72,4 @@ export function dirGlob(dir, pattern, where) {
   const list = listPod(join(dir, base), where)
   const found = glob(list, [segments.slice(literal).join('/')], { includeDirs: true })
   return found.map((path) => (base === '' ? path : `${base}/${path}`)).sort(byBytes)
-}
-
-const unique = (paths) => [...new Set(paths)]
-const isHeader = (path) => HEADERS.includes(extname(path))
-
-// A spec's FileAccessor for `consumer`, spec.js's consumerOf.
-export function accessorOf(list, consumer) {
-  const exclude = consumer.exclude_files
-  const paths = (attribute, includeDirs = false) => unique(glob(list, consumer[attribute], { exclude, dirPattern: DIR_PATTERNS[attribute], includeDirs }))
-  const sourceFiles = paths('source_files')
-  const headers = sourceFiles.filter(isHeader)
-  const publicGiven = paths('public_header_files')
-  const projectHeaders = paths('project_header_files')
-  const privateHeaders = paths('private_header_files')
-  const hidden = new Set([...projectHeaders, ...privateHeaders])
-  const vendoredFrameworks = paths('vendored_frameworks', true)
-  const requiresArc = consumer.requires_arc
-  const arc = requiresArc === true ? sourceFiles : requiresArc === false ? [] : unique(glob(list, [requiresArc].flat(), { exclude })).filter((path) => sourceFiles.includes(path))
-  return {
-    spec: consumer.spec,
-    consumer,
-    list,
-    sourceFiles,
-    headers,
-    publicHeaders: (publicGiven.length === 0 ? headers : publicGiven).filter((path) => !hidden.has(path)),
-    projectHeaders,
-    privateHeaders,
-    arcSourceFiles: arc,
-    resources: paths('resources', true),
-    resourceBundles: Object.fromEntries(Object.entries(consumer.resource_bundles).map(([name, patterns]) => [name, unique(glob(list, patterns, { exclude, includeDirs: true }))])),
-    vendoredFrameworks,
-    vendoredXcframeworks: vendoredFrameworks.filter((path) => extname(path) === '.xcframework'),
-    vendoredLibraries: paths('vendored_libraries'),
-    moduleMap: typeof consumer.module_map === 'string' ? consumer.module_map : undefined,
-    prefixHeader: typeof consumer.prefix_header_file === 'string' ? consumer.prefix_header_file : undefined,
-  }
-}
-
-// FileAccessor#license: the root's `license.file` where it is there, else the first `licen{c,s}e{*,.*}`.
-export function licenseOf(list, license) {
-  if (typeof license.file === 'string' && list.files.includes(license.file)) return license.file
-  return glob(list, ['licen{c,s}e{*,.*}'])[0]
 }

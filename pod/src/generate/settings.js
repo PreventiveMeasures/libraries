@@ -1,7 +1,8 @@
 // What the build settings of pod and app targets share: values written as an .xcconfig takes them, and the specs'
 // xcconfigs merged into one.
 
-import { byBytes, mergeSettings, newConfig } from './xcconfig.js'
+import { byBytes } from '../order.js'
+import { mergeSettings, newConfig } from './xcconfig.js'
 
 // The settings whose values are lists.
 const PLURAL = new Set([

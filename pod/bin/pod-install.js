@@ -6,7 +6,7 @@
 // Manifest.lock -- as CocoaPods 1.16 does, for the app's own project to build with as it is.
 //
 // A podspec is taken as <name>.podspec.json, the JSON CocoaPods keeps of one, or as <name>.podspec where that
-// is in the form read without Ruby (src/podspec-read.js): from Podspecs/ beside the lockfile, else from where
+// is in the form read without Ruby (src/podspec/read.js): from Podspecs/ beside the lockfile, else from where
 // the lockfile has the pod. Either way it is held to the lockfile's checksum, the sha1 of that JSON.
 
 import { resolve } from 'node:path'

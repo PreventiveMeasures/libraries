@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { readUserProject } from '../src/user-project.js'
+import { readUserProject } from '../src/generate/user-project.js'
 
 // The dynamic fixture's project, as CocoaPods integrated it, and as it would have with its Debug configuration
 // under another name: the configuration's, and its xcconfigs' after it.

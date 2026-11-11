@@ -4,10 +4,10 @@
 import { readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 
-import { PodError, quote } from './error.js'
+import { PodError, quote } from '../error.js'
+import { byBytes } from '../order.js'
 import { parseXml } from './plist.js'
 import { newFile, newGroup, pathFrom } from './project.js'
-import { byBytes } from './xcconfig.js'
 
 // The resources that are compiled, and the extension each is compiled to.
 export const COMPILED = { '.storyboard': '.storyboardc', '.xib': '.nib', '.xcdatamodel': '.mom', '.xcdatamodeld': '.momd', '.xcmappingmodel': '.cdm' }
