@@ -1,4 +1,4 @@
-// What reading a podspec in the form podspec-read.js reads is done with: the token at hand, and what is refused.
+// The token at hand, and what is refused, in reading a podspec without Ruby.
 
 import { PodError } from './error.js'
 import { plain } from './podspec-json.js'
@@ -16,7 +16,7 @@ export function expect(p, type, value) {
 export const skipLines = (p) => {
   while (is(p, 'newline') || is(p, ';')) next(p)
 }
-// What holds, to Ruby: all but nil and false.
+// Ruby's truth: all but nil and false.
 export const truthy = (value) => value !== null && value !== false
 
 // A value as Ruby's to_s has it in a string.
@@ -27,7 +27,7 @@ export function text(p, value) {
   return typeof value === 'boolean' ? String(value) : fail(p, 'a list, a hash or a specification in a string')
 }
 
-// Something of the podspec is changed, a list, a hash or a specification: which the side of a condition that
-// is not taken may not do, both sides being read. `untaken` refuses one that did.
+// Both sides of a condition are read, so changes are counted: `untaken` refuses the side not taken where it
+// changed a list, a hash or a specification.
 export const changed = (p) => void p.state.changes++
 export const untaken = (p, did, token) => did && fail(p, 'a change in the side of a condition that is not taken', token)

@@ -1,4 +1,4 @@
-// What pod refuses: a project, a pod or a file it does not take, never guessed at. `where` is what it is about.
+// A refusal of input pod does not take, never guessed around. `where` names what it is about.
 export class PodError extends Error {
   constructor(detail, where, options) {
     super(where === undefined ? detail : `${where}: ${detail}`, options)

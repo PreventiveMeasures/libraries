@@ -1,5 +1,5 @@
-// The app's Xcode project, as `pod install` integrated it once: which of its targets take pods, by the
-// Pods-<name> xcconfig each configuration of one is based on, and what CocoaPods' analyzer reads of each.
+// The app's Xcode project as `pod install` integrated it: which targets take pods, by the Pods-<name> xcconfig
+// their configurations are based on, and what CocoaPods' analyzer reads of each.
 
 import { basename } from 'node:path'
 
@@ -22,7 +22,7 @@ const PRODUCT_TYPES = {
   'com.apple.product-type.xpc-service': 'xpc_service',
 }
 
-// A setting of a target, alike in each of its configurations, by the target's own value and else the project's.
+// A setting of a target, alike in each of its configurations: the target's own value, else the project's.
 function common(objects, lists, key, where) {
   const [own, project] = lists.map((list) => objects[list].buildConfigurations.map((id) => objects[id]))
   const values = new Set(own.map((configuration) => configuration.buildSettings[key] ?? project.find((other) => other.name === configuration.name)?.buildSettings[key]))
@@ -30,10 +30,9 @@ function common(objects, lists, key, where) {
   return [...values][0]
 }
 
-// The label of the Pods target an xcconfig is of, by its file's name as Target#xcconfig_path has it:
-// `<label>.<the configuration's name, in lower case, its slashes dashes>.xcconfig`. The name may have a period
-// in it, and so may the label; where the file is of another configuration's name, as of one copied in Xcode
-// since, the last part before `.xcconfig` is taken for it.
+// The Pods target's label, by Target#xcconfig_path: `<label>.<configuration, lower case, `/` as `-`>.xcconfig`.
+// Either may have a period; where the file is of another configuration, as one copied in Xcode since, the last
+// part before `.xcconfig` is taken for its name.
 function labelOf(path, configuration) {
   const name = path === undefined ? '' : basename(path)
   const suffix = `.${configuration.replaceAll('/', '-').toLowerCase()}.xcconfig`
@@ -41,10 +40,8 @@ function labelOf(path, configuration) {
   return /^(Pods-.+)\.[^.]+\.xcconfig$/u.exec(name)?.[1]
 }
 
-// `text` is the project.pbxproj. A target's label is the name of its aggregate target, `Pods-<name>`, or
-// undefined; its configurations are their names, in its own order; its scripts are those of Pods/ that its
-// own phases run, each by its path from Target Support Files; its dependencies are the ids of the targets it
-// depends on, which it is the host of where they are embedded in it.
+// `text` is the project.pbxproj. A target's label is its Pods target's name, or undefined; its scripts are those
+// its phases run, from Target Support Files; its dependencies are ids, of the targets it hosts where embedded.
 export function readUserProject(text, where) {
   const { objects, rootObject, objectVersion } = parseAscii(text, where)
   const project = objects?.[rootObject]

@@ -1,6 +1,5 @@
-// What CocoaPods makes of a pod's localized files and its other resources in the Pods project: which of its
-// paths get a reference at all, the variant group that holds a file of an .lproj directory, the regions the
-// project knows of, and the references a target's phases take for a list of resources.
+// A pod's resources in the Pods project: which paths get a reference, the variant groups of .lproj files, the
+// project's known regions, and the references a target's phases take.
 
 import { readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
@@ -10,11 +9,13 @@ import { parseXml } from './plist.js'
 import { newFile, newGroup, pathFrom } from './project.js'
 import { byBytes } from './xcconfig.js'
 
+// The resources that are compiled, and the extension each is compiled to.
+export const COMPILED = { '.storyboard': '.storyboardc', '.xib': '.nib', '.xcdatamodel': '.mom', '.xcdatamodeld': '.momd', '.xcmappingmodel': '.cdm' }
 export const isLproj = (name) => name.toLowerCase().includes('.lproj')
 
 const dirsOf = (list) => list.dirSet ??= new Set(list.dirs)
 
-// merge_to_docc_folder: a documentation catalog is one reference, of its directory, for the files in it.
+// merge_to_docc_folder: a documentation catalog is one reference, of its directory.
 export function mergeDocc(list, paths) {
   const dirs = dirsOf(list)
   const catalogs = new Set()
@@ -26,9 +27,8 @@ export function mergeDocc(list, paths) {
   return [...rest, ...catalogs]
 }
 
-// FileReferencesInstaller#allowable_project_paths: the paths that get a reference. Not what is inside a data
-// model, a mapping model or an asset catalog, whose directory has one; and an .lproj directory only where no
-// file of it has one, after all the others.
+// FileReferencesInstaller#allowable_project_paths: not what is in a data model, a mapping model or an asset
+// catalog, whose directory has the reference; an .lproj directory only where none of its files has one, last.
 export function allowablePaths(list, paths) {
   const dirs = dirsOf(list)
   const empty = new Set()
@@ -47,8 +47,8 @@ export function allowablePaths(list, paths) {
   return [...allowed, ...[...empty].filter((path) => !filled.has(path))]
 }
 
-// Project#variant_group_name: a localized file's own name; and of the .strings beside an interface file of
-// Base.lproj, that file's. CocoaPods asks the disk, which on a Mac tells no case apart unless made to.
+// Project#variant_group_name: a localized file's own name, or of a .strings beside an interface file of
+// Base.lproj, that file's. Case is ignored, as by a Mac's disk.
 function variantName(list, path) {
   const extension = posix.extname(path)
   if (extension.toLowerCase() !== '.strings') return posix.basename(path)
@@ -59,8 +59,8 @@ function variantName(list, path) {
   return found === undefined ? posix.basename(path) : `${stem}${found}`
 }
 
-// Project#group_for_path_in_group and #add_file_reference, of a file whose directory is an .lproj: its
-// reference is in a variant group, one in the whole project for the directory the .lproj is in and the name.
+// Project#group_for_path_in_group and #add_file_reference of a file in an .lproj: its reference is in the
+// project's one variant group of the .lproj's directory and the name.
 export function addLocalized(project, group, target, path) {
   const name = variantName(target.list, path)
   const dir = join(target.dir, posix.dirname(posix.dirname(path)))
@@ -72,9 +72,8 @@ export function addLocalized(project, group, target, path) {
   return ref
 }
 
-// FileReferencesFactory#new_xcdatamodeld: a data model is no file's reference but a version group, of the
-// versions in it, the current one as its .xccurrentversion names it. Xcodeproj has the versions as the disk
-// lists them; here they are in the order of their names.
+// FileReferencesFactory#new_xcdatamodeld: a version group of the model's versions, the current one as its
+// .xccurrentversion names it. They are in the order of their names, where Xcodeproj has the disk's.
 export function addDataModel(project, group, target, path) {
   const real = join(target.dir, path)
   if (project.refs.has(real)) return project.refs.get(real)
@@ -98,15 +97,15 @@ export function addDataModel(project, group, target, path) {
   return ref
 }
 
-// FileReferencesInstaller#add_known_regions: the regions of the references' .lproj directories, with those the
-// project has, in the order of their bytes.
+// FileReferencesInstaller#add_known_regions: the project's regions and those of the references' .lproj
+// directories, sorted.
 export function addKnownRegions(project, refs) {
   const regions = refs.map((ref) => /(?:\/|^)(?<region>[^/]*?)\.lproj(?:\/|$)/u.exec(ref.path)?.groups.region).filter((region) => region !== undefined)
   project.root.knownRegions = [...new Set([...project.root.knownRegions, ...regions])].sort()
 }
 
-// PodTargetInstaller#filter_resource_file_references: the references of `paths`, each once, a variant group
-// for what is in one, and none for a path that has none; those that are compiled apart from the others.
+// PodTargetInstaller#filter_resource_file_references: the references of `paths` once each, a variant group for
+// what is in one, the compiled apart from the copied.
 export function resourceRefs(project, target, paths) {
   const found = paths.map((path) => project.refs.get(join(target.dir, path))).filter((ref) => ref !== undefined)
   const refs = [...new Set(found.map((ref) => ref._variant ?? ref))]

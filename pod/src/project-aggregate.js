@@ -1,19 +1,19 @@
-// An app target's Pods target in the Pods project, as CocoaPods' AggregateTargetInstaller puts it there: what
-// the app links, depending on every pod it takes, with its support files; and what each target depends on.
+// An app target's Pods target in the Pods project, as AggregateTargetInstaller adds it: what the app links, with
+// its support files; and the dependencies between targets.
 
 import { join } from 'node:path'
 
-import { addDependency, addFile, addSystemFramework, newFile, newGroup, newTarget, only64Bit } from './project.js'
+import { addDependency, addFile, addSystemFramework, configurationsOf, newFile, newGroup, newTarget, setAll, targetDefaults } from './project.js'
+import { COMPILED } from './project-resources.js'
 import { BUILD_DIR, XCFRAMEWORKS_DIR } from './settings.js'
+import * as support from './support.js'
 import { configText } from './xcconfig.js'
 
-const COMPILED = { '.storyboard': '.storyboardc', '.xib': '.nib', '.xcdatamodel': '.mom', '.xcdatamodeld': '.momd', '.xcmappingmodel': '.cdm' }
 const extensionOf = (path) => /\.[^./]+$/u.exec(path)?.[0] ?? ''
+const fileName = (path) => path.split('/').at(-1)
 
-// PodTarget#resource_paths, as AggregateTarget#resource_paths_by_config takes them: a pod's resources from
-// Pods/, a compiled one of a static framework where its build leaves it, and each of its bundles. CocoaPods
-// asks how the pod is built and not whether it is: one with nothing to build has its compiled resources named
-// in a framework all the same where it is a static one, and where they are where it is a dynamic one.
+// PodTarget#resource_paths, as AggregateTarget#resource_paths_by_config takes them. Of a static framework, a
+// compiled resource is where its build leaves it: CocoaPods asks how the pod is built, not whether it is.
 function resourcePaths(pod) {
   if (pod.shouldBuild && pod.framework && !pod.static) return []
   const paths = pod.accessors.flatMap((accessor) => [
@@ -24,14 +24,13 @@ function resourcePaths(pod) {
   return [...new Set(paths.map((path) => {
     const extension = extensionOf(path)
     if (COMPILED[extension] === undefined) return path
-    const parts = [...path.split('/').filter((part) => extensionOf(part) === '.lproj'), path.split('/').at(-1).slice(0, -extension.length) + COMPILED[extension]]
+    const parts = [...path.split('/').filter((part) => extensionOf(part) === '.lproj'), fileName(path).slice(0, -extension.length) + COMPILED[extension]]
     return `\${BUILT_PRODUCTS_DIR}/${pod.label}/${pod.productName}/${parts.join('/')}`
   }))]
 }
 
-// PodTarget#framework_paths. What the app embeds: of each spec of a pod, its dynamic libraries and frameworks
-// as they are vended, then the framework the pod is built as; and its dynamic .xcframeworks, whose slice for
-// the build is copied where the app takes it from.
+// PodTarget#framework_paths: of each spec, its vended dynamic libraries and frameworks, then the pod's own
+// framework where it is built as a dynamic one.
 function frameworkPaths(pod) {
   const built = pod.shouldBuild && pod.framework && !pod.static ? [`\${BUILT_PRODUCTS_DIR}/${pod.label}/${pod.productName}`] : []
   return [...new Set(pod.settings.vendored.artifacts.flatMap((paths) => [...paths.map((path) => `\${PODS_ROOT}/${join(pod.sandboxPath, path)}`), ...built]))]
@@ -39,27 +38,19 @@ function frameworkPaths(pod) {
 const dynamicXcframeworks = (pod) => pod.settings.xcframeworks.filter((one) => one.framework && one.dynamic)
 
 const OUTPUT_EXTENSIONS = { ...COMPILED, '.xcassets': '.car' }
-// TargetIntegrator.resource_output_paths: where the resources script leaves each resource in the app.
+// TargetIntegrator.resource_output_paths.
 function resourceOutputs(resources) {
   return [...new Set(resources.map((path) => {
     const extension = extensionOf(path)
-    const name = extension === '.xcassets' ? 'Assets' : path.split('/').at(-1).slice(0, path.split('/').at(-1).length - extension.length)
+    const name = extension === '.xcassets' ? 'Assets' : fileName(path).slice(0, fileName(path).length - extension.length)
     return `\${TARGET_BUILD_DIR}/\${UNLOCALIZED_RESOURCES_FOLDER_PATH}/${name}${OUTPUT_EXTENSIONS[extension] ?? extension}`
   }))]
 }
 
-const byConfiguration = (project, value) => Object.fromEntries(Object.keys(project.configurations).map((name) => [name, value]))
-
-// `context` writes the support files, and has support.js's texts and the aggregate's .xcconfig.
+// `context` is generate.js's.
 export function addAggregateTarget(project, aggregate, context) {
-  const { support } = context
   const settings = {
-    ...(only64Bit(aggregate.platform.target, context.objectVersion) ? { ARCHS: '$(ARCHS_STANDARD_64_BIT)' } : {}),
-    ENABLE_USER_SCRIPT_SANDBOXING: 'NO',
-    ENABLE_MODULE_VERIFIER: 'NO',
-    'CODE_SIGN_IDENTITY[sdk=appletvos*]': '',
-    'CODE_SIGN_IDENTITY[sdk=iphoneos*]': '',
-    'CODE_SIGN_IDENTITY[sdk=watchos*]': '',
+    ...targetDefaults(aggregate.platform.target, context.objectVersion),
     MACH_O_TYPE: 'staticlib',
     OTHER_LDFLAGS: '',
     OTHER_LIBTOOLFLAGS: '',
@@ -77,20 +68,17 @@ export function addAggregateTarget(project, aggregate, context) {
     return newFile(project, group, join(dir, name))
   }
   const text = configText(context.config(aggregate))
-  for (const configuration of native.buildConfigurationList.buildConfigurations) configuration.baseConfigurationReference = addSupport(`${aggregate.label}.${configuration.name.replaceAll('/', '-').toLowerCase()}.xcconfig`, text)
-  const setAll = (key, value) => {
-    for (const configuration of native.buildConfigurationList.buildConfigurations) configuration.buildSettings[key] = value
-  }
+  for (const configuration of configurationsOf(native)) configuration.baseConfigurationReference = addSupport(`${aggregate.label}.${configuration.name.replaceAll('/', '-').toLowerCase()}.xcconfig`, text)
   if (aggregate.framework) {
     addSupport(`${aggregate.label}-Info.plist`, support.infoPlist('1.0.0', 'FMWK'))
-    setAll('INFOPLIST_FILE', `Target Support Files/${aggregate.label}/${aggregate.label}-Info.plist`)
+    setAll(native, 'INFOPLIST_FILE', `Target Support Files/${aggregate.label}/${aggregate.label}-Info.plist`)
   }
   if (aggregate.framework || aggregate.podTargets.some((pod) => pod.usesSwift)) {
     addSupport(`${aggregate.label}.modulemap`, support.moduleMap(aggregate))
-    setAll('MODULEMAP_FILE', `Target Support Files/${aggregate.label}/${aggregate.label}.modulemap`)
+    setAll(native, 'MODULEMAP_FILE', `Target Support Files/${aggregate.label}/${aggregate.label}.modulemap`)
     addFile(native, 'Headers', addSupport(`${aggregate.label}-umbrella.h`, support.umbrellaHeader(aggregate)), { ATTRIBUTES: [aggregate.framework ? 'Public' : 'Project'] })
   }
-  // The lists of what the app's own script phases read and write, one for each of its configurations.
+  // The input and output file lists of the app's script phase, for each of its configurations.
   const lists = (kind, inputs, outputs) => {
     if (Number(context.objectVersion) < 50) return
     const script = `\${PODS_ROOT}/Target Support Files/${aggregate.label}/${aggregate.label}-${kind}.sh`
@@ -99,18 +87,19 @@ export function addAggregateTarget(project, aggregate, context) {
       context.write(aggregate, `${aggregate.label}-${kind}-${name}-output-files.xcfilelist`, outputs.join('\n'))
     }
   }
+  const configurations = Object.keys(project.configurations)
   const frameworks = [...new Set(aggregate.podTargets.flatMap(frameworkPaths))]
   const xcframeworks = aggregate.podTargets.flatMap(dynamicXcframeworks)
-  const embedded = xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
   if (frameworks.length + xcframeworks.length > 0 && !aggregate.requiresHostTarget) {
-    addSupport(`${aggregate.label}-frameworks.sh`, support.frameworksScript(byConfiguration(project, [...frameworks, ...embedded])))
-    const outputs = [...new Set(frameworks.map((path) => `\${TARGET_BUILD_DIR}/\${FRAMEWORKS_FOLDER_PATH}/${path.split('/').at(-1)}`)), ...xcframeworks.map((one) => `\${TARGET_BUILD_DIR}/\${FRAMEWORKS_FOLDER_PATH}/${one.name}.framework`)]
+    const embedded = xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework`)
+    addSupport(`${aggregate.label}-frameworks.sh`, support.frameworksScript(configurations, [...frameworks, ...embedded]))
+    const outputs = [...new Set(frameworks.map((path) => `\${TARGET_BUILD_DIR}/\${FRAMEWORKS_FOLDER_PATH}/${fileName(path)}`)), ...xcframeworks.map((one) => `\${TARGET_BUILD_DIR}/\${FRAMEWORKS_FOLDER_PATH}/${one.name}.framework`)]
     lists('frameworks', [...frameworks, ...xcframeworks.map((one) => `${XCFRAMEWORKS_DIR}/${one.targetName}/${one.name}.framework/${one.name}`)], outputs)
   }
   const resources = [...new Set(aggregate.podTargets.flatMap(resourcePaths))]
   if (resources.length > 0) {
-    addSupport(`${aggregate.label}-resources.sh`, support.resourcesScript(byConfiguration(project, resources), aggregate.platform.target))
-    // The lists are of the phase CocoaPods puts in the app's target, and it puts none in a static library.
+    addSupport(`${aggregate.label}-resources.sh`, support.resourcesScript(configurations, resources, aggregate.platform.target))
+    // CocoaPods puts no resources phase in a static library, and so writes no lists for one.
     if (aggregate.userTarget.productType !== 'static_library') lists('resources', resources, resourceOutputs(resources))
   }
   const { markdown, plist } = support.acknowledgements(aggregate.podTargets)
@@ -122,10 +111,10 @@ export function addAggregateTarget(project, aggregate, context) {
 }
 
 // PodTargetDependencyInstaller and AggregateTargetDependencyInstaller: a pod's target depends on its resource
-// bundles' and on those of the pods it depends on itself; an app's Pods target on every pod it takes.
+// bundles' and on the pods it depends on; an app's Pods target on every pod it takes.
 export function wireDependencies(project, pods, aggregates) {
   for (const pod of pods) {
-    // A dynamic framework has its bundles in it, as resources of its own; the app copies none of them.
+    // A dynamic framework carries its bundles as resources of its own.
     const dynamic = pod.shouldBuild && pod.framework && !pod.static
     for (const bundle of pod.bundles) {
       addDependency(project, pod.native, bundle)

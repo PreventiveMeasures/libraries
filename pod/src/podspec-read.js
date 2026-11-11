@@ -1,26 +1,6 @@
 // A podspec read without Ruby, where it is in a strict form that says what it is rather than computes it:
-//
-//   require 'json'
-//   package = JSON.parse(File.read(File.join(__dir__, 'package.json')))
-//   Pod::Spec.new do |s|
-//     s.name = 'Name'                      # literals: strings, with #{...} of a name; symbols; numbers;
-//     s.version = package['version']       #   true, false, nil; lists; hashes; %w(...); heredocs
-//     s.source = { :git => package['repository']['url'], :tag => "v#{s.version}" }
-//     s.ios.deployment_target = '13.0'     # an attribute of one platform
-//     s.dependency 'Other', '~> 1.0'
-//     s.subspec 'Sub' do |ss| ... end      # and test_spec, app_spec
-//     if ENV['RCT_NEW_ARCH_ENABLED'] == '1'  # a condition: if, unless, elsif, else, `... if`, ?:, ==, !=, <, >,
-//       install_modules_dependencies(s)    #   !, &&, ||; and a helper of React Native's, podspec-rn.js's
-//     end
-//     paths.each { |path| list << path }   # each of a list or a hash that is at hand; a list or a text added
-//   end                                    #   to; a hash given a value by a key
-//
-// What it reads beyond itself is given to it: files, read and listed, never run; the variables of the
-// environment and the globals of a Podfile, as pod.config.json's `env` and `globals` have them; and React
-// Native's helpers, of the version the lockfile has, where that is one they are known of. No loop but over
-// what is at hand, no method but the few of podspec-methods.js, no script loaded, no command run. Anything else
-// is refused, but in the branch of a condition that does not hold, which is passed over; and what is read is
-// held to the lockfile's checksum by the caller, as the JSON CocoaPods wrote.
+// literals, attributes, dependencies, subspecs, conditions, `each` over what is at hand, React Native's helpers.
+// Files are read, never run; anything else is refused, but in a branch that does not hold.
 
 import { dirname } from 'node:path'
 
@@ -33,20 +13,20 @@ import { tokenize } from './podspec-tokens.js'
 
 const SPECS = { subspec: 'library', test_spec: 'test', app_spec: 'app' }
 const DEFAULT_NAMES = { test: 'Tests', app: 'App' }
-// What a value ends with, which an `if` on its line is then a modifier of; and the words that are no value.
+// What a value ends with, which makes an `if` after it on its line a modifier; and the words that are no value.
 const ENDS = new Set(['name', 'global', 'string', 'symbol', 'number', 'words', 'command', ')', ']', '}'])
 const WORDS = new Set(['then', 'else', 'elsif', 'do', 'and', 'or', 'not'])
 // The blocks whose `end` is not told from their words alone, which a branch passed over may not have.
 const BLOCKS = new Set(['case', 'while', 'until', 'for', 'begin', 'def', 'class', 'module'])
 
-// What a podspec is read in where nothing is said of it: no variable given, and no React Native.
+// The context where none is given: no variable of the environment, and no React Native.
 const ALONE = { env: new Map(), prebuilt: {} }
-// What prints, of Ruby's own and of CocoaPods' `Pod::UI`.
+// What prints, of Ruby's own and of `Pod::UI`.
 const OUTPUT = new Set(['puts', 'print', 'warn'])
 const UI = new Set([...OUTPUT, 'message', 'notice', 'info'])
 
-// One of several values after the first: a value; or `s.attribute = value`, which is what Ruby reads of the
-// line after one that ends with a comma. The attribute is set, and what it is set to is one of the values.
+// A value after a comma; or `s.attribute = value`, as Ruby reads the line after one that ends with a comma: the
+// attribute is set, and the value is one of the list.
 function another(p) {
   const [token, dot, member, sets] = p.tokens.slice(p.at, p.at + 4)
   const spec = token.type === 'name' ? p.specs.get(token.value) : undefined
@@ -58,7 +38,7 @@ function another(p) {
   return value
 }
 
-// What follows `=`, or a call's name: one value, or several, which are a list.
+// What follows `=` or a call's name: one value, or several, which are a list.
 function values(p) {
   const items = [expression(p)]
   while (is(p, ',')) {
@@ -69,11 +49,11 @@ function values(p) {
   return items
 }
 const one = (items) => (items.length === 1 ? items[0] : items)
-// A statement ends with its line; one of a block in braces, with the block.
+// A statement ends with its line, or one in a block in braces with the block.
 const endStatement = (p) => (is(p, 'newline') || is(p, ';') ? next(p) : (is(p, '}') && p.state.braces > 0) || fail(p, `\`${peek(p).value ?? peek(p).type}\` after a statement`))
 const branchEnds = (p) => is(p, 'name', 'end') || is(p, 'name', 'else') || is(p, 'name', 'elsif')
 
-// `do |name| ... end`, of a specification, which its statements have by that name; or by none.
+// `do |name| ... end` of a specification, which its statements have by that name.
 function block(p, spec) {
   expect(p, 'name', 'do')
   const name = is(p, '|') ? p.tokens[p.at + 1].value : undefined
@@ -88,7 +68,7 @@ function block(p, spec) {
   p.specs.delete(name)
 }
 
-// `s.attribute = ...`, `s.dependency ...`, `s.subspec ... do`, of the specification `token` names.
+// `s.attribute = ...`, `s.dependency ...` and `s.subspec ... do`.
 function ofSpec(p, token, refuse) {
   const spec = p.specs.get(token.value)
   expect(p, '.')
@@ -116,8 +96,7 @@ function ofSpec(p, token, refuse) {
   }
 }
 
-// `.each { |name| ... }` and `.each do |key, value| ... end`, of a list or of a hash that is at hand: its
-// statements, read for each in turn.
+// `.each { |name| ... }` and `.each do |key, value| ... end`, of a list or a hash at hand.
 function each(p, value, refuse) {
   p.at += 2
   const braces = is(p, '{')
@@ -152,8 +131,8 @@ function each(p, value, refuse) {
 const has = (value, wanted) => value === wanted || (Array.isArray(value) && value.some((item) => has(item, wanted))) || (value instanceof Map && [...value.values()].some((item) => has(item, wanted)))
 const hasIn = (spec, wanted) => has(spec.attributes, wanted) || spec.subspecs.some((child) => hasIn(child, wanted))
 
-// `name << value << value`: a list one longer for each; or a text, longer by each. Ruby adds to the text
-// itself, and so to whatever else has it; that is not followed, and a text anything else may have is refused.
+// `name << value << value`, to a list or a text. Ruby adds to the text itself, and so to whatever else has it,
+// which is not followed: a text anything else may have is refused.
 function append(p, token, refuse) {
   let local = p.locals.get(token.value)
   const others = [...[...p.locals].filter(([name]) => name !== token.value).map(([, value]) => value), ...p.globals.values()]
@@ -168,23 +147,21 @@ function append(p, token, refuse) {
   p.locals.set(token.value, local)
 }
 
-// A value read for what reading it does: a helper of React Native's called; or each of a list.
+// A value read for what reading it does: a helper called, or an `each`.
 function read(p) {
   const token = peek(p)
   const value = expression(p)
   if (is(p, '.') && p.tokens[p.at + 1].value === 'each') each(p, value, (what) => fail(p, what, token))
 }
 
-// One statement that is no condition: of a specification; a local name given a value, or added to, or a hash
-// a value by a key; `require 'json'`; or a value read for what reading it does, a helper of React Native's
-// called, or each of a list.
+// A statement that is no condition.
 function simple(p) {
   if (!is(p, 'name') && !is(p, 'global')) {
     read(p)
     return void endStatement(p)
   }
   if (is(p, 'global')) {
-    // `$name = value`: a global, which this podspec then has. No other podspec has it of this one.
+    // `$name = value`: a global of this podspec's, which no other podspec has of it.
     const name = next(p).value
     expect(p, '=')
     p.globals.set(name, one(values(p)))
@@ -195,7 +172,7 @@ function simple(p) {
   const local = p.locals.get(token.value)
   const ui = token.value === 'Pod' && is(p, '::') && p.tokens[p.at + 1].value === 'UI' && UI.has(p.tokens[p.at + 3]?.value)
   if (ui || (local === undefined && OUTPUT.has(token.value))) {
-    // What is printed is nothing of the podspec; what it is printed of is read all the same.
+    // What is printed is nothing of the podspec, but is read all the same.
     if (ui) p.at += 4
     if (is(p, '(')) {
       next(p)
@@ -223,9 +200,8 @@ function simple(p) {
   return void endStatement(p)
 }
 
-// Past the branch of a condition that does not hold, to the `else`, `elsif` or `end` that is its own: by the
-// words that open a block and the `end` of each, with nothing of it read. And past a block in `braces`, to its
-// `}`.
+// Past a branch that does not hold, to its own `else`, `elsif` or `end`, by the words that open a block and the
+// `end` of each, reading nothing; or past a block in `braces`, to its `}`.
 function pass(p, braces = false) {
   for (let depth = 0; ; next(p)) {
     const token = peek(p)
@@ -242,8 +218,7 @@ function pass(p, braces = false) {
   }
 }
 
-// `if ... elsif ... else ... end`, and `unless`: the statements of the branch that holds are read, the others
-// passed over.
+// `if ... elsif ... else ... end` and `unless`: the branch that holds is read, the others passed over.
 function conditional(p) {
   let holds = (next(p).value === 'if') === truthy(expression(p))
   for (let done = false; ; ) {
@@ -258,7 +233,7 @@ function conditional(p) {
   }
 }
 
-// Where the statement at hand has a modifier, `... if condition`, the place of its `if` or `unless`; else -1.
+// The place of the `if` or `unless` of the statement's modifier, `... if condition`; else -1.
 function modifierAt(p) {
   let depth = 0
   for (let at = p.at; ; at++) {
@@ -284,7 +259,7 @@ function statement(p) {
   const holds = truthy(expression(p)) === (modifier.value === 'if')
   const after = p.at
   if (holds) {
-    // The statement, read as one that ends where its modifier is.
+    // The statement, read as one that ends at its modifier.
     p.tokens[at] = { type: 'newline', line: modifier.line }
     p.at = start
     simple(p)
@@ -294,15 +269,8 @@ function statement(p) {
   return void endStatement(p)
 }
 
-// The JSON of the podspec at `path`, whose text is `source`, as CocoaPods writes it: `forms`, each of the two
-// podspec-json.js's specJson gives. `files` is the files it may read: `read(path)`, a file's text or undefined;
-// and, where it may ask more of them, `glob(dir, pattern, where)`, files.js's dirGlob, and `kind(path)`,
-// "file" or "directory" for what is there. `context` is what a podspec is read in: `env`, a Map of the
-// variables of the environment given, null one that is not set; `globals`, a Map of the globals a Podfile
-// set; `reactNative`, the version the lockfile has of it, if any; `prebuilt`, whether its `core` and its `deps`
-// are; `frameworks`, "static" or "dynamic" where pods are built as frameworks; `cocoapods`, the version the
-// lockfile is of. `conditions` says what of these the podspec was read by. A PodError says what of it is not
-// in the form read.
+// The two forms of specJson of the podspec at `path`, whose text is `source`. `files` is `{ read, glob, kind }`
+// (load.js's), `context` what it is read in (load.js's); `conditions` says what of the context it was read by.
 export function podspecJson(path, source, files, where, context = ALONE) {
   const p = { tokens: tokenize(source, where), at: 0, where, path, dir: dirname(path), files, context, locals: new Map(), globals: new Map(), specs: new Map(), env: new Map(), helpers: new Set(), state: { changes: 0, braces: 0 }, frozen: /^#\s*frozen_string_literal:\s*true/mu.test(source) }
   let root

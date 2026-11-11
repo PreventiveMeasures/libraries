@@ -1,6 +1,5 @@
-// A podspec as CocoaPods reads one from JSON, and what its Consumer makes of each attribute on a platform:
-// a spec's own value, the platform's laid over it, and for an inherited attribute its parent's under both.
-// As cocoapods-core 1.16 has them; test and app specs are read past.
+// A podspec as cocoapods-core 1.16 reads one from JSON, and its Consumer's attributes on a platform: a spec's own
+// value, the platform's over it, and an inherited attribute's parent's under both. Test and app specs are skipped.
 
 import { PodError, quote } from './error.js'
 
@@ -9,8 +8,8 @@ const A = { container: 'array' }
 const AI = { container: 'array', inherited: true }
 const HI = { container: 'hash', inherited: true }
 const I = { inherited: true }
-// Each attribute: its container, whether a subspec takes its parent's, whether a platform has its own, whether
-// it is true or false (where the last one given stands), and what it is where nothing is given.
+// Each attribute: its container, whether a subspec inherits it, whether it is a flag (the last one given stands),
+// whether a platform has no value of its own (`single`), and its default.
 const ATTRIBUTES = {
   dependencies: HI,
   info_plist: { container: 'hash' },
@@ -40,8 +39,6 @@ const ATTRIBUTES = {
   preserve_paths: A,
   module_map: { flag: true, inherited: true },
 }
-export const PLATFORMS = ['osx', 'ios', 'tvos', 'visionos', 'watchos']
-
 // Specification#c99ext_identifier, of ASCII, which I18n.transliterate leaves as it is.
 function c99ext(name, where) {
   if (name === undefined || name === null) return undefined
@@ -56,7 +53,7 @@ function specOf(hash, parent, where) {
   for (const key of ['subspecs', 'testspecs', 'appspecs']) {
     const list = hash[key] ?? []
     if (!Array.isArray(list)) throw new PodError(`its podspec's ${key} is not a list`, where)
-    // A test or an app spec is no part of what is built for an app.
+    // A test or an app spec is not built for an app.
     if (key === 'subspecs') spec.subspecs.push(...list.map((child) => specOf(child, spec, where)))
   }
   return spec
@@ -76,7 +73,7 @@ export function readSpec(bytes, name, version, where) {
   return root
 }
 
-export const allSpecs = (spec) => [spec, ...spec.subspecs.flatMap((child) => allSpecs(child))]
+const allSpecs = (spec) => [spec, ...spec.subspecs.flatMap((child) => allSpecs(child))]
 export const specNamed = (root, name) => allSpecs(root).find((spec) => spec.name === name)
 
 // Specification#platform_hash and #deployment_target.
@@ -93,7 +90,7 @@ export function deploymentTarget(spec, platform) {
   }
   return undefined
 }
-// The platforms a spec is for: its own, else its parent's, else all of them.
+// Whether a spec is for `platform`: by its own platforms, else its parent's; none is all.
 export function supports(spec, platform) {
   for (let at = spec; at !== undefined; at = at.parent) {
     const names = Object.keys(platformHash(at))
@@ -113,7 +110,7 @@ function prepare(name, attribute, value) {
   return value
 }
 
-// Consumer#merge_values: a flag's last value; lists one after the other; hashes merged, what both have joined by
+// Consumer#merge_values: a flag's last value; lists one after the other; hashes merged, a key both have joined by
 // a space, or as one list.
 function merge(attribute, existing, value) {
   if (value === undefined) return existing
@@ -142,11 +139,11 @@ function inherited(spec, name, attribute, platform) {
   return spec.parent === undefined || !attribute.inherited ? value : merge(attribute, inherited(spec.parent, name, attribute, platform), value)
 }
 
-// Consumer#_prepare_script_phases: each by its keys, its position `any` where none is given.
+// Consumer#_prepare_script_phases: the position is `any` where none is given.
 const scriptPhases = (phases) => phases.filter(isObject).map((phase) => ({ ...phase, execution_position: phase.execution_position ?? 'any' }))
 
-// What a spec's Consumer gives on `platform`: every attribute by its name, a list or a hash empty where nothing
-// is given; the two xcconfigs with the legacy `xcconfig` under them; and the names it depends on.
+// A spec's Consumer on `platform`: every attribute, a list or hash empty where none is given; both xcconfigs with
+// the legacy `xcconfig` under them; and the names it depends on.
 export function consumerOf(spec, platform) {
   const values = { spec, name: spec.name }
   for (const [name, attribute] of Object.entries(ATTRIBUTES)) {
@@ -160,19 +157,16 @@ export function consumerOf(spec, platform) {
   return values
 }
 
-// The root's attributes that are its alone.
+// The attributes of the root alone.
 export function rootOf(root, where) {
   const { attributes } = root
   const license = attributes.license
   return {
-    name: root.name,
     version: attributes.version,
     moduleName: attributes.module_name ?? c99ext(attributes.header_dir, where) ?? c99ext(attributes.name, where),
     swiftVersions: listOf(attributes.swift_versions ?? attributes.swift_version).map(String),
     staticFramework: attributes.static_framework === true,
     license: isObject(license) ? license : typeof license === 'string' ? { type: license } : {},
-    prepareCommand: attributes.prepare_command ?? undefined,
-    source: attributes.source,
     infoPlist: isObject(attributes.info_plist) ? attributes.info_plist : {},
   }
 }

@@ -1,35 +1,43 @@
-// A specification as CocoaPods' DSL builds one from a podspec, and the JSON it writes of it, to_pretty_json:
-// what `pod install` keeps as Pods/Local Podspecs/<name>.podspec.json, and Podfile.lock has the sha1 of. A hash
-// is a Map, so that its keys stay in the order they were given.
+// A specification as CocoaPods' DSL builds one, and its to_pretty_json: what Pods/Local Podspecs keeps and
+// Podfile.lock has the sha1 of. A hash is a Map, so that its keys keep their order.
 
 import { PodError, quote } from './error.js'
-import { compareVersions } from './targets.js'
+import { compareVersions, maxVersion } from './targets.js'
 
+// The attribute each singular writer sets.
 const SINGULAR = {
   author: 'authors', swift_version: 'swift_versions', screenshot: 'screenshots', framework: 'frameworks', weak_framework: 'weak_frameworks', library: 'libraries',
   compiler_flag: 'compiler_flags', script_phase: 'script_phases', vendored_framework: 'vendored_frameworks', vendored_library: 'vendored_libraries',
   on_demand_resource: 'on_demand_resources', resource_bundle: 'resource_bundles', resource: 'resources', preserve_path: 'preserve_paths', default_subspec: 'default_subspecs',
 }
-// The attributes of the root alone, and those a platform can have its own value of.
+// The attributes of the root alone, and those a platform may have its own value of.
 const ROOT = new Set(['name', 'version', 'swift_versions', 'cocoapods_version', 'authors', 'social_media_url', 'license', 'homepage', 'readme', 'changelog', 'source', 'summary', 'description', 'screenshots', 'documentation_url', 'prepare_command', 'static_framework', 'deprecated', 'deprecated_in_favor_of', 'module_name', 'default_subspecs', 'platforms', 'test_type'])
 const PER_PLATFORM = new Set(['info_plist', 'requires_arc', 'frameworks', 'weak_frameworks', 'libraries', 'compiler_flags', 'pod_target_xcconfig', 'user_target_xcconfig', 'xcconfig', 'prefix_header_contents', 'prefix_header_file', 'header_dir', 'header_mappings_dir', 'script_phases', 'source_files', 'public_header_files', 'project_header_files', 'private_header_files', 'vendored_frameworks', 'vendored_libraries', 'on_demand_resources', 'resource_bundles', 'resources', 'exclude_files', 'preserve_paths', 'module_map', 'requires_app_host', 'app_host_name', 'scheme'])
 export const PLATFORMS = ['osx', 'ios', 'tvos', 'visionos', 'watchos']
-// A symbol is the text of its name after this, so that it is told from a string of that text where Ruby tells
-// them apart, in a `==`; `plain` is the text of either, which is all that is written of one.
+// A symbol is its name after SYMBOL, so that `==` tells it from a string, as Ruby does. `plain` drops the
+// prefix: a symbol is written as its name.
 export const SYMBOL = '\u{F0000}'
 export const plain = (value) => (typeof value === 'string' && value.startsWith(SYMBOL) ? value.slice(SYMBOL.length) : value)
 
 export const newSpec = (parent, name, kind = 'library') => ({ attributes: new Map([['name', name], ...(kind === 'test' ? [['test_type', 'unit']] : [])]), subspecs: [], parent, kind })
 
-// ActiveSupport's strip_heredoc and Ruby's strip, which Specification#store_attribute puts a string through.
+// A JSON value with its objects as Maps. JSON.parse puts integer keys first, losing their order, so `refuse`,
+// where given, is called on one.
+export function toMaps(value, refuse) {
+  if (Array.isArray(value)) return value.map((item) => toMaps(item, refuse))
+  if (value === null || typeof value !== 'object') return value
+  if (refuse !== undefined && Object.keys(value).some((key) => /^(?:0|[1-9]\d*)$/u.test(key))) refuse()
+  return new Map(Object.entries(value).map(([key, item]) => [key, toMaps(item, refuse)]))
+}
+
+// Specification#store_attribute's strip_heredoc and strip of a string.
 function stripped(text) {
   const indents = [...text.matchAll(/^[ \t]*(?=\S)/gmu)].map((match) => match[0]).sort()
   const dedented = indents.length === 0 || indents[0] === '' ? text : text.replaceAll(new RegExp(`^${indents[0]}`, 'gmu'), '')
   return dedented.replace(/^[\t\n\v\f\r ]+/u, '').replace(/[\t\n\v\f\r \0]+$/u, '')
 }
 
-// `writer` is an attribute's name as a podspec sets it, `s.<writer> = value`; `platform` where it is
-// `s.<platform>.<writer> = value`.
+// `s.<writer> = value`, or with `platform`, `s.<platform>.<writer> = value`.
 export function setAttribute(spec, writer, value, platform, fail) {
   if (writer === 'platform' && platform === undefined) {
     const [name, target] = (Array.isArray(value) ? value : [value]).map(plain)
@@ -65,10 +73,13 @@ function platformHash(spec) {
   return value instanceof Map ? value : new Map()
 }
 function deploymentTarget(spec, name) {
-  for (let at = spec; at !== undefined; at = at.parent) if ((platformHash(at).get(name) ?? null) !== null) return String(platformHash(at).get(name))
+  for (let at = spec; at !== undefined; at = at.parent) {
+    const target = platformHash(at).get(name)
+    if (target !== undefined && target !== null) return String(target)
+  }
   return null
 }
-// Specification#available_platforms: its own, else its parent's, else all of them; each with its target.
+// Specification#available_platforms, each with its deployment target: its own, else its parent's, else all.
 function availablePlatforms(spec) {
   let names = []
   for (let at = spec; at !== undefined && names.length === 0; at = at.parent) names = [...platformHash(at).keys()]
@@ -77,10 +88,10 @@ function availablePlatforms(spec) {
 }
 const samePlatforms = (a, b) => a.length === b.length && a.every(([name, target], i) => name === b[i][0] && (target === b[i][1] || (target !== null && b[i][1] !== null && compareVersions(target, b[i][1]) === 0)))
 
-// The root's swift_version, as to_hash writes it: the greatest of its swift_versions.
+// to_hash writes the greatest of the swift_versions as swift_version.
 function swiftVersion(spec) {
   const versions = [spec.attributes.get('swift_versions'), spec.attributes.get('swift_version')].flat().filter((one) => one !== undefined && one !== null).map(String)
-  return versions.length === 0 ? undefined : versions.reduce((most, one) => (compareVersions(one, most) > 0 ? one : most))
+  return versions.length === 0 ? undefined : maxVersion(versions)
 }
 
 // Specification#to_hash.
@@ -99,8 +110,8 @@ function toHash(spec) {
   return hash
 }
 
-// JSON.pretty_generate, of what a specification holds. Ruby's json wrote an empty list and an empty hash over
-// lines until 2.10, and writes them closed since: `compact` is the latter.
+// JSON.pretty_generate. Ruby's json wrote an empty list or hash over two lines until 2.10; `compact` is how it
+// writes them since.
 function pretty(value, indent, compact) {
   const deeper = `${indent}  `
   if (value instanceof Map) {
@@ -117,27 +128,24 @@ function pretty(value, indent, compact) {
   throw new PodError('its podspec has a value that is no text, number, list or hash')
 }
 
-// Specification#to_pretty_json of a root specification, as each of the two forms Ruby's json has written it in:
-// which of them a lockfile has the checksum of is by the Ruby that wrote the lockfile.
+// Specification#to_pretty_json of a root spec, in both forms Ruby's json has written: which one the lockfile has
+// the checksum of depends on the Ruby that wrote it.
 export function specJson(root) {
   const hash = toHash(root)
   return [false, true].map((compact) => `${pretty(hash, '', compact)}\n`)
 }
 
-// Specification.from_hash, of a podspec given as JSON that CocoaPods has not written itself: its attributes
-// as they are, in their order, and the specs inside it. to_pretty_json of it is what CocoaPods keeps.
+// Specification.from_hash of a JSON podspec CocoaPods did not write: its attributes in their order, and the
+// specs inside it.
 function fromHash(hash, parent, kind) {
   if (hash === null || typeof hash !== 'object' || Array.isArray(hash)) throw new PodError('its podspec is no hash of attributes')
-  const ordered = (value) => {
-    if (Array.isArray(value)) return value.map(ordered)
-    if (value === null || typeof value !== 'object') return value
-    if (Object.keys(value).some((key) => /^(?:0|[1-9]\d*)$/u.test(key))) throw new PodError('its podspec has a hash with a number for a key, whose place is not known')
-    return new Map(Object.entries(value).map(([key, item]) => [key, ordered(item)]))
+  const refuse = () => {
+    throw new PodError('its podspec has a hash with a number for a key, whose place is not known')
   }
   const spec = { attributes: new Map(), subspecs: [], parent, kind }
   for (const [key, value] of Object.entries(hash)) {
     const inner = { subspecs: 'library', testspecs: 'test', appspecs: 'app' }[key]
-    if (inner === undefined) spec.attributes.set(key, ordered(value))
+    if (inner === undefined) spec.attributes.set(key, toMaps(value, refuse))
     else if (Array.isArray(value)) spec.subspecs.push(...value.map((child) => fromHash(child, spec, inner)))
   }
   return spec

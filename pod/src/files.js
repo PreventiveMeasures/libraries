@@ -1,5 +1,5 @@
-// A pod's directory on disk as CocoaPods' PathList lists it, its file patterns matched as PathList#relative_glob
-// matches them, and what a spec's FileAccessor makes of them. Paths are from the pod's directory.
+// A pod's files as CocoaPods' PathList lists and globs them, and what a spec's FileAccessor makes of them.
+// Paths are from the pod's directory.
 
 import { readdirSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
@@ -7,24 +7,18 @@ import { extname, join } from 'node:path'
 import { expandBraces, matcher } from '@preventive/deptree/src/cocoapods/fnmatch.js'
 
 import { PodError, quote } from './error.js'
+import { byBytes } from './xcconfig.js'
 
-// Xcodeproj's header extensions, and FileAccessor's source extensions with them.
+// Xcodeproj's header extensions, and FileAccessor's source extensions.
 export const HEADERS = ['.h', '.hh', '.hpp', '.ipp', '.tpp', '.hxx', '.def', '.inl', '.inc']
-const SOURCES = [...new Set(['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS])]
+export const SOURCES = ['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS]
 const DIR_PATTERNS = { source_files: `*{${SOURCES.join(',')}}`, public_header_files: `*{${HEADERS.join(',')}}` }
 
-// Ruby's sort_by(&:upcase): by the upcased path's code points, which is the order of its bytes.
-function byUpcase(paths) {
-  const keyed = paths.map((path) => [path, [...path.toUpperCase()].map((char) => char.codePointAt(0))])
-  const order = ([, a], [, b]) => {
-    for (let i = 0; i < a.length && i < b.length; i++) if (a[i] !== b[i]) return a[i] - b[i]
-    return a.length - b.length
-  }
-  return keyed.sort(order).map(([path]) => path)
-}
+// Ruby's sort_by(&:upcase), each path's key computed once.
+const byUpcase = (paths) => paths.map((path) => [path, Buffer.from(path.toUpperCase())]).sort(([, a], [, b]) => Buffer.compare(a, b)).map(([path]) => path)
 
-// PathList#read_file_system: `**/*` with FNM_DOTMATCH, which enters no link; a directory is what File.directory?
-// says is one, a link to one too, and one whose path ends in a `.` is passed over.
+// PathList#read_file_system: `**/*` with FNM_DOTMATCH. Links are not entered, but a link to a directory is
+// listed as one; a directory whose path ends in `.` is skipped.
 export function listPod(root, where) {
   const files = []
   const dirs = []
@@ -48,7 +42,7 @@ export function listPod(root, where) {
   return list
 }
 
-// PathList#relative_glob. Paths come back in the list's order, pattern by pattern.
+// PathList#relative_glob: matches in the list's order, pattern by pattern.
 export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = false } = {}) {
   if (patterns.length === 0) return []
   const key = JSON.stringify([patterns, dirPattern, exclude, includeDirs])
@@ -73,10 +67,8 @@ export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = f
   return found
 }
 
-// Dir.glob(pattern) from `dir`, for a podspec that lists its files itself: the files and the directories whose
-// path from `dir` the pattern takes, in the order of their paths' bytes. Only what is under the directories
-// the pattern names before its first wildcard is looked at; and a letter is taken in either case, as Ruby
-// takes it on a volume that tells no case apart, which that of a Mac is unless it is made otherwise.
+// Dir.glob from `dir`, for a podspec that lists files itself: files and directories in byte order. Only what is
+// under the pattern's part before its first wildcard is listed, and case is ignored, as on a Mac's volume.
 export function dirGlob(dir, pattern, where) {
   const segments = pattern.split('/')
   const literal = segments.findIndex((segment) => /[*?[{\\]/u.test(segment))
@@ -84,13 +76,13 @@ export function dirGlob(dir, pattern, where) {
   const base = segments.slice(0, literal).join('/')
   const list = listPod(join(dir, base), where)
   const found = glob(list, [segments.slice(literal).join('/')], { includeDirs: true })
-  return found.map((path) => (base === '' ? path : `${base}/${path}`)).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+  return found.map((path) => (base === '' ? path : `${base}/${path}`)).sort(byBytes)
 }
 
 const unique = (paths) => [...new Set(paths)]
 const isHeader = (path) => HEADERS.includes(extname(path))
 
-// What a spec's FileAccessor finds for `consumer`, spec.js's consumerOf: each list of paths, once each.
+// A spec's FileAccessor for `consumer`, spec.js's consumerOf.
 export function accessorOf(list, consumer) {
   const exclude = consumer.exclude_files
   const paths = (attribute, includeDirs = false) => unique(glob(list, consumer[attribute], { exclude, dirPattern: DIR_PATTERNS[attribute], includeDirs }))
@@ -118,13 +110,12 @@ export function accessorOf(list, consumer) {
     vendoredFrameworks,
     vendoredXcframeworks: vendoredFrameworks.filter((path) => extname(path) === '.xcframework'),
     vendoredLibraries: paths('vendored_libraries'),
-    preservePaths: paths('preserve_paths', true),
     moduleMap: typeof consumer.module_map === 'string' ? consumer.module_map : undefined,
     prefixHeader: typeof consumer.prefix_header_file === 'string' ? consumer.prefix_header_file : undefined,
   }
 }
 
-// FileAccessor#license, by the root's `license.file` where that is there, else the first `licen{c,s}e{*,.*}`.
+// FileAccessor#license: the root's `license.file` where it is there, else the first `licen{c,s}e{*,.*}`.
 export function licenseOf(list, license) {
   if (typeof license.file === 'string' && list.files.includes(license.file)) return license.file
   return glob(list, ['licen{c,s}e{*,.*}'])[0]

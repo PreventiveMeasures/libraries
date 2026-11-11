@@ -1,7 +1,5 @@
-// A pod's prepare_command, run as CocoaPods runs it: by bash, in the pod's directory, under `set -e`, with
-// CDPATH unset and COCOAPODS_VERSION set. It is the podspec's own script, and what it makes of the download no
-// hash holds; so it is run for no pod but those pod.config.json names in `prepareCommands`, and for none by
-// :path, which load.js refuses with one.
+// A downloaded pod's prepare_command, run as CocoaPods runs it: by bash in the pod's directory, under `set -e`,
+// CDPATH unset and COCOAPODS_VERSION set. No hash holds what it makes, so it runs only for `prepareCommands`.
 
 import { spawnSync } from 'node:child_process'
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -10,14 +8,14 @@ import { dirname, join } from 'node:path'
 
 import { PodError, quote } from './error.js'
 
-// Specification#prepare_command as PodSourcePreparer takes it: its indentation and its last line break off.
+// Specification#prepare_command as PodSourcePreparer runs it: less its indentation and its last line break.
 function scriptOf(command) {
   const lines = command.split('\n')
   const indent = Math.min(...lines.filter((line) => line.trim() !== '').map((line) => /^[ \t]*/u.exec(line)[0].length))
   return `\nset -e\n${lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n').replace(/\r?\n$|\r$/u, '')}`
 }
 
-export function runPrepare(name, command, dir, config, version) {
+function runPrepare(name, command, dir, config, version) {
   const where = `pods[${quote(name)}]`
   if (!config.prepareCommands.includes(name)) throw new PodError('its podspec has a prepare_command, a script CocoaPods runs in the pod: to run it, name the pod in `prepareCommands` of pod.config.json', where)
   const { CDPATH: _unset, ...env } = process.env
@@ -26,7 +24,7 @@ export function runPrepare(name, command, dir, config, version) {
   if (result.status !== 0) throw new PodError(`its prepare_command failed, with status ${result.status ?? result.signal}:\n${result.stderr.trim()}`, where)
 }
 
-// What a directory holds, as deptree takes a download: by paths from it.
+// What a directory holds, by paths from it, as deptree takes a download.
 function read(dir, prefix, contents) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = `${prefix}${entry.name}`
@@ -41,7 +39,7 @@ function read(dir, prefix, contents) {
   return contents
 }
 
-// deptree's `prepare`: the download written out, the command run in it, and what is there afterwards read back.
+// deptree's `prepare`: the download written out, the command run in it, and the result read back.
 export function prepareDownload(config, version) {
   return ({ name, command, contents }) => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-prepare-'))

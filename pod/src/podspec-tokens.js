@@ -1,6 +1,5 @@
-// The words of a podspec in the strict form pod reads, podspec-read.js's: names, literals, punctuation and the
-// operators of a condition. A podspec is Ruby, and anything of Ruby that is not one of these is refused, with
-// its line.
+// The tokens of a podspec in podspec-read.js's form: names, literals, punctuation and the operators of a
+// condition. Anything else of Ruby is refused, with its line.
 
 import { PodError } from './error.js'
 
@@ -15,8 +14,7 @@ function fail(t, what) {
 const push = (t, type, value, extra) => t.tokens.push({ type, value, line: t.line, ...extra })
 const lineEnd = (t) => (t.source.indexOf('\n', t.at) === -1 ? t.source.length : t.source.indexOf('\n', t.at))
 
-// Where the `}` of an interpolation that starts at `from` is: past the strings and the braces in it, on its
-// line; -1 where there is none.
+// Where the `}` of an interpolation from `from` is on its line, past the strings and braces in it; else -1.
 function closing(source, from) {
   let depth = 0
   for (let at = from; at < source.length && source[at] !== '\n'; at++) {
@@ -30,7 +28,7 @@ function closing(source, from) {
   return -1
 }
 
-// A double-quoted string's body, to `close`: its escapes taken, each `#{...}` kept as `{ code }`, to be read.
+// A double-quoted string's body to `close`, its escapes taken and each `#{...}` kept as `{ code }` to read.
 function interpolated(t, close) {
   const parts = ['']
   const { source } = t
@@ -67,7 +65,7 @@ function single(t) {
   return text === '' ? [] : [text]
 }
 
-// The bodies of the heredocs a line opened, each to the line of its name, a `<<~` one less its indentation.
+// The bodies of the heredocs a line opened, each to the line of its name; a `<<~` one less its indentation.
 function heredocs(t) {
   for (const { token, name, squiggly, raw } of t.pending.splice(0)) {
     const lines = []
@@ -87,7 +85,7 @@ function heredocs(t) {
   }
 }
 
-// `%w(...)`: its words.
+// `%w(...)`.
 function words(t, match) {
   if (match[1] !== 'w') fail(t, `a \`%${match[1]}\` literal`)
   const end = t.source.indexOf(CLOSERS[match[2]], t.at)
@@ -99,7 +97,7 @@ function words(t, match) {
   t.at = end + 1
 }
 
-// A literal at `rest`, or false where there is none: a heredoc, a word list, a string, a symbol or a number.
+// A heredoc, word list, string, command, symbol or number at `rest`; false where there is none.
 function literal(t, rest) {
   let match
   if ((match = /^<<([~-]?)(['"]?)([A-Za-z_]\w*)\2/u.exec(rest)) !== null && t.tokens.at(-1)?.type !== 'name') {
@@ -111,7 +109,7 @@ function literal(t, rest) {
     t.at++
     push(t, 'string', undefined, { parts: rest[0] === '"' ? interpolated(t, '"') : single(t) })
   } else if (rest[0] === '`') {
-    // A command: not read, but known for where it ends, so that a branch that does not hold is passed over.
+    // A command is not read, but known for where it ends, so that a branch that does not hold is passed over.
     const end = t.source.indexOf('`', t.at + 1)
     if (end === -1) fail(t, 'a command that does not end')
     push(t, 'command', t.source.slice(t.at, end + 1))
@@ -135,8 +133,8 @@ function literal(t, rest) {
   return true
 }
 
-// `source` is the podspec's text, from `line` of it; `where` what a refusal is about. A string comes as its
-// `parts`, each text or `{ code }`, an interpolation to read; a heredoc's body is taken after its line.
+// `source` is the podspec's text from its `line`. A string comes as `parts`, each text or `{ code }`, an
+// interpolation to read; a heredoc's body is taken after its line.
 export function tokenize(source, where, line = 1) {
   const t = { source, where, at: 0, line, tokens: [], pending: [] }
   while (t.at < source.length) {
@@ -156,7 +154,7 @@ export function tokenize(source, where, line = 1) {
       t.line++
     } else if (literal(t, rest)) continue
     else if ((match = /^(\$?)([A-Za-z_]\w*(?:[?!](?![=~]))?)/u.exec(rest)) !== null) {
-      // A name; with a `$` before it, one of a global, which a Podfile may have set.
+      // A name, or with a `$` a global.
       push(t, match[1] === '' ? 'name' : 'global', match[2])
       t.at += match[0].length
     } else if (!REFUSED.test(rest) && (match = PUNCTUATION.find((one) => rest.startsWith(one))) !== undefined) {
