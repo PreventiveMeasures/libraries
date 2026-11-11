@@ -28,10 +28,18 @@ function githubLink(raw) {
   requireSupported(path.every(Boolean), 'repository path; empty components')
   const repo = `${owner}/${name.replace(/\.git$/iu, '')}`.toLowerCase()
   const anchor = /^#L(\d+)(?:-L?(\d+))?$/u.exec(url.hash)
-  let directory = kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : []
-  try { directory = directory.map(decodeURIComponent) } catch { requireSupported(false, 'repository directory encoding') }
-  requireSupported(directory.every((part) => part === part.trim() && !/[\\/:?#\p{Cc}]/u.test(part)), 'repository directory')
-  return { repo, ref, directory, ...(kind === 'blob' && path.length && { evidence: { file: path.join('/'), line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }) }
+  const directory = repositoryPath(kind === 'blob' ? path.slice(0, -1) : kind === 'tree' ? path : [], 'repository directory')
+  if (kind !== 'blob' || !path.length) return { repo, ref, directory }
+  const file = [...directory, ...repositoryPath(path.slice(-1), 'repository file name')].join('/')
+  return { repo, ref, directory, evidence: { file, line: anchor ? anchor.slice(1).filter(Boolean).join('-') : '?', url: raw } }
+}
+
+// Path components decoded once, as the repository names them; none may then
+// hold a separator, a drive or stream colon, a query, a fragment or a control.
+function repositoryPath(parts, what) {
+  try { parts = parts.map(decodeURIComponent) } catch { requireSupported(false, `${what} encoding`) }
+  requireSupported(parts.every((part) => part === part.trim() && !/[\\/:?#\p{Cc}]/u.test(part)), what)
+  return parts
 }
 
 function assignReferences(row, finding, text, repoPrefixes) {

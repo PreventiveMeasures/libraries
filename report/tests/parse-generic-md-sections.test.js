@@ -104,6 +104,10 @@ test('Affected Code takes any list marker, angle-bracket and parenthesised links
     { file: 'app/x.ts', line: '3-4', url: blob('a/a', 'app/x.ts', '#L3-4'), text: 'Dash.' },
     { file: 'app/y.ts', line: '?', url: blob('a/a', 'app/y.ts'), text: '- Nested detail.' },
   ])
+  const [encoded] = parseGenericMarkdownToReports(finding('Encoded', `- [a b](${blob('a/a', 'my%20app/a%20b.ts', '#L1')})`))
+  assert.deepEqual(encoded.data.repo, { github: 'a/a', directory: 'my app' })
+  assert.equal(encoded.data.findings[0].file, 'my app/a b.ts', 'the path as the repository names it, the URL as written')
+  assert.equal(encoded.data.findings[0].evidence[0].url, blob('a/a', 'my%20app/a%20b.ts', '#L1'))
 })
 
 test('findings in different repositories import as one report per repository', async () => {
@@ -153,6 +157,7 @@ const invalid = [
   ['a non-GitHub link', finding('Elsewhere', '- [a.ts](https://example.com/a/a/blob/main/a.ts)'), /repository URL/u],
   ['a directory link', finding('Tree', '- [src](https://github.com/a/a/tree/main/src)'), /link for "Tree"; expected a link to a file/u],
   ['a repository link', finding('Root', '- [a/a](https://github.com/a/a)'), /link for "Root"; expected a link to a file/u],
+  ['an encoded separator in a file name', finding('Slash', `- [a](${blob('a/a', 'src/a%2Fb.ts')})`), /repository file name/u],
   ['two repositories in one finding', finding('Two', `- [a](${blob('a/a', 'a.ts')})\n- [b](${blob('b/b', 'b.ts')})`), /repository set for "Two"/u],
   ['a missing Description', document.replace('### Description\n\nDescription of First.\n', ''), /missing required headers for "First"/u],
   ...['Affected Code', 'Fix', 'Tests'].map((section) => [`a missing ${section}`, document.replace(`### ${section}\n`, ''), /missing required headers for "First"/u]),
