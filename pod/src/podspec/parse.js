@@ -1,7 +1,7 @@
 // The token at hand, and what is refused, in reading a podspec without Ruby.
 
-import { PodError } from './error.js'
-import { plain } from './podspec-json.js'
+import { PodError } from '../error.js'
+import { plain } from './json.js'
 
 export const peek = (p) => p.tokens[p.at]
 export const next = (p) => p.tokens[p.at++]

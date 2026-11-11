@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
-import { generate } from '../src/generate.js'
+import { generate } from '../src/generate/generate.js'
 import { load } from '../src/load.js'
-import { parseAscii } from '../src/plist.js'
+import { parseAscii } from '../src/generate/plist.js'
 
 // Each fixture is a project CocoaPods 1.16.2 itself has installed: `project` what it read, and what pod reads,
 // `expected` what it generated in Pods/. See fixtures/export.mjs.

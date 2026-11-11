@@ -3,7 +3,7 @@
 
 import { basename, extname, isAbsolute, posix, relative, sep } from 'node:path'
 
-import { compareVersions } from './targets.js'
+import { compareVersions } from '../order.js'
 
 const FILE_TYPES = {
   a: 'archive.ar', apns: 'text', app: 'wrapper.application', appex: 'wrapper.app-extension', bundle: 'wrapper.plug-in', cpp: 'sourcecode.cpp.cpp',

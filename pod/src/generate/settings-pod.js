@@ -3,10 +3,10 @@
 
 import { basename, extname, posix } from 'node:path'
 
+import { byBytes } from '../order.js'
 import { isDynamic, readXcframework } from './binaries.js'
 import { privateSearchPaths, publicSearchPaths } from './headers.js'
 import { BUILD_DIR, COMMON, XCFRAMEWORKS_DIR, configOf, lazy, linkerFlags, mergedXcconfigs, sorted, swiftFlags, uniqueSorted } from './settings.js'
-import { byBytes } from './xcconfig.js'
 
 const stem = (path) => basename(path, extname(path))
 const linkerName = (path) => stem(path).replace(/^lib/u, '')

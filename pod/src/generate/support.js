@@ -4,9 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { basename, join, posix } from 'node:path'
 
+import { byBytes, compareVersions } from '../order.js'
 import { licenseOf } from './files.js'
-import { compareVersions } from './targets.js'
-import { byBytes } from './xcconfig.js'
 
 const script = (name) => readFileSync(new URL(`scripts/${name}`, import.meta.url), 'utf8')
 

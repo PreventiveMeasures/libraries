@@ -33,7 +33,7 @@ const OPTIONS = {
   // The downloaded pods whose prepare_command may be run; a pod by :path with one is refused.
   prepareCommands: names,
   // The environment podspecs are read in, as it was after the Podfile ran; null for unset. What React Native
-  // sets itself (podspec-rn.js) need not be given, nor USE_FRAMEWORKS, which `frameworks` sets.
+  // sets itself (podspec/rn.js) need not be given, nor USE_FRAMEWORKS, which `frameworks` sets.
   env: [(value) => isObject(value) && Object.values(value).every((one) => one === null || typeof one === 'string'), 'an object of variables of the environment, each a string, or null for one that is not set'],
   // The globals the Podfile set, without the `$`: `$RNFirebaseAsStaticFramework = true` is
   // { "RNFirebaseAsStaticFramework": true }.

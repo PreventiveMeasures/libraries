@@ -2,7 +2,7 @@
 // port of a family of versions whose Ruby is word for word the same: 78 (0.78), 83 (0.83), 85 (0.85 and 0.86)
 // and 88 (0.88). A podspec that needs another version is refused.
 
-import { helpersOf } from './podspec-rn-core.js'
+import { helpersOf } from './rn-core.js'
 
 // What use_react_native! sets from what the Podfile gave it, which no lockfile records.
 const PODFILE = new Set(['APP_PATH', 'REACT_NATIVE_PATH'])

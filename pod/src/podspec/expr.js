@@ -1,11 +1,11 @@
 // The values of a podspec read without Ruby: literals, the few names and calls it may read, and conditions over
 // them. Both sides of a `&&`, a `||` and a `?:` are read, so one that is refused refuses the podspec.
 
-import { call, defined, environment, global, helper, isHelper } from './podspec-calls.js'
-import { PLATFORMS, SYMBOL } from './podspec-json.js'
-import { METHODS, ordered, plus } from './podspec-methods.js'
-import { expect, fail, is, next, peek, skipLines, text, truthy, untaken } from './podspec-parse.js'
-import { tokenize } from './podspec-tokens.js'
+import { call, defined, environment, global, helper, isHelper } from './calls.js'
+import { PLATFORMS, SYMBOL } from './json.js'
+import { METHODS, ordered, plus } from './methods.js'
+import { expect, fail, is, next, peek, skipLines, text, truthy, untaken } from './parse.js'
+import { tokenize } from './tokens.js'
 
 export const PROXIES = new Set([...PLATFORMS, 'macos'])
 

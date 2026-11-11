@@ -3,13 +3,13 @@
 
 import { extname, join, posix } from 'node:path'
 
-import { PodError, quote } from './error.js'
+import { PodError, quote } from '../error.js'
+import { compareVersions } from '../order.js'
 import { SOURCES as SOURCE_EXTENSIONS } from './files.js'
-import { addFile, addSystemFramework, configurationsOf, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, phaseOf, setAll, targetDefaults } from './project.js'
 import { COMPILED, addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
+import { addFile, addSystemFramework, configurationsOf, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, phaseOf, setAll, targetDefaults } from './project.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
 import * as support from './support.js'
-import { compareVersions } from './targets.js'
 
 const SOURCES = new Set(SOURCE_EXTENSIONS)
 const SUBGROUPS = { resources: 'Resources', frameworks: 'Frameworks', developer: 'Pod' }

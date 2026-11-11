@@ -3,9 +3,9 @@
 import { closeSync, openSync, readFileSync, readSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 
-import { PodError, quote } from './error.js'
+import { PodError, quote } from '../error.js'
+import { byBytes } from '../order.js'
 import { parseXml } from './plist.js'
-import { byBytes } from './xcconfig.js'
 
 const MH_DYLIB = 6
 const THIN = new Set([0xFEEDFACE, 0xFEEDFACF])

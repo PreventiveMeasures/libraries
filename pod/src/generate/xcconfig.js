@@ -1,7 +1,8 @@
 // An .xcconfig as Xcodeproj's Config holds one: OTHER_LDFLAGS taken apart into what it links, so that two merged
 // name each once.
 
-import { PodError } from './error.js'
+import { PodError } from '../error.js'
+import { byBytes } from '../order.js'
 
 const INHERITED = new Set(['$(inherited)', '${inherited}'])
 const FLAG_KEYS = ['simple', 'frameworks', 'weak_frameworks', 'libraries', 'arg_files', 'force_load']
@@ -26,8 +27,6 @@ function shellsplit(line) {
   return words
 }
 
-// Ruby's order of strings, by their UTF-8 bytes.
-export const byBytes = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))
 
 // OtherLinkerFlagsParser.parse.
 function parseLinkerFlags(flags) {

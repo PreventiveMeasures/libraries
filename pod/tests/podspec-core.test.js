@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { dirGlob } from '../src/files.js'
-import { podspecJson } from '../src/podspec-read.js'
+import { dirGlob } from '../src/pathlist.js'
+import { podspecJson } from '../src/podspec/read.js'
 
 const FIXTURES = new URL('fixtures/podspecs/', import.meta.url).pathname
 const sha1 = (text) => createHash('sha1').update(text).digest('hex')

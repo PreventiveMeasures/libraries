@@ -1,9 +1,9 @@
 // The build settings of an app target's Pods target, BuildSettings::AggregateTargetSettings: what the app's own
 // target builds and links with, by the .xcconfig its configuration is based on.
 
+import { compareVersions } from '../order.js'
 import { publicSearchPaths } from './headers.js'
 import { BUILD_DIR, COMMON, XCFRAMEWORKS_DIR, configOf, linkerFlags, mergedXcconfigs, swiftFlags, uniqueSorted } from './settings.js'
-import { compareVersions } from './targets.js'
 
 // BuildSettings#_ld_runpath_search_paths, of iOS.
 function runpaths(aggregate, pods) {

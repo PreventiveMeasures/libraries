@@ -1,7 +1,7 @@
 // Property lists, read: the ASCII form of a project.pbxproj and the XML form of an Info.plist. Dictionaries are
 // objects without a prototype, and the rest strings, but for arrays and XML's true and false.
 
-import { PodError } from './error.js'
+import { PodError } from '../error.js'
 
 const BARE = /[\w$./:-]/u
 const ESCAPES = { n: '\n', t: '\t', r: '\r', a: '\u0007', b: '\b', f: '\f', v: '\v', '"': '"', "'": "'", '\\': '\\', '\n': '\n' }

@@ -1,7 +1,7 @@
 // install_modules_dependencies of scripts/react_native_pods.rb and the helpers it is made of: what React Native
-// does to a module's specification, each a port of a family's Ruby (podspec-rn.js).
+// does to a module's specification, each a port of a family's Ruby (rn.js).
 
-import { addDependency, setAttribute } from './podspec-json.js'
+import { addDependency, setAttribute } from './json.js'
 
 // Helpers::Constants.
 export const FOLLY_VERSION = '2024.11.18.00'

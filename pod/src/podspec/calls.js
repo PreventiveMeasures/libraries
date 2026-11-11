@@ -1,12 +1,12 @@
 // The calls a podspec read without Ruby may make: File's, Dir.glob and JSON.parse; ENV and globals; and the
-// helpers of the lockfile's React Native, podspec-rn.js's.
+// helpers of the lockfile's React Native, rn.js's.
 
 import { dirname, isAbsolute, resolve } from 'node:path'
 
-import { PodError } from './error.js'
-import { toMaps } from './podspec-json.js'
-import { changed, expect, fail, is, next } from './podspec-parse.js'
-import { HELPERS, KNOWN, reactNative } from './podspec-rn.js'
+import { PodError } from '../error.js'
+import { toMaps } from './json.js'
+import { changed, expect, fail, is, next } from './parse.js'
+import { HELPERS, KNOWN, reactNative } from './rn.js'
 
 function readFile(p, path) {
   const file = isAbsolute(path) ? resolve(path) : resolve(p.dir, path)
