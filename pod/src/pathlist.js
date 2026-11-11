@@ -1,16 +1,32 @@
-// A pod's directory as CocoaPods' PathList lists it and matches its file patterns, and Dir.glob, which a podspec
-// read without Ruby may call. Paths are from the pod's directory.
+// A pod's directory as CocoaPods' PathList lists it and matches its file patterns, on disk or as a download is held
+// in memory; and Dir.glob, which a podspec read without Ruby may call. Paths are from the pod's directory.
 
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { expandBraces, matcher } from '@preventive/deptree/src/cocoapods/fnmatch.js'
-
 import { PodError, quote } from './error.js'
+import { expandBraces, matcher } from './fnmatch.js'
 import { byBytes } from './order.js'
 
+// Xcodeproj's header extensions, and FileAccessor's source extensions.
+export const HEADERS = ['.h', '.hh', '.hpp', '.ipp', '.tpp', '.hxx', '.def', '.inl', '.inc']
+export const SOURCES = ['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS]
+
+// The paths matched against a pattern, each of a pattern's expansions counted, past which a pod is refused.
+export const MAX_MATCHES = 200_000_000
+
+// Ruby's String#downcase: Unicode's mappings, but for the final sigma, which takes the letters around it into
+// account and Ruby does not.
+export const downcase = (text) => text.replaceAll('\u03A3', '\u03C3').toLowerCase()
 // Ruby's sort_by(&:upcase), each path's key computed once.
 const byUpcase = (paths) => paths.map((path) => [path, Buffer.from(path.toUpperCase())]).sort(([, a], [, b]) => Buffer.compare(a, b)).map(([path]) => path)
+
+// Sandbox::PathList of `files` and `dirs`. `budget` counts the matches made, across every list of one pod.
+export function pathList(files, dirs, where, budget) {
+  const list = { where, files: byUpcase(files), dirs: byUpcase(dirs), cache: new Map(), budget: budget ?? { matches: 0 } }
+  list.lowerDirs = new Set(list.dirs.map(downcase))
+  return list
+}
 
 // PathList#read_file_system: `**/*` with FNM_DOTMATCH. Links are not entered, but a link to a directory is
 // listed as one; a directory whose path ends in `.` is skipped.
@@ -32,12 +48,10 @@ export function listPod(root, where) {
   } catch (error) {
     throw new PodError(`its directory ${quote(root)} cannot be read`, where, { cause: error })
   }
-  const list = { root, where, files: byUpcase(files), dirs: byUpcase(dirs), cache: new Map() }
-  list.lowerDirs = new Set(list.dirs.map((dir) => dir.toLowerCase()))
-  return list
+  return pathList(files, dirs, where)
 }
 
-// PathList#relative_glob: matches in the list's order, pattern by pattern.
+// PathList#relative_glob: matches in the list's order, pattern by pattern, a path again where two match it.
 export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = false } = {}) {
   if (patterns.length === 0) return []
   const key = JSON.stringify([patterns, dirPattern, exclude, includeDirs])
@@ -47,10 +61,12 @@ export function glob(list, patterns, { dirPattern, exclude = [], includeDirs = f
   let found = patterns.flatMap((pattern) => {
     if (typeof pattern !== 'string') throw new PodError(`a file pattern that is no text, ${JSON.stringify(pattern)}`, list.where)
     if (exact.has(pattern)) return [pattern]
-    const isDir = list.lowerDirs.has(pattern.toLowerCase().replace(/\/$/u, ''))
+    const isDir = list.lowerDirs.has(downcase(pattern).replace(/\/$/u, ''))
     const full = isDir && dirPattern !== undefined ? `${pattern.endsWith('/') ? pattern : `${pattern}/`}${dirPattern}` : pattern
     const expanded = expandBraces(full)
     if (expanded === undefined) throw new PodError(`the file pattern ${quote(pattern)} is too long, expands to too many, or has a backslash in braces`, list.where)
+    list.budget.matches += expanded.length * all.length
+    if (list.budget.matches > MAX_MATCHES) throw new PodError(`its file patterns take more than ${MAX_MATCHES} matches of a path, which is not followed`, list.where)
     const matchers = expanded.map(matcher)
     return all.filter((path) => matchers.some((matches) => matches(path)))
   })

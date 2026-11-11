@@ -36,6 +36,6 @@ try {
   const { pods, targets, downloaded, written } = await install(resolve(args['project-directory'] ?? '.'), createClient({ token: process.env.GITHUB_TOKEN ?? null }))
   process.stdout.write(`pod-install: ${pods.length} pods for ${targets.join(', ')}; ${downloaded.length} downloaded, ${written} files written\n`)
 } catch (error) {
-  if (error?.name !== 'PodError' && error?.name !== 'DeptreeError' && error?.name !== 'LockfileError') throw error
+  if (error?.name !== 'PodError' && error?.name !== 'LockfileError') throw error
   fail(error.message)
 }

@@ -30,7 +30,7 @@ function runPrepare(name, command, dir, allowed, version) {
   if (result.status !== 0) throw new PodError(`its prepare_command failed, with status ${result.status ?? result.signal}:\n${result.stderr.trim()}`, where)
 }
 
-// What a directory holds, by paths from it, as deptree takes a download.
+// What a directory holds, by paths from it, as stage 2 holds a download.
 function read(dir, prefix, contents) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = `${prefix}${entry.name}`
@@ -45,7 +45,7 @@ function read(dir, prefix, contents) {
   return contents
 }
 
-// deptree's `prepare`: the download written out, the command run in it, and the result read back. `allowed` are
+// Stage 2's `prepare`: the download written out, the command run in it, and the result read back. `allowed` are
 // the config's `prepareCommands`, `version` the lockfile's CocoaPods.
 export function prepareDownload(allowed, version) {
   return ({ name, command, contents }) => {

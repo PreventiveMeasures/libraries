@@ -12,6 +12,7 @@
     "bin/pod-install.js",
     "src/config.js",
     "src/error.js",
+    "src/fnmatch.js",
     "src/install.js",
     "src/load.js",
     "src/order.js",
@@ -52,7 +53,14 @@
     "src/podspec/rn.js",
     "src/podspec/tokens.js",
     "src/prepare/prepare.js",
-    "src/sources/sources.js"
+    "src/sources/archive.js",
+    "src/sources/clean.js",
+    "src/sources/github.js",
+    "src/sources/podspec.js",
+    "src/sources/podtree.js",
+    "src/sources/source.js",
+    "src/sources/sources.js",
+    "src/sources/unicode.js"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -79,11 +87,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@preventive/deptree": "^1.4.0",
+    "@preventive/archive": "^1.4.0",
     "@preventive/lockfile": "^1.3.0",
     "@preventive/upstream": "^1.7.0"
-  },
-  "devDependencies": {
-    "@preventive/archive": "^1.4.0"
   }
 }
