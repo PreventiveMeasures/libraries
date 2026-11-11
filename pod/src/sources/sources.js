@@ -1,5 +1,5 @@
-// Stage 2: the pods' sources laid out in Pods/ as CocoaPods leaves them: each downloaded from GitHub, by a commit or
-// an :http archive held to its sha256, run through `prepare` where it has a prepare_command, and cleaned.
+// Stage 2: the pods' sources laid out in Pods/ as CocoaPods leaves them: each the :http archive its podspec names,
+// held to its sha256, run through `prepare` where it has a prepare_command, and cleaned.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -10,13 +10,11 @@ import { getPodArchive } from '@preventive/upstream/cocoapods.js'
 import { PodError, quote } from '../error.js'
 import { archiveOf } from './archive.js'
 import { installPod, planPod } from './clean.js'
-import { checkCloned, checkoutOf } from './github.js'
 import { given, readPodspec, specNamed } from './podspec.js'
 import { sourceOf } from './source.js'
 import { fold } from './unicode.js'
 
-// CocoaPods 1.13 to 1.17, which download, clean and lock a pod alike, but that before 1.16 a clone's .git is
-// copied into the cache.
+// CocoaPods 1.13 to 1.17, which download, clean and lock an archive alike.
 const VERSION = /^1\.1[3-7]\.\d+$/u
 // What CocoaPods writes in Pods/ beside the pods, which a pod's directory would be one with.
 const GENERATED = ['Headers', 'Local Podspecs', 'Manifest.lock', 'Target Support Files']
@@ -37,11 +35,11 @@ function readManifest(sandbox) {
 // Whether `pod` is in Pods/ as the lockfile has it, by the manifest's `root` of it: CocoaPods downloads it no more.
 const installed = (pod, root) => root !== undefined && root.version === pod.version && root.checksum === pod.checksum && root.pods.length === pod.specs.length && root.pods.every((name) => pod.specs.includes(name)) && isThere(pod.dir)
 
-// The CocoaPods that downloads, and the machine: what a download is cleaned by.
-function hostOf(cocoapods) {
+// Whether names fold as on macOS: the CocoaPods that downloads, and the machine, are what a download is cleaned by.
+function foldedOn(cocoapods) {
   if (typeof cocoapods !== 'string' || !VERSION.test(cocoapods)) throw new PodError(`CocoaPods ${quote(String(cocoapods))} is not supported: only 1.13.0 to 1.17.x are`, 'Podfile.lock')
   if (process.platform !== 'darwin' && process.platform !== 'linux') throw new PodError(`${quote(process.platform)} is not supported: only macOS and Linux are`)
-  return { folded: process.platform === 'darwin', keepsGit: Number(cocoapods.split('.')[1]) < 16 }
+  return process.platform === 'darwin'
 }
 
 // What is downloaded of a pod, all of it worked out before anything is fetched: its source, its prepare_command,
@@ -85,13 +83,8 @@ async function eachConcurrently(items, job, whereOf) {
   if (failure !== undefined) throw failure
 }
 
-// What a download comes to, fetched once for every pod of it: a checkout by its repository and commit, or an
-// archive by its hash and what RemoteFile makes of it.
-const downloadOf = ({ source }) => (source.type === 'git' ? `git ${source.repo}@${source.commit}` : `http ${source.sha256} ${source.file} ${source.flatten}`)
-async function contentsOf({ pod, source }, github) {
-  if (source.type === 'git') return await checkoutOf(github, source.repo, source.commit, about(pod.name))
-  return await archiveOf(await getPodArchive(source.url, source.sha256), source, about(pod.name))
-}
+// What a download comes to, fetched once for every pod of it: an archive, by its hash and what RemoteFile makes of it.
+const downloadOf = ({ source }) => `${source.sha256} ${source.file} ${source.flatten}`
 
 // A pod's directory written out: its directories, its files with their modes, then its links, so that nothing is
 // written through one.
@@ -112,7 +105,7 @@ function writePod({ dirs, files, links }, dir) {
 
 // `pods` are each pod's name, version, checksum, specs and directory, whether it is local or external, its spec
 // repo, whether CHECKOUT OPTIONS has it, and its podspec's JSON. `prepare` runs a prepare_command (prepare/).
-export async function layoutPods({ sandbox, cocoapods, platforms, pods }, github, prepare) {
+export async function layoutPods({ sandbox, cocoapods, platforms, pods }, prepare) {
   const before = await readManifest(sandbox)
   // The pods the last installation downloaded that this one does not have.
   for (const root of Object.values(before?.roots ?? {})) {
@@ -121,7 +114,7 @@ export async function layoutPods({ sandbox, cocoapods, platforms, pods }, github
   // Only what is downloaded needs a source held to a hash; a pod that is there is used as it is.
   const needed = pods.filter((pod) => !pod.local && !installed(pod, before?.roots[pod.name]))
   if (needed.length === 0) return []
-  const { folded, keepsGit } = hostOf(cocoapods)
+  const folded = foldedOn(cocoapods)
   const refusals = []
   const plans = needed.map((pod) => {
     try {
@@ -133,16 +126,13 @@ export async function layoutPods({ sandbox, cocoapods, platforms, pods }, github
     }
   })
   if (refusals.length > 0) throw new PodError(`${refusals.length === 1 ? 'a pod is' : `${refusals.length} pods are`} not downloaded:\n${refusals.map((reason) => `  ${reason}`).join('\n')}`)
-  const git = plans.filter(({ source }) => source.type === 'git')
-  await eachConcurrently(git, ({ pod, source }) => checkCloned(github, source.repo, source.commit, about(pod.name)), ({ pod }) => about(pod.name))
   const contents = new Map()
   await eachConcurrently(Map.groupBy(plans, downloadOf).values(), async (group) => {
-    const download = await contentsOf(group[0], github)
-    for (const { pod, command, files, source } of group) {
-      const where = about(pod.name)
-      const prepared = command === undefined ? download : await prepare({ name: pod.name, version: pod.version, command, contents: { dirs: new Set(download.dirs), files: new Map(download.files), links: new Map(download.links) } })
-      // An archive is no clone, with no .git for CocoaPods to copy.
-      contents.set(pod.name, installPod(prepared, files, { folded, keepsGit: keepsGit && source.type === 'git', where }))
+    const { pod, source } = group[0]
+    const download = await archiveOf(await getPodArchive(source.url, source.sha256), source, about(pod.name))
+    for (const { pod: one, command, files } of group) {
+      const prepared = command === undefined ? download : await prepare({ name: one.name, version: one.version, command, contents: { dirs: new Set(download.dirs), files: new Map(download.files), links: new Map(download.links) } })
+      contents.set(one.name, installPod(prepared, files, { folded, where: about(one.name) }))
     }
   }, ([{ pod }]) => about(pod.name))
   for (const pod of needed) writePod(contents.get(pod.name), join(sandbox, pod.name))

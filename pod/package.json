@@ -55,7 +55,6 @@
     "src/prepare/prepare.js",
     "src/sources/archive.js",
     "src/sources/clean.js",
-    "src/sources/github.js",
     "src/sources/podspec.js",
     "src/sources/podtree.js",
     "src/sources/source.js",

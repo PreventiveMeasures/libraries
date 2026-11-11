@@ -36,8 +36,8 @@ function writeGenerated(sandbox, files, links) {
   return written
 }
 
-// `dir` is the directory of the Podfile.lock; `github` the client pods are fetched through.
-export async function install(dir, github) {
+// `dir` is the directory of the Podfile.lock.
+export async function install(dir) {
   const input = await load(dir)
   const { lock, config, sandbox } = input
   for (const pod of input.pods) if (pod.local) refuseLocal(pod.name, pod.root.attributes.prepare_command)
@@ -46,7 +46,7 @@ export async function install(dir, github) {
     return { name: pod.name, version: pod.version, checksum: pod.checksum, specs: pod.specs, dir: pod.dir, local: pod.local, external: pod.external, repo, checkout: checkout !== undefined, podspec: pod.bytes }
   })
   const layout = { sandbox, cocoapods: lock.cocoapods, platforms: [config.platform.name], pods }
-  const downloaded = await layoutPods(layout, github, prepareDownload(config.prepareCommands, lock.cocoapods))
+  const downloaded = await layoutPods(layout, prepareDownload(config.prepareCommands, lock.cocoapods))
   const { files, links, podTargets, aggregates } = generate(input)
   const written = writeGenerated(input.sandbox, files, links)
   return { pods: podTargets.map((target) => target.name), targets: aggregates.map((aggregate) => aggregate.label), downloaded, written }

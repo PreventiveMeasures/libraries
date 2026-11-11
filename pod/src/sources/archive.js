@@ -8,7 +8,7 @@ import { unzip } from '@preventive/archive/zip.js'
 import { PodError, quote } from '../error.js'
 
 // What an archive may unpack to: the archive reader makes room for what entries declare.
-export const MAX_BYTES = 512 * 1024 * 1024
+const MAX_BYTES = 512 * 1024 * 1024
 // A `.git`, as a name is held to one: dots and spaces after it dropped, in any case.
 const isGit = (name) => name.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
 

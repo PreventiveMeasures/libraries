@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { lstatSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -61,10 +62,10 @@ describe('installPod', () => {
   const FOO = { 'Foo.h': 'foo' }
   const ALIAS = { 'Alias.h': 'foo.h' }
   const HEADERS = { source_files: '*.h' }
-  const install = ({ folded = false, keepsGit = false, files = FOO, links = ALIAS, spec = HEADERS }) => {
+  const install = ({ folded = false, files = FOO, links = ALIAS, spec = HEADERS }) => {
     const podspec = readPodspec(Buffer.from(JSON.stringify({ name: 'Pod', version: '1.0.0', ...spec })), 'Pod', '1.0.0', 'pod')
     const contents = { dirs: [], files: new Map(Object.entries(files).map(([path, data]) => [path, { data: Buffer.from(data), mode: 0o644 }])), links: new Map(Object.entries(links)) }
-    const out = installPod(contents, planPod(podspec, [podspec], undefined, 'pod'), { folded, keepsGit, where: 'pod' })
+    const out = installPod(contents, planPod(podspec, [podspec], undefined, 'pod'), { folded, where: 'pod' })
     return Object.fromEntries([...[...out.files].map(([path, { mode }]) => [path, mode.toString(8)]), ...out.links])
   }
 
@@ -88,13 +89,6 @@ describe('installPod', () => {
     const links = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [`c${i + 1}.h`, i === 34 ? 'Foo.h' : `c${i + 2}.h`]))
     assert.equal(install({ links })['Foo.h'], '444')
     assert.throws(() => install({ folded: true, links }), /the source file "c1\.h" links to nothing/u)
-  })
-
-  it("refuses, before CocoaPods 1.16, a pod whose patterns keep the clone's .git", () => {
-    const spec = { source_files: '*.h', preserve_paths: '.*' }
-    assert.throws(() => install({ keepsGit: true, links: {}, spec }), /keep the \.git of the clone/u)
-    assert.deepEqual(install({ links: {}, spec }), { 'Foo.h': '444' })
-    assert.deepEqual(install({ keepsGit: true, links: {} }), { 'Foo.h': '444' })
   })
 
   it('refuses a name or a path longer than the system takes, and a letter Ruby releases case otherwise', () => {
@@ -274,47 +268,71 @@ describe('archiveOf', () => {
   })
 })
 
+// Acme's release, as a tar.gz and a zip of one directory: what CocoaPods keeps of it, and what it cleans away.
+const ENTRIES = [
+  { name: 'Acme/', type: 'directory', mode: 0o755 },
+  { name: 'Acme/Acme.h', data: Buffer.from('int acme;\n'), mode: 0o644 },
+  { name: 'Acme/run.sh', data: Buffer.from('#!/bin/sh\n'), mode: 0o755 },
+  { name: 'Acme/unused.txt', data: Buffer.from('x\n'), mode: 0o644 },
+]
+const ARCHIVES = { tgz: await compress(pack(ENTRIES), 'gzip'), zip: await zip(ENTRIES) }
+
 describe('layoutPods', () => {
-  const COMMIT = 'c'.repeat(40)
+  const RELEASE = 'https://github.com/acme/acme/releases/download/v1.0.0/Acme'
+  const MAVEN = 'https://repo1.maven.org/maven2/com/facebook/acme/acme-artifacts/1.0.0/acme-artifacts-1.0.0'
+  const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
   const dirs = []
+  const served = globalThis.fetch
   after(() => {
+    globalThis.fetch = served
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
   })
-  // Acme from GitHub by a commit, as GitHub serves the tarball of its tree; `history` is the commits its default
-  // branch has. Returns what is written of it, by path and mode, and what GitHub was asked.
-  async function layout(history = [COMMIT]) {
-    const top = 'acme-acme-ccccccc'
-    const tarball = await compress(pack([
-      { name: `${top}/`, type: 'directory', mode: 0o755 },
-      { name: `${top}/Acme.h`, data: Buffer.from('int acme;\n'), mode: 0o644 },
-      { name: `${top}/run.sh`, data: Buffer.from('#!/bin/sh\n'), mode: 0o755 },
-      { name: `${top}/unused.txt`, data: Buffer.from('x\n'), mode: 0o644 },
-    ]), 'gzip')
-    const asked = []
-    const github = {
-      getRepo: ({ repo }) => Promise.resolve({ full_name: repo, default_branch: 'main' }),
-      compareCommits: ({ base }) => Promise.resolve({ status: history.includes(base) ? 'ahead' : 'diverged' }),
-      getCommitTree: ({ sha }) => asked.push(`tree of ${sha}`) && Promise.resolve('d'.repeat(40)),
-      getRepoTreeTarball: ({ tree }) => asked.push(`tarball of ${tree}`) && Promise.resolve(tarball),
+  // Acme by `source`, from an archive served at `url`: what is written of it, by path and mode. What is fetched is
+  // kept in `asked`.
+  async function layout(source, url = source.http, archive = ARCHIVES.tgz, asked = []) {
+    globalThis.fetch = (input) => {
+      asked.push(String(input))
+      return Promise.resolve(String(input) === url ? new Response(archive) : new Response('Not Found', { status: 404 }))
     }
-    const podspec = Buffer.from(JSON.stringify({ name: 'Acme', version: '1.0.0', source: { git: 'https://github.com/acme/acme.git', commit: COMMIT }, source_files: '*.h', preserve_paths: 'run.sh' }))
+    const podspec = Buffer.from(JSON.stringify({ name: 'Acme', version: '1.0.0', source: { sha256: sha256(archive), ...source }, source_files: '*.h', preserve_paths: 'run.sh' }))
     const root = mkdtempSync(join(tmpdir(), 'pod-sources-test-'))
     dirs.push(root)
     const sandbox = join(root, 'Pods')
     const pod = { name: 'Acme', version: '1.0.0', checksum: '0'.repeat(40), specs: ['Acme'], dir: join(sandbox, 'Acme'), local: false, external: false, repo: 'trunk', checkout: false, podspec }
-    const downloaded = await layoutPods({ sandbox, cocoapods: '1.16.2', platforms: ['ios'], pods: [pod] }, github, () => assert.fail('no prepare_command'))
+    const downloaded = await layoutPods({ sandbox, cocoapods: '1.16.2', platforms: ['ios'], pods: [pod] }, () => assert.fail('no prepare_command'))
     const files = Object.fromEntries(readdirSync(join(sandbox, 'Acme')).map((name) => [name, (lstatSync(join(sandbox, 'Acme', name)).mode & 0o777).toString(8)]))
-    return { downloaded, files, asked }
+    return { downloaded, files }
   }
+  const KEPT = { 'Acme.h': '444', 'run.sh': '755' }
 
-  it('checks a pod out of GitHub by its commit, and keeps of it what CocoaPods keeps', async () => {
-    const { downloaded, files, asked } = await layout()
-    assert.deepEqual(downloaded, ['Acme'])
-    assert.deepEqual(files, { 'Acme.h': '444', 'run.sh': '755' })
-    assert.deepEqual(asked, [`tree of ${COMMIT}`, `tarball of ${'d'.repeat(40)}`])
+  it("downloads a GitHub release's .tar.gz and .zip, and Maven Central's under com/facebook/, as CocoaPods keeps them", async () => {
+    for (const [url, archive, flatten] of [[`${RELEASE}.tar.gz`, ARCHIVES.tgz], [`${RELEASE}.zip`, ARCHIVES.zip, true], [`${MAVEN}.tar.gz`, ARCHIVES.tgz], [`${MAVEN}.zip`, ARCHIVES.zip, true]]) {
+      const asked = []
+      const { downloaded, files } = await layout({ http: url, ...(flatten ? { flatten } : {}) }, url, archive, asked)
+      assert.deepEqual([downloaded, files, asked], [['Acme'], KEPT, [url]], url)
+    }
+    // A zip is not flattened unless :flatten says so: its files stay under Acme/, which no pattern names, and go.
+    assert.deepEqual((await layout({ http: `${RELEASE}.zip` }, `${RELEASE}.zip`, ARCHIVES.zip)).files, {})
+    assert.deepEqual((await layout({ http: `${MAVEN}.tar.gz`, type: 'tgz' })).files, KEPT)
   })
 
-  it('refuses a commit the default branch does not have', async () => {
-    await assert.rejects(layout([]), (error) => error.name === 'PodError' && /pods\["Acme"\]: c{40} is not in the history of the repository's default branch/u.test(error.message))
+  it('refuses any source but such an archive, held to its sha256, before fetching anything', async () => {
+    for (const [source, message] of [
+      [{ git: 'https://github.com/acme/acme.git', commit: 'c'.repeat(40) }, /a source by :git is not supported: only :http from GitHub or Maven Central's com\/facebook\/, held to its :sha256, is/u],
+      [{ http: `${MAVEN}.tar.gz`.replace('/facebook/', '/facebookx/') }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it, or https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u],
+      [{ http: `${MAVEN}.jar` }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it/u],
+      [{ http: `${MAVEN}.tar.gz`.replace('/facebook/', '/facebook/../google/') }, /not https:\/\/github\.com\/<owner>\/<repo>\/ and a path under it/u],
+      [{ http: `${MAVEN}.tar.gz`, type: 'zip' }, /its :type "zip" is not the tgz its URL on Maven Central names/u],
+      [{ http: `${RELEASE}.tar.gz`, sha256: null, sha1: 'a'.repeat(40) }, /held to a :sha1 alone/u],
+    ]) {
+      const asked = []
+      await assert.rejects(layout(source, 'nowhere', ARCHIVES.tgz, asked), (error) => error.name === 'PodError' && message.test(error.message), JSON.stringify(source))
+      assert.deepEqual(asked, [], JSON.stringify(source))
+    }
+  })
+
+  it('refuses an archive that is not the one its sha256 is of', async () => {
+    const url = `${MAVEN}.tar.gz`
+    await assert.rejects(layout({ http: url, sha256: 'b'.repeat(64) }, url), (error) => error.name === 'PodError' && /integrity mismatch for https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u.test(error.message))
   })
 })
