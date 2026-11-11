@@ -1,11 +1,10 @@
-// What CocoaPods keeps of a pod it downloads: cleaned once in its download cache, for every spec on every platform
-// each takes; again in Pods/, for the specs installed; then its source files made read-only. As CocoaPods 1.13 to
-// 1.17 have it, in Ruby 2.6 to 3.4.
+// What CocoaPods keeps of a pod it downloads: what the specs installed use, then its source files made read-only.
+// As CocoaPods 1.13 to 1.17 have it, in Ruby 2.6 to 3.4.
 
 import { PodError, quote } from '../error.js'
 import { SOURCES, downcase, glob, pathList } from '../pathlist.js'
 import { PodTree } from './podtree.js'
-import { allSpecs, consumerOf, licenseFileOf, platformsOf } from './podspec.js'
+import { consumerOf, licenseFileOf } from './podspec.js'
 
 const SOURCE_FILES = `*{${SOURCES.join(',')}}`
 const README = 'readme{*,.*}'
@@ -104,38 +103,15 @@ function lock(tree, accessors, budget) {
   }
 }
 
-// A spec's patterns on each platform it takes, of `platforms` where given. The lockfile does not say which a pod
-// was installed for, so a spec installed has to name the same files on each.
-function uniformConsumer(spec, platforms, where) {
-  const taken = platformsOf(spec, where).filter((platform) => platforms?.includes(platform) ?? true)
-  if (taken.length === 0) throw new PodError(`${quote(spec.name)} is for none of the platforms given`, where)
-  const [first, ...others] = taken.map((platform) => [platform, consumerOf(spec, platform, where)])
-  const shown = JSON.stringify(first[1])
-  const other = others.find(([, values]) => JSON.stringify(values) !== shown)
-  if (other !== undefined) {
-    const which = platforms === undefined ? 'and the platforms it is installed for are not given' : 'and the lockfile does not say which of the platforms given it is installed for'
-    throw new PodError(`${quote(spec.name)} names other files on ${other[0]} than on ${first[0]}, ${which}`, where)
-  }
-  return first[1]
-}
+// What a podspec says of the files CocoaPods keeps, worked out before anything is downloaded: its license file, and
+// the patterns of the specs `installed` on `platform`.
+export const planPod = (podspec, installed, platform) => ({ license: licenseFileOf(podspec), used: installed.map((spec) => consumerOf(spec, platform)) })
 
-// What a podspec says of the files CocoaPods keeps, checked whole before anything is downloaded: its license
-// file, and the patterns of every spec on every platform, and of the specs `installed` on `platforms`.
-export function planPod(podspec, installed, platforms, where) {
-  return {
-    license: licenseFileOf(podspec, where),
-    every: allSpecs(podspec).flatMap((spec) => platformsOf(spec, where).map((platform) => consumerOf(spec, platform, where))),
-    used: installed.map((spec) => uniformConsumer(spec, platforms, where)),
-  }
-}
-
-// The download as `plan` leaves it, `folded` where it is on macOS.
+// The download as `plan` leaves it, `folded` where it is on macOS: PodSourceInstaller#clean!, then
+// Installer#lock_pod_sources. CocoaPods cleans it once before in its cache, for every spec, keeping more.
 export function installPod(contents, plan, { folded, where }) {
   const tree = new PodTree(contents, folded, where)
   const budget = { matches: 0 }
-  // Downloader::Cache#copy_and_clean, whose copy into Pods/ keeps the download's modes.
-  clean(tree, plan.every, plan.license, budget)
-  // PodSourceInstaller#clean!, then Installer#lock_pod_sources.
   clean(tree, plan.used, plan.license, budget)
   lock(tree, plan.used, budget)
   return tree.contents()

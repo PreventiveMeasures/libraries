@@ -45,7 +45,7 @@ export async function install(dir) {
     const { repo, checkout } = lock.roots[pod.name]
     return { name: pod.name, version: pod.version, checksum: pod.checksum, specs: pod.specs, dir: pod.dir, local: pod.local, external: pod.external, repo, checkout: checkout !== undefined, podspec: pod.bytes }
   })
-  const layout = { sandbox, cocoapods: lock.cocoapods, platforms: [config.platform.name], pods }
+  const layout = { sandbox, cocoapods: lock.cocoapods, platform: config.platform.name, pods }
   const downloaded = await layoutPods(layout, prepareDownload(config.prepareCommands, lock.cocoapods))
   const { files, links, podTargets, aggregates } = generate(input)
   const written = writeGenerated(input.sandbox, files, links)

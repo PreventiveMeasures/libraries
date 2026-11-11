@@ -5,14 +5,12 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, sy
 import { dirname, join } from 'node:path'
 
 import { parsePodfileLock } from '@preventive/lockfile/cocoapods.js'
-import { getPodArchive } from '@preventive/upstream/cocoapods.js'
 
 import { PodError, quote } from '../error.js'
-import { archiveOf } from './archive.js'
+import { archiveOf, downloadArchive } from './archive.js'
 import { installPod, planPod } from './clean.js'
 import { given, readPodspec, specNamed } from './podspec.js'
 import { sourceOf } from './source.js'
-import { fold } from './unicode.js'
 
 // CocoaPods 1.13 to 1.17, which download, clean and lock an archive alike.
 const VERSION = /^1\.1[3-7]\.\d+$/u
@@ -44,21 +42,21 @@ function foldedOn(cocoapods) {
 
 // What is downloaded of a pod, all of it worked out before anything is fetched: its source, its prepare_command,
 // and what of its download it keeps.
-function planOf(pod, platforms, folded) {
+function planOf(pod, platform, folded) {
   const where = about(pod.name)
   if (pod.checkout) throw new PodError('a pod by :podspec that CocoaPods downloads by its CHECKOUT OPTIONS is not supported', where)
   if (!pod.external && !isTrunk(pod.repo)) throw new PodError(`a pod from the spec repo ${quote(String(pod.repo))} is not supported: only those from trunk are`, where)
-  const key = folded ? fold : (name) => name
+  const key = (name) => (folded ? name.normalize('NFD').toLowerCase() : name)
   if (GENERATED.some((name) => key(name) === key(pod.name)) || key(pod.name).endsWith(key('.xcodeproj'))) throw new PodError('a pod named as what CocoaPods writes beside the pods in Pods/ is not supported', where)
   // PodDirCleaner globs the pod's directory by its path as it is.
   if (/[*?[\]{}]/u.test(pod.name)) throw new PodError('a name with a glob\'s `*`, `?`, `[`, `]`, `{` or `}` in it, which CocoaPods cleans the pod by, is not supported', where)
   if (pod.name.length > 255) throw new PodError('a name too long for a directory, which CocoaPods fails to make', where)
-  const podspec = readPodspec(pod.podspec, pod.name, pod.version, where)
+  const podspec = readPodspec(pod.podspec)
   const source = sourceOf(podspec, where)
   const command = given(podspec.attributes.prepare_command) ? podspec.attributes.prepare_command : undefined
   if (command !== undefined && typeof command !== 'string') throw new PodError('its prepare_command is not text, which CocoaPods fails on', where)
   const specs = pod.specs.map((name) => specNamed(podspec, name) ?? podspecRefusal(name, where))
-  return { pod, source, command, files: planPod(podspec, specs, platforms, where) }
+  return { pod, source, command, files: planPod(podspec, specs, platform) }
 }
 function podspecRefusal(name, where) {
   throw new PodError(`its podspec has no ${quote(name)}, which the lockfile installs`, where)
@@ -105,7 +103,7 @@ function writePod({ dirs, files, links }, dir) {
 
 // `pods` are each pod's name, version, checksum, specs and directory, whether it is local or external, its spec
 // repo, whether CHECKOUT OPTIONS has it, and its podspec's JSON. `prepare` runs a prepare_command (prepare/).
-export async function layoutPods({ sandbox, cocoapods, platforms, pods }, prepare) {
+export async function layoutPods({ sandbox, cocoapods, platform, pods }, prepare) {
   const before = await readManifest(sandbox)
   // The pods the last installation downloaded that this one does not have.
   for (const root of Object.values(before?.roots ?? {})) {
@@ -118,7 +116,7 @@ export async function layoutPods({ sandbox, cocoapods, platforms, pods }, prepar
   const refusals = []
   const plans = needed.map((pod) => {
     try {
-      return planOf(pod, platforms, folded)
+      return planOf(pod, platform, folded)
     } catch (error) {
       if (!(error instanceof PodError)) throw error
       refusals.push(error.message)
@@ -129,7 +127,7 @@ export async function layoutPods({ sandbox, cocoapods, platforms, pods }, prepar
   const contents = new Map()
   await eachConcurrently(Map.groupBy(plans, downloadOf).values(), async (group) => {
     const { pod, source } = group[0]
-    const download = await archiveOf(await getPodArchive(source.url, source.sha256), source, about(pod.name))
+    const download = await archiveOf(await downloadArchive(source.url, source.sha256, about(pod.name)), source, about(pod.name))
     for (const { pod: one, command, files } of group) {
       const prepared = command === undefined ? download : await prepare({ name: one.name, version: one.version, command, contents: { dirs: new Set(download.dirs), files: new Map(download.files), links: new Map(download.links) } })
       contents.set(one.name, installPod(prepared, files, { folded, where: about(one.name) }))

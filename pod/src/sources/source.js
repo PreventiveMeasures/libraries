@@ -1,8 +1,6 @@
 // Where a pod is downloaded from: its podspec's `source` as cocoapods-downloader takes it, held to what is fetched
 // alike: an :http archive on GitHub, or a .tar.gz or a .zip under Maven Central's com/facebook/, held to its sha256.
 
-import { isPodArchiveUrl } from '@preventive/upstream/cocoapods.js'
-
 import { PodError, quote } from '../error.js'
 import { given, isObject } from './podspec.js'
 
@@ -20,8 +18,21 @@ const TYPES = new Set([...TARS, 'zip', 'dmg'])
 const URL_TYPES = [[/\.zip$/u, 'zip'], [/\.(?:tgz|tar\.gz)$/u, 'tgz'], [/\.tar$/u, 'tar'], [/\.(?:tbz|tar\.bz2)$/u, 'tbz'], [/\.(?:txz|tar\.xz)$/u, 'txz'], [/\.dmg$/u, 'dmg']]
 // Meta's namespace on Maven Central, where React Native publishes its iOS archives.
 const MAVEN_FACEBOOK = 'https://repo1.maven.org/maven2/com/facebook/'
+const OWNER = /^(?=.{1,39}$)[a-z\d](?:-?[a-z\d])*$/iu
+const REPO = /^(?!\.\.?$)[\w.-]{1,100}$/u
+const SEGMENT = /^(?!\.\.?$)(?:[\w.~@-]|%[\dA-F]{2})+$/u
 
-// An :http source: its URL, one upstream's getPodArchive fetches; its type, and so the name RemoteFile downloads it
+// https://github.com/<owner>/<repo>/ and a path under it, or a .tar.gz or a .zip under MAVEN_FACEBOOK: as the URL
+// parser writes it back out, with nothing but its origin and path, so that the text checked is what is fetched.
+function isArchiveUrl(url) {
+  const parsed = typeof url === 'string' ? URL.parse(url) : null
+  if (parsed?.href !== url || `${parsed.origin}${parsed.pathname}` !== url) return false
+  const segments = parsed.pathname.slice(1).split('/')
+  if (!segments.every((segment) => SEGMENT.test(segment))) return false
+  return (parsed.origin === 'https://github.com' && segments.length >= 3 && OWNER.test(segments[0]) && REPO.test(segments[1])) || (url.startsWith(MAVEN_FACEBOOK) && /\.(?:tar\.gz|zip)$/u.test(url))
+}
+
+// An :http source: its URL, as isArchiveUrl takes it; its type, and so the name RemoteFile downloads it
 // under; whether it is flattened, by :flatten or else for a tar alone; and its sha256. Any other source is refused.
 export function sourceOf(podspec, where) {
   const source = podspec.attributes.source
@@ -32,9 +43,9 @@ export function sourceOf(podspec, where) {
   const other = Object.keys(source).find((key) => !HTTP_OPTIONS.has(key))
   if (other !== undefined) throw new PodError(`its source has :${other}, which cocoapods-downloader refuses of :http`, where)
   const { http: url, type: named, flatten, headers } = source
-  if (!isPodArchiveUrl(url)) throw new PodError(`an :http source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not https://github.com/<owner>/<repo>/ and a path under it, or ${MAVEN_FACEBOOK} and one under it to a .tar.gz or a .zip, as the URL parser writes it back out and of letters, digits and \`_.~@-%\`, is not supported`, where)
+  if (!isArchiveUrl(url)) throw new PodError(`an :http source from ${typeof url === 'string' ? quote(url) : 'nowhere'}, not https://github.com/<owner>/<repo>/ and a path under it, or ${MAVEN_FACEBOOK} and one under it to a .tar.gz or a .zip, as the URL parser writes it back out and of letters, digits and \`_.~@-%\`, is not supported`, where)
   if (given(headers)) throw new PodError('an :http source with :headers, which curl sends with the request, is not supported', where)
-  // isPodArchiveUrl's URL ends with its path, which RemoteFile reads a type off.
+  // isArchiveUrl's URL ends with its path, which RemoteFile reads a type off.
   const byUrl = URL_TYPES.find(([pattern]) => pattern.test(url))?.[1]
   if (url.startsWith(MAVEN_FACEBOOK) && given(named) && named !== byUrl) throw new PodError(`its :type ${quote(String(named))} is not the ${byUrl} its URL on Maven Central names, as only a .tar.gz and a .zip from there are supported`, where)
   const type = given(named) ? named : byUrl

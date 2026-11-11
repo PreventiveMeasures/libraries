@@ -2,14 +2,11 @@
 // links on the way, and what FileUtils.rm_rf leaves of it.
 
 import { PodError, quote } from '../error.js'
-import { CASE_UNSTABLE, fold } from './unicode.js'
 
-// The links a path is followed through before it leads nowhere, as each system gives up with ELOOP; and the
-// longest path and name in bytes a call takes, which a path is shorter than with the pod's directory before it.
-const LIMITS = {
-  linux: { links: 40, path: 4096, name: 255 },
-  darwin: { links: 32, path: 1024, name: 255 },
-}
+// The links a path is followed through before it leads nowhere, as each system gives up with ELOOP.
+const LINKS = { linux: 40, darwin: 32 }
+// As macOS takes a name, whatever its case and normalization.
+const fold = (name) => name.normalize('NFD').toLowerCase()
 
 const parentOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
@@ -20,7 +17,7 @@ const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
 export class PodTree {
   constructor({ dirs, files, links }, folded, where) {
     this.where = where
-    this.limits = LIMITS[folded ? 'darwin' : 'linux']
+    this.links = LINKS[folded ? 'darwin' : 'linux']
     this.key = folded ? fold : (path) => path
     this.nodes = new Map()
     const add = (path, node) => {
@@ -31,22 +28,10 @@ export class PodTree {
     for (const [path, { data, mode }] of files) add(path, { type: 'file', data, mode })
     for (const [path, target] of links) add(path, { type: 'symlink', target })
     this.byKey = new Map()
-    for (const [path, node] of this.nodes) {
-      this.check(path, node.target)
+    for (const path of this.nodes.keys()) {
       const other = this.byKey.get(this.key(path))
       if (other !== undefined) throw new PodError(`${quote(other)} and ${quote(path)} are one name on macOS`, where)
       this.byKey.set(this.key(path), path)
-    }
-  }
-
-  // What CocoaPods fails on, a path or a name too long, and what it reads by case otherwise in one release of
-  // Ruby than another.
-  check(path, target) {
-    if (Buffer.byteLength(path) >= this.limits.path || path.split('/').some((name) => Buffer.byteLength(name) > this.limits.name)) {
-      throw new PodError(`${quote(path)} is longer than a path or a name can be, and CocoaPods fails on it`, this.where)
-    }
-    if (CASE_UNSTABLE.test(path) || (target !== undefined && CASE_UNSTABLE.test(target))) {
-      throw new PodError(`${quote(path)} has a letter whose case each release of Ruby maps otherwise, by which CocoaPods compares names`, this.where)
     }
   }
 
@@ -74,7 +59,7 @@ export class PodTree {
       const node = this.nodes.get(next)
       if (node.type === 'symlink') {
         // A link to nothing at all leads nowhere.
-        if (++followed > this.limits.links || node.target === '') return undefined
+        if (++followed > this.links || node.target === '') return undefined
         if (node.target.startsWith('/')) throw new PodError(`${quote(next)} links to the absolute ${quote(node.target)}`, this.where)
         pending.push(...node.target.split('/').toReversed())
         continue

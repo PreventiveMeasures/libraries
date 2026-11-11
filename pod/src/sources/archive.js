@@ -1,5 +1,7 @@
-// An archive by :http as RemoteFile leaves it: saved as `file.<type>`, extracted by `tar xf` or `unzip -d` under a
-// umask of 0o022, then flattened where that is asked and it holds one directory.
+// An :http archive as RemoteFile leaves it: downloaded and held to its sha256, extracted as `tar xf` or `unzip -d`
+// extract it under a umask of 0o022, then flattened where that is asked and it holds one directory.
+
+import { createHash } from 'node:crypto'
 
 import { decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
@@ -7,45 +9,39 @@ import { unzip } from '@preventive/archive/zip.js'
 
 import { PodError, quote } from '../error.js'
 
-// What an archive may unpack to: the archive reader makes room for what entries declare.
+// The most an archive may be, and unpack to.
 const MAX_BYTES = 512 * 1024 * 1024
-// A `.git`, as a name is held to one: dots and spaces after it dropped, in any case.
-const isGit = (name) => name.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
-
-const startsWith = (bytes, magic) => magic.every((byte, i) => bytes[i] === byte)
-const GZIP = [0x1f, 0x8b]
-// A zip, with an entry or empty.
-const ZIPS = [[0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06]]
-// What `tar xf` decompresses by its magic too, and is not read here.
-const OTHERS = [
-  ['bzip2', [0x42, 0x5a, 0x68]], ['xz', [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]], ['zstd', [0x28, 0xb5, 0x2f, 0xfd]],
-  ['compress', [0x1f, 0x9d]], ['lzip', [0x4c, 0x5a, 0x49, 0x50]], ['lzma', [0x5d, 0x00, 0x00]],
-]
-
-// The setuid, setgid and sticky bits.
-const SPECIAL = 0o7000
+const TIMEOUT = 300_000
 const UMASK = 0o022
+// The zip makers whose Unix mode unzip takes as it is stored.
+const UNIX_HOSTS = new Set([2, 3, 5, 12, 13, 16, 17, 30])
 
-// The names at the archive's root, a directory's that only paths under it
-// name among them.
+// A `.git`, as git's checkout names one: dots and spaces after it dropped, in any case.
+const isGit = (name) => name.replace(/[. ]+$/u, '').toLowerCase() === '.git'
+const gitRefusal = (at) => new PodError('a path with a .git in it, which CocoaPods 1.16 leaves out of its cache and those before keep', at)
+// The names at the archive's root.
 const topsOf = ({ dirs, files, links }) => new Set([...dirs, ...files.keys(), ...links.keys()].map((path) => path.split('/')[0]))
 
-const gitRefusal = (at) => new PodError('a path with a .git in it, which CocoaPods 1.16 leaves out of its cache and those before keep', at)
-const dirRefusal = (mode, at) => new PodError(`a directory of mode ${mode.toString(8)}, which its owner cannot list and write in, as CocoaPods' cleaner has to`, at)
-const fileRefusal = (mode, at) => new PodError(`a file of mode ${mode.toString(8)}, which its owner cannot read, as CocoaPods' copy has to`, at)
-
-async function tarOf(bytes, where) {
-  if (startsWith(bytes, GZIP)) return await decompress(bytes, 'gzip', { limit: MAX_BYTES })
-  if (ZIPS.some((magic) => startsWith(bytes, magic))) throw new PodError('its archive is a zip, which bsdtar extracts for `tar xf` and GNU tar does not', where)
-  const other = OTHERS.find(([, magic]) => startsWith(bytes, magic))
-  if (other !== undefined) throw new PodError(`its archive is compressed with ${other[0]}, which is not read here: only gzip is`, where)
+// The archive at `url`, held to `sha256`: whoever answers a redirect, the bytes are what is checked.
+export async function downloadArchive(url, sha256, where) {
+  const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(TIMEOUT) })
+  if (!response.ok) throw new PodError(`its archive, ${quote(url)}, is not served: ${response.status}`, where)
+  const chunks = []
+  let size = 0
+  for await (const chunk of response.body ?? []) {
+    size += chunk.byteLength
+    if (size > MAX_BYTES) throw new PodError(`its archive, ${quote(url)}, is larger than ${MAX_BYTES} bytes`, where)
+    chunks.push(chunk)
+  }
+  const bytes = Buffer.concat(chunks)
+  const actual = createHash('sha256').update(bytes).digest('hex')
+  if (actual !== sha256) throw new PodError(`its archive, ${quote(url)}, is not the one its :sha256 is of: its sha256 is ${actual}, not ${sha256}`, where)
   return bytes
 }
 
-// Each entry as tar writes it out, a hard link copied as rsync -a and cp_r copy one. What tar would make otherwise
-// on another machine is refused: a special bit, a directory its owner cannot list and write in, a file it cannot
-// read, a name starting with `._`, a `.git`, a FIFO or a device.
-function entriesOf(entries, where) {
+// Each entry as tar writes it out, a hard link a copy of what it links to, as CocoaPods' copies make it. A name
+// starting with `._`, which bsdtar on macOS reads as another's extended attributes, is refused, as is a `.git`.
+function untarred(entries, where) {
   const dirs = new Set()
   const files = new Map()
   const links = new Map()
@@ -56,132 +52,41 @@ function entriesOf(entries, where) {
     const segments = name.split('/')
     if (segments.some(isGit)) throw gitRefusal(at)
     if (segments.some((segment) => segment.startsWith('._'))) throw new PodError('a name starting with `._`, which bsdtar on macOS reads as the extended attributes of another', at)
-    const mode = type === 'hardlink' ? undefined : entry.mode
-    if (mode !== undefined && type !== 'symlink' && (mode & SPECIAL) !== 0) throw new PodError(`a mode of ${mode.toString(8)}, with a bit tar sets or drops by who extracts it`, at)
-    if (type === 'directory') {
-      if ((mode & 0o700) !== 0o700) throw dirRefusal(mode, at)
-      dirs.add(name)
-    } else if (type === 'file' || type === 'contiguous-file') {
-      if ((mode & 0o400) === 0) throw fileRefusal(mode, at)
-      files.set(name, { data: entry.data, mode: mode & 0o777 & ~UMASK })
-    } else if (type === 'symlink') {
-      links.set(name, entry.linkname)
-    } else if (type === 'hardlink') {
-      // The archive reader holds a hard link to an earlier entry.
-      if (files.has(entry.linkname)) files.set(name, { ...files.get(entry.linkname) })
-      else if (links.has(entry.linkname)) links.set(name, links.get(entry.linkname))
-      else throw new PodError(`a hard link to ${quote(entry.linkname)}, which is no file or link`, at)
-    } else {
-      throw new PodError(`a ${type}, which a pod's download cannot hold`, at)
-    }
+    if (type === 'directory') dirs.add(name)
+    else if (type === 'file' || type === 'contiguous-file') files.set(name, { data: entry.data, mode: entry.mode & 0o777 & ~UMASK })
+    else if (type === 'symlink') links.set(name, entry.linkname)
+    else if (type === 'hardlink' && files.has(entry.linkname)) files.set(name, { ...files.get(entry.linkname) })
+    else if (type === 'hardlink' && links.has(entry.linkname)) links.set(name, links.get(entry.linkname))
+    else throw new PodError(`a ${type}, which a pod's download cannot hold`, at)
   }
   return { dirs, files, links }
 }
 
-async function untarred(bytes, where) {
-  try {
-    return entriesOf(unpack(await tarOf(bytes, where), { trailingGlobal: true }), where)
-  } catch (error) {
-    if (error instanceof ArchiveError) throw new PodError(`its archive cannot be read: ${error.message}`, where, { cause: error })
-    throw error
-  }
+// A file's mode as unzip's mapattr() makes one: a Unix maker's as stored; any other's 0o644, or 0o444 where marked
+// read-only, unless the Unix mode stored with it agrees with that.
+function zipMode({ system, attributes }) {
+  const unix = attributes >>> 16
+  if (UNIX_HOSTS.has(system)) return unix & 0o777
+  const writable = (attributes & 1) === 0
+  return system === 0 && (unix & 0o700) === (writable ? 0o600 : 0o400) ? unix & 0o777 : writable ? 0o644 : 0o444
 }
 
-// What unzip 6.0 stops to ask about, which fails `pod install` with nothing
-// on stdin.
-const PKZIP_VERSION = 45
-const VMS = 2
-
-function checkVersion({ version }, at) {
-  const needed = version & 0xff
-  if (needed > PKZIP_VERSION) throw new PodError(`needs PKZIP ${(needed / 10).toFixed(1)} to extract, past the 4.5 an unzip built without bzip2 takes`, at)
-  if (version >> 8 === VMS) throw new PodError('marked as stored in VMS format, which unzip asks before extracting', at)
-}
-
-// A mode as unzip's mapattr() makes one: a Unix maker's as stored, any other's from the DOS bits under the umask
-// unless its stored Unix mode agrees with them; filtattr() then drops the special bits.
-const UNIX_HOSTS = new Set([2, 3, 5, 12, 13, 16, 17, 30])
-const SYMLINK_HOSTS = new Set([2, 3, 5, 16, 30])
-const LABEL_HOSTS = new Set([0, 5, 6, 11])
-const MODE_EXTRAS = new Set([0x756e, 0x000c]) // ASI Unix and PKWARE VMS, read where the attributes hold no mode
-const S_IFMT = 0o170000
-const S_IFLNK = 0o120000
-const DOS_READONLY = 1
-const DOS_LABEL = 8
-const DOS_DIRECTORY = 0x10
-const CONTROL_FIELDS = 4 // of the internal attributes: the external ones are then their low byte alone
-
-function unzipAttributes({ system, internalAttributes, attributes, extra, storedName }, at) {
-  const host = Math.min(system, 31)
-  if (host === 1 || host === 18) throw new PodError('made on Amiga or THEOS, whose attributes unzip reads by that system', at)
-  const external = internalAttributes & CONTROL_FIELDS ? attributes & 0xff : attributes
-  if ((external & DOS_LABEL) !== 0 && LABEL_HOSTS.has(host)) return { label: true }
-  let unix = 0
-  if (UNIX_HOSTS.has(host)) {
-    unix = external >>> 16
-    if (unix === 0 && extra.some(({ id }) => MODE_EXTRAS.has(id))) throw new PodError('attributes with no mode, and an extra field unzip reads one from', at)
-    return { mode: unix, symlink: (unix & S_IFMT) === S_IFLNK && SYMLINK_HOSTS.has(host) }
-  }
-  if (host === 0) unix = external >>> 16
-  const dos = ((external & DOS_READONLY) === 0 ? 2 : 0) | ((external & DOS_DIRECTORY) !== 0 || storedName.endsWith('/') ? 1 : 0)
-  if ((unix & 0o700) === (0o400 | (dos << 6))) return { mode: unix, symlink: (unix & S_IFMT) === S_IFLNK && host === 0 }
-  return { mode: (0o444 | (dos << 6) | (dos << 3) | dos) & ~UMASK, symlink: false }
-}
-
-// What unzip's mapname() writes otherwise than the reader reads it.
-const NON_ASCII = /[^\u0020-\u007E]/u
-const VMS_VERSION = /;\d*$/u
-
-function checkName({ storedName, type }, at) {
-  if (NON_ASCII.test(storedName)) throw new PodError('a name with a character outside ASCII, which unzip writes by the machine\'s locale and its own build', at)
-  if (type === 'directory') return
-  const last = storedName.split('/').at(-1)
-  if (last === '.') throw new PodError('a name ending in a `.` segment, which unzip writes as `_`', at)
-  if (VMS_VERSION.test(last)) throw new PodError('a name ending in `;` and digits, which unzip takes for a VMS version and drops', at)
-}
-
-// Each entry as unzip writes it out, in the central directory's order: a
-// volume label skipped, a directory entry's mode counted only where unzip
-// makes the directory for it.
-async function unzipped(bytes, where) {
-  let entries
-  try {
-    entries = await unzip(bytes, { limit: MAX_BYTES })
-  } catch (error) {
-    if (error instanceof ArchiveError) throw new PodError(`its archive cannot be read: ${error.message}`, where, { cause: error })
-    throw error
-  }
+// Each entry as unzip writes it out. An empty archive, which unzip warns of, and a name twice, which it asks about,
+// fail CocoaPods and are refused.
+function unzipped(entries, where) {
   if (entries.length === 0) throw new PodError('an empty archive, which unzip warns of, and CocoaPods fails on the warning', where)
   const dirs = new Set()
   const files = new Map()
   const links = new Map()
-  const made = new Set()
   for (const entry of entries) {
     const { name, type } = entry
     if (name === '.') continue
     const at = `${where}: ${quote(entry.storedName)}`
-    checkVersion(entry, at)
-    const { label, mode, symlink } = unzipAttributes(entry, at)
-    if (label) continue
-    checkName(entry, at)
-    const segments = name.split('/')
-    if (segments.some(isGit)) throw gitRefusal(at)
+    if (name.split('/').some(isGit)) throw gitRefusal(at)
     if (files.has(name) || links.has(name)) throw new PodError('a name again, which unzip asks whether to replace', at)
-    if (symlink !== (type === 'symlink')) throw new PodError('a symlink by the attributes of a maker that is not Unix, which unzip makes a link of', at)
-    const perms = mode & 0o777
-    for (let i = 1; i < segments.length; i++) made.add(segments.slice(0, i).join('/'))
-    if (type === 'directory') {
-      if (!made.has(name)) {
-        if ((perms & 0o700) !== 0o700) throw dirRefusal(perms, at)
-        made.add(name)
-      }
-      dirs.add(name)
-    } else if (type === 'symlink') {
-      links.set(name, entry.linkname)
-    } else {
-      if ((perms & 0o400) === 0) throw fileRefusal(perms, at)
-      files.set(name, { data: entry.data, mode: perms })
-    }
+    if (type === 'directory') dirs.add(name)
+    else if (type === 'symlink') links.set(name, entry.linkname)
+    else files.set(name, { data: entry.data, mode: zipMode(entry) })
   }
   return { dirs, files, links }
 }
@@ -204,9 +109,16 @@ function flattened(contents, where) {
   return moved
 }
 
-// `source` is sourceOf's of :http; the contents are as writeFiles takes them.
+// `source` is sourceOf's: the archive's type, the name it is downloaded under, and whether it is flattened.
 export async function archiveOf(bytes, source, where) {
-  const contents = source.archive === 'zip' ? await unzipped(bytes, where) : await untarred(bytes, where)
+  let contents
+  try {
+    if (source.archive === 'zip') contents = unzipped(await unzip(bytes, { limit: MAX_BYTES }), where)
+    else contents = untarred(unpack(bytes[0] === 0x1f && bytes[1] === 0x8b ? await decompress(bytes, 'gzip', { limit: MAX_BYTES }) : bytes, { trailingGlobal: true }), where)
+  } catch (error) {
+    if (error instanceof ArchiveError) throw new PodError(`its archive cannot be read: ${error.message}`, where, { cause: error })
+    throw error
+  }
   if (topsOf(contents).has(source.file)) throw new PodError(`the archive holds ${quote(source.file)}, the name RemoteFile downloads it under where it extracts it`, where)
   return source.flatten ? flattened(contents, where) : contents
 }

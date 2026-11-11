@@ -16,8 +16,8 @@ import { installPod, planPod } from '../src/sources/clean.js'
 import { readPodspec } from '../src/sources/podspec.js'
 import { layoutPods } from '../src/sources/sources.js'
 
-// Stage 2's own reading of a download, as deptree's tests hold deptree's to it: what installPod keeps, fnmatch and
-// expandBraces, and what archiveOf makes of a tar or a zip.
+// Stage 2's reading of a download: what installPod keeps, fnmatch and expandBraces, what archiveOf makes of a tar
+// or a zip, and layoutPods from the archive's URL to Pods/.
 
 // A zip with every field as given, as zip.js would not write one: `system` the maker, `attributes` the external
 // ones, `internal`, `version`, `flags` and `extra` as they are.
@@ -56,18 +56,23 @@ function rawZip(entries) {
 }
 
 describe('installPod', () => {
-  // A download of Foo.h and `Alias.h` linking to `foo.h`, each a source
-  // file of the root, unless `files` and `links` say otherwise; `spec`
-  // what the root has beside its name and version.
+  // A download of Foo.h and `Alias.h` linking to `foo.h`, each a source file of the root, unless `files` and `links`
+  // say otherwise; `spec` what the root has beside its name and version.
   const FOO = { 'Foo.h': 'foo' }
   const ALIAS = { 'Alias.h': 'foo.h' }
   const HEADERS = { source_files: '*.h' }
   const install = ({ folded = false, files = FOO, links = ALIAS, spec = HEADERS }) => {
-    const podspec = readPodspec(Buffer.from(JSON.stringify({ name: 'Pod', version: '1.0.0', ...spec })), 'Pod', '1.0.0', 'pod')
+    const podspec = readPodspec(Buffer.from(JSON.stringify({ name: 'Pod', version: '1.0.0', ...spec })))
     const contents = { dirs: [], files: new Map(Object.entries(files).map(([path, data]) => [path, { data: Buffer.from(data), mode: 0o644 }])), links: new Map(Object.entries(links)) }
-    const out = installPod(contents, planPod(podspec, [podspec], undefined, 'pod'), { folded, where: 'pod' })
+    const out = installPod(contents, planPod(podspec, [podspec], 'ios'), { folded, where: 'pod' })
     return Object.fromEntries([...[...out.files].map(([path, { mode }]) => [path, mode.toString(8)]), ...out.links])
   }
+
+  it('keeps what a spec uses, and makes its source files read-only', () => {
+    const files = { 'Foo.h': 'foo', 'unused.txt': 'x', 'res/a.png': 'a', 'res/b.txt': 'b', LICENSE: 'MIT', 'README.md': 'r' }
+    const spec = { source_files: '*.h', resources: 'res/*.png', license: { type: 'MIT' } }
+    assert.deepEqual(install({ files, links: {}, spec }), { 'Foo.h': '444', 'res/a.png': '644', LICENSE: '644', 'README.md': '644' })
+  })
 
   it('follows a link on macOS to a name of another case, as its filesystem finds one', () => {
     assert.deepEqual(install({ folded: true }), { 'Foo.h': '444', 'Alias.h': 'foo.h' })
@@ -89,14 +94,6 @@ describe('installPod', () => {
     const links = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [`c${i + 1}.h`, i === 34 ? 'Foo.h' : `c${i + 2}.h`]))
     assert.equal(install({ links })['Foo.h'], '444')
     assert.throws(() => install({ folded: true, links }), /the source file "c1\.h" links to nothing/u)
-  })
-
-  it('refuses a name or a path longer than the system takes, and a letter Ruby releases case otherwise', () => {
-    assert.throws(() => install({ files: { [`${'a'.repeat(256)}.h`]: '' }, links: {} }), /longer than a path or a name can be/u)
-    const deep = { [`${'d/'.repeat(600)}x.h`]: '' }
-    assert.deepEqual(Object.keys(install({ files: deep, links: {} })), [])
-    assert.throws(() => install({ folded: true, files: deep, links: {} }), /longer than a path or a name can be/u)
-    assert.throws(() => install({ files: { '\u{10D50}.h': '' }, links: {} }), /a letter whose case each release of Ruby maps otherwise/u)
   })
 
   it('refuses a pod that takes too many matches to clean, before making them', () => {
@@ -135,34 +132,25 @@ describe('expandBraces', () => {
 
 describe('archiveOf', () => {
   const tgz = { archive: 'tgz', file: 'file.tgz', flatten: true }
-  const archive = async (entries, gzip = true) => {
-    const tar = pack(entries)
-    return gzip ? await compress(tar, 'gzip') : tar
-  }
-  const extract = async (entries, source = tgz) => {
-    const { dirs, files, links } = await archiveOf(await archive(entries), source, 'pod')
-    return { dirs: [...dirs].sort(), files: Object.fromEntries([...files].map(([path, { mode }]) => [path, mode.toString(8)])), links: Object.fromEntries(links) }
-  }
+  const listed = ({ dirs, files, links }) => ({ dirs: [...dirs].sort(), files: Object.fromEntries([...files].map(([path, { mode }]) => [path, mode.toString(8)])), links: Object.fromEntries(links) })
+  const extract = async (entries, source = tgz) => listed(await archiveOf(await compress(pack(entries), 'gzip'), source, 'pod'))
 
-  it('extracts as a user other than root, flattening one directory, and copies hard links', async () => {
+  it('extracts a tar as tar does for a user other than root, flattening one directory, and copies hard links', async () => {
     const out = await extract([
       { name: 'Pod-1.0/', type: 'directory', mode: 0o700 },
       { name: 'Pod-1.0/a.h', data: Buffer.from('a'), mode: 0o666 },
       { name: 'Pod-1.0/b.h', type: 'hardlink', linkname: 'Pod-1.0/a.h' },
-      { name: 'Pod-1.0/sub/run', data: Buffer.from('#!'), mode: 0o775 },
+      { name: 'Pod-1.0/sub/run', data: Buffer.from('#!'), mode: 0o4775 },
       { name: 'Pod-1.0/c.h', type: 'symlink', linkname: 'a.h' },
     ])
     assert.deepEqual(out, { dirs: [], files: { 'a.h': '644', 'b.h': '644', 'sub/run': '755' }, links: { 'c.h': 'a.h' } })
-    assert.deepEqual((await extract([{ name: 'Pod-1.0/a.h', data: Buffer.from('a') }], { archive: 'tgz', file: 'file.tgz', flatten: false })).files, { 'Pod-1.0/a.h': '644' })
+    assert.deepEqual((await extract([{ name: 'Pod-1.0/a.h', data: Buffer.from('a') }], { ...tgz, flatten: false })).files, { 'Pod-1.0/a.h': '644' })
     assert.deepEqual((await extract([{ name: 'Pod-1.0/a.h', data: Buffer.from('a') }, { name: 'README', data: Buffer.from('r') }])).files, { 'Pod-1.0/a.h': '644', README: '644' }, 'two things are not flattened')
-    assert.deepEqual((await archiveOf(await archive([{ name: 'x/a.h', data: Buffer.from('a') }], false), tgz, 'pod')).files.get('a.h').mode, 0o644, 'a tar not gzipped')
+    assert.deepEqual((await archiveOf(pack([{ name: 'x/a.h', data: Buffer.from('a') }]), tgz, 'pod')).files.get('a.h').mode, 0o644, 'a tar not gzipped')
   })
 
   it('refuses what tar would make otherwise on another machine, or what the moves would meet', async () => {
     for (const [entries, message] of [
-      [[{ name: 'x/run', data: Buffer.from(''), mode: 0o4755 }], /a mode of 4755, with a bit tar sets or drops/u],
-      [[{ name: 'x/', type: 'directory', mode: 0o555 }, { name: 'x/a', data: Buffer.from('') }], /a directory of mode 555, which its owner cannot list and write in/u],
-      [[{ name: 'x/a', data: Buffer.from(''), mode: 0o200 }], /a file of mode 200, which its owner cannot read/u],
       [[{ name: 'x/._a', data: Buffer.from('') }], /a name starting with `\._`/u],
       [[{ name: 'x/.git/config', data: Buffer.from('') }], /a path with a \.git in it/u],
       [[{ name: 'x/fifo', type: 'fifo' }], /a fifo, which a pod's download cannot hold/u],
@@ -171,20 +159,14 @@ describe('archiveOf', () => {
       [[{ name: 'x./a', data: Buffer.from('') }], /has a name ending in `\.`/u],
       [[{ name: 'x/x.tmp', data: Buffer.from('') }], /holds "x\.tmp", the name it is moved to/u],
     ]) await assert.rejects(extract(entries), (error) => error.name === 'PodError' && message.test(error.message), JSON.stringify(entries))
-    await assert.rejects(archiveOf(Buffer.from('BZh91AY&SY'), tgz, 'pod'), /compressed with bzip2, which is not read here/u)
     await assert.rejects(archiveOf(Buffer.from('not a tar at all'), tgz, 'pod'), /its archive cannot be read/u)
-    await assert.rejects(archiveOf(rawZip([{ name: 'a', data: '' }]), tgz, 'pod'), /its archive is a zip, which bsdtar extracts for `tar xf` and GNU tar does not/u)
-    await assert.rejects(archiveOf(rawZip([]), tgz, 'pod'), /its archive is a zip/u)
   })
 
   const zipSource = { archive: 'zip', file: 'file.zip', flatten: false }
-  const unzipped = async (bytes, source = zipSource) => {
-    const { dirs, files, links } = await archiveOf(bytes, source, 'pod')
-    return { dirs: [...dirs].sort(), files: Object.fromEntries([...files].map(([path, { mode }]) => [path, mode.toString(8)])), links: Object.fromEntries(links) }
-  }
+  const unzipped = async (bytes, source = zipSource) => listed(await archiveOf(bytes, source, 'pod'))
   const U = (mode) => mode * 0x10000
 
-  it('extracts a zip as unzip does, a Unix maker\'s modes as they are but for the special bits, flattened only where asked', async () => {
+  it('extracts a zip as unzip does, flattened only where asked', async () => {
     const made = await zip([
       { name: 'Pod-1.0/', type: 'directory', mode: 0o700 },
       { name: 'Pod-1.0/a.h', data: Buffer.from('a'), mode: 0o664 },
@@ -193,73 +175,25 @@ describe('archiveOf', () => {
     ])
     assert.deepEqual(await unzipped(made), { dirs: ['Pod-1.0'], files: { 'Pod-1.0/a.h': '664', 'Pod-1.0/sub/run': '755' }, links: { 'Pod-1.0/c.h': 'a.h' } })
     assert.deepEqual(await unzipped(made, { ...zipSource, flatten: true }), { dirs: [], files: { 'a.h': '664', 'sub/run': '755' }, links: { 'c.h': 'a.h' } })
-    assert.deepEqual((await unzipped(await zip([{ name: 'x/a.h', data: Buffer.from('a') }], { method: 'store' }))).files, { 'x/a.h': '644' })
-    await assert.rejects(archiveOf(await archive([{ name: 'x/a.h', data: Buffer.from('a') }]), zipSource, 'pod'), /its archive cannot be read: no end of central directory record/u)
   })
 
-  it('reads the attributes as unzip does, by the system an entry was made on, and a directory\'s where unzip makes it', async () => {
+  it("takes a file's mode as unzip does: a Unix maker's as stored, any other's 0o644 or, read-only, 0o444", async () => {
     const out = await unzipped(rawZip([
+      { name: 'unix', data: 'x', system: 3, attributes: U(0o100600) },
+      { name: 'beos', data: 'x', system: 16, attributes: U(0o100664) },
       { name: 'plain', data: 'x', system: 0, attributes: 0 },
       { name: 'readonly', data: 'x', system: 0, attributes: 1 },
       { name: 'pkzip', data: 'x', system: 0, attributes: U(0o100664) },
-      { name: 'pkzip-ro', data: 'x', system: 0, attributes: U(0o100400) | 1 },
       { name: 'exec-by-dos', data: 'x', system: 0, attributes: U(0o100755) },
       { name: 'ntfs', data: 'x', system: 11, attributes: U(0o100600) },
-      { name: 'later', data: 'x', system: 99, attributes: U(0o100600) | 1 },
-      { name: 'dos-dir/', system: 0, attributes: 0x10 },
-      { name: 'dos-dir/in', data: 'x', system: 0, attributes: 0 },
-      { name: 'unix', data: 'x', system: 3, attributes: U(0o100600) },
-      { name: 'unix-untyped', data: 'x', system: 3, attributes: U(0o640) },
-      { name: 'unix-sgid', data: 'x', system: 3, attributes: U(0o102755) },
-      { name: 'beos', data: 'x', system: 16, attributes: U(0o100664) },
-      { name: 'qdos-link', data: 'x', system: 12, attributes: U(0o120777) },
-      { name: 'late/f', data: 'x' },
-      { name: 'late/', attributes: U(0o040555) | 0x10 },
-      { name: 'late/', attributes: U(0o040555) | 0x10 },
-      { name: './', attributes: U(0o040755) | 0x10 },
-      { name: 'x;1/', attributes: U(0o040755) | 0x10 },
-      { name: 'x;1/a;1b', data: '' },
-      { name: '__MACOSX/._plain', data: 'Mac OS X' },
-      { name: 'pk45', data: 'x', version: 45 },
-      { name: 'label', data: 'x', system: 0, attributes: U(0o100644) | 8 },
-      { name: 'labelled/', system: 11, attributes: 0x18 },
-      { name: 'labelled/in', data: 'x', system: 0, attributes: 0 },
-      { name: 'unix-label-bit', data: 'x', system: 3, attributes: U(0o100600) | 8 },
-      { name: 'controlled', data: 'x', system: 0, attributes: U(0o100664), internal: 4 },
     ]))
-    assert.deepEqual(out, {
-      dirs: ['dos-dir', 'late', 'x;1'],
-      files: { plain: '644', readonly: '444', pkzip: '664', 'pkzip-ro': '400', 'exec-by-dos': '644', ntfs: '644', later: '444', 'dos-dir/in': '644', unix: '600', 'unix-untyped': '640', 'unix-sgid': '755', beos: '664', 'qdos-link': '777', 'late/f': '644', 'x;1/a;1b': '644', '__MACOSX/._plain': '644', pk45: '644', 'labelled/in': '644', 'unix-label-bit': '600', controlled: '644' },
-      links: {},
-    })
+    assert.deepEqual(out.files, { unix: '600', beos: '664', plain: '644', readonly: '444', pkzip: '664', 'exec-by-dos': '644', ntfs: '644' })
   })
 
-  it('refuses what unzip asks about or writes otherwise than it is read here, and what CocoaPods would fail on', async () => {
-    const asi = Buffer.concat([Buffer.from([0x6e, 0x75, 14, 0]), Buffer.alloc(14)])
+  it('refuses what unzip asks about, and what CocoaPods would fail on', async () => {
     for (const [entries, message] of [
       [[], /an empty archive, which unzip warns of, and CocoaPods fails on the warning/u],
-      [[{ name: 'a', data: '', version: 46 }], /"a": needs PKZIP 4\.6 to extract, past the 4\.5 an unzip built without bzip2 takes/u],
-      [[{ name: 'a', data: '', version: 20 | (2 << 8) }], /marked as stored in VMS format, which unzip asks before extracting/u],
-      [[{ name: 'a', data: '', system: 1 }], /made on Amiga or THEOS, whose attributes unzip reads by that system/u],
-      [[{ name: 'a', data: '', system: 18 }], /made on Amiga or THEOS/u],
-      [[{ name: 'a', data: '', system: 3, attributes: 0, extra: asi }], /attributes with no mode, and an extra field unzip reads one from/u],
-      [[{ name: 'a', data: '', system: 3, attributes: 0 }], /a file of mode 0, which its owner cannot read/u],
-      [[{ name: 'a', data: '', system: 3, attributes: U(0o100200) }], /a file of mode 200, which its owner cannot read/u],
-      [[{ name: 'a', data: '', system: 3, attributes: U(0o100644), internal: 4 }], /a file of mode 0, which its owner cannot read/u],
-      [[{ name: 'a', data: '', system: 0, attributes: 8, version: 46 }], /needs PKZIP 4\.6/u],
-      [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x', system: 0, attributes: 8 }, { name: 'a', data: 'x' }], /"a": a name again/u],
-      [[{ name: 'l', data: 'a', system: 0, attributes: U(0o120600) }, { name: 'a', data: '' }], /"l": a symlink by the attributes of a maker that is not Unix, which unzip makes a link of/u],
-      [[{ name: 'l', data: 'a', system: 16, attributes: U(0o120777) }, { name: 'a', data: '' }], /a symlink by the attributes of a maker that is not Unix/u],
       [[{ name: 'a', data: 'x' }, { name: 'a', data: 'x' }], /"a": a name again, which unzip asks whether to replace/u],
-      [[{ name: 'a', data: 'x' }, { name: './a', data: 'x' }], /"\.\/a": a name again/u],
-      [[{ name: 'l', data: 'a', attributes: U(0o120777) }, { name: 'l', data: 'a', attributes: U(0o120777) }, { name: 'a', data: '' }], /a name again/u],
-      [[{ name: 'ü', data: '', flags: 0x800 }], /a name with a character outside ASCII, which unzip writes by the machine's locale and its own build/u],
-      [[{ name: 'x/.', data: '' }], /a name ending in a `\.` segment, which unzip writes as `_`/u],
-      [[{ name: 'x;1', data: '' }], /a name ending in `;` and digits, which unzip takes for a VMS version and drops/u],
-      [[{ name: 'x;', data: '' }], /a name ending in `;` and digits/u],
-      [[{ name: 'l;12', data: 'a', attributes: U(0o120777) }, { name: 'a', data: '' }], /a name ending in `;` and digits/u],
-      [[{ name: 'd/', attributes: U(0o040555) | 0x10 }, { name: 'd/a', data: '' }], /"d\/": a directory of mode 555, which its owner cannot list and write in/u],
-      [[{ name: 'd/', system: 0, attributes: 0x11 }], /a directory of mode 555/u],
       [[{ name: 'x/.git/config', data: '' }], /a path with a \.git in it/u],
       [[{ name: 'file.zip', data: '' }], /the archive holds "file\.zip", the name RemoteFile downloads it under/u],
       [[{ name: 'x', data: 'y', attributes: U(0o120777) }], /the one thing in the archive is a link/u],
@@ -299,7 +233,7 @@ describe('layoutPods', () => {
     dirs.push(root)
     const sandbox = join(root, 'Pods')
     const pod = { name: 'Acme', version: '1.0.0', checksum: '0'.repeat(40), specs: ['Acme'], dir: join(sandbox, 'Acme'), local: false, external: false, repo: 'trunk', checkout: false, podspec }
-    const downloaded = await layoutPods({ sandbox, cocoapods: '1.16.2', platforms: ['ios'], pods: [pod] }, () => assert.fail('no prepare_command'))
+    const downloaded = await layoutPods({ sandbox, cocoapods: '1.16.2', platform: 'ios', pods: [pod] }, () => assert.fail('no prepare_command'))
     const files = Object.fromEntries(readdirSync(join(sandbox, 'Acme')).map((name) => [name, (lstatSync(join(sandbox, 'Acme', name)).mode & 0o777).toString(8)]))
     return { downloaded, files }
   }
@@ -333,6 +267,6 @@ describe('layoutPods', () => {
 
   it('refuses an archive that is not the one its sha256 is of', async () => {
     const url = `${MAVEN}.tar.gz`
-    await assert.rejects(layout({ http: url, sha256: 'b'.repeat(64) }, url), (error) => error.name === 'PodError' && /integrity mismatch for https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\//u.test(error.message))
+    await assert.rejects(layout({ http: url, sha256: 'b'.repeat(64) }, url), (error) => error.name === 'PodError' && /its archive, "https:\/\/repo1\.maven\.org\/maven2\/com\/facebook\/.*", is not the one its :sha256 is of: its sha256 is [\da-f]{64}, not b{64}/u.test(error.message))
   })
 })

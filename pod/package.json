@@ -58,8 +58,7 @@
     "src/sources/podspec.js",
     "src/sources/podtree.js",
     "src/sources/source.js",
-    "src/sources/sources.js",
-    "src/sources/unicode.js"
+    "src/sources/sources.js"
   ],
   "engines": {
     "node": ">=24.14.0"
@@ -87,7 +86,6 @@
   },
   "dependencies": {
     "@preventive/archive": "^1.4.0",
-    "@preventive/lockfile": "^1.3.0",
-    "@preventive/upstream": "^1.7.0"
+    "@preventive/lockfile": "^1.3.0"
   }
 }
