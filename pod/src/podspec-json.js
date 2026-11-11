@@ -73,7 +73,10 @@ function platformHash(spec) {
   return value instanceof Map ? value : new Map()
 }
 function deploymentTarget(spec, name) {
-  for (let at = spec; at !== undefined; at = at.parent) if ((platformHash(at).get(name) ?? null) !== null) return String(platformHash(at).get(name))
+  for (let at = spec; at !== undefined; at = at.parent) {
+    const target = platformHash(at).get(name)
+    if (target !== undefined && target !== null) return String(target)
+  }
   return null
 }
 // Specification#available_platforms, each with its deployment target: its own, else its parent's, else all.

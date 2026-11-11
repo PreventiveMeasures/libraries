@@ -162,14 +162,11 @@ export function rootOf(root, where) {
   const { attributes } = root
   const license = attributes.license
   return {
-    name: root.name,
     version: attributes.version,
     moduleName: attributes.module_name ?? c99ext(attributes.header_dir, where) ?? c99ext(attributes.name, where),
     swiftVersions: listOf(attributes.swift_versions ?? attributes.swift_version).map(String),
     staticFramework: attributes.static_framework === true,
     license: isObject(license) ? license : typeof license === 'string' ? { type: license } : {},
-    prepareCommand: attributes.prepare_command ?? undefined,
-    source: attributes.source,
     infoPlist: isObject(attributes.info_plist) ? attributes.info_plist : {},
   }
 }

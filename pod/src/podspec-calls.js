@@ -19,16 +19,17 @@ function readFile(p, path) {
 // a podspec in it. Files are read and listed, never run.
 export function call(p, receiver, method, args) {
   const strings = args.every((arg) => typeof arg === 'string')
+  const one = strings && args.length === 1
   if (receiver === 'File' && method === 'join' && strings) return args.join('/').replaceAll(/\/+/gu, '/')
-  if (receiver === 'File' && method === 'dirname' && strings && args.length === 1) return dirname(args[0])
+  if (receiver === 'File' && method === 'dirname' && one) return dirname(args[0])
   if (receiver === 'File' && method === 'expand_path' && strings && args.length <= 2) return resolve(args[1] ?? p.dir, args[0])
-  if (receiver === 'File' && method === 'read' && strings && args.length === 1) return readFile(p, args[0])
-  if (receiver === 'Dir' && method === 'glob' && strings && args.length === 1 && p.files.glob !== undefined) return p.files.glob(p.dir, args[0], p.where)
-  if (['exist?', 'exists?'].includes(method) && receiver !== 'JSON' && strings && args.length === 1 && p.files.kind !== undefined) {
+  if (receiver === 'File' && method === 'read' && one) return readFile(p, args[0])
+  if (receiver === 'Dir' && method === 'glob' && one && p.files.glob !== undefined) return p.files.glob(p.dir, args[0], p.where)
+  if (['exist?', 'exists?'].includes(method) && receiver !== 'JSON' && one && p.files.kind !== undefined) {
     const kind = p.files.kind(resolve(p.dir, args[0]))
     return receiver === 'Dir' ? kind === 'directory' : kind !== undefined
   }
-  if (receiver === 'JSON' && method === 'parse' && strings && args.length === 1) {
+  if (receiver === 'JSON' && method === 'parse' && one) {
     try {
       // JSON.parse puts integer keys first, so a package.json with one is not read as Ruby reads it.
       return toMaps(JSON.parse(args[0]), () => fail(p, 'a package.json with a number for a key'))

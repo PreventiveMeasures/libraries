@@ -110,7 +110,6 @@ export function accessorOf(list, consumer) {
     vendoredFrameworks,
     vendoredXcframeworks: vendoredFrameworks.filter((path) => extname(path) === '.xcframework'),
     vendoredLibraries: paths('vendored_libraries'),
-    preservePaths: paths('preserve_paths', true),
     moduleMap: typeof consumer.module_map === 'string' ? consumer.module_map : undefined,
     prefixHeader: typeof consumer.prefix_header_file === 'string' ? consumer.prefix_header_file : undefined,
   }

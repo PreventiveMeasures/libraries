@@ -100,8 +100,8 @@ const configurationBlock = (name, command, paths) => `if [[ "$CONFIGURATION" == 
 
 // Generator::CopyResourcesScript, of the same resources in each of the app's `configurations`.
 export function resourcesScript(configurations, resources, deploymentTarget) {
-  const head = compareVersions(deploymentTarget, '6.0') >= 0 ? script('resources-head.sh') : script('resources-head.sh').replaceAll(' --reference-external-strings-file', '')
-  return `${head}${configurations.map((name) => configurationBlock(name, 'install_resource', resources)).join('')}${script('resources-tail.sh')}`
+  const head = script('resources-head.sh')
+  return `${compareVersions(deploymentTarget, '6.0') >= 0 ? head : head.replaceAll(' --reference-external-strings-file', '')}${configurations.map((name) => configurationBlock(name, 'install_resource', resources)).join('')}${script('resources-tail.sh')}`
 }
 
 // Generator::EmbedFrameworksScript, of the same frameworks in each of the app's `configurations`.

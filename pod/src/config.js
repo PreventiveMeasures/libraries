@@ -61,18 +61,6 @@ export function readConfig(text) {
     if (!isObject(given)) throw new PodError('is not an object of options', 'pod.config.json')
   }
   check(OPTIONS, given, '')
-  return {
-    podspecs: given.podspecs ?? 'Podspecs',
-    project: given.project,
-    platform: { name: 'ios', target: given.platform?.ios },
-    frameworks: given.frameworks ?? false,
-    modularHeaders: given.modularHeaders ?? false,
-    inhibitWarnings: given.inhibitWarnings ?? false,
-    pods: given.pods ?? {},
-    targets: given.targets ?? {},
-    buildSettings: given.buildSettings ?? {},
-    prepareCommands: given.prepareCommands ?? [],
-    env: given.env ?? {},
-    globals: given.globals ?? {},
-  }
+  const defaults = { podspecs: 'Podspecs', frameworks: false, modularHeaders: false, inhibitWarnings: false, pods: {}, targets: {}, buildSettings: {}, prepareCommands: [], env: {}, globals: {} }
+  return { ...defaults, ...given, platform: { name: 'ios', target: given.platform?.ios } }
 }

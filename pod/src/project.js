@@ -224,7 +224,7 @@ export function addSystemFramework(project, target, name) {
   const path = `Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS${IOS_SDK}.sdk/System/Library/Frameworks/${name}.framework`
   let ref = group.children.find((child) => child.path === path)
   if (ref === undefined) group.children.push(ref = { isa: 'PBXFileReference', lastKnownFileType: 'wrapper.framework', name: `${name}.framework`, path, sourceTree: 'DEVELOPER_DIR' })
-  if (!phaseOf(target, 'Frameworks').files.some((file) => file.fileRef === ref)) addFile(target, 'Frameworks', ref)
+  addFile(target, 'Frameworks', ref)
 }
 
 export function addDependency(project, target, on) {

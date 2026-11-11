@@ -4,11 +4,11 @@
 import { join } from 'node:path'
 
 import { addDependency, addFile, addSystemFramework, configurationsOf, newFile, newGroup, newTarget, setAll, targetDefaults } from './project.js'
+import { COMPILED } from './project-resources.js'
 import { BUILD_DIR, XCFRAMEWORKS_DIR } from './settings.js'
 import * as support from './support.js'
 import { configText } from './xcconfig.js'
 
-const COMPILED = { '.storyboard': '.storyboardc', '.xib': '.nib', '.xcdatamodel': '.mom', '.xcdatamodeld': '.momd', '.xcmappingmodel': '.cdm' }
 const extensionOf = (path) => /\.[^./]+$/u.exec(path)?.[0] ?? ''
 const fileName = (path) => path.split('/').at(-1)
 

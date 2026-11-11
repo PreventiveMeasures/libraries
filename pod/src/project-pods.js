@@ -6,14 +6,13 @@ import { extname, join, posix } from 'node:path'
 import { PodError, quote } from './error.js'
 import { SOURCES as SOURCE_EXTENSIONS } from './files.js'
 import { addFile, addSystemFramework, configurationsOf, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, phaseOf, setAll, targetDefaults } from './project.js'
-import { addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
+import { COMPILED, addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
 import * as support from './support.js'
 import { compareVersions } from './targets.js'
 
 const SOURCES = new Set(SOURCE_EXTENSIONS)
 const SUBGROUPS = { resources: 'Resources', frameworks: 'Frameworks', developer: 'Pod' }
-const COMPILED_RESOURCES = new Set(['.storyboard', '.xib', '.xcdatamodel', '.xcdatamodeld', '.xcmappingmodel'])
 const SYMLINK_HEADERS = 'cd "$CONFIGURATION_BUILD_DIR/$WRAPPER_NAME" || exit 1\nif [ ! -d Versions ]; then\n  # Not a versioned framework, so no need to do anything\n  exit 0\nfi\n\npublic_path="${PUBLIC_HEADERS_FOLDER_PATH#$CONTENTS_FOLDER_PATH/}"\nif [ ! -f "$public_path" ]; then\n  ln -fs "${PUBLIC_HEADERS_FOLDER_PATH#$WRAPPER_NAME/}" "$public_path"\nfi\n\nprivate_path="${PRIVATE_HEADERS_FOLDER_PATH#$CONTENTS_FOLDER_PATH/}"\nif [ ! -f "$private_path" ]; then\n  ln -fs "${PRIVATE_HEADERS_FOLDER_PATH#$WRAPPER_NAME/}" "$private_path"\nfi\n'
 
 // Project#group_for_spec: a pod's group, a subspec's under it by its names, and one of SUBGROUPS in that.
@@ -121,7 +120,7 @@ function addSources(project, native, target) {
     // The app copies a static framework's resources, but for the compiled ones.
     const resources = resourceRefs(project, target, accessor.resources)
     for (const ref of resources.compiled) addFile(native, 'Sources', ref)
-    for (const ref of resources.copied) if (!target.static || COMPILED_RESOURCES.has(extname(ref.name ?? ref.path))) addFile(native, 'Resources', ref)
+    for (const ref of resources.copied) if (!target.static || Object.hasOwn(COMPILED, extname(ref.name ?? ref.path))) addFile(native, 'Resources', ref)
   }
 }
 

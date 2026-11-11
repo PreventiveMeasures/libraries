@@ -15,7 +15,7 @@ function scriptOf(command) {
   return `\nset -e\n${lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n').replace(/\r?\n$|\r$/u, '')}`
 }
 
-export function runPrepare(name, command, dir, config, version) {
+function runPrepare(name, command, dir, config, version) {
   const where = `pods[${quote(name)}]`
   if (!config.prepareCommands.includes(name)) throw new PodError('its podspec has a prepare_command, a script CocoaPods runs in the pod: to run it, name the pod in `prepareCommands` of pod.config.json', where)
   const { CDPATH: _unset, ...env } = process.env

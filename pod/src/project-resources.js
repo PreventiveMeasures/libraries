@@ -9,6 +9,8 @@ import { parseXml } from './plist.js'
 import { newFile, newGroup, pathFrom } from './project.js'
 import { byBytes } from './xcconfig.js'
 
+// The resources that are compiled, and the extension each is compiled to.
+export const COMPILED = { '.storyboard': '.storyboardc', '.xib': '.nib', '.xcdatamodel': '.mom', '.xcdatamodeld': '.momd', '.xcmappingmodel': '.cdm' }
 export const isLproj = (name) => name.toLowerCase().includes('.lproj')
 
 const dirsOf = (list) => list.dirSet ??= new Set(list.dirs)

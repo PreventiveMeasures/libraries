@@ -31,11 +31,7 @@ function shortVersion(version) {
   return [numbers[0] ?? 0, numbers[1] ?? 0, numbers[2] ?? 0].join('.')
 }
 
-// Analyzer#determine_build_type and #determine_platform.
-function buildTypeOf(root, linkage) {
-  if (linkage === false) return { packaging: 'library', linkage: 'static' }
-  return { packaging: 'framework', linkage: root.staticFramework ? 'static' : linkage }
-}
+// Analyzer#determine_platform.
 function platformOf(specs, name, framework) {
   const targets = specs.map((spec) => deploymentTarget(spec, name) ?? '4.3')
   if (name === 'ios' && framework) targets.push('8.0')
@@ -48,8 +44,9 @@ function podTarget(pod, platformName, options) {
   const root = rootOf(pod.root, where)
   const specs = [...pod.specs].sort(byBytes).map((name) => specNamed(pod.root, name) ?? fail(`its podspec has no ${quote(name)}, which the lockfile installs`, where))
   for (const spec of specs) if (!supports(spec, platformName)) fail(`${quote(spec.name)} is not for ${platformName}`, where)
-  const buildType = buildTypeOf(root, options.linkage)
-  const framework = buildType.packaging === 'framework'
+  // Analyzer#determine_build_type: a framework under `use_frameworks!`, static by it or by the podspec.
+  const framework = options.linkage !== false
+  const isStatic = !framework || options.linkage === 'static' || root.staticFramework
   const list = listPod(pod.dir, where)
   const consumers = specs.map((spec) => consumerOf(spec, platformName))
   const accessors = consumers.map((consumer) => accessorOf(list, consumer))
@@ -58,8 +55,8 @@ function podTarget(pod, platformName, options) {
   const usesSwift = (!shouldBuild && root.swiftVersions.length > 0) || accessors.some((accessor) => accessor.sourceFiles.some((path) => extname(path) === '.swift'))
   const definesModule = usesSwift || framework || options.modularHeaders || consumers.some((consumer) => consumer.pod_target_xcconfig.DEFINES_MODULE === 'YES')
   return {
-    name: pod.name, label: pod.name, where, root, specs, consumers, accessors, list, buildType, framework, shouldBuild, usesSwift, definesModule,
-    static: buildType.linkage === 'static',
+    name: pod.name, label: pod.name, where, root, specs, consumers, accessors, list, framework, shouldBuild, usesSwift, definesModule,
+    static: isStatic,
     platform: platformOf(specs, platformName, framework),
     version: shortVersion(root.version),
     swiftVersion: root.swiftVersions.length === 0 ? options.swiftVersions[0] : maxVersion(root.swiftVersions),
@@ -129,17 +126,14 @@ export function analyze(pods, user, config) {
     const moduleName = userTarget.label.replace(/^(\d)/u, '_$1').replaceAll(/[^a-zA-Z0-9_]/gu, '_')
     const framework = config.frameworks !== false
     return {
-      name: userTarget.label, label: userTarget.label, userTarget, framework, moduleName,
+      label: userTarget.label, userTarget, framework, moduleName,
       podTargets: podTargets.filter((target) => taken.has(target)),
-      buildType: framework ? { packaging: 'framework', linkage: config.frameworks } : { packaging: 'library', linkage: 'static' },
-      static: config.frameworks !== 'dynamic',
       platform: { name: platformName, target: config.platform.target ?? userTarget.deploymentTarget },
-      productBasename: framework ? moduleName : userTarget.label,
       productName: framework ? `${moduleName}.framework` : `lib${userTarget.label}.a`,
       requiresHostTarget: HOSTED.has(userTarget.productType),
       swiftVersion: userTarget.swiftVersion,
     }
-  }).sort((a, b) => byBytes(a.name, b.name))
+  }).sort((a, b) => byBytes(a.label, b.label))
   for (const aggregate of aggregates) {
     if (EXTENSIONS.has(aggregate.userTarget.productType) || aggregate.userTarget.extensionApiOnly) for (const target of aggregate.podTargets) target.extensionApiOnly = true
   }
