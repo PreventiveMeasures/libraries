@@ -1,0 +1,6 @@
+framework module Gamma {
+  umbrella header "Gamma-umbrella.h"
+
+  export *
+  module * { export * }
+}

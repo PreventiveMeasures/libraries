@@ -1,0 +1,106 @@
+{
+  "name": "Rich",
+  "version": "1.0.0-rc.2",
+  "summary": "Rich for Rich",
+  "description": "A longer description\n  with an indented line.",
+  "homepage": null,
+  "license": {
+    "type": "Apache-2.0",
+    "file": "LICENSE"
+  },
+  "authors": {
+    "Rich Author": "rich@example.com"
+  },
+  "source": {
+    "http": "https://github.com/acme/rich/archive/refs/tags/v1.0.0-rc.2.tar.gz",
+    "sha256": "954a04e9468dee21259937b83a2b21c3985cc96f91ee0152a34a7f0f752093e8"
+  },
+  "platforms": {
+    "ios": "13.4",
+    "osx": "10.15"
+  },
+  "requires_arc": true,
+  "module_name": "RichKit",
+  "header_dir": "rich",
+  "frameworks": [
+    "UIKit",
+    "AVFoundation"
+  ],
+  "weak_frameworks": "CoreHaptics",
+  "libraries": [
+    "z",
+    "c++"
+  ],
+  "compiler_flags": "-DRICH=1 -Wno-comma",
+  "source_files": [
+    "ios/**/*.{h,m,mm}",
+    "common/*.h"
+  ],
+  "exclude_files": "ios/Tests",
+  "ios": {
+    "source_files": "ios/only/*.m",
+    "dependencies": {
+      "IOSOnly": [
+        ">= 2.0",
+        "< 3"
+      ]
+    }
+  },
+  "prepare_command": "mv src double-conversion",
+  "script_phases": {
+    "name": "Gen",
+    "script": "echo gen",
+    "execution_position": "before_compile"
+  },
+  "user_target_xcconfig": {
+    "OTHER_LDFLAGS": "-ObjC"
+  },
+  "default_subspecs": "Core",
+  "dependencies": {
+    "Plain": [
+      "~> 4.2"
+    ],
+    "Other": [
+
+    ]
+  },
+  "testspecs": [
+    {
+      "name": "Tests",
+      "test_type": "unit",
+      "source_files": "tests/*.m",
+      "requires_app_host": true
+    }
+  ],
+  "appspecs": [
+    {
+      "name": "Demo",
+      "source_files": "demo/*.swift"
+    }
+  ],
+  "subspecs": [
+    {
+      "name": "Core",
+      "source_files": "core/**/*.{h,cpp}",
+      "private_header_files": "core/internal/*.h",
+      "dependencies": {
+        "Rich/Base": [
+
+        ]
+      }
+    },
+    {
+      "name": "Base",
+      "source_files": "base/*.h",
+      "platforms": {
+        "tvos": "14.0"
+      },
+      "subspecs": [
+        {
+          "name": "Deep",
+          "resources": "deep/*.png"
+        }
+      ]
+    }
+  ]
+}

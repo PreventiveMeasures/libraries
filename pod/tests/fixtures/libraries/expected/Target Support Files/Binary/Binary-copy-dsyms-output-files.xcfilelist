@@ -1,0 +1,3 @@
+${DWARF_DSYM_FOLDER_PATH}/Vend.framework.dSYM
+${DWARF_DSYM_FOLDER_PATH}/Dyn.framework.dSYM
+${DWARF_DSYM_FOLDER_PATH}/Vend.bcsymbolmap

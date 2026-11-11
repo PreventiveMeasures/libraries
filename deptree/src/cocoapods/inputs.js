@@ -34,6 +34,15 @@ export function flagsOf({ manifest = false, partial = false }) {
   return { manifest, partial }
 }
 
+// `only`, the names of the pods to download, each once; undefined for every
+// pod there is.
+const ONLY = 'only must be a list of the names of pods, each once, or left out'
+export function onlyOf(only) {
+  if (only === undefined) return undefined
+  if (!Array.isArray(only) || only.some((name) => typeof name !== 'string') || new Set(only).size !== only.length) throw new TypeError(ONLY)
+  return new Set(only)
+}
+
 // The names CocoaPods reads a Podfile under, the first one there taken.
 const PODFILES = ['CocoaPods.podfile.yaml', 'CocoaPods.podfile', 'Podfile', 'Podfile.rb']
 

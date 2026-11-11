@@ -85,14 +85,22 @@ export interface CocoaPodsProject {
 // lockfile or its podspec says, rather than refusing the call: one from a
 // spec repo but trunk, or an external source but :path and :podspec; one by
 // :podspec without its podspec, or with CHECKOUT OPTIONS; one with a
-// prepare_command; and one whose source is neither git from GitHub by a
-// full commit, without its submodules, nor :http as below: one by a tag
-// among them. Nothing is written for it, and it is listed in `skipped`, for
-// CocoaPods to download: with `manifest`, it downloads those and no other.
+// prepare_command, without `prepare`; and one whose source is neither git
+// from GitHub by a full commit, without its submodules, nor :http as
+// below: one by a tag among them. Nothing is written for it, and it is
+// listed in `skipped`, for CocoaPods to download: with `manifest`, it
+// downloads those and no other.
 // A podspec is held to the lockfile's checksum all the same, and an archive
 // to its hash. Every other refusal stands. So everything written is held to
 // a hash the lockfile holds, or that a podspec it holds does, whether
 // `partial` is given or not.
+//
+// `only` names the pods to download, by the lockfile's names of them, each
+// once: for a Pods/ that has the others already, as its Manifest.lock
+// says. No other pod is looked at: its podspec is not fetched, nor its
+// source, its prepare_command is not run, and it is neither written,
+// refused nor listed in `skipped`. A name the lockfile has no pod of is
+// refused. Left out, every pod CocoaPods downloads is downloaded.
 //
 // `vfs` is a Vfs to mount the tree into, at its root, which is taken to be
 // the project's -- it may be `project` too; without one, a new Vfs holds
@@ -104,12 +112,38 @@ export interface CocoaPodsProject {
 // to every check below, before any of it is written, so a refusal leaves
 // the Vfs as it was.
 //
+// `prepare` runs a pod's prepare_command, the script CocoaPods runs with
+// bash in its copy of the download before it cleans it, which nothing here
+// runs: it is called for each pod downloaded whose podspec has one, with
+// the pod's `name` and `version`, the `command` as the podspec gives it,
+// and the download's `contents`, a copy -- and gives back, or comes to, the
+// contents as they are after the command, which are cleaned then as the
+// podspec has them. What the command makes of the download is the caller's
+// to answer for: no hash holds it. Left out, a pod with a prepare_command
+// is refused, or with `partial` skipped.
+//
 // `github` is the client from @preventive/upstream/github.js's createClient
 // each pod is fetched through, with whatever token it was made with, or
 // none. It is needed only where the lockfile has a pod CocoaPods
 // downloads, and there it is a TypeError to leave it out, before anything
 // is fetched.
 export type CocoaPodsTreeOptions = CocoaPodsTreeGiven | CocoaPodsTreeRead
+
+// A download, or what is left of one, by paths from the pod's directory:
+// its directories, its files, each with its bytes and its mode, and its
+// symlinks, each with its target.
+export interface CocoaPodsContents {
+  dirs: Iterable<string>
+  files: Map<string, { data: Uint8Array, mode: number }>
+  links: Map<string, string>
+}
+
+export interface CocoaPodsPrepare {
+  name: string
+  version: string
+  command: string
+  contents: CocoaPodsContents
+}
 
 export interface CocoaPodsTreeGiven {
   lockfile: string
@@ -120,6 +154,8 @@ export interface CocoaPodsTreeGiven {
   podspecs?: Record<string, string | Uint8Array>
   manifest?: boolean
   partial?: boolean
+  only?: string[]
+  prepare?: (pod: CocoaPodsPrepare) => CocoaPodsContents | Promise<CocoaPodsContents>
   vfs?: Vfs
   github?: Client
 }
@@ -133,6 +169,8 @@ export interface CocoaPodsTreeRead {
   podspecs?: Record<string, string | Uint8Array>
   manifest?: boolean
   partial?: boolean
+  only?: string[]
+  prepare?: (pod: CocoaPodsPrepare) => CocoaPodsContents | Promise<CocoaPodsContents>
   vfs?: Vfs
   github?: Client
 }
@@ -351,8 +389,8 @@ export interface CocoaPodsTree {
 // repository of CocoaPods/Specs, by :podspec, or by :path: one from another
 // spec repo, one from any other external source, one by :podspec that
 // CHECKOUT OPTIONS has, which CocoaPods downloads by those, one with a
-// prepare_command, which CocoaPods runs as a script in the download, and
-// one whose source is neither git from GitHub, by a full commit and
+// prepare_command, which CocoaPods runs as a script in the download and
+// `prepare` is not given to run, and one whose source is neither git from GitHub, by a full commit and
 // without its submodules, nor :http as above, is refused, or with `partial`
 // skipped: one by a tag or a branch among them.
 //

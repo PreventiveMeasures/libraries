@@ -1,0 +1,36 @@
+{
+  "name": "Gamma",
+  "version": "3.0.0",
+  "summary": "Gamma",
+  "homepage": "https://example.com/gamma",
+  "license": {
+    "type": "MIT",
+    "file": "LICENSE"
+  },
+  "authors": "Fixture",
+  "platforms": {
+    "ios": "12.0"
+  },
+  "source": {
+    "http": "https://github.com/acme/gamma/archive/refs/tags/3.0.0.tar.gz",
+    "sha256": "3a147bf228538808fad2817a2811da62fd06fb751f1a2e0bcb0629cfa6216382"
+  },
+  "default_subspecs": "Core",
+  "subspecs": [
+    {
+      "name": "Core",
+      "source_files": "Gamma/Core/*.{h,m}",
+      "public_header_files": "Gamma/Core/*.h"
+    },
+    {
+      "name": "Extra",
+      "source_files": "Gamma/Extra/*.{h,c}",
+      "dependencies": {
+        "Gamma/Core": [
+
+        ]
+      },
+      "compiler_flags": "-DEXTRA"
+    }
+  ]
+}

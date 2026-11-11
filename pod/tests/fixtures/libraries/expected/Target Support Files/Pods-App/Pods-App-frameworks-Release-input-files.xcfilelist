@@ -1,0 +1,4 @@
+${PODS_ROOT}/Target Support Files/Pods-App/Pods-App-frameworks.sh
+${PODS_ROOT}/Binary/lib/libDemo.dylib
+${PODS_ROOT}/Binary/Vend.framework
+${PODS_XCFRAMEWORKS_BUILD_DIR}/Binary/Dyn/Dyn.framework/Dyn

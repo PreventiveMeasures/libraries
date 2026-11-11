@@ -1,0 +1,9 @@
+{
+  "name": "@acme/react-native-plain",
+  "version": "4.2.1",
+  "description": "A plain module",
+  "license": "MIT",
+  "author": { "name": "Acme", "email": "dev@acme.example" },
+  "homepage": "https://github.com/acme/plain#readme",
+  "repository": { "type": "git", "url": "https://github.com/acme/plain.git" }
+}

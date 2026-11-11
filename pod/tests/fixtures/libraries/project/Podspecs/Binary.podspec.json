@@ -1,0 +1,38 @@
+{
+  "name": "Binary",
+  "version": "4.5.6",
+  "summary": "Binary",
+  "homepage": "https://example.com/binary",
+  "license": {
+    "type": "Commercial",
+    "text": "All rights reserved.\n"
+  },
+  "authors": "Fixture",
+  "platforms": {
+    "ios": "12.0"
+  },
+  "source": {
+    "http": "https://github.com/acme/binary/archive/refs/tags/4.5.6.tar.gz",
+    "sha256": "68e2e1a375edb9f497785a29a510a059cc65b2f680a451620b83cd4e7c44aac5"
+  },
+  "subspecs": [
+    {
+      "name": "Dyn",
+      "vendored_frameworks": "Dyn.xcframework",
+      "preserve_paths": "Dyn.dSYMs"
+    },
+    {
+      "name": "Stat",
+      "vendored_frameworks": "Stat.xcframework"
+    },
+    {
+      "name": "Vend",
+      "vendored_frameworks": "Vend.framework",
+      "vendored_libraries": "lib/libDemo.dylib",
+      "preserve_paths": [
+        "*.dSYM",
+        "*.bcsymbolmap"
+      ]
+    }
+  ]
+}

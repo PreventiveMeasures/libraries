@@ -10,9 +10,9 @@ import { checkCloned, checkoutOf } from '../github.js'
 import { sha1Hex } from '../hash.js'
 import { checkNoDir, fold, makeDirs, mount, writeFiles } from '../mount.js'
 import { archiveOf } from './archive.js'
-import { checkHost, flagsOf, inputsOf, platformsOf } from './inputs.js'
+import { checkHost, flagsOf, inputsOf, onlyOf, platformsOf } from './inputs.js'
 import { installPod, planPod } from './install.js'
-import { readPodspec, specNamed } from './podspec.js'
+import { given, readPodspec, specNamed } from './podspec.js'
 import { SourceRefusal, sourceOf } from './source.js'
 
 const GITHUB = 'github must be a GitHub client from createClient, which each pod is fetched through'
@@ -88,19 +88,21 @@ async function localPodspec(root, podspecs, where) {
 // planPod's, all before any download, so that a pod refused fails the call
 // before any tarball or archive is fetched. A pod skipped for its source
 // has no plan, its podspec held to the lockfile all the same.
-async function planAll(roots, { github, podspecs, platforms }, skipped) {
+async function planAll(roots, { github, podspecs, platforms, prepare }, skipped) {
   const plans = new Map()
   await eachConcurrently(roots, async (root) => {
     const where = about(root.name)
     const bytes = root.external === undefined ? await getPodspec(root.name, root.version, root.checksum) : await unlessSkipped(() => localPodspec(root, podspecs, where), root, skipped)
     if (bytes === undefined) return
     const podspec = readPodspec(bytes, root.name, root.version, where)
-    const source = unlessSkipped(() => sourceOf(podspec, where), root, skipped)
+    const source = unlessSkipped(() => sourceOf(podspec, where, prepare !== undefined), root, skipped)
     if (source === undefined) return
+    const command = given(podspec.attributes.prepare_command) ? podspec.attributes.prepare_command : undefined
+    if (command !== undefined && typeof command !== 'string') throw new DeptreeError('its prepare_command is not text, which CocoaPods fails on', where)
     const specs = root.pods.map((name) => specNamed(podspec, name) ?? refuse(`its podspec has no ${quote(name)}, which the lockfile installs`, where))
     const files = planPod(podspec, specs, platforms, where)
     if (source.type === 'git') await checkCloned(github, source.repo, source.commit, where)
-    plans.set(root.name, { root, files, source })
+    plans.set(root.name, { root, files, source, command })
   }, (root) => about(root.name))
   return plans
 }
@@ -115,16 +117,35 @@ async function contentsOf({ root, source }, github) {
   return await archiveOf(await getPodArchive(source.url, source.sha256), source, where)
 }
 
+const PREPARED = 'prepare must give the download back as it is after the command: its dirs, a Map of its files, each with data and a mode, and a Map of its links'
+
+// A download as `prepare` leaves it: the pod's prepare_command run in a
+// copy of it, by the caller, which gives back what is there afterwards.
+async function prepared(prepare, { root, command }, contents) {
+  const copy = { dirs: new Set(contents.dirs), files: new Map(contents.files), links: new Map(contents.links) }
+  const after = await prepare({ name: root.name, version: root.version, command, contents: copy })
+  const isFile = (file) => file !== null && typeof file === 'object' && file.data instanceof Uint8Array && Number.isInteger(file.mode)
+  const valid = after !== null && typeof after === 'object' && typeof after.dirs?.[Symbol.iterator] === 'function' && after.files instanceof Map && after.links instanceof Map
+    && [...after.dirs, ...after.files.keys(), ...after.links.keys(), ...after.links.values()].every((path) => typeof path === 'string') && [...after.files.values()].every(isFile)
+  if (!valid) throw new TypeError(PREPARED)
+  return { dirs: new Set(after.dirs), files: after.files, links: after.links }
+}
+
 // What CocoaPods keeps of each pod's download, held only while the pods of
-// it are installed.
-async function installAll(plans, github, options) {
+// it are installed. A pod with a prepare_command is cleaned as that leaves
+// its download: CocoaPods runs it in its copy of the download, before it
+// cleans that.
+async function installAll(plans, github, { prepare, ...options }) {
   const byDownload = Map.groupBy(plans.values(), downloadOf)
   const installed = new Map()
   await eachConcurrently(byDownload.values(), async (group) => {
     const contents = await contentsOf(group[0], github)
     // An archive is no clone, with no .git for CocoaPods to copy.
     const keepsGit = options.keepsGit && group[0].source.type === 'git'
-    for (const plan of group) installed.set(plan.root.name, installPod(contents, plan.files, { ...options, keepsGit, where: about(plan.root.name) }))
+    for (const plan of group) {
+      const download = plan.command === undefined ? contents : await prepared(prepare, plan, contents)
+      installed.set(plan.root.name, installPod(download, plan.files, { ...options, keepsGit, where: about(plan.root.name) }))
+    }
   }, ([{ root }]) => about(root.name))
   return installed
 }
@@ -157,6 +178,7 @@ export async function buildCocoaPodsTree(options) {
   const inputs = inputsOf(all)
   const platforms = platformsOf(all.platforms)
   const { manifest, partial } = flagsOf(all)
+  const only = onlyOf(all.only)
   const host = checkHost(all.host)
   const folded = host.os === 'darwin'
   // 1.13 to 1.15 copy a download into their cache with FileUtils.cp_r,
@@ -166,11 +188,16 @@ export async function buildCocoaPodsTree(options) {
   if (into !== undefined) checkNoPods(into, folded)
   const lock = await parsePodfileLock(inputs.lockfile, inputs.podfile === undefined ? {} : { podfile: inputs.podfile })
   const roots = Object.values(lock.roots)
+  const unknown = [...(only ?? [])].find((name) => !roots.some((root) => root.name === name))
+  if (unknown !== undefined) throw new DeptreeError('the lockfile has no pod of the name, which `only` has', about(unknown))
   const skipped = partial ? new Map() : undefined
-  const fetched = roots.filter((root) => unlessSkipped(() => isDownloaded(root, folded), root, skipped))
+  // A pod `only` leaves out is not looked at: not refused, skipped or fetched.
+  const fetched = roots.filter((root) => only?.has(root.name) !== false && unlessSkipped(() => isDownloaded(root, folded), root, skipped))
   if (github === undefined && fetched.length > 0) throw new TypeError(GITHUB)
-  const plans = await planAll(fetched, { github, podspecs: inputs.podspecs, platforms }, skipped)
-  const contents = await installAll(plans, github, { folded, keepsGit })
+  const { prepare } = all
+  if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('prepare must be a function that runs a prepare_command, or left out')
+  const plans = await planAll(fetched, { github, podspecs: inputs.podspecs, platforms, prepare }, skipped)
+  const contents = await installAll(plans, github, { folded, keepsGit, prepare })
   // In the lockfile's order, whatever order the fetches finished in.
   const downloaded = fetched.filter(({ name }) => plans.has(name))
   const vfs = new Vfs()

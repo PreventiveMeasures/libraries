@@ -1,0 +1,86 @@
+{
+  "name": "@preventive/pod",
+  "version": "0.0.0",
+  "description": "React Native iOS dependencies without CocoaPods",
+  "type": "module",
+  "bin": {
+    "pod-install": "bin/pod-install.js"
+  },
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "bin/pod-install.js",
+    "src/binaries.js",
+    "src/config.js",
+    "src/error.js",
+    "src/files.js",
+    "src/generate.js",
+    "src/headers.js",
+    "src/install.js",
+    "src/load.js",
+    "src/pbxproj.js",
+    "src/plist.js",
+    "src/podspec-calls.js",
+    "src/podspec-expr.js",
+    "src/podspec-json.js",
+    "src/podspec-methods.js",
+    "src/podspec-parse.js",
+    "src/podspec-read.js",
+    "src/podspec-rn-core.js",
+    "src/podspec-rn-modules.js",
+    "src/podspec-rn.js",
+    "src/podspec-tokens.js",
+    "src/prepare.js",
+    "src/project-aggregate.js",
+    "src/project-pods.js",
+    "src/project-resources.js",
+    "src/project.js",
+    "src/settings-aggregate.js",
+    "src/settings-pod.js",
+    "src/settings.js",
+    "src/sources.js",
+    "src/spec.js",
+    "src/support.js",
+    "src/targets.js",
+    "src/user-project.js",
+    "src/xcconfig.js",
+    "src/scripts/README.md",
+    "src/scripts/dsyms-head.sh",
+    "src/scripts/frameworks-head.sh",
+    "src/scripts/resources-head.sh",
+    "src/scripts/resources-tail.sh",
+    "src/scripts/xcframeworks-head.sh"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test ./tests/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "author": {
+    "name": "Nikita Skovoroda",
+    "email": "chalkerx@gmail.com",
+    "url": "https://github.com/ChALkeR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PreventiveMeasures/libraries.git",
+    "directory": "pod"
+  },
+  "bugs": {
+    "url": "https://github.com/PreventiveMeasures/libraries/issues"
+  },
+  "homepage": "https://github.com/PreventiveMeasures/libraries/tree/main/pod",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@preventive/deptree": "^1.4.0",
+    "@preventive/lockfile": "^1.3.0",
+    "@preventive/upstream": "^1.7.0"
+  },
+  "devDependencies": {
+    "@preventive/archive": "^1.4.0"
+  }
+}

@@ -134,6 +134,24 @@ describe('buildCocoaPodsTree', () => {
     await assert.rejects(build({ partial: 1 }), /partial must be a boolean, or left out/u)
   })
 
+  it('downloads with only the pods it names, and looks at no other', async () => {
+    const calls = stubPods({ others: { 'Other@1.0.0': OTHER } })
+    // Local and Other are refused where they are looked at; left out, they are not, and nothing is asked of them.
+    const { vfs, stats, installed, skipped } = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), only: ['Acme'] })
+    assert.deepEqual([listing(vfs), stats.pods, stats.downloaded], [CORE, 3, 1])
+    assert.deepEqual([installed.map(({ name }) => name), skipped], [['Acme'], []])
+    assert.deepEqual(calls.trunk.map((at) => at.split('/').at(-1)), ['Acme.podspec.json'])
+    assert.equal(calls.github.some((call) => /local|other/iu.test(call)), false)
+    // One it names is refused, or skipped, as it is without it; and with none named, nothing is fetched.
+    await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), only: ['Acme', 'Other'] }), /pods\["Other"\]: an :http source from "https:\/\/example\.com\/other\.zip"/u)
+    const partial = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), only: ['Other'], partial: true })
+    assert.deepEqual([partial.installed, partial.skipped.map(({ name }) => name)], [[], ['Other']])
+    const none = await buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, only: [] })
+    assert.deepEqual([listing(none.vfs), none.stats.downloaded], [{}, 0])
+    await assert.rejects(build({ only: ['Acme', 'Missing'] }), (error) => error instanceof DeptreeError && /pods\["Missing"\]: the lockfile has no pod of the name, which `only` has/u.test(error.message))
+    for (const only of ['Acme', ['Acme', 'Acme'], [1]]) await assert.rejects(build({ only }), /only must be a list of the names of pods, each once, or left out/u)
+  })
+
   it('holds a pod partial skips to the lockfile all the same, and refuses with it all but where a pod is from', async () => {
     stubPods({ others: { 'Other@1.0.0': Buffer.from(`${OTHER}\n`) } })
     await assert.rejects(buildCocoaPodsTree({ lockfile: MIXED_LOCK, host: HOST, github: client(), partial: true }), /integrity mismatch for Other@1\.0\.0/u)
@@ -236,6 +254,23 @@ describe('buildCocoaPodsTree', () => {
       assert.deepEqual(skipped.map(({ name, version }) => `${name} ${version}`), ['Acme 1.2.0'], JSON.stringify(extra))
       assert.match(skipped[0].reason, message, JSON.stringify(extra))
     }
+  })
+
+  it('runs a prepare_command through `prepare`, and cleans what it leaves', async () => {
+    const podspec = podspecOf({ prepare_command: 'mv Sources Src', subspecs: [{ name: 'Core', source_files: 'Src/Core' }, { name: 'UI', source_files: 'Src/UI/**/*.swift' }] })
+    const seen = []
+    const moved = (path) => path.replace(/^Sources(?=\/|$)/u, 'Src')
+    const prepare = ({ name, version, command, contents }) => {
+      seen.push([name, version, command, contents.files.has('Sources/Core/Acme.m')])
+      return { dirs: [...contents.dirs].map(moved), files: new Map([...contents.files].map(([path, file]) => [moved(path), file])), links: contents.links }
+    }
+    const { vfs } = await build({ lockfile: coreLock(podspec), podspec, prepare })
+    assert.deepEqual(seen, [['Acme', '1.2.0', 'mv Sources Src', true]])
+    assert.deepEqual(listing(vfs), Object.fromEntries(Object.entries(CORE).map(([path, entry]) => [path.replace('Pods/Acme/Sources', 'Pods/Acme/Src'), entry])))
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, prepare: () => ({ dirs: [], files: new Map([['a', 'text']]), links: new Map() }) }), /prepare must give the download back/u)
+    await assert.rejects(build({ lockfile: coreLock(podspec), podspec, prepare: true }), /prepare must be a function/u)
+    const untyped = podspecOf({ prepare_command: ['make'] })
+    await assert.rejects(build({ lockfile: coreLock(untyped), podspec: untyped, prepare }), /its prepare_command is not text/u)
   })
 
   it('refuses a pod from another spec repo or an external source but :path, before fetching anything', async () => {

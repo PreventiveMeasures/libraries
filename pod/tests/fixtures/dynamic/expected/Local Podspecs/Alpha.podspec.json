@@ -1,0 +1,41 @@
+{
+  "name": "Alpha",
+  "version": "1.0.0",
+  "summary": "Alpha",
+  "homepage": "https://example.com/alpha",
+  "license": "MIT",
+  "authors": "Fixture",
+  "platforms": {
+    "ios": "15.1"
+  },
+  "source": {
+    "git": "https://example.com/alpha.git",
+    "tag": "v1.0.0"
+  },
+  "source_files": "src/**/*.{h,mm,cpp}",
+  "private_header_files": "src/Alpha+Private.h",
+  "header_dir": "alpha",
+  "header_mappings_dir": "src",
+  "compiler_flags": "-DALPHA=1 -Wno-comma",
+  "frameworks": [
+    "UIKit",
+    "CoreGraphics"
+  ],
+  "libraries": "c++",
+  "resource_bundles": {
+    "Alpha_privacy": [
+      "res/PrivacyInfo.xcprivacy"
+    ]
+  },
+  "pod_target_xcconfig": {
+    "HEADER_SEARCH_PATHS": "\"$(PODS_ROOT)/Headers/Private/Delta\" \"$(PODS_TARGET_SRCROOT)/src\"",
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++20",
+    "DEFINES_MODULE": "YES",
+    "OTHER_CPLUSPLUSFLAGS": "$(inherited) -DFOLLY_NO_CONFIG"
+  },
+  "dependencies": {
+    "Delta": [
+
+    ]
+  }
+}

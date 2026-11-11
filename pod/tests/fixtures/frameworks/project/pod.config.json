@@ -1,0 +1,11 @@
+{
+  "platform": {
+    "ios": "16.4"
+  },
+  "frameworks": "static",
+  "pods": {
+    "Delta": {
+      "modularHeaders": true
+    }
+  }
+}

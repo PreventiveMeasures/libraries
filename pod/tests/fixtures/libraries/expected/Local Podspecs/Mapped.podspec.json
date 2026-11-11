@@ -1,0 +1,26 @@
+{
+  "summary": "Mapped",
+  "homepage": "https://example.com/mapped",
+  "authors": "Fixture",
+  "source": {
+    "git": "https://example.com/mapped.git",
+    "tag": "2.0.0"
+  },
+  "name": "Mapped",
+  "version": "2.0.0",
+  "license": "MIT",
+  "platforms": {
+    "ios": "12.0"
+  },
+  "source_files": [
+    "include/**/*.h",
+    "src/*.c"
+  ],
+  "header_mappings_dir": "include",
+  "module_map": "Mapped.modulemap",
+  "dependencies": {
+    "HeaderOnly": [
+
+    ]
+  }
+}

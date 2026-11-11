@@ -1,0 +1,27 @@
+{
+  "name": "Remote",
+  "version": "2.0.0",
+  "summary": "Remote",
+  "homepage": "https://example.com/remote",
+  "license": {
+    "type": "MIT",
+    "file": "LICENSE"
+  },
+  "authors": "Fixture",
+  "platforms": {
+    "ios": "12.0"
+  },
+  "source": {
+    "http": "https://github.com/acme/remote/archive/refs/tags/2.0.0.tar.gz",
+    "sha256": "2f705746b94de08584b938dd72d28eebe1c0ca0a0ddf60e3664f2068143e8241"
+  },
+  "source_files": "Remote/src/*.{h,m}",
+  "resources": [
+    "Remote/res/*.lproj/*.strings"
+  ],
+  "resource_bundles": {
+    "RemoteDirs": [
+      "Remote/dirs/*.lproj"
+    ]
+  }
+}

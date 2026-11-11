@@ -1,0 +1,19 @@
+ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
+CLANG_CXX_LANGUAGE_STANDARD = c++20
+CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO
+FRAMEWORK_SEARCH_PATHS = $(inherited) "${PODS_ROOT}/Binary" "${PODS_XCFRAMEWORKS_BUILD_DIR}/Binary/Dyn"
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) COCOAPODS=1
+HEADER_SEARCH_PATHS = $(inherited) "${PODS_ROOT}/Headers/Public" "${PODS_ROOT}/Headers/Public/Core" "${PODS_ROOT}/Headers/Public/HeaderOnly" "${PODS_ROOT}/Headers/Public/Local" "${PODS_ROOT}/Headers/Public/Mapped" "${PODS_ROOT}/Headers/Public/Overlap" "${PODS_ROOT}/Headers/Public/Remote" "${PODS_ROOT}/Headers/Public/Scripted" "${PODS_XCFRAMEWORKS_BUILD_DIR}/Binary/Stat/Headers"
+LD_RUNPATH_SEARCH_PATHS = $(inherited) /usr/lib/swift '@executable_path/Frameworks' '@loader_path/Frameworks'
+LIBRARY_SEARCH_PATHS = $(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/Core" "${PODS_CONFIGURATION_BUILD_DIR}/Local" "${PODS_CONFIGURATION_BUILD_DIR}/Mapped" "${PODS_CONFIGURATION_BUILD_DIR}/Overlap" "${PODS_CONFIGURATION_BUILD_DIR}/Remote" "${PODS_CONFIGURATION_BUILD_DIR}/Scripted" "${PODS_CONFIGURATION_BUILD_DIR}/SwiftLib" "${PODS_ROOT}/../local/Core/vendor" "${PODS_ROOT}/Binary/lib" "${PODS_XCFRAMEWORKS_BUILD_DIR}/Binary/Stat" "${TOOLCHAIN_DIR}/usr/lib/swift/${PLATFORM_NAME}" /usr/lib/swift
+OTHER_CFLAGS = $(inherited) -fmodule-map-file="${PODS_CONFIGURATION_BUILD_DIR}/SwiftLib/SwiftLib.modulemap" -fmodule-map-file="${PODS_ROOT}/Headers/Public/core/Core.modulemap" -isystem "${PODS_ROOT}/Headers/Public" -isystem "${PODS_ROOT}/Headers/Public/HeaderOnly" -isystem "${PODS_ROOT}/Headers/Public/Mapped"
+OTHER_LDFLAGS = $(inherited) -ObjC -l"Core" -l"Demo" -l"Local" -l"Mapped" -l"Overlap" -l"Remote" -l"Scripted" -l"Stat" -l"SwiftLib" -l"sqlite3" -l"vend" -l"z" -framework "Dyn" -framework "Security" -framework "Vend" -weak_framework "CoreHaptics"
+OTHER_MODULE_VERIFIER_FLAGS = $(inherited) "-F${PODS_CONFIGURATION_BUILD_DIR}/Binary" "-F${PODS_CONFIGURATION_BUILD_DIR}/Core" "-F${PODS_CONFIGURATION_BUILD_DIR}/HeaderOnly" "-F${PODS_CONFIGURATION_BUILD_DIR}/Local" "-F${PODS_CONFIGURATION_BUILD_DIR}/Mapped" "-F${PODS_CONFIGURATION_BUILD_DIR}/Overlap" "-F${PODS_CONFIGURATION_BUILD_DIR}/Remote" "-F${PODS_CONFIGURATION_BUILD_DIR}/Scripted" "-F${PODS_CONFIGURATION_BUILD_DIR}/SwiftLib"
+OTHER_SWIFT_FLAGS = $(inherited) -D COCOAPODS -Xcc -fmodule-map-file="${PODS_CONFIGURATION_BUILD_DIR}/SwiftLib/SwiftLib.modulemap" -Xcc -fmodule-map-file="${PODS_ROOT}/Headers/Public/core/Core.modulemap"
+PODS_BUILD_DIR = ${BUILD_DIR}
+PODS_CONFIGURATION_BUILD_DIR = ${PODS_BUILD_DIR}/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)
+PODS_PODFILE_DIR_PATH = ${SRCROOT}/.
+PODS_ROOT = ${SRCROOT}/Pods
+PODS_XCFRAMEWORKS_BUILD_DIR = $(PODS_CONFIGURATION_BUILD_DIR)/XCFrameworkIntermediates
+SWIFT_INCLUDE_PATHS = $(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/SwiftLib"
+USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES

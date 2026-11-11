@@ -1,0 +1,25 @@
+{
+  "summary": "SwiftLib",
+  "homepage": "https://example.com/swiftlib",
+  "authors": "Fixture",
+  "source": {
+    "git": "https://example.com/swiftlib.git",
+    "tag": "0.9.0"
+  },
+  "name": "SwiftLib",
+  "version": "0.9.0",
+  "license": "MIT",
+  "platforms": {
+    "ios": "15.0"
+  },
+  "swift_versions": [
+    "5.5",
+    "5.9"
+  ],
+  "source_files": "Sources/**/*.swift",
+  "dependencies": {
+    "Core": [],
+    "Binary/Dyn": []
+  },
+  "swift_version": "5.9"
+}
