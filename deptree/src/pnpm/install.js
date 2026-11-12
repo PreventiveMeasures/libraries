@@ -55,7 +55,8 @@ const current = (value, supported) => (supported ?? ['current']).map((item) => (
 const takesPlatform = (pkg, host, supported) => ['os', 'cpu', 'libc'].every((key) => (key === 'libc' && host.libc === 'unknown')
   || checkList(current(host[key], supported?.[key]), pkg[key] ?? ['any'], host.major))
 
-const takesEngine = (engines, node) => !engines.node || satisfies(node, engines.node, { includePrerelease: true })
+// A Node unknown (host.node left out, and none in the settings) takes any.
+const takesEngine = (engines, node) => !engines.node || node === undefined || satisfies(node, engines.node, { includePrerelease: true })
 
 // pnpm 12 drops what of a range it cannot parse, where npm's semver takes
 // none of it, and reads a `-` range with an `x` as taking nothing.

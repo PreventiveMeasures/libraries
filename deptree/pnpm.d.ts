@@ -29,9 +29,11 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // a production tree an edge to an optional peer changes, before 12.7.0.
 // Left out, it is the one the root package.json's
 // packageManager pins, which pnpm switches to, and has to be given where
-// that pins none. `node` is the Node it runs on,
+// that pins none. `node` is the Node it runs on, an exact version,
 // unless the settings name a nodeVersion or, for pnpm 11, the root
-// package.json's engines.runtime pins one; `os`, `cpu` and `libc` as Node
+// package.json's engines.runtime pins one; left out, with none of those,
+// the Node is unknown, and every engines.node and range for Node takes it,
+// so nothing is refused or left out for it; `os`, `cpu` and `libc` as Node
 // and pnpm name them -- `linux`, `x64`, `glibc` -- with `unknown` for a libc
 // outside Linux, as pnpm has it.
 // Windows is refused: pnpm links there with junctions to absolute paths.
@@ -39,7 +41,7 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // it out; supportedArchitectures in the settings widens what is taken.
 export interface PnpmHost {
   pnpm?: string
-  node: string
+  node?: string
   os: string
   cpu: string
   libc: 'glibc' | 'musl' | 'unknown'

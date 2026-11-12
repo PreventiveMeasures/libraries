@@ -19,12 +19,12 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // version that installs, exact: 10.9.3 to 10.9.9, or 11.11.1 to 11.21.0
 // (10.9.0 to 10.9.2 escape a `#` in the project's path, which is not known
 // here); npm reads no packageManager field, so the root package.json's is
-// not read. `node` is
-// the Node npm runs on, an exact version; `os` and `cpu` as Node names
-// them -- `linux`, `x64`; and `libc` the C library npm finds on Linux,
-// `glibc` or `musl`, and left out elsewhere, where npm finds none. Windows
-// is refused: npm links bins there with shims, and workspaces with
-// junctions.
+// not read. `node` is the Node npm runs on, an exact version, or left out
+// for one unknown, which every engines.node and devEngines.runtime version
+// takes; `os` and `cpu` as Node names them -- `linux`, `x64`; and `libc`
+// the C library npm finds on Linux, `glibc` or `musl`, and left out
+// elsewhere, where npm finds none. Windows is refused: npm links bins
+// there with shims, and workspaces with junctions.
 //
 // A package whose os, cpu, libc or engines the host does not take is left
 // out where npm takes it as optional, and with it what npm leaves out with
@@ -35,7 +35,7 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // with none, whatever it names.
 export interface NpmHost {
   npm: string
-  node: string
+  node?: string
   os: string
   cpu: string
   libc?: 'glibc' | 'musl'

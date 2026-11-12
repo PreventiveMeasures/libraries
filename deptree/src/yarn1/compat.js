@@ -1,5 +1,7 @@
 // yarn 1's package-compatibility.js, engines checked against host.node and
-// host.yarn; one yarn knows no version of is passed over, as yarn does.
+// host.yarn; one yarn knows no version of is passed over, as yarn does. A
+// Node unknown (host.node left out) takes every range of its own, and of
+// what it reports in process.versions.
 
 import { compareVersions, major, satisfies, valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -60,6 +62,7 @@ export function incompatibility(manifest, host, where, { ignoreEngines, ignorePl
     const known = Object.hasOwn(versions, name)
     if (!known && !REPORTED.has(name)) continue
     if (typeof range !== 'string') throw new DeptreeError(`engines.${name} is not a string, which yarn fails on`, where)
+    if (host.node === undefined && (name === 'node' || !known)) continue
     if (!known) throw new DeptreeError(`yarn checks engines.${name} against the Node it runs on, which is not known here`, where)
     if (!testEngine(name, range, versions)) return `its engines.${name}, ${quote(range)}, does not take ${versions[name]}`
   }

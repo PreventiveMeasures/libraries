@@ -48,6 +48,13 @@ export function checkHostKeys(host, keys, wanted) {
   if (host === null || typeof host !== 'object') throw new TypeError(`host must be an object with ${wanted}`)
   for (const key of keys) if (typeof host[key] !== 'string' || host[key] === '') throw new TypeError(`host.${key} must be a non-empty string`)
 }
+// Whether host.node is given, a non-empty string. Left out, the Node is
+// unknown: every engines.node, and every range for Node, takes it.
+export function nodeGiven(node) {
+  if (node === undefined) return false
+  if (typeof node !== 'string' || node === '') throw new TypeError('host.node must be a non-empty string, or left out')
+  return true
+}
 // `production`, false unless given true, as each manager's builder takes it.
 export function productionOf({ production = false }) {
   if (typeof production !== 'boolean') throw new TypeError('production must be a boolean, or left out')

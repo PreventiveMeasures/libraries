@@ -271,6 +271,22 @@ describe('the host', () => {
     await refuses(given({ workspace: { ...WORKSPACE, engines: { node: '<10' } }, npmrc: 'engine-strict=true\n' }), 'its engines.node, "<10", does not take Node 24.15.0, which npm fails on with engine-strict', 'manifests["packages/w"]')
   })
 
+  // A Node unknown takes every engines.node and devEngines.runtime version:
+  // nothing refused for it, and no optional package left out for it.
+  it('a Node unknown, host.node left out', async () => {
+    stubRegistry(TARBALLS)
+    const unknown = { ...HOST, node: undefined }
+    await buildNpmTree(given({ workspace: { ...WORKSPACE, engines: { node: '<10' } }, npmrc: 'engine-strict=true\n', host: unknown }))
+    await buildNpmTree(given({ root: { ...ROOT, devEngines: { runtime: { name: 'node', version: '<24' } } }, host: unknown }))
+    await refuses(given({ root: { ...ROOT, devEngines: { runtime: { name: 'bun' } } }, host: unknown }), 'the host\'s runtime is not one it takes, which npm fails on', 'manifests["."].devEngines.runtime')
+    const lock = LOCK()
+    lock.packages['node_modules/mac'] = { ...lock.packages['node_modules/mac'], engines: { node: '<10' } }
+    const darwin = { ...HOST, os: 'darwin', libc: undefined }
+    assert.equal((await buildNpmTree(given({ lock, host: darwin }))).stats.skipped, 2, 'left out with its dependency for Node 24.15.0')
+    assert.equal((await buildNpmTree(given({ lock, host: { ...darwin, node: undefined } }))).stats.skipped, 0)
+    await assert.rejects(buildNpmTree(given({ host: { ...HOST, node: '' } })), { name: 'TypeError', message: 'host.node must be a non-empty string, or left out' })
+  })
+
   it('the root\'s devEngines', async () => {
     const dev = (devEngines, host) => given({ root: { ...ROOT, devEngines }, host })
     stubRegistry(TARBALLS)

@@ -235,6 +235,23 @@ describe('buildPnpmTree', () => {
     assert.equal(vfs.readlink('/node_modules/mac'), '.pnpm/mac@1.0.0/node_modules/mac')
   })
 
+  // A Node unknown takes every engines.node: an optional package a Node
+  // known leaves out is installed, and engineStrict refuses nothing; a
+  // nodeVersion the settings name is still the Node built for.
+  it('takes every engines.node for a Node unknown, host.node left out', async () => {
+    stubRegistry(TARBALLS)
+    const engined = lockfile({ mac: "[darwin]\n    engines: {node: '<10'}" })
+    const darwin = { ...HOST, os: 'darwin', libc: 'unknown' }
+    const unknown = { ...darwin, node: undefined }
+    assert.equal((await build({ lockfile: engined, host: darwin })).isSymlink('/node_modules/mac'), false, 'left out for Node 24.15.0')
+    for (const workspace of [undefined, 'engineStrict: true\n']) {
+      const vfs = await build({ lockfile: engined, host: unknown, workspace })
+      assert.equal(vfs.readlink('/node_modules/mac'), '.pnpm/mac@1.0.0/node_modules/mac', String(workspace))
+    }
+    assert.equal((await build({ lockfile: engined, host: unknown, workspace: 'nodeVersion: 20.0.0\n' })).isSymlink('/node_modules/mac'), false, 'left out for the nodeVersion')
+    await assert.rejects(build({ host: { ...HOST, node: '' } }), { name: 'TypeError', message: 'host.node must be a non-empty string, or left out' })
+  })
+
   it('refuses once every fetch started has ended', async () => {
     const open = stubFailingRegistry(TARBALLS, 'a', '1.0.0')
     await assert.rejects(build(), /^DeptreeError: "a@1\.0\.0": /u)
