@@ -3,7 +3,7 @@ import { env } from '#env'
 import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
-import { calculateCost, canThink, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, resolveModel, wireModelFor } from './models.js'
+import { calculateCost, canThink, compactThresholdFor, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, resolveModel, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -61,6 +61,23 @@ const bearerAuth = (key) => ({ Authorization: `Bearer ${key}` })
 // An adapter's fixed endpoint, and the key it reads from `keyEnv` for `authHeader` to send.
 const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, apiKey: () => env(keyEnv) })
 
+// What a compaction item is called. `compaction` is the API reference's name, and OpenAI's own Codex
+// client reads `compaction_summary` as the same item, so a response may carry either.
+const COMPACTION_TYPES = new Set(['compaction', 'compaction_summary'])
+const isCompaction = (item) => COMPACTION_TYPES.has(item?.type)
+
+// The Responses output items something here reads. Anything else is replayed without a word, and a
+// renamed item is how a change on OpenAI's side would first show.
+const HANDLED_OUTPUT_TYPES = new Set(['message', 'reasoning', 'function_call', ...COMPACTION_TYPES])
+
+// A Responses history from its latest compaction item on. The item carries everything before it,
+// and OpenAI's compaction guide lets a stateless caller drop the rest: a compacted session's
+// requests stay the size compaction made them, and each extends the one before it until the next.
+function fromLatestCompaction(messages) {
+  const latest = messages.findLastIndex(isCompaction)
+  return latest > 0 ? messages.slice(latest) : [...messages]
+}
+
 // The OpenAI Responses wire format, parameterised by how the route names models. Two routes speak
 // it and differ only in the namespace: the direct adapter strips it for a bare name the API must
 // know, a gateway keeps it as the operator's routing key. Both resolve `wireModelFor` first,
@@ -77,7 +94,7 @@ function openaiResponsesShape(modelId) {
       const body = {
         model: modelId(model),
         instructions: systemPrompt,
-        input: [...messages],
+        input: fromLatestCompaction(messages),
         max_output_tokens: maxTokens,
         // Stateless. The default retains every request and response on OpenAI's servers, which for
         // a tool that uploads someone else's source code is a data-retention decision worth making
@@ -98,6 +115,11 @@ function openaiResponsesShape(modelId) {
       // supported with this model", on the first turn of every run.
       if (canThink(resolveModel(model))) body.include = ['reasoning.encrypted_content']
       if (tools) body.tools = tools.map((tool) => ({ type: 'function', ...functionTool(tool) }))
+      // Compaction is for what grows turn by turn, a session with tools. A request without them that
+      // comes near the cap should fail where it can be seen, not have its prompt summarised away.
+      // Sent from the first turn on, so a session's requests all carry the same body.
+      const compactThreshold = tools ? compactThresholdFor(model, maxTokens) : undefined
+      if (compactThreshold) body.context_management = [{ type: 'compaction', compact_threshold: compactThreshold }]
       // Thinking off on a row that reasons unless told not to: an omitted effort is the model's own
       // default, `medium` on every such row, so `none` has to be named.
       const level = resolveEffort({ think, effort, model }) ?? (needsExplicitNoThink(model) ? 'none' : undefined)
@@ -135,10 +157,20 @@ function openaiResponsesShape(modelId) {
         .map((i) => ({ id: i.call_id, name: i.name, ...parseArgs(i.arguments, i.name) }))
     },
 
+    // How many times OpenAI compacted the conversation while serving this response.
+    countCompactions(json) {
+      return (json.output ?? []).filter(isCompaction).length
+    },
+
+    unhandledOutputTypes(json) {
+      return [...new Set((json.output ?? []).map((i) => i.type).filter((type) => !HANDLED_OUTPUT_TYPES.has(type)))]
+    },
+
     appendToolResults(messages, json, toolCalls, results) {
       // Responses replays state by feeding the previous turn's output items back as input items.
-      // Push every output item (reasoning, function_call, message) verbatim so the model can pick
-      // up where it left off, then pair each function_call with its function_call_output result.
+      // Push every output item (reasoning, compaction, function_call, message) verbatim so the
+      // model can pick up where it left off, then pair each function_call with its
+      // function_call_output result.
       // Verbatim includes a reasoning item's `encrypted_content`, the only copy of it there is
       // under `store: false` (see `include` in buildRequestBody).
       for (const item of json.output ?? []) messages.push(item)
@@ -222,6 +254,8 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
     checkResponse: (json) => parse(json).checkResponse(json),
     extractResponseText: (json) => parse(json).extractResponseText(json),
     extractToolCalls: (json) => parse(json).extractToolCalls(json),
+    countCompactions: (json) => parse(json).countCompactions?.(json) ?? 0,
+    unhandledOutputTypes: (json) => parse(json).unhandledOutputTypes?.(json) ?? [],
     appendToolResults: (thread, json, toolCalls, results) => parse(json).appendToolResults(thread, json, toolCalls, results),
   }
 }
@@ -480,6 +514,14 @@ export const extractResponseText = delegate('extractResponseText')
 // / OpenRouter.
 export const extractToolCalls = delegate('extractToolCalls')
 export const appendToolResults = delegate('appendToolResults')
+
+// Compactions the provider made while serving a response. Only OpenAI's Responses API compacts, so
+// every other adapter reports none.
+export const countCompactions = (json) => provider.countCompactions?.(json) ?? 0
+
+// Output item types in a response that this client has no reading of, for the adapters whose
+// format can grow new ones. Every other adapter reports none.
+export const unhandledOutputTypes = (json) => provider.unhandledOutputTypes?.(json) ?? []
 
 // Build the initial user message in the format the active provider prefers. When `userContent` is a
 // list of blocks AND the provider's adapter knows how, a cache marker closes the block before the

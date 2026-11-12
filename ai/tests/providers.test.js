@@ -10,11 +10,13 @@ import {
   buildRequestHeaders,
   buildRequestUrl,
   checkResponse,
+  countCompactions,
   extractResponseText,
   extractToolCalls,
   normalizeOneUsage,
   setProvider,
   turnCost,
+  unhandledOutputTypes,
 } from '../src/providers.js'
 
 // `setProvider` reads `process.env.<PROVIDER>_API_KEY` and asserts it is
@@ -125,6 +127,40 @@ describe('extractToolCalls — openai (Responses)', () => {
       assert.match(calls[1].argsError, /b.*malformed JSON args/u)
       assert.deepEqual(calls[2].args, { x: 1 })
       assert.equal(calls[2].argsError, undefined)
+    })
+  })
+})
+
+describe('countCompactions', () => {
+  it('openai (Responses): counts the compaction items in the output', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const compaction = { id: 'cmp_1', type: 'compaction', encrypted_content: 'k' }
+      const call = { id: 'fc_1', type: 'function_call', call_id: 'c1', name: 'fn', arguments: '{}' }
+      assert.equal(countCompactions({ status: 'completed', output: [compaction, call] }), 1)
+      assert.equal(countCompactions({ status: 'completed', output: [call] }), 0)
+      assert.equal(countCompactions({ error: { message: 'boom' } }), 0)
+      // The name OpenAI's own Codex client also reads the item under.
+      assert.equal(countCompactions({ status: 'completed', output: [{ ...compaction, type: 'compaction_summary' }, call] }), 1)
+    })
+  })
+
+  it('openai (Responses): names the output item types nothing here reads, once each', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const known = ['message', 'reasoning', 'function_call', 'compaction', 'compaction_summary'].map((type) => ({ type }))
+      assert.deepEqual(unhandledOutputTypes({ status: 'completed', output: known }), [])
+      assert.deepEqual(unhandledOutputTypes({ status: 'completed', output: [...known, { type: 'novel' }, { type: 'novel' }] }), ['novel'])
+    })
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.deepEqual(unhandledOutputTypes({ choices: [{ message: { content: 'hi' } }] }), [])
+    })
+  })
+
+  it('is zero on every adapter that never compacts', () => {
+    withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
+      assert.equal(countCompactions({ content: [{ type: 'text', text: 'hi' }] }), 0)
+    })
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.equal(countCompactions({ choices: [{ message: { content: 'hi' } }] }), 0)
     })
   })
 })
@@ -366,6 +402,63 @@ describe('buildRequestBody — provider-specific shapes', () => {
   // deliberate and worth pinning. Tool results are replayed into the next
   // `input`, so nothing reads that state back — provided a reasoning item
   // carries its own reasoning, which the next case pins.
+  it('openai (Responses): a session with tools is compacted its output short of the row\'s input cap', () => {
+    const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+    const compaction = (threshold) => [{ type: 'compaction', compact_threshold: threshold }]
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      // 922K of input on the GPT-6 and gpt-5.6 rows, aliases and pro rows
+      // included; 272K on gpt-5.3-codex. Less the request's own
+      // max_output_tokens, so the threshold follows the session's budget.
+      for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6.1-sol', 'openai/gpt-5.6-sol', 'openai/gpt-5.6']) {
+        assert.deepEqual(buildRequestBody(model, 128_000, 'sys', messages, { think: true, tools }).context_management, compaction(794_000), model)
+      }
+      assert.deepEqual(buildRequestBody('openai/gpt-6-astra', 32_000, 'sys', messages, { think: true, tools }).context_management, compaction(890_000))
+      assert.deepEqual(buildRequestBody('openai/gpt-5.3-codex', 128_000, 'sys', messages, { think: true, tools }).context_management, compaction(144_000))
+      // From the first turn, so no request of the session differs from the
+      // one before it in anything but the items it adds.
+      assert.ok('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages, { tools, turn: 0 }))
+      // Without tools a request is one-shot: one that comes near the cap should
+      // fail visibly, not have its prompt summarised away.
+      assert.equal('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages), false)
+      // Rows with no documented compaction never see the field.
+      for (const model of ['openai/gpt-5.5', 'openai/gpt-5.4', 'openai/gpt-5.4-mini', 'openai/gpt-4o-mini']) {
+        assert.equal('context_management' in buildRequestBody(model, 1000, 'sys', messages, { tools }), false, model)
+      }
+    })
+    // Nor does chat completions, which has no such field.
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.equal('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages, { tools }), false)
+    })
+  })
+
+  it('openai (Responses): after a compaction, the next request starts at its item', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+      const turn = (thread, n, output) => {
+        const call = { id: `fc_${n}`, type: 'function_call', call_id: `c${n}`, name: 'fn', arguments: '{}', status: 'completed' }
+        const json = { status: 'completed', output: [...output, call] }
+        appendToolResults(thread, json, extractToolCalls(json), [`result-${n}`])
+        return buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', thread, { think: true, tools }).input
+      }
+      const reasoning = (n) => ({ id: `rs_${n}`, type: 'reasoning', summary: [], encrypted_content: `r${n}` })
+      const compacted = (n) => ({ id: `cmp_${n}`, type: 'compaction', encrypted_content: `k${n}` })
+      const thread = [...messages]
+      const first = turn(thread, 1, [reasoning(1)])
+      assert.equal(first.length, 4) // nothing compacted yet: the whole history
+      // The item carries what came before it, and the guide lets a stateless
+      // caller drop the rest.
+      const after = turn(thread, 2, [compacted(2), reasoning(2)])
+      assert.deepEqual(after.map((item) => item.id ?? item.call_id), ['cmp_2', 'rs_2', 'fc_2', 'c2'])
+      // Until the next one, each request extends the last.
+      const next = turn(thread, 3, [reasoning(3)])
+      assert.deepEqual(next.slice(0, after.length), after)
+      assert.equal(turn(thread, 4, [compacted(4)])[0].id, 'cmp_4')
+      assert.equal(turn(thread, 5, [{ ...compacted(5), type: 'compaction_summary' }])[0].id, 'cmp_5')
+      // The thread keeps everything: it is what each turn's entry records.
+      assert.equal(thread[0], messages[0])
+    })
+  })
+
   it('openai (Responses): opts out of server-side retention on every route', () => {
     withProvider('openai', 'OPENAI_API_KEY', () => {
       assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).store, false)
@@ -1393,6 +1486,12 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       const pro = mod.buildRequestBody('openai/gpt-6-astra-pro', 1000, 'sys', messages, { think: true, effort: 'max' })
       assert.equal(pro.model, ASTRA)
       assert.deepEqual(pro.reasoning, { effort: 'max', mode: 'pro' })
+      // Compaction on a session with tools, as on the direct route.
+      const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+      assert.deepEqual(mod.buildRequestBody(ASTRA, 128_000, 'sys', messages, { tools }).context_management, [{ type: 'compaction', compact_threshold: 794_000 }])
+      for (const model of [CLAUDE, ...CHAT_ROUTES]) {
+        assert.equal('context_management' in mod.buildRequestBody(model, 1000, 'sys', messages, { tools }), false, model)
+      }
     })
   })
 

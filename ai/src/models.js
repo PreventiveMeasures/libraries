@@ -340,6 +340,20 @@ export function reasoningModeFor(model) {
   return MODELS.get(resolveModel(model))?.reasoningMode
 }
 
+// The `compact_threshold` a tool session on this row sends -- rendered tokens, past which OpenAI
+// replaces the conversation so far with a compaction item -- or undefined for a row with no
+// documented compaction.
+//
+// The input cap less this request's `max_output_tokens`: a turn that starts under the threshold can
+// write all of its output and still send the next request, where the cap is checked whether or not
+// compaction has run. Never under half the cap, which a request asking for most of it as output
+// would otherwise drive the threshold down to, or past zero.
+export function compactThresholdFor(model, maxOutput = getMaxTokens(resolveModel(model))) {
+  const compaction = MODELS.get(resolveModel(model))?.compaction
+  if (!compaction) return undefined
+  return Math.max(Math.floor(compaction.inputCap / 2), compaction.inputCap - maxOutput)
+}
+
 // Whether the model reads OpenAI's explicit `prompt_cache_breakpoint` marker. Version-gated rather
 // than namespace-wide, so it lives on the row like `efforts` does: the field arrived with gpt-5.6,
 // and every earlier model rejects a request carrying it with a 400 rather than ignoring it.

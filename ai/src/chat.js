@@ -4,8 +4,8 @@ import { addUsage, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
 import { flattenUserContent } from './prompt-cache.js'
 import {
-  appendToolResults, buildInitialUserMessage, extractResponseText, extractToolCalls,
-  normalizeOneUsage, providerStamp, turnCost,
+  appendToolResults, buildInitialUserMessage, countCompactions, extractResponseText, extractToolCalls,
+  normalizeOneUsage, providerStamp, turnCost, unhandledOutputTypes,
 } from './providers.js'
 import { issueTurn, resolveTaskBudget } from './task-budget.js'
 
@@ -120,6 +120,9 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
   }
 
   const gateKey = prefixKey(model, tools, systemPrompt)
+  // The previous turn's prompt, in tokens: a conversation's only grows, so a much smaller one is a
+  // compaction even when the response does not say so.
+  let lastPrompt = 0
   for (let turn = history.length; turn < maxToolTurns; turn++) {
     // Snapshot the pre-turn messages array before buildRequestBody -- appendToolResults mutates it
     // in place, so a post-hoc capture would leak the next turn's state into this entry.
@@ -136,7 +139,23 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     // task-budget=error path: the failed attempt's tokens still got paid for, so account for both
     // responses in the running total.
     if (failedAttemptResponse) addUsage(totalUsage, normalizeUsage(failedAttemptResponse, model))
-    addUsage(totalUsage, normalizeUsage(response, model))
+    const usage = normalizeUsage(response, model)
+    addUsage(totalUsage, usage)
+    // Always, not only under debug: from here the session goes on from the provider's summary of
+    // everything before, which whoever reads its result should be able to tell. Told by the item
+    // the response carries, or failing that by the prompt: halved from one turn to the next, it was
+    // cut down on the provider's side all the same.
+    const prompt = usage ? usage.input + usage.cacheRead + usage.cacheWrite5m + usage.cacheWrite1h : undefined
+    const promptNote = prompt === undefined ? '' : ` (this turn's prompt: ${prompt} tokens)`
+    if (countCompactions(response) > 0) {
+      console.warn(`[chat] ${label} (turn ${turn}): the provider compacted the conversation${promptNote}`)
+      lastPrompt = 0
+    } else {
+      if (prompt < lastPrompt / 2) console.warn(`[chat] ${label} (turn ${turn}): the prompt went from ${lastPrompt} to ${prompt} tokens with no compaction item in the response: the provider compacted or truncated it`)
+      lastPrompt = prompt ?? lastPrompt
+    }
+    const unhandled = unhandledOutputTypes(response)
+    if (unhandled.length > 0) console.warn(`[chat] ${label} (turn ${turn}): the response carries output items this client does not read: ${unhandled.join(', ')}`)
 
     const fail = async (toolCalls, failure) => {
       history.push({ request, response, messages: preMessages, toolCalls, results: [], error: failure, provider: stamp })
