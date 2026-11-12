@@ -15,8 +15,6 @@ const LIBRARIES = new URL('fixtures/libraries/', import.meta.url).pathname
 const ARCHIVE = 'https://github.com/acme/gamma/archive/refs/tags/3.0.0.tar.gz'
 const sha = (algorithm, bytes) => createHash(algorithm).update(bytes).digest('hex')
 const walk = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name), `${prefix}${entry.name}/`) : [`${prefix}${entry.name}`]))
-// install() fetches no git source here; a client that is asked of anything fails the test.
-const GITHUB = Object.fromEntries(['getRepo', 'compareCommits', 'getCommitTree', 'getRepoTreeTarball'].map((name) => [name, () => assert.fail(`${name} was called`)]))
 
 const dirs = []
 after(() => {
@@ -55,7 +53,7 @@ async function project(change = (spec) => spec, config = {}, vendored = false) {
 describe('install', () => {
   it('downloads a pod by its archive, cleans it, and generates Pods/ as CocoaPods does', async () => {
     const { dir, asked, podspec } = await project()
-    const result = await install(dir, GITHUB)
+    const result = await install(dir)
     assert.deepEqual(result, { pods: ['Alpha', 'Beta', 'Delta', 'Gamma', 'Local'], targets: ['Pods-defaults-App', 'Pods-defaults-Ext'], downloaded: ['Gamma'], written: 58 })
     assert.deepEqual(asked, [ARCHIVE])
     assert.deepEqual(walk(join(dir, 'Pods/Gamma')).sort(), walk(join(FIXTURE, 'project/Pods/Gamma')).sort())
@@ -73,9 +71,9 @@ describe('install', () => {
 
   it('downloads nothing, and writes nothing, where Pods/ is as the lockfile has it', async () => {
     const { dir, asked } = await project()
-    await install(dir, GITHUB)
+    await install(dir)
     writeFileSync(join(dir, 'Pods/Target Support Files/Alpha/stale.txt'), 'stale')
-    const again = await install(dir, GITHUB)
+    const again = await install(dir)
     assert.deepEqual([again.downloaded, again.written, asked], [[], 0, [ARCHIVE]])
     assert.equal(existsSync(join(dir, 'Pods/Target Support Files/Alpha/stale.txt')), false)
   })
@@ -83,7 +81,7 @@ describe('install', () => {
   it('refuses a podspec that is not the one the lockfile has the checksum of', async () => {
     const { dir } = await project()
     writeFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), readFileSync(join(dir, 'Podspecs/Alpha.podspec.json'), 'utf8').replace('"summary": "Alpha"', '"summary": "Changed"'))
-    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec, "Podspecs\/Alpha\.podspec\.json", is not the one the lockfile has the checksum of/u)
+    await assert.rejects(install(dir), /pods\["Alpha"\]: its podspec, "Podspecs\/Alpha\.podspec\.json", has sha1 [0-9a-f]{40}, not the lockfile's [0-9a-f]{40}$/u)
   })
 
   it('reads a podspec where the lockfile has the pod from, as JSON or in the form read without Ruby', async () => {
@@ -114,45 +112,45 @@ end
     rmSync(join(dir, 'Podspecs/Alpha.podspec.json'))
     rmSync(join(dir, 'local/Alpha/Alpha.podspec.json'))
     writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby)
-    await install(dir, GITHUB)
+    await install(dir)
     assert.equal(readFileSync(join(dir, 'Pods/Local Podspecs/Alpha.podspec.json'), 'utf8'), readFileSync(join(FIXTURE, 'expected/Local Podspecs/Alpha.podspec.json'), 'utf8'))
     // Beta's as JSON beside the pod, as its package ships it and not as CocoaPods writes it.
     rmSync(join(dir, 'Podspecs/Beta.podspec.json'))
     const shipped = JSON.stringify(JSON.parse(readFileSync(join(dir, 'local/Beta/Beta.podspec.json'), 'utf8')))
     writeFileSync(join(dir, 'local/Beta/Beta.podspec.json'), shipped)
-    await install(dir, GITHUB)
+    await install(dir)
     assert.equal(readFileSync(join(dir, 'Pods/Local Podspecs/Beta.podspec.json'), 'utf8'), readFileSync(join(FIXTURE, 'expected/Local Podspecs/Beta.podspec.json'), 'utf8'))
     // One read by the environment: it is the lockfile's only in the environment pod.config.json gives it.
     const config = JSON.parse(readFileSync(join(dir, 'pod.config.json'), 'utf8'))
     writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby.replace("s.license = 'MIT'", "s.license = 'MIT' if ENV['ALPHA_LICENSED'] == '1'"))
-    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec, "local\/Alpha\/Alpha\.podspec", is not the one the lockfile has the checksum of: its sha1 is [0-9a-f]{40}, not [0-9a-f]{40}, as read with ALPHA_LICENSED not set$/u)
+    await assert.rejects(install(dir), /pods\["Alpha"\]: its podspec, "local\/Alpha\/Alpha\.podspec", has sha1 [0-9a-f]{40}, not the lockfile's [0-9a-f]{40}, as read with ALPHA_LICENSED not set$/u)
     writeFileSync(join(dir, 'pod.config.json'), JSON.stringify({ ...config, env: { ALPHA_LICENSED: '1' } }))
-    assert.equal((await install(dir, GITHUB)).written, 0)
+    assert.equal((await install(dir)).written, 0)
     writeFileSync(join(dir, 'pod.config.json'), JSON.stringify({ ...config, env: { ALPHA_LICENSED: 1 } }))
-    await assert.rejects(install(dir, GITHUB), /pod\.config\.json: env must be an object of variables of the environment, each a string, or null for one that is not set/u)
+    await assert.rejects(install(dir), /pod\.config\.json: env must be an object of variables of the environment, each a string, or null for one that is not set/u)
     writeFileSync(join(dir, 'pod.config.json'), JSON.stringify(config))
     // And by a global the Podfile set: it is the lockfile's only with what pod.config.json gives of it.
     writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby.replace("s.license = 'MIT'", "s.license = $AlphaLicense if defined?($AlphaLicense)"))
-    await assert.rejects(install(dir, GITHUB), /is not the one the lockfile has the checksum of: .*, as read with \$AlphaLicense not set$/u)
+    await assert.rejects(install(dir), /not the lockfile's [0-9a-f]{40}, as read with \$AlphaLicense not set$/u)
     writeFileSync(join(dir, 'pod.config.json'), JSON.stringify({ ...config, globals: { AlphaLicense: 'MIT' } }))
-    assert.equal((await install(dir, GITHUB)).written, 0)
+    assert.equal((await install(dir)).written, 0)
     writeFileSync(join(dir, 'pod.config.json'), JSON.stringify({ ...config, globals: { $AlphaLicense: 'MIT' } }))
-    await assert.rejects(install(dir, GITHUB), /pod\.config\.json: globals must be an object of globals by name, without the `\$`/u)
+    await assert.rejects(install(dir), /pod\.config\.json: globals must be an object of globals by name, without the `\$`/u)
     writeFileSync(join(dir, 'pod.config.json'), JSON.stringify(config))
     // One that is not in the form read, and one that comes to another podspec than the lockfile's.
     writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby.replace("s.license = 'MIT'", "s.license = %x(cat LICENSE)"))
-    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: local\/Alpha\/Alpha\.podspec: line 6: `%x\(cat`, which is not in the form of a podspec that is read without Ruby/u)
+    await assert.rejects(install(dir), /pods\["Alpha"\]: local\/Alpha\/Alpha\.podspec: line 6: `%x\(cat`, which is not read without Ruby/u)
     writeFileSync(join(dir, 'local/Alpha/Alpha.podspec'), ruby.replace("'c++'", "'z'"))
-    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec, "local\/Alpha\/Alpha\.podspec", is not the one the lockfile has the checksum of/u)
+    await assert.rejects(install(dir), /pods\["Alpha"\]: its podspec, "local\/Alpha\/Alpha\.podspec", has sha1/u)
     rmSync(join(dir, 'local/Alpha/Alpha.podspec'))
-    await assert.rejects(install(dir, GITHUB), /pods\["Alpha"\]: its podspec is not there, as ".*Podspecs\/Alpha\.podspec\.json" or .*local\/Alpha\/Alpha\.podspec\.json"/u)
+    await assert.rejects(install(dir), /pods\["Alpha"\]: its podspec is not at ".*Podspecs\/Alpha\.podspec\.json" or .*local\/Alpha\/Alpha\.podspec\.json"/u)
   })
 
   it('refuses an archive that is not the one its podspec has the hash of', async () => {
     const { dir } = await project()
     const served = globalThis.fetch
     globalThis.fetch = async (input) => new Response(Buffer.concat([Buffer.from(await (await served(input)).arrayBuffer()), Buffer.from([0])]))
-    await assert.rejects(install(dir, GITHUB), /integrity|sha256/iu)
+    await assert.rejects(install(dir), /integrity|sha256/iu)
     assert.equal(existsSync(join(dir, 'Pods/Gamma')), false)
   })
 
@@ -160,7 +158,7 @@ end
 
   it('refuses a source that is held to no hash, of a pod it has to download', async () => {
     const { dir, asked } = await project(tagged)
-    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
+    await assert.rejects(install(dir), /pods\["Gamma"\]: a :git source is not supported/u)
     assert.deepEqual(asked, [])
   })
 
@@ -168,19 +166,19 @@ end
     // Local pods, by :path: Alpha's podspec names a git tag, and nothing of it is fetched.
     const local = await project()
     assert.deepEqual(JSON.parse(readFileSync(join(local.dir, 'Podspecs/Alpha.podspec.json'), 'utf8')).source, { git: 'https://example.com/alpha.git', tag: 'v1.0.0' })
-    await install(local.dir, GITHUB)
+    await install(local.dir)
     assert.deepEqual(local.asked, [ARCHIVE])
     // A pod vendored in Pods/, as its Manifest.lock records it: by a git tag too, and not fetched.
     const { dir, asked } = await project(tagged, {}, true)
-    const result = await install(dir, GITHUB)
+    const result = await install(dir)
     assert.deepEqual([result.downloaded, asked], [[], []])
     assert.ok(existsSync(join(dir, 'Pods/Target Support Files/Gamma/Gamma.debug.xcconfig')))
     // Once it is not there, or not as the lockfile has it, it has to be downloaded, and is refused.
     writeFileSync(join(dir, 'Pods/Manifest.lock'), readFileSync(join(dir, 'Podfile.lock'), 'utf8').replace(/Gamma: [\da-f]{40}/u, `Gamma: ${'0'.repeat(40)}`))
-    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
+    await assert.rejects(install(dir), /pods\["Gamma"\]: a :git source is not supported/u)
     rmSync(join(dir, 'Pods/Gamma'), { recursive: true })
     cpSync(join(dir, 'Podfile.lock'), join(dir, 'Pods/Manifest.lock'))
-    await assert.rejects(install(dir, GITHUB), /pods\["Gamma"\]: a git source by a tag/u)
+    await assert.rejects(install(dir), /pods\["Gamma"\]: a :git source is not supported/u)
   })
 
   it('asks nothing of a pod Pods/ has already, where another has to be downloaded', async () => {
@@ -197,7 +195,7 @@ end
     mkdirSync(join(dir, 'Pods/Epsilon'), { recursive: true })
     writeFileSync(join(dir, 'Pods/Epsilon/Epsilon.h'), '')
     writeFileSync(join(dir, 'Pods/Manifest.lock'), lock)
-    const result = await install(dir, GITHUB)
+    const result = await install(dir)
     assert.deepEqual([result.pods, result.downloaded, asked], [['Alpha', 'Beta', 'Delta', 'Epsilon', 'Gamma', 'Local'], ['Gamma'], [ARCHIVE]])
     assert.ok(existsSync(join(dir, 'Pods/Gamma/Gamma/Core/GammaCore.m')))
   })
@@ -216,7 +214,7 @@ end
     }
     for (const config of [{}, { prepareCommands: ['Delta'] }]) {
       const dir = await withCommand(config)
-      await assert.rejects(install(dir, GITHUB), (error) => error.name === 'PodError' && error.message.startsWith('pods["Delta"]: its podspec has a prepare_command, and the pod is one by :path, which is used where it is'))
+      await assert.rejects(install(dir), (error) => error.name === 'PodError' && error.message === 'pods["Delta"]: a :path pod\'s prepare_command is not run: run it, and take it out of the podspec')
       assert.equal(existsSync(join(dir, 'local/Delta/prepared.txt')), false)
     }
   })
@@ -228,7 +226,7 @@ end
     cpSync(join(LIBRARIES, 'project'), dir, { recursive: true })
     cpSync(join(dir, 'Podfile.lock'), join(dir, 'Pods/Manifest.lock'))
     globalThis.fetch = (input) => assert.fail(`${String(input)} was fetched`)
-    assert.deepEqual((await install(dir, GITHUB)).downloaded, [])
+    assert.deepEqual((await install(dir)).downloaded, [])
     const links = JSON.parse(readFileSync(join(LIBRARIES, 'expected/links.json'), 'utf8'))
     for (const [path, target] of Object.entries(links)) assert.equal(readlinkSync(join(dir, 'Pods', path)), target, path)
     assert.equal(links['Headers/Private/Overlap/Same.h'], '../../../../local/Overlap/h/x/Same.h')
@@ -238,13 +236,13 @@ end
   it('runs a prepare_command only for a pod that pod.config.json names, before the pod is cleaned', async () => {
     const prepared = (spec) => ({ ...spec, prepare_command: '  touch prepared.txt\n  echo "int prepared(void);" > Gamma/Core/Prepared.h\n' })
     const refused = await project(prepared)
-    await assert.rejects(install(refused.dir, GITHUB), /pods\["Gamma"\]: its podspec has a prepare_command.*name the pod in `prepareCommands`/u)
+    await assert.rejects(install(refused.dir), /pods\["Gamma"\]: its prepare_command runs only if `prepareCommands` in pod\.config\.json names the pod/u)
     const { dir } = await project(prepared, { prepareCommands: ['Gamma'] })
-    await install(dir, GITHUB)
+    await install(dir)
     assert.equal(readFileSync(join(dir, 'Pods/Gamma/Gamma/Core/Prepared.h'), 'utf8'), 'int prepared(void);\n')
     assert.equal(existsSync(join(dir, 'Pods/Gamma/prepared.txt')), false, 'what no spec uses is cleaned away')
     assert.match(readFileSync(join(dir, 'Pods/Pods.xcodeproj/project.pbxproj'), 'utf8'), /Prepared\.h in Headers/u)
     const failing = await project((spec) => ({ ...spec, prepare_command: 'echo before >&2; false; echo after >&2' }), { prepareCommands: ['Gamma'] })
-    await assert.rejects(install(failing.dir, GITHUB), /pods\["Gamma"\]: its prepare_command failed, with status 1:\nbefore$/u)
+    await assert.rejects(install(failing.dir), /pods\["Gamma"\]: its prepare_command failed \(1\):\nbefore$/u)
   })
 })

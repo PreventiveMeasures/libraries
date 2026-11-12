@@ -105,7 +105,7 @@ describe('podspecJson', () => {
       [spec("  s.summary = name\n", "# frozen_string_literal: true\nname = 'a'\nname << 'b'\n"), /line 3: a `<<` to a text that may not be added to/u],
       [spec("  s.summary = name\n", "name = 1\nname << 'b'\n"), /line 2: a `<<` to what is no list/u],
       [spec("  s.summary = ENV['X'] ? list.concat(['b']).join : 'A'\n", "list = ['a']\n"), /line 4: a change in the side of a condition that is not taken/u],
-      [spec("  s.summary = ENV['X'] && install_modules_dependencies(s)\n"), /line 3: `install_modules_dependencies` is React Native's/u],
+      [spec("  s.summary = ENV['X'] && install_modules_dependencies(s)\n"), /line 3: `install_modules_dependencies` needs React Native/u],
       [spec("  s.summary = 'A' if respond_to?(:install_modules_dependencies)\n"), /line 3: `\)` where `,` is expected/u],
       [spec("  s.summary = 'A' if defined?(use_helper)\n"), /line 3: `defined\?` of `use_helper`/u],
     ]) assert.throws(() => convert(source), (error) => error.name === 'PodError' && message.test(error.message), source)

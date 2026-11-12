@@ -102,7 +102,7 @@ describe("a podspec of React Native's own", () => {
     assert.deepEqual([parsed(spec(body), {}, files).summary, parsed(spec(body), {}, files).private_header_files], ['true true true false false', ['core/React-RCTFBReactNativeSpec.podspec']])
     assert.deepEqual(dirGlob(FIXTURES, '{core,modules}/R*.{podspec,md}', 'pods["Name"]'), ['core/README.md', 'core/React-RCTFBReactNativeSpec.podspec', 'core/React-debug.podspec', 'modules/RNCPicker.podspec', 'modules/react-native-slider.podspec'], 'letters are matched in either case, as on the volume of a Mac')
     assert.deepEqual(dirGlob(FIXTURES, 'Plain/*', 'pods["Name"]'), ['Plain/ios', 'Plain/package.json'])
-    assert.throws(() => dirGlob(FIXTURES, '/etc/*', 'pods["Name"]'), /pods\["Name"\]: a glob of "\/etc\/\*", which is from no directory of the podspec's/u)
+    assert.throws(() => dirGlob(FIXTURES, '/etc/*', 'pods["Name"]'), /pods\["Name"\]: the glob "\/etc\/\*" is absolute or has no wildcard/u)
     refuses(spec(body), /line 3: the call `File\.exist\?`/u)
   })
 })
