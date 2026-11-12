@@ -10,6 +10,7 @@ import {
   buildRequestHeaders,
   buildRequestUrl,
   checkResponse,
+  countCompactions,
   extractResponseText,
   extractToolCalls,
   normalizeOneUsage,
@@ -125,6 +126,27 @@ describe('extractToolCalls — openai (Responses)', () => {
       assert.match(calls[1].argsError, /b.*malformed JSON args/u)
       assert.deepEqual(calls[2].args, { x: 1 })
       assert.equal(calls[2].argsError, undefined)
+    })
+  })
+})
+
+describe('countCompactions', () => {
+  it('openai (Responses): counts the compaction items in the output', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const compaction = { id: 'cmp_1', type: 'compaction', encrypted_content: 'k' }
+      const call = { id: 'fc_1', type: 'function_call', call_id: 'c1', name: 'fn', arguments: '{}' }
+      assert.equal(countCompactions({ status: 'completed', output: [compaction, call] }), 1)
+      assert.equal(countCompactions({ status: 'completed', output: [call] }), 0)
+      assert.equal(countCompactions({ error: { message: 'boom' } }), 0)
+    })
+  })
+
+  it('is zero on every adapter that never compacts', () => {
+    withProvider('anthropic', 'ANTHROPIC_API_KEY', () => {
+      assert.equal(countCompactions({ content: [{ type: 'text', text: 'hi' }] }), 0)
+    })
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.equal(countCompactions({ choices: [{ message: { content: 'hi' } }] }), 0)
     })
   })
 })

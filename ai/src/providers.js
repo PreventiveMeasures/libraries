@@ -148,6 +148,11 @@ function openaiResponsesShape(modelId) {
         .map((i) => ({ id: i.call_id, name: i.name, ...parseArgs(i.arguments, i.name) }))
     },
 
+    // How many times OpenAI compacted the conversation while serving this response.
+    countCompactions(json) {
+      return (json.output ?? []).filter((i) => i.type === 'compaction').length
+    },
+
     appendToolResults(messages, json, toolCalls, results) {
       // Responses replays state by feeding the previous turn's output items back as input items.
       // Push every output item (reasoning, compaction, function_call, message) verbatim so the
@@ -236,6 +241,7 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
     checkResponse: (json) => parse(json).checkResponse(json),
     extractResponseText: (json) => parse(json).extractResponseText(json),
     extractToolCalls: (json) => parse(json).extractToolCalls(json),
+    countCompactions: (json) => parse(json).countCompactions?.(json) ?? 0,
     appendToolResults: (thread, json, toolCalls, results) => parse(json).appendToolResults(thread, json, toolCalls, results),
   }
 }
@@ -494,6 +500,10 @@ export const extractResponseText = delegate('extractResponseText')
 // / OpenRouter.
 export const extractToolCalls = delegate('extractToolCalls')
 export const appendToolResults = delegate('appendToolResults')
+
+// Compactions the provider made while serving a response. Only OpenAI's Responses API compacts, so
+// every other adapter reports none.
+export const countCompactions = (json) => provider.countCompactions?.(json) ?? 0
 
 // Build the initial user message in the format the active provider prefers. When `userContent` is a
 // list of blocks AND the provider's adapter knows how, a cache marker closes the block before the

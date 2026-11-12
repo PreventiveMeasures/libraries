@@ -50,6 +50,9 @@ await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve) })
 const URL_BASE = `http://127.0.0.1:${server.address().port}`
 process.env.OPENROUTER_API_URL = URL_BASE
 process.env.OPENROUTER_API_KEY = 'test-key'
+// The gateway's Responses route, for compaction: OpenAI's, and served from the same server.
+process.env.AI_GATEWAY_API_URL = URL_BASE
+process.env.AI_GATEWAY_API_KEY = 'test-key'
 const { ask } = await import('../src/chat.js')
 const { buildCacheOpts, getPartial, setCacheDir, setPartial } = await import('../src/cache.js')
 const { getProvider, providerStamp, setProvider } = await import('../src/providers.js')
@@ -115,6 +118,38 @@ suite('chat: the tool loop', () => {
     // Both turns' tokens are counted, not just the last.
     assert.equal(result.usage.input, 30)
     assert.equal(result.usage.output, 6)
+  })
+})
+
+describe('chat: compaction', () => {
+  before(() => {
+    setCacheDir(CACHE_DIR)
+    setProvider('gateway')
+    assert.ok(getProvider().url.startsWith(URL_BASE), `gateway points at ${getProvider().url}, not this suite's server`)
+  })
+
+  it('logs every compaction, and the next turn starts at its item', async (t) => {
+    const warns = []
+    t.mock.method(console, 'warn', (...args) => warns.push(args.join(' ')))
+    const call = { id: 'fc_1', type: 'function_call', call_id: 'c1', name: 'probe', arguments: '{"path":"/"}', status: 'completed' }
+    const compacted = { status: 'completed', output: [{ id: 'cmp_1', type: 'compaction', encrypted_content: 'k' }, call], usage: { input_tokens: 830_000, output_tokens: 10 } }
+    const answer = { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], usage: { input_tokens: 1000, output_tokens: 5 } }
+    const sentBefore = requests.length
+    queued = [compacted, answer]
+    const result = await ask({
+      model: 'openai/gpt-6-astra', maxTokens: 1024, systemPrompt: 'sys', userContent: 'compact-A', think: true,
+      tools: [{ name: 'probe', description: 'probe', input_schema: { type: 'object' } }],
+      handleToolCall: (tc) => `probed ${tc.args.path}`,
+      label: 'test',
+    })
+    assert.equal(result.text, 'done')
+    const [first, second] = requests.slice(sentBefore)
+    assert.deepEqual(first.context_management, [{ type: 'compaction', compact_threshold: 829_800 }])
+    assert.deepEqual(second.context_management, first.context_management)
+    // What came before the compaction item is in it.
+    assert.deepEqual(second.input.map((item) => item.type), ['compaction', 'function_call', 'function_call_output'])
+    // Not under debug: every run says so.
+    assert.deepEqual(warns, ['[chat] test (turn 0): the provider compacted the conversation, at 830000 prompt tokens'])
   })
 })
 

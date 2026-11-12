@@ -4,7 +4,7 @@ import { addUsage, emptyUsage } from './models.js'
 import { claimPrefix, prefixKey } from './prefix-gate.js'
 import { flattenUserContent } from './prompt-cache.js'
 import {
-  appendToolResults, buildInitialUserMessage, extractResponseText, extractToolCalls,
+  appendToolResults, buildInitialUserMessage, countCompactions, extractResponseText, extractToolCalls,
   normalizeOneUsage, providerStamp, turnCost,
 } from './providers.js'
 import { issueTurn, resolveTaskBudget } from './task-budget.js'
@@ -136,7 +136,14 @@ export async function ask({ model, maxTokens, systemPrompt, userContent, think =
     // task-budget=error path: the failed attempt's tokens still got paid for, so account for both
     // responses in the running total.
     if (failedAttemptResponse) addUsage(totalUsage, normalizeUsage(failedAttemptResponse, model))
-    addUsage(totalUsage, normalizeUsage(response, model))
+    const usage = normalizeUsage(response, model)
+    addUsage(totalUsage, usage)
+    // Always, not only under debug: from here the session goes on from the provider's summary of
+    // everything before, which whoever reads its result should be able to tell.
+    if (countCompactions(response) > 0) {
+      const prompt = usage && usage.input + usage.cacheRead + usage.cacheWrite5m + usage.cacheWrite1h
+      console.warn(`[chat] ${label} (turn ${turn}): the provider compacted the conversation${usage ? `, at ${prompt} prompt tokens` : ''}`)
+    }
 
     const fail = async (toolCalls, failure) => {
       history.push({ request, response, messages: preMessages, toolCalls, results: [], error: failure, provider: stamp })

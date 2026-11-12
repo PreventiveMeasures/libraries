@@ -35,8 +35,8 @@ const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 // "supports the existing API capabilities available with GPT-5.6, including ... compaction", and
 // the compaction guide's own example runs on gpt-5.3-codex. `maxInput` is the row's documented
 // input cap, its context window less its 128K of output, which is what a session has to be
-// compacted short of. gpt-5.5 and gpt-5.4 document neither, and nothing says whether a model
-// without it ignores the field or 400s on it, so they go without until one is checked.
+// compacted short of. Other rows go without: nothing says whether a model that has no compaction
+// ignores the field or 400s on it.
 const OPENAI_COMPACTION = { maxInput: 922_000 }
 const OPENAI_COMPACTION_400K = { maxInput: 272_000 }
 
