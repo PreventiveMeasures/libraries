@@ -193,17 +193,41 @@ test('common directories decode URL components once before comparing references'
       .replace('Code references:', `Code references:\n\nhttps://github.com/a/a/tree/main/${path.replace('packages', '%70ackages')}`)
     const [report] = parseGenericMarkdownToReports(text)
     assert.equal(report.data.repo.directory, directory)
+    assert.equal(report.data.findings[0].file, `${directory}/a.js`)
+    assert.equal(report.data.findings[0].evidence[0].file, `${directory}/a.js`)
     assert.equal(report.data.findings[0].location, url)
     assert.equal(report.data.findings[0].evidence[0].url, url)
     assert.equal(report.data.findings[0]._idBasis.section, text.slice(text.indexOf('## 1.'), text.indexOf('## 2.')).trim())
   }
 })
 
-test('rejects malformed or ambiguous encoded directories with an unsupported error', () => {
-  for (const path of ['bad%', '%FF', 'foo%2Fbar', 'foo%5Cbar', 'foo%00bar', 'foo%23bar', 'foo%3Fbar', '%20foo']) {
-    const text = document.replace('c/d/e.js', `packages/${path}/e.js`)
-    assert.throws(() => parseGenericMarkdownToReports(text), /Markdown \(generic\): unsupported repository directory/u)
-    assert.equal(readReport(text).data, null)
+test('evidence file names decode once, as directories do', () => {
+  const at = 'https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110'
+  for (const [name, file] of [['foo%20bar.js', 'foo bar.js'], ['caf%C3%A9.js', 'caf\u00E9.js'], ['caf\u00E9.js', 'caf\u00E9.js'], ['literal%2520.js', 'literal%20.js']]) {
+    const url = at.replace('e.js', name)
+    const text = document.replace(at, url)
+    const [report] = parseGenericMarkdownToReports(text)
+    assert.equal(report.data.findings[0].file, `c/d/${file}`)
+    assert.deepEqual(report.data.findings[0].evidence[0], { file: `c/d/${file}`, line: '100-110', url })
+  }
+})
+
+test('a decoded evidence path survives a Markdown export', async () => {
+  const url = 'https://github.com/a/a/blob/abcdef012345/c/foo%20bar/caf%C3%A9.js#L100-L110'
+  const loaded = await loadFindings(document.replace('https://github.com/a/a/blob/abcdef012345/c/d/e.js#L100-L110', url))
+  const result = await loadFindings(writeMarkdown({ title: 'Audit', groups: loaded.findings.map((f) => [{ ...f, source: loaded.data.source }]) }))
+  assert.equal(result.findings[0].file, 'c/foo bar/caf\u00E9.js')
+  assert.equal(result.findings[0].location, url)
+  assert.deepEqual(result.findings.map((f) => f.id), loaded.findings.map((f) => f.id))
+})
+
+test('rejects malformed or ambiguous encoded directories and file names with an unsupported error', () => {
+  for (const path of ['bad%', '%FF', 'foo%2Fbar', 'foo%5Cbar', 'foo%00bar', 'foo%23bar', 'foo%3Fbar', '%20foo', 'foo%3Astream', 'foo:stream']) {
+    for (const [at, what] of [[`packages/${path}/e.js`, 'directory'], [`c/d/${path}`, 'file name']]) {
+      const text = document.replace('c/d/e.js', at)
+      assert.throws(() => parseGenericMarkdownToReports(text), new RegExp(`Markdown \\(generic\\): unsupported repository ${what}`, 'u'))
+      assert.equal(readReport(text).data, null)
+    }
   }
 })
 

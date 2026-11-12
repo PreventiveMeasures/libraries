@@ -67,3 +67,31 @@ test('source row and any partition content participate in the hash', async () =>
   }
   assert.equal((await loadFindings('# A different document title\n\n' + document)).findings[0].id, ID)
 })
+
+const sectioned = `# Title A
+
+### Description
+
+Description.
+
+### Affected Code
+
+- [\`src/a.js#L10-L20\`](https://github.com/a/a/blob/abcdef0/src/a.js#L10-L20) - Explanation.
+
+### Fix
+
+1. Fix.
+
+### Tests
+
+1. Test.
+`
+const SECTIONED_ID = '5998d89c-1bf3-4a07-bad2-26c389e306ac'
+
+test('a `# Title` finding hashes its complete raw text, not what was parsed from it', async () => {
+  const { findings } = await loadFindings(sectioned)
+  assert.equal(findings[0].id, SECTIONED_ID)
+  assert.deepEqual(findings[0]._idBasis, { source: 'markdown-generic', section: sectioned.trim() })
+  Object.assign(findings[0], { severity: 'high', description: 'Other', evidence: [], repo: { github: 'other/repo' } })
+  assert.equal(await deriveFindingId(findings[0]), SECTIONED_ID)
+})
