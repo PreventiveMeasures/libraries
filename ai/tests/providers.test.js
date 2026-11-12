@@ -14,7 +14,6 @@ import {
   extractToolCalls,
   normalizeOneUsage,
   setProvider,
-  trimOldReasoning,
   turnCost,
 } from '../src/providers.js'
 
@@ -683,126 +682,6 @@ describe('buildRequestBody — provider-specific shapes', () => {
         )
       })
     }
-  })
-})
-
-describe('trimOldReasoning — a long session on a model that reasons', () => {
-  // One tool turn of a Responses session, as appendToolResults leaves it.
-  const turn = (n, { reasoning = 40_000, output = 10 } = {}) => [
-    { id: `rs_${n}`, type: 'reasoning', summary: [], encrypted_content: 'r'.repeat(reasoning) },
-    { id: `fc_${n}`, type: 'function_call', call_id: `c${n}`, name: 'fn', arguments: '{}', status: 'completed' },
-    { type: 'function_call_output', call_id: `c${n}`, output: 'o'.repeat(output) },
-  ]
-  const session = (turns, sizes) => [{ role: 'user', content: 'task' }, ...Array.from({ length: turns }, (_, n) => turn(n, sizes)).flat()]
-  const ids = (input) => input.map((item) => item.id ?? item.call_id ?? item.role)
-  // The reasoning items the session had and `out` does not.
-  const dropped = (input, out) => {
-    const sent = new Set(out.map((item) => item.id))
-    return input.filter((item) => item.type === 'reasoning' && !sent.has(item.id)).map((item) => item.id)
-  }
-  const size = (input) => JSON.stringify(input).length
-  const quiet = (t) => {
-    const warns = []
-    t.mock.method(console, 'warn', (...args) => warns.push(args.join(' ')))
-    return warns
-  }
-
-  it('sends a history under the limit as it is', (t) => {
-    const warns = quiet(t)
-    const input = session(30)
-    const out = trimOldReasoning(input)
-    assert.notEqual(out, input)
-    assert.deepEqual(out, input)
-    assert.deepEqual(warns, [])
-  })
-
-  it('drops the oldest reasoning items whole, and only enough of them', (t) => {
-    const warns = quiet(t)
-    const input = session(40)
-    const before = structuredClone(input)
-    const out = trimOldReasoning(input)
-    assert.ok(size(input) > 1_500_000 && size(out) <= 1_500_000)
-    // The oldest first; everything else is sent as it is, in order.
-    // 1.6M is 0.1M over, and a trim frees a whole 0.5M step: 13 items of 40K.
-    const gone = Array.from({ length: 13 }, (_, n) => `rs_${n}`)
-    assert.deepEqual(dropped(input, out), gone)
-    assert.deepEqual(out, input.filter((item) => !gone.includes(item.id)))
-    const each = input.filter((item) => gone.includes(item.id)).map((item) => size(item) + 1) // and its comma
-    assert.equal(size(out), size(input) - each.reduce((a, b) => a + b))
-    // The history is what earlier turns' requests and responses were recorded
-    // with, so it keeps every item as it came back.
-    assert.deepEqual(input, before)
-    assert.equal(warns.length, 1)
-    assert.match(warns[0], /dropped the oldest 13 of 40 reasoning items/u)
-  })
-
-  it('keeps its cut as the session grows, until the next step past the limit', (t) => {
-    quiet(t)
-    const cut = (turns) => {
-      const input = session(turns)
-      return dropped(input, trimOldReasoning(input))
-    }
-    // A cut that crept forward a turn at a time would cost the prompt cache
-    // everything after it, every turn.
-    assert.deepEqual(cut(41), cut(40))
-    assert.deepEqual(cut(49), cut(40))
-    // A step further it moves, and keeps what it had dropped before.
-    assert.ok(cut(50).length > cut(49).length)
-    assert.deepEqual(cut(50).slice(0, cut(49).length), cut(49))
-  })
-
-  it('sends each turn as the previous turn\'s request plus the new items, except where the cut moves', (t) => {
-    quiet(t)
-    // What the prompt cache needs: OpenAI reads an entry only when everything
-    // before its breakpoint is byte-identical, and the conversation's entry
-    // ends at the previous turn's last item. A turn that changes anything
-    // earlier pays for the whole conversation again.
-    const sent = Array.from({ length: 80 }, (_, turns) => JSON.stringify(trimOldReasoning(session(turns + 1))))
-    const misses = []
-    for (let i = 1; i < sent.length; i++) {
-      assert.ok(sent[i].length <= 1_500_000, `turn ${i}`)
-      if (!sent[i].startsWith(sent[i - 1].slice(0, -1))) misses.push(i)
-    }
-    // Growth past the limit is ~43 turns of 40K, ~3.4 steps of 500K: one miss
-    // when the limit is first passed and one per step after it, 12 turns or
-    // more apart -- not one every turn, and not one every few.
-    assert.deepEqual(misses, [37, 49, 62, 74])
-  })
-
-  it('leaves a session that is not long-running as it is, past the limit or not', (t) => {
-    const warns = quiet(t)
-    // 10 items: whatever made it this large, losing reasoning quietly would
-    // hide it, and the request failing shows it.
-    const input = session(3, { reasoning: 600_000 })
-    assert.ok(input.length <= 100 && size(input) > 1_500_000)
-    assert.deepEqual(trimOldReasoning(input), input)
-    assert.deepEqual(warns, [])
-  })
-
-  it('keeps the newest reasoning, the one the call being answered came from', (t) => {
-    quiet(t)
-    // Tool output is what grew here, and dropping every reasoning item would
-    // still not bring it under the limit.
-    const input = session(34, { reasoning: 10, output: 50_000 })
-    const out = trimOldReasoning(input)
-    assert.deepEqual(dropped(input, out), Array.from({ length: 33 }, (_, n) => `rs_${n}`))
-    assert.deepEqual(ids(out.slice(-3)), ['rs_33', 'fc_33', 'c33'])
-  })
-
-  it('is the Responses shape\'s, so it applies on the direct route and not to chat completions', (t) => {
-    quiet(t)
-    const input = session(40)
-    withProvider('openai', 'OPENAI_API_KEY', () => {
-      const body = buildRequestBody('openai/gpt-5.5', 1000, 'sys', input, { think: true })
-      // The direct route's wire id is bare, which a check on an `openai/`
-      // prefix never saw.
-      assert.equal(body.model, 'gpt-5.5')
-      assert.equal(dropped(input, body.input).length, 13)
-    })
-    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      const body = buildRequestBody('openai/gpt-5.5', 1000, 'sys', input, { think: true })
-      assert.deepEqual(body.messages.slice(1), input)
-    })
   })
 })
 

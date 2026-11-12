@@ -61,48 +61,6 @@ const bearerAuth = (key) => ({ Authorization: `Bearer ${key}` })
 // An adapter's fixed endpoint, and the key it reads from `keyEnv` for `authHeader` to send.
 const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, apiKey: () => env(keyEnv) })
 
-// A stopgap until conversations are compacted: a long tool session on a model that reasons adds an
-// encrypted reasoning item to its input every turn, and past this much serialized input the oldest
-// of them stop being sent. Characters of JSON, not tokens -- the encrypted content is opaque, and
-// is most of what grows.
-const REASONING_TRIM_AT = 1_500_000
-// Only a session this many items long counts as long-running. A shorter one past the limit goes out
-// as it is and fails where it can be seen, rather than quietly losing reasoning.
-const REASONING_TRIM_MIN_ITEMS = 100
-// What a trim frees: the overage rounded up to whole steps, a third of the limit. The cut is a pure
-// function of the history, so a resumed run makes the same one, and between steps each request is
-// the previous one plus new items. A move is a prefix change, which costs twice: the prompt cache
-// misses from the cut on, and newer models drop every reasoning item after it, the kept ones
-// included (`input_transformations` on the response says which).
-const REASONING_TRIM_STEP = 500_000
-
-// The Responses `input` for a history, minus its oldest reasoning items once a long-running one is
-// past REASONING_TRIM_AT. Dropped whole rather than stripped of `encrypted_content`: under `store: false`
-// that would leave a summary and an id naming nothing the server kept (see `include` in
-// buildRequestBody). The newest one stays -- its function call is the one being answered. Returns
-// a new array and leaves the history as it is: its items are also the earlier entries' recorded
-// requests and responses.
-export function trimOldReasoning(input) {
-  if (input.length <= REASONING_TRIM_MIN_ITEMS) return [...input]
-  const size = JSON.stringify(input).length
-  if (size <= REASONING_TRIM_AT) return [...input]
-  const target = Math.ceil((size - REASONING_TRIM_AT) / REASONING_TRIM_STEP) * REASONING_TRIM_STEP
-  const newest = input.findLastIndex((item) => item.type === 'reasoning')
-  let freed = 0
-  let dropped = 0
-  const kept = input.filter((item, i) => {
-    if (freed >= target || item.type !== 'reasoning' || i === newest) return true
-    freed += JSON.stringify(item).length + 1 // and its comma
-    dropped++
-    return false
-  })
-  if (dropped > 0) {
-    const total = input.filter((item) => item.type === 'reasoning').length
-    console.warn(`[ai] input past ${REASONING_TRIM_AT} chars: dropped the oldest ${dropped} of ${total} reasoning items, ${size} -> ${size - freed}`)
-  }
-  return kept
-}
-
 // The OpenAI Responses wire format, parameterised by how the route names models. Two routes speak
 // it and differ only in the namespace: the direct adapter strips it for a bare name the API must
 // know, a gateway keeps it as the operator's routing key. Both resolve `wireModelFor` first,
@@ -119,7 +77,7 @@ function openaiResponsesShape(modelId) {
       const body = {
         model: modelId(model),
         instructions: systemPrompt,
-        input: trimOldReasoning(messages),
+        input: [...messages],
         max_output_tokens: maxTokens,
         // Stateless. The default retains every request and response on OpenAI's servers, which for
         // a tool that uploads someone else's source code is a data-retention decision worth making
