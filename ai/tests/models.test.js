@@ -421,6 +421,7 @@ describe('no-think wire form', () => {
     ['openai/gpt-5.4-pro', false, false],
     ['openai/gpt-5.3-codex', false, false],
     ['google/gemini-3.1-flash-lite-preview', true, true],
+    ['google/gemini-4-carbon', false, false],
     ['google/gemini-4-argon', false, false],
     ['google/gemini-3.8-flash', false, false],
     ['google/gemini-3.1-pro-preview', false, false],
@@ -631,29 +632,31 @@ describe('gemini flash', () => {
   })
 })
 
-describe('gemini 4 argon', () => {
-  // $2 / $10 and $0.10 cached is Google's introductory price, through
-  // 2026-11-30. From 2026-12-01 it is $4 / $20 and $0.20: reprice the row
-  // then.
-  const ARGON = 'google/gemini-4-argon'
+describe('gemini 4 carbon and argon', () => {
+  // Carbon is Google's most capable Gemini 4 and Argon its efficient one, on
+  // one rate card. $2 / $10 and $0.10 cached is Google's introductory price
+  // for both, through 2026-11-30. From 2026-12-01 it is $4 / $20 and $0.20:
+  // reprice both rows then.
+  for (const model of ['google/gemini-4-carbon', 'google/gemini-4-argon']) {
+    it(`${model}: prices at the introductory $2 / $10 per Mtok, with cached input at $0.10`, () => {
+      assert.equal(baseRate(model, 'input'), 2)
+      assert.equal(baseRate(model, 'output'), 10)
+      assert.equal(baseRate(model, 'cacheRead'), 0.1)
+    })
 
-  it('prices at the introductory $2 / $10 per Mtok, with cached input at $0.10', () => {
-    assert.equal(baseRate(ARGON, 'input'), 2)
-    assert.equal(baseRate(ARGON, 'output'), 10)
-    assert.equal(baseRate(ARGON, 'cacheRead'), 0.1)
-  })
+    it(`${model}: registers the default 65,536 output cap, not the 1M that needs long decode`, () => {
+      // Google documents 65,536 as the default synchronous cap for both;
+      // past it, up to 1,048,576, takes long decode (background mode or
+      // client-side continuation), which no route here drives.
+      assert.equal(getMaxTokens(model), 64 * 1024)
+    })
 
-  it('registers the default 65,536 output cap, not the 1M that needs long decode', () => {
-    // Google's Vertex endpoints on OpenRouter cap output at 65,536 and AI
-    // Studio's at 943,718, so a default of 1,048,576 fits no endpoint.
-    assert.equal(getMaxTokens(ARGON), 64 * 1024)
-  })
-
-  it('thinks with no off switch, at low, medium or high', () => {
-    assert.equal(canThink(ARGON), true)
-    assert.equal(canDisableThink(ARGON), false)
-    assert.deepEqual(effortsFor(ARGON), ['low', 'medium', 'high'])
-  })
+    it(`${model}: thinks with no off switch, at low, medium or high`, () => {
+      assert.equal(canThink(model), true)
+      assert.equal(canDisableThink(model), false)
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high'])
+    })
+  }
 })
 
 describe('cache-read overrides (rows that are not 0.10x of input)', () => {
