@@ -202,7 +202,7 @@ function checkRuntimes(manifest, where, { host, root, onFail }) {
       if ((onFail ?? item.onFail) !== 'error') continue
       if (item.name !== 'node') throw new DeptreeError(`the ${item.name} it runs on is checked by pnpm 11, and is not known here`, here)
       if (!item.version || validRange(item.version) === null) throw new DeptreeError(`${quote(String(item.version))} is not a range for Node, which pnpm 11 refuses`, here)
-      if (!satisfies(host.node, item.version, { includePrerelease: true })) throw new DeptreeError(`Node ${host.node} is not in ${quote(item.version)}, which pnpm 11 refuses to install with`, here)
+      if (host.node !== undefined && !satisfies(host.node, item.version, { includePrerelease: true })) throw new DeptreeError(`Node ${host.node} is not in ${quote(item.version)}, which pnpm 11 refuses to install with`, here)
     }
   }
 }

@@ -7,7 +7,7 @@ import { valid } from '@preventive/upstream/semver.js'
 import { normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest } from '../manifest.js'
-import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, nodeGiven, readText, typeOf } from '../project.js'
 import { pinnedPnpm, readManifests } from './projects.js'
 import { readers } from './readers.js'
 import { checkWorkspace, findProjects, linkedManifest } from './workspace.js'
@@ -52,9 +52,9 @@ function pnpmOf(pnpm, root) {
 
 // All of host but its pnpm, which pnpmOf reads.
 export function checkHost(host) {
-  checkHostKeys(host, ['node', 'os', 'cpu', 'libc'], 'node, os, cpu and libc, and pnpm where it is not pinned')
+  checkHostKeys(host, ['os', 'cpu', 'libc'], 'os, cpu and libc, node where it is known, and pnpm where it is not pinned')
   const { node, os, libc } = host
-  if (valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
+  if (nodeGiven(node) && valid(node) === null) throw new DeptreeError(`${quote(node)} is not an exact version`, 'host.node')
   if (os === 'win32') throw new DeptreeError('Windows is not supported: pnpm links there with junctions to absolute paths', 'host.os')
   if (!LIBC.has(libc)) throw new DeptreeError(`expected "glibc", "musl" or "unknown", found ${quote(libc)}`, 'host.libc')
   return { node, os, cpu: host.cpu, libc }

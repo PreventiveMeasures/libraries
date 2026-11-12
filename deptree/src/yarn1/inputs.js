@@ -3,7 +3,7 @@
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { readManifest, readManifests } from '../manifest.js'
-import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, nodeGiven, readText, typeOf } from '../project.js'
 import { walkWorkspaces } from '../glob.js'
 import { globsOf } from './manifest.js'
 import { readSettings } from './settings.js'
@@ -25,8 +25,8 @@ function yarnOf(yarn, root) {
 }
 
 export function checkHost(host, root) {
-  checkHostKeys(host, ['node', 'os', 'cpu'], 'node, os and cpu, and yarn where it is not pinned')
-  if (valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
+  checkHostKeys(host, ['os', 'cpu'], 'os and cpu, node where it is known, and yarn where it is not pinned')
+  if (nodeGiven(host.node) && valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
   if (host.os === 'win32') throw new DeptreeError('Windows is not supported: yarn links bins there with shims, and workspaces with junctions', 'host.os')
   return { yarn: yarnOf(host.yarn, root), node: host.node, os: host.os, cpu: host.cpu }
 }

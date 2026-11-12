@@ -32,7 +32,7 @@ function checkEngine(pkg, host) {
   const { engines } = pkg
   if (!engines) return undefined
   const options = { includePrerelease: true }
-  if (engines.node && !satisfies(`v${host.node}`, engines.node, options)) return `its engines.node, ${quote(String(engines.node))}, does not take Node ${host.node}`
+  if (engines.node && host.node !== undefined && !satisfies(`v${host.node}`, engines.node, options)) return `its engines.node, ${quote(String(engines.node))}, does not take Node ${host.node}`
   if (engines.npm && !satisfies(host.npm, engines.npm, options)) return `its engines.npm, ${quote(String(engines.npm))}, does not take npm ${host.npm}`
   return undefined
 }

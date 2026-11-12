@@ -645,6 +645,20 @@ describe('buildYarn1Tree refuses', () => {
     await buildYarn1Tree({ project: engines('npm'), host: HOST })
   })
 
+  // A Node unknown takes every range for Node, and for what Node reports;
+  // yarn's own engines are still checked.
+  it('a Node unknown, host.node left out', async () => {
+    stubRegistry(TARBALLS)
+    const unknown = { ...HOST, node: undefined }
+    const manifest = { name: 'root', version: '1.0.0', dependencies: { eng: '1.0.0' }, engines: { node: '<10', iojs: '<1', v8: '>=999' } }
+    const files = (fields = {}) => projectOf({ 'yarn.lock': lockfile(entry('eng@1.0.0', 'eng@1.0.0')), 'package.json': { ...manifest, ...fields } })
+    const { vfs } = await buildYarn1Tree({ project: files(), host: unknown })
+    assert.equal(vfs.isDirectory('/node_modules/eng'), true, 'its engines.node, ">=100", taken')
+    await refuses({ project: files({ engines: { yarn: '<1' } }), host: unknown }, /^DeptreeError: manifests\["\."\]: its engines\.yarn, "<1", does not take 1\.22\.22/u)
+    await refuses({ project: files() }, /^DeptreeError: manifests\["\."\]: /u)
+    await assert.rejects(buildYarn1Tree({ project: files(), host: { ...HOST, node: '' } }), { name: 'TypeError', message: 'host.node must be a non-empty string, or left out' })
+  })
+
   it('a setting that may change what yarn installs', async () => {
     await refuses({ project: project({ '.yarnrc': '--install.production true\n' }) }, /^DeptreeError: \.yarnrc:1: "--install\.production" is a setting not supported here/u)
     await refuses({ project: project({ '.npmrc': 'ignore-optional=true\n' }) }, /^DeptreeError: \.npmrc:1: "ignore-optional" is a setting not supported here/u)

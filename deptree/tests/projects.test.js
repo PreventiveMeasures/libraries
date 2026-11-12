@@ -94,6 +94,12 @@ describe('checkProjects', () => {
     check({ ...MANIFEST, os: 'linux' })
   })
 
+  it('holds a project to no engines.node for a Node unknown, but to a nodeVersion the settings name', () => {
+    const engined = { ...MANIFEST, engines: { node: '<10' } }
+    for (const major of [10, 12]) check(engined, { engineStrict: true, host: { ...HOST, pnpm: major === 10 ? HOST.pnpm : '12.8.1', node: undefined, major } })
+    assert.throws(() => check(engined, { engineStrict: true, host: { ...HOST, node: undefined, major: 10 }, nodeVersion: '20.0.0' }), /its engines\.node, "<10", does not take Node 20\.0\.0, which engineStrict refuses/u)
+  })
+
   it('refuses a runtime pnpm would download', () => {
     assert.throws(() => check({ ...MANIFEST, devEngines: { runtime: { name: 'node', version: '24.0.0', onFail: 'download' } } }), /^DeptreeError: manifests\["\."\]\.devEngines\.runtime: a node runtime to download is not supported$/u)
     check({ ...MANIFEST, devEngines: { runtime: { name: 'node', version: '24.0.0', onFail: 'warn' } } })
@@ -169,6 +175,7 @@ describe('checkProjects for pnpm 11', () => {
     check11(runtime('<24', 'warn'))
     assert.throws(() => check11(runtime('<24')), /engines\.runtime: Node 24\.15\.0 is not in "<24", which pnpm 11 refuses/u)
     check11(runtime('<24'), { runtimeOnFail: 'ignore' })
+    check11(runtime('<24'), { host: { ...HOST_11, node: undefined } })
     check(runtime('<24'))
     assert.throws(() => check11({ ...MANIFEST, devEngines: { runtime: { name: 'bun', version: '1', onFail: 'error' } } }), /the bun it runs on is checked by pnpm 11/u)
   })

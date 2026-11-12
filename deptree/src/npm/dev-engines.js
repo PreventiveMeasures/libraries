@@ -23,6 +23,7 @@ function matches(wanted, current, at) {
   if (wanted.name !== current.name) return false
   if (!('version' in wanted)) return true
   if (typeof wanted.version !== 'string') fail('expected a version')
+  if (current.anyVersion) return true
   if (current.version === undefined) {
     if (at.endsWith('.os')) throw new DeptreeError('a version of the os, which npm takes from the kernel, is not known here', at)
     fail('the host has no version of it')
@@ -38,7 +39,8 @@ export function checkDevEngines(devEngines, host, at) {
     libc: { name: host.libc },
     os: { name: host.os },
     packageManager: { name: 'npm', version: host.npm },
-    runtime: { name: 'node', version: `v${host.node}` },
+    // A Node unknown takes every version asked for.
+    runtime: host.node === undefined ? { name: 'node', anyVersion: true } : { name: 'node', version: `v${host.node}` },
   }
   for (const [engine, wanted] of Object.entries(devEngines)) {
     if (!ENGINES.has(engine)) throw new DeptreeError(`${quote(engine)} is not an engine npm knows, which it fails on`, at)

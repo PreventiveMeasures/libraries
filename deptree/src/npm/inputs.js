@@ -4,15 +4,15 @@ import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { walkWorkspaces } from '../glob.js'
 import { readManifest, readManifests } from '../manifest.js'
-import { checkHostKeys, checkLeftOut, checkProject, checkTexts, readText, typeOf } from '../project.js'
+import { checkHostKeys, checkLeftOut, checkProject, checkTexts, nodeGiven, readText, typeOf } from '../project.js'
 import { readSettings } from './settings.js'
 import { profileOf } from './versions.js'
 
 const LIBCS = new Set(['glibc', 'musl'])
 
 export function checkHost(host) {
-  checkHostKeys(host, ['npm', 'node', 'os', 'cpu'], 'npm, node, os and cpu, and libc on Linux')
-  if (valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
+  checkHostKeys(host, ['npm', 'os', 'cpu'], 'npm, os and cpu, node where it is known, and libc on Linux')
+  if (nodeGiven(host.node) && valid(host.node) !== host.node) throw new DeptreeError(`${quote(host.node)} is not an exact version`, 'host.node')
   if (host.os === 'win32') throw new DeptreeError('Windows is not supported: npm links bins there with shims, and workspaces with junctions', 'host.os')
   if (host.os === 'linux' ? !LIBCS.has(host.libc) : host.libc !== undefined) {
     throw new TypeError(host.os === 'linux' ? 'host.libc must be glibc or musl on Linux' : 'host.libc must be left out but on Linux')

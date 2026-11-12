@@ -20,7 +20,9 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // the version that installs, and has to be a 1.22.x; left out, it is the
 // one the root package.json's packageManager pins, which corepack runs,
 // and has to be given where that pins none, and to be that one where it
-// does. `node` is the Node yarn runs on, an exact version; `os` and `cpu`
+// does. `node` is the Node yarn runs on, an exact version, or left out
+// for one unknown, which every range for Node, and for what Node reports
+// in process.versions, takes; `os` and `cpu`
 // as Node names them -- `linux`, `x64`. Windows is refused: yarn links bins
 // there with shims, and workspaces with junctions.
 // A package whose os, cpu or engines the machine does not take is left
@@ -34,10 +36,11 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // yarn takes for it) and `yarn` are checked as yarn checks them, and one
 // yarn has no version for is passed over, as yarn passes over it; one any
 // Node reports in process.versions, such as `v8` or `merve`, which yarn
-// would check against the Node it runs on, is refused.
+// would check against the Node it runs on, is refused, but for a Node
+// unknown.
 export interface Yarn1Host {
   yarn?: string
-  node: string
+  node?: string
   os: string
   cpu: string
 }
