@@ -61,11 +61,20 @@ const bearerAuth = (key) => ({ Authorization: `Bearer ${key}` })
 // An adapter's fixed endpoint, and the key it reads from `keyEnv` for `authHeader` to send.
 const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, apiKey: () => env(keyEnv) })
 
+// What a compaction item is called. `compaction` is the API reference's name, and OpenAI's own Codex
+// client reads `compaction_summary` as the same item, so a response may carry either.
+const COMPACTION_TYPES = new Set(['compaction', 'compaction_summary'])
+const isCompaction = (item) => COMPACTION_TYPES.has(item?.type)
+
+// The Responses output items something here reads. Anything else is replayed without a word, and a
+// renamed item is how a change on OpenAI's side would first show.
+const HANDLED_OUTPUT_TYPES = new Set(['message', 'reasoning', 'function_call', ...COMPACTION_TYPES])
+
 // A Responses history from its latest compaction item on. The item carries everything before it,
 // and OpenAI's compaction guide lets a stateless caller drop the rest: a compacted session's
 // requests stay the size compaction made them, and each extends the one before it until the next.
 function fromLatestCompaction(messages) {
-  const latest = messages.findLastIndex((item) => item.type === 'compaction')
+  const latest = messages.findLastIndex(isCompaction)
   return latest > 0 ? messages.slice(latest) : [...messages]
 }
 
@@ -150,7 +159,11 @@ function openaiResponsesShape(modelId) {
 
     // How many times OpenAI compacted the conversation while serving this response.
     countCompactions(json) {
-      return (json.output ?? []).filter((i) => i.type === 'compaction').length
+      return (json.output ?? []).filter(isCompaction).length
+    },
+
+    unhandledOutputTypes(json) {
+      return [...new Set((json.output ?? []).map((i) => i.type).filter((type) => !HANDLED_OUTPUT_TYPES.has(type)))]
     },
 
     appendToolResults(messages, json, toolCalls, results) {
@@ -242,6 +255,7 @@ function gatewayAdapter({ origin, apiUrlEnv, apiKeyEnv }) {
     extractResponseText: (json) => parse(json).extractResponseText(json),
     extractToolCalls: (json) => parse(json).extractToolCalls(json),
     countCompactions: (json) => parse(json).countCompactions?.(json) ?? 0,
+    unhandledOutputTypes: (json) => parse(json).unhandledOutputTypes?.(json) ?? [],
     appendToolResults: (thread, json, toolCalls, results) => parse(json).appendToolResults(thread, json, toolCalls, results),
   }
 }
@@ -504,6 +518,10 @@ export const appendToolResults = delegate('appendToolResults')
 // Compactions the provider made while serving a response. Only OpenAI's Responses API compacts, so
 // every other adapter reports none.
 export const countCompactions = (json) => provider.countCompactions?.(json) ?? 0
+
+// Output item types in a response that this client has no reading of, for the adapters whose
+// format can grow new ones. Every other adapter reports none.
+export const unhandledOutputTypes = (json) => provider.unhandledOutputTypes?.(json) ?? []
 
 // Build the initial user message in the format the active provider prefers. When `userContent` is a
 // list of blocks AND the provider's adapter knows how, a cache marker closes the block before the

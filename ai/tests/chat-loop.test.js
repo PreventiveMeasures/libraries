@@ -149,7 +149,50 @@ describe('chat: compaction', () => {
     // What came before the compaction item is in it.
     assert.deepEqual(second.input.map((item) => item.type), ['compaction', 'function_call', 'function_call_output'])
     // Not under debug: every run says so.
-    assert.deepEqual(warns, ['[chat] test (turn 0): the provider compacted the conversation, at 830000 prompt tokens'])
+    assert.deepEqual(warns, ['[chat] test (turn 0): the provider compacted the conversation (this turn\'s prompt: 830000 tokens)'])
+  })
+
+  // What a run past the threshold showed with no line at all: the session
+  // went on, so it was compacted, but under a name or in a way that the item
+  // check alone does not see.
+  const session = (userContent, responses) => {
+    queued = responses
+    return ask({
+      model: 'openai/gpt-6-astra', maxTokens: 1024, systemPrompt: 'sys', userContent, think: true,
+      tools: [{ name: 'probe', description: 'probe', input_schema: { type: 'object' } }],
+      handleToolCall: (tc) => `probed ${tc.args.path}`,
+      label: 'test',
+    })
+  }
+  const toolTurn = (n, inputTokens, extra = []) => ({
+    status: 'completed',
+    output: [...extra, { id: `fc_${n}`, type: 'function_call', call_id: `c${n}`, name: 'probe', arguments: '{"path":"/"}', status: 'completed' }],
+    usage: { input_tokens: inputTokens, output_tokens: 10 },
+  })
+  const done = { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], usage: { input_tokens: 31_000, output_tokens: 5 } }
+
+  it('logs a compaction the response names compaction_summary, and starts the next turn there', async (t) => {
+    const warns = []
+    t.mock.method(console, 'warn', (...args) => warns.push(args.join(' ')))
+    const sentBefore = requests.length
+    await session('compact-B', [toolTurn(1, 830_000, [{ id: 'cmp_1', type: 'compaction_summary', encrypted_content: 'k' }]), done])
+    assert.equal(requests.slice(sentBefore)[1].input[0].type, 'compaction_summary')
+    assert.deepEqual(warns, ['[chat] test (turn 0): the provider compacted the conversation (this turn\'s prompt: 830000 tokens)'])
+  })
+
+  it('logs a prompt halved from one turn to the next, item or none', async (t) => {
+    const warns = []
+    t.mock.method(console, 'warn', (...args) => warns.push(args.join(' ')))
+    // Growing, then cut to a fraction, then growing again from there.
+    await session('compact-C', [toolTurn(1, 800_000), toolTurn(2, 830_000), toolTurn(3, 30_000), done])
+    assert.deepEqual(warns, ['[chat] test (turn 2): the prompt went from 830000 to 30000 tokens with no compaction item in the response: the provider compacted or truncated it'])
+  })
+
+  it('names output items of a type nothing here reads', async (t) => {
+    const warns = []
+    t.mock.method(console, 'warn', (...args) => warns.push(args.join(' ')))
+    await session('compact-D', [toolTurn(1, 1000, [{ id: 'x_1', type: 'context_window_summary', encrypted_content: 'k' }]), done])
+    assert.deepEqual(warns, ['[chat] test (turn 0): the response carries output items this client does not read: context_window_summary'])
   })
 })
 

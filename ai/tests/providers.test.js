@@ -16,6 +16,7 @@ import {
   normalizeOneUsage,
   setProvider,
   turnCost,
+  unhandledOutputTypes,
 } from '../src/providers.js'
 
 // `setProvider` reads `process.env.<PROVIDER>_API_KEY` and asserts it is
@@ -138,6 +139,19 @@ describe('countCompactions', () => {
       assert.equal(countCompactions({ status: 'completed', output: [compaction, call] }), 1)
       assert.equal(countCompactions({ status: 'completed', output: [call] }), 0)
       assert.equal(countCompactions({ error: { message: 'boom' } }), 0)
+      // The name OpenAI's own Codex client also reads the item under.
+      assert.equal(countCompactions({ status: 'completed', output: [{ ...compaction, type: 'compaction_summary' }, call] }), 1)
+    })
+  })
+
+  it('openai (Responses): names the output item types nothing here reads, once each', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const known = ['message', 'reasoning', 'function_call', 'compaction', 'compaction_summary'].map((type) => ({ type }))
+      assert.deepEqual(unhandledOutputTypes({ status: 'completed', output: known }), [])
+      assert.deepEqual(unhandledOutputTypes({ status: 'completed', output: [...known, { type: 'novel' }, { type: 'novel' }] }), ['novel'])
+    })
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.deepEqual(unhandledOutputTypes({ choices: [{ message: { content: 'hi' } }] }), [])
     })
   })
 
@@ -437,6 +451,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
       const next = turn(thread, 3, [reasoning(3)])
       assert.deepEqual(next.slice(0, after.length), after)
       assert.equal(turn(thread, 4, [compacted(4)])[0].id, 'cmp_4')
+      assert.equal(turn(thread, 5, [{ ...compacted(5), type: 'compaction_summary' }])[0].id, 'cmp_5')
       // The thread keeps everything: it is what each turn's entry records.
       assert.equal(thread[0], messages[0])
     })
