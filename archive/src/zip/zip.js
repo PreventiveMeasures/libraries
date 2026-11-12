@@ -54,16 +54,10 @@ export async function zip(entries, { method = 'deflate', symlinksAbove } = {}) {
     const body = e.type === 'symlink' ? utf8fromString(e.linkname) : e.data
     // Before deflating, which may not make it smaller
     if (body.length > MAX_SIZE || offset > MAX_SIZE) throw new ArchiveError(`${quote(e.name)} would need zip64`)
-    let stored = body
-    let compression = 0
-    if (method === 'deflate' && e.type === 'file' && body.length) {
-      const packed = await deflate(body)
-      if (packed.length < body.length) {
-        stored = packed
-        compression = 8
-      }
-    }
-    const { time, date } = toDos(e.mtime)
+    const packed = method === 'deflate' && e.type === 'file' && body.length ? await deflate(body) : body
+    const stored = packed.length < body.length ? packed : body
+    const compression = stored === body ? 0 : 8
+    const { time, date } = toDos(e.mtime) // within DOS time, as normalize holds mtime to 1980-2038
     const extra = timestamp(e.mtime)
     const common = [
       [2, compression === 8 ? 20 : 10], [2, isAscii(name) ? 0 : UTF8_NAME], [2, compression], [2, time], [2, date],

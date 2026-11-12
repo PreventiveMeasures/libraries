@@ -71,7 +71,7 @@ export function readNumber(block, offset, size, what, at, signed = false) {
     for (let i = offset + 1; i < offset + size; i++) v = (v << 8n) | BigInt(block[i])
     if (first === 0xff) v = BigInt.asIntN((size - 1) * 8, v)
     if (v < 0n && !signed) throw new ArchiveError(`the ${what} field is negative`, at)
-    if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < -BigInt(Number.MAX_SAFE_INTEGER)) throw new ArchiveError(`the ${what} field is too large`, at)
+    if (!Number.isSafeInteger(Number(v))) throw new ArchiveError(`the ${what} field is too large`, at)
     return Number(v)
   }
   const match = /^ *([0-7]*) *$/u.exec(ascii(field(block, offset, size)))

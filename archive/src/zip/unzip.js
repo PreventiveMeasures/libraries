@@ -133,8 +133,8 @@ async function readCentral(read, at) {
 
 // Checks the local header against the central one, flags included, as readers differ on a descriptor bit
 // set in one alone. Returns where the entry ends, which must be `boundary`; `stop` bounds the read-ahead.
-async function readLocal(read, entry, boundary, stop) {
-  const at = entry.offset
+async function readLocal(read, entry) {
+  const { offset: at, boundary, stop } = entry
   let r = await read(at, 30, stop)
   if (r.u32(at) !== LOCAL) throw new ArchiveError('no local header where the central directory points', at)
   const nameLength = r.u16(at + 26)
@@ -226,17 +226,16 @@ async function* entries(source, { limit = Infinity, symlinksAbove } = {}, keep =
   // Each entry ends where the next starts, the last at the directory. Headers are read ahead through,
   // but not the data between: each `stop` is the next data's start, or past it while it is empty.
   const sorted = list.toSorted((a, b) => a.offset - b.offset)
-  const boundaries = []
-  const stops = []
   for (let i = sorted.length - 1; i >= 0; i--) {
-    boundaries[i] = sorted[i + 1]?.offset ?? start
-    stops[i] = sorted[i].csize === 0 && i + 1 < sorted.length ? stops[i + 1] : boundaries[i] - sorted[i].csize
+    const [entry, next] = [sorted[i], sorted[i + 1]]
+    entry.boundary = next?.offset ?? start
+    entry.stop = entry.csize === 0 && next ? next.stop : entry.boundary - entry.csize
   }
   const locals = walk(source)
   let expected = 0
-  for (const [i, entry] of sorted.entries()) {
+  for (const entry of sorted) {
     if (entry.offset !== expected) throw new ArchiveError(entry.offset > expected ? 'bytes belong to no entry' : 'two entries overlap', expected)
-    expected = await readLocal(locals, entry, boundaries[i], stops[i])
+    expected = await readLocal(locals, entry)
   }
   if (expected !== start) throw new ArchiveError('bytes belong to no entry', expected)
   for (const entry of list) yield await entryOf(source, entry, names)

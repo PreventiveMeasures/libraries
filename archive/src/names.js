@@ -28,10 +28,8 @@ export function cleanPath(path, what, directory = false) {
     segments.pop()
   }
   const kept = segments.filter((segment) => segment !== '.')
-  for (const segment of kept) {
-    if (segment === '') throw new ArchiveError(`${what} ${quote(path)} has an empty segment`)
-    if (segment === '..') throw new ArchiveError(`${what} ${quote(path)} has a .. segment`)
-  }
+  const bad = kept.find((segment) => segment === '' || segment === '..')
+  if (bad !== undefined) throw new ArchiveError(`${what} ${quote(path)} has ${bad ? 'a .. segment' : 'an empty segment'}`)
   if (kept.length === 0) {
     if (!directory) throw new ArchiveError(`${what} ${quote(path)} names the archive root but is not a directory`)
     return '.'
@@ -64,10 +62,8 @@ export function checkSymlinkTarget(name, target, above = 0) {
 // A symlink's target is checked, never rewritten; a hard link's is a name, cleaned as one
 export function cleanNames(path, type, target, above = 0) {
   const name = cleanPath(path, 'entry name', type === 'directory')
-  let linkname = target
   if (type === 'symlink') checkSymlinkTarget(name, target, above)
-  else if (type === 'hardlink') linkname = cleanPath(target, `hard link target of ${quote(name)}`)
-  return { name, linkname }
+  return { name, linkname: type === 'hardlink' ? cleanPath(target, `hard link target of ${quote(name)}`) : target }
 }
 
 const node = () => ({ kind: undefined, entry: undefined, symlink: undefined, first: undefined, firstNode: undefined, rest: undefined })
@@ -79,13 +75,8 @@ function child(parent, segment, make = true) {
   let next = parent.rest?.get(segment)
   if (next !== undefined || !make) return next
   next = node()
-  if (parent.first === undefined) {
-    parent.first = segment
-    parent.firstNode = next
-  } else {
-    parent.rest ??= new Map()
-    parent.rest.set(segment, next)
-  }
+  if (parent.first === undefined) Object.assign(parent, { first: segment, firstNode: next })
+  else (parent.rest ??= new Map()).set(segment, next)
   return next
 }
 
@@ -172,11 +163,6 @@ export class Names {
   }
 
   #find(path) {
-    let at = this.#root
-    for (const segment of path.split('/')) {
-      at = child(at, segment, false)
-      if (at === undefined) return undefined
-    }
-    return at
+    return path.split('/').reduce((at, segment) => at && child(at, segment, false), this.#root)
   }
 }

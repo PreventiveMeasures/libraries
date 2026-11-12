@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { ArchiveError } from '../src/error.js'
 import { utf8 } from './helpers.js'
-import { checkString, decodeUtf8, hasUnsafe, quote, utf8Length } from '../src/text.js'
+import { checkString, decodeUtf8, hasUnsafe, quote, tooLong } from '../src/text.js'
 
 // The text helpers are where a string that is not well-formed, or bytes
 // that are not UTF-8, are stopped: nothing past them sees either.
@@ -63,14 +63,12 @@ describe('hasUnsafe', () => {
   })
 })
 
-describe('utf8Length', () => {
-  it('counts the bytes each code point takes', () => {
-    assert.equal(utf8Length(''), 0)
-    assert.equal(utf8Length('a'), 1)
-    assert.equal(utf8Length('ü'), 2)
-    assert.equal(utf8Length('日'), 3)
-    assert.equal(utf8Length('😀'), 4)
-    assert.equal(utf8Length('aü日😀'), 10)
+describe('tooLong', () => {
+  it('counts the bytes of UTF-8 each code point takes', () => {
+    for (const [text, bytes] of [['', 0], ['a', 1], ['ü', 2], ['日', 3], ['😀', 4], ['aü日😀', 10], ['a'.repeat(9), 9]]) {
+      assert.equal(tooLong(text, bytes), false, JSON.stringify(text))
+      if (bytes) assert.equal(tooLong(text, bytes - 1), true, JSON.stringify(text))
+    }
   })
 })
 
