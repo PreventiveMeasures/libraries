@@ -66,18 +66,24 @@ const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, a
 // of them stop being sent. Characters of JSON, not tokens -- the encrypted content is opaque, and
 // is most of what grows.
 const REASONING_TRIM_AT = 1_500_000
-// What a trim frees: the overage rounded up to whole steps. The cut is a pure function of the
-// history, so a resumed run makes the same one, and it stays put for the turns that follow instead
-// of creeping forward every turn -- each move costs the prompt cache everything after it.
-const REASONING_TRIM_STEP = 250_000
+// Only a session this many items long counts as long-running. A shorter one past the limit goes out
+// as it is and fails where it can be seen, rather than quietly losing reasoning.
+const REASONING_TRIM_MIN_ITEMS = 100
+// What a trim frees: the overage rounded up to whole steps, a third of the limit. The cut is a pure
+// function of the history, so a resumed run makes the same one, and between steps each request is
+// the previous one plus new items. A move is a prefix change, which costs twice: the prompt cache
+// misses from the cut on, and newer models drop every reasoning item after it, the kept ones
+// included (`input_transformations` on the response says which).
+const REASONING_TRIM_STEP = 500_000
 
-// The Responses `input` for a history, minus its oldest reasoning items once it is past
-// REASONING_TRIM_AT. Dropped whole rather than stripped of `encrypted_content`: under `store: false`
+// The Responses `input` for a history, minus its oldest reasoning items once a long-running one is
+// past REASONING_TRIM_AT. Dropped whole rather than stripped of `encrypted_content`: under `store: false`
 // that would leave a summary and an id naming nothing the server kept (see `include` in
 // buildRequestBody). The newest one stays -- its function call is the one being answered. Returns
 // a new array and leaves the history as it is: its items are also the earlier entries' recorded
 // requests and responses.
 export function trimOldReasoning(input) {
+  if (input.length <= REASONING_TRIM_MIN_ITEMS) return [...input]
   const size = JSON.stringify(input).length
   if (size <= REASONING_TRIM_AT) return [...input]
   const target = Math.ceil((size - REASONING_TRIM_AT) / REASONING_TRIM_STEP) * REASONING_TRIM_STEP
