@@ -423,6 +423,7 @@ describe('no-think wire form', () => {
     ['google/gemini-3.1-flash-lite-preview', true, true],
     ['google/gemini-4-carbon', false, false],
     ['google/gemini-4-argon', false, false],
+    ['google/gemini-4-hydrogen', false, false],
     ['google/gemini-3.8-flash', false, false],
     ['google/gemini-3.1-pro-preview', false, false],
     ['google/gemma-4-31b-it', false, true],
@@ -657,6 +658,31 @@ describe('gemini 4 carbon and argon', () => {
       assert.deepEqual(effortsFor(model), ['low', 'medium', 'high'])
     })
   }
+})
+
+describe('gemini 4 hydrogen', () => {
+  // Hydrogen launched at its standard price: unlike Carbon and Argon, there
+  // is no introductory rate to reprice on 2026-12-01.
+  const HYDROGEN = 'google/gemini-4-hydrogen'
+
+  it('prices at Google\'s $1.50 / $7.50 per Mtok, with cached input at $0.075, 0.05x of input', () => {
+    assert.equal(baseRate(HYDROGEN, 'input'), 1.5)
+    assert.equal(baseRate(HYDROGEN, 'output'), 7.5)
+    assert.equal(baseRate(HYDROGEN, 'cacheRead'), 0.075)
+  })
+
+  it('registers the 65,536 default synchronous cap Google documents for every gemini 4', () => {
+    assert.equal(getMaxTokens(HYDROGEN), 64 * 1024)
+  })
+
+  it('thinks with no off switch, and alone of the gemini 4 rows reaches xhigh', () => {
+    assert.equal(canThink(HYDROGEN), true)
+    assert.equal(canDisableThink(HYDROGEN), false)
+    assert.deepEqual(effortsFor(HYDROGEN), ['low', 'medium', 'high', 'xhigh'])
+    for (const model of ['google/gemini-4-carbon', 'google/gemini-4-argon']) {
+      assert.equal(effortsFor(model).includes('xhigh'), false, model)
+    }
+  })
 })
 
 describe('cache-read overrides (rows that are not 0.10x of input)', () => {

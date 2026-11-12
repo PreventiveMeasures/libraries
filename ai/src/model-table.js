@@ -103,6 +103,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-oss-120b', { input: 0.039, output: 0.19, maxTokens: 128 * 1024, canThink: false, openRouterOnly: true }],
   ['google/gemini-4-carbon', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 64 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['google/gemini-4-argon', { input: 2, output: 10, cacheReadPrice: 0.1, maxTokens: 64 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
+  ['google/gemini-4-hydrogen', { input: 1.5, output: 7.5, cacheReadPrice: 0.075, maxTokens: 64 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
   ['google/gemini-3.8-flash', { input: 0.75, output: 3.75, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemma-4-31b-it', { input: 0.14, output: 0.4, maxTokens: 128 * 1024 }],
