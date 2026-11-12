@@ -3,7 +3,7 @@ import { env } from '#env'
 import { assert } from '#assert'
 import { fetchJSON } from './fetch-json.js'
 import { ollamaOrigin, resolveOllamaTag } from './ollama.js'
-import { calculateCost, canThink, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, resolveModel, wireModelFor } from './models.js'
+import { calculateCost, canThink, compactThresholdFor, effortsFor, needsExplicitNoThink, ollamaModels, ollamaTagFor, reasoningModeFor, resolveModel, wireModelFor } from './models.js'
 import { anthropicAuthHeader, anthropicShape, chatCompletionsBase, parseArgs, stripNamespace, toAnthropicModel, truncationError } from './wire-formats.js'
 
 export { isMaxTokensTruncation } from './wire-formats.js'
@@ -61,6 +61,14 @@ const bearerAuth = (key) => ({ Authorization: `Bearer ${key}` })
 // An adapter's fixed endpoint, and the key it reads from `keyEnv` for `authHeader` to send.
 const endpoint = (url, keyEnv, authHeader = bearerAuth) => ({ url, authHeader, apiKey: () => env(keyEnv) })
 
+// A Responses history from its latest compaction item on. The item carries everything before it,
+// and OpenAI's compaction guide lets a stateless caller drop the rest: a compacted session's
+// requests stay the size compaction made them, and each extends the one before it until the next.
+function fromLatestCompaction(messages) {
+  const latest = messages.findLastIndex((item) => item.type === 'compaction')
+  return latest > 0 ? messages.slice(latest) : [...messages]
+}
+
 // The OpenAI Responses wire format, parameterised by how the route names models. Two routes speak
 // it and differ only in the namespace: the direct adapter strips it for a bare name the API must
 // know, a gateway keeps it as the operator's routing key. Both resolve `wireModelFor` first,
@@ -77,7 +85,7 @@ function openaiResponsesShape(modelId) {
       const body = {
         model: modelId(model),
         instructions: systemPrompt,
-        input: [...messages],
+        input: fromLatestCompaction(messages),
         max_output_tokens: maxTokens,
         // Stateless. The default retains every request and response on OpenAI's servers, which for
         // a tool that uploads someone else's source code is a data-retention decision worth making
@@ -98,6 +106,11 @@ function openaiResponsesShape(modelId) {
       // supported with this model", on the first turn of every run.
       if (canThink(resolveModel(model))) body.include = ['reasoning.encrypted_content']
       if (tools) body.tools = tools.map((tool) => ({ type: 'function', ...functionTool(tool) }))
+      // Compaction is for what grows turn by turn, a session with tools. A request without them that
+      // comes near the cap should fail where it can be seen, not have its prompt summarised away.
+      // Sent from the first turn on, so a session's requests all carry the same body.
+      const compactThreshold = tools ? compactThresholdFor(model) : undefined
+      if (compactThreshold) body.context_management = [{ type: 'compaction', compact_threshold: compactThreshold }]
       // Thinking off on a row that reasons unless told not to: an omitted effort is the model's own
       // default, `medium` on every such row, so `none` has to be named.
       const level = resolveEffort({ think, effort, model }) ?? (needsExplicitNoThink(model) ? 'none' : undefined)
@@ -137,8 +150,9 @@ function openaiResponsesShape(modelId) {
 
     appendToolResults(messages, json, toolCalls, results) {
       // Responses replays state by feeding the previous turn's output items back as input items.
-      // Push every output item (reasoning, function_call, message) verbatim so the model can pick
-      // up where it left off, then pair each function_call with its function_call_output result.
+      // Push every output item (reasoning, compaction, function_call, message) verbatim so the
+      // model can pick up where it left off, then pair each function_call with its
+      // function_call_output result.
       // Verbatim includes a reasoning item's `encrypted_content`, the only copy of it there is
       // under `store: false` (see `include` in buildRequestBody).
       for (const item of json.output ?? []) messages.push(item)

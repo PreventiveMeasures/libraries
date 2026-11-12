@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 
 import * as ai from '../index.js'
 
-import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsBetweenToolsNoThink, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, supportedModels, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
+import { DEFAULT_MODEL, EFFORT_LEVELS, KNOWN_MODELS, TASK_BUDGET_MODELS, TASK_BUDGET_MODES, calculateCost, canAdaptive, canDisableThink, canEffort, canTaskBudget, canThink, compactThresholdFor, effortsFor, emptyUsage, getMaxTokens, isRecognizedModel, needsBetweenToolsNoThink, needsExplicitNoThink, normalizeThinkEffort, ollamaModels, ollamaTagFor, readsCacheBreakpoint, reasoningModeFor, resolveModel, resolveThinkEffort, supportedModels, unknownModelMessage, validateModel, wireModelFor } from '../src/models.js'
 
 // What the named usage legs cost per Mtok at a model's BASE rate. A
 // million-token prompt is past the 272K long-context line on every OpenAI
@@ -1612,6 +1612,21 @@ describe('supportedModels', () => {
   it('refuses every other provider by name', () => {
     for (const provider of ['gateway', 'moonshotai', 'Anthropic', '']) {
       assert.throws(() => supportedModels({ provider }), /Unknown provider: .*\. Use: anthropic, openai, openrouter, ollama, chrome, moonshot$/u, provider)
+    }
+  })
+})
+
+describe('compactThresholdFor', () => {
+  it('is 90% of the input cap on the rows OpenAI documents compaction for, aliases included', () => {
+    for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6-sol', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna-pro', 'openai/gpt-5.6']) {
+      assert.equal(compactThresholdFor(model), 829_800, model) // of 922K
+    }
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex'), 244_800) // of 272K
+  })
+
+  it('is undefined wherever compaction is undocumented', () => {
+    for (const model of ['openai/gpt-5.5', 'openai/gpt-5.5-pro', 'openai/gpt-5.4', 'openai/gpt-5.4-mini', 'openai/gpt-4o-mini', 'anthropic/claude-opus-5', 'nobody/nothing']) {
+      assert.equal(compactThresholdFor(model), undefined, model)
     }
   })
 })

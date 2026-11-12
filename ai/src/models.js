@@ -340,6 +340,17 @@ export function reasoningModeFor(model) {
   return MODELS.get(resolveModel(model))?.reasoningMode
 }
 
+// How far into a row's input cap a tool session gets before OpenAI compacts it.
+const COMPACT_AT = 0.9
+
+// The `compact_threshold` a tool session on this row sends -- rendered tokens, past which OpenAI
+// replaces the conversation so far with a compaction item -- or undefined for a row with no
+// documented compaction.
+export function compactThresholdFor(model) {
+  const compaction = MODELS.get(resolveModel(model))?.compaction
+  return compaction ? Math.floor(COMPACT_AT * compaction.maxInput) : undefined
+}
+
 // Whether the model reads OpenAI's explicit `prompt_cache_breakpoint` marker. Version-gated rather
 // than namespace-wide, so it lives on the row like `efforts` does: the field arrived with gpt-5.6,
 // and every earlier model rejects a request carrying it with a 400 rather than ignoring it.

@@ -366,6 +366,60 @@ describe('buildRequestBody — provider-specific shapes', () => {
   // deliberate and worth pinning. Tool results are replayed into the next
   // `input`, so nothing reads that state back — provided a reasoning item
   // carries its own reasoning, which the next case pins.
+  it('openai (Responses): a session with tools is compacted at 90% of the row\'s input cap', () => {
+    const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+    const compaction = (threshold) => [{ type: 'compaction', compact_threshold: threshold }]
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      // 922K of input on the GPT-6 and gpt-5.6 rows, aliases and pro rows
+      // included; 272K on gpt-5.3-codex.
+      for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6.1-sol', 'openai/gpt-5.6-sol', 'openai/gpt-5.6']) {
+        assert.deepEqual(buildRequestBody(model, 1000, 'sys', messages, { think: true, tools }).context_management, compaction(829_800), model)
+      }
+      assert.deepEqual(buildRequestBody('openai/gpt-5.3-codex', 1000, 'sys', messages, { think: true, tools }).context_management, compaction(244_800))
+      // From the first turn, so no request of the session differs from the
+      // one before it in anything but the items it adds.
+      assert.ok('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages, { tools, turn: 0 }))
+      // Without tools a request is one-shot: one that comes near the cap should
+      // fail visibly, not have its prompt summarised away.
+      assert.equal('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages), false)
+      // Rows with no documented compaction never see the field.
+      for (const model of ['openai/gpt-5.5', 'openai/gpt-5.4', 'openai/gpt-5.4-mini', 'openai/gpt-4o-mini']) {
+        assert.equal('context_management' in buildRequestBody(model, 1000, 'sys', messages, { tools }), false, model)
+      }
+    })
+    // Nor does chat completions, which has no such field.
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      assert.equal('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages, { tools }), false)
+    })
+  })
+
+  it('openai (Responses): after a compaction, the next request starts at its item', () => {
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+      const turn = (thread, n, output) => {
+        const call = { id: `fc_${n}`, type: 'function_call', call_id: `c${n}`, name: 'fn', arguments: '{}', status: 'completed' }
+        const json = { status: 'completed', output: [...output, call] }
+        appendToolResults(thread, json, extractToolCalls(json), [`result-${n}`])
+        return buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', thread, { think: true, tools }).input
+      }
+      const reasoning = (n) => ({ id: `rs_${n}`, type: 'reasoning', summary: [], encrypted_content: `r${n}` })
+      const compacted = (n) => ({ id: `cmp_${n}`, type: 'compaction', encrypted_content: `k${n}` })
+      const thread = [...messages]
+      const first = turn(thread, 1, [reasoning(1)])
+      assert.equal(first.length, 4) // nothing compacted yet: the whole history
+      // The item carries what came before it, and the guide lets a stateless
+      // caller drop the rest.
+      const after = turn(thread, 2, [compacted(2), reasoning(2)])
+      assert.deepEqual(after.map((item) => item.id ?? item.call_id), ['cmp_2', 'rs_2', 'fc_2', 'c2'])
+      // Until the next one, each request extends the last.
+      const next = turn(thread, 3, [reasoning(3)])
+      assert.deepEqual(next.slice(0, after.length), after)
+      assert.equal(turn(thread, 4, [compacted(4)])[0].id, 'cmp_4')
+      // The thread keeps everything: it is what each turn's entry records.
+      assert.equal(thread[0], messages[0])
+    })
+  })
+
   it('openai (Responses): opts out of server-side retention on every route', () => {
     withProvider('openai', 'OPENAI_API_KEY', () => {
       assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).store, false)
@@ -1393,6 +1447,12 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       const pro = mod.buildRequestBody('openai/gpt-6-astra-pro', 1000, 'sys', messages, { think: true, effort: 'max' })
       assert.equal(pro.model, ASTRA)
       assert.deepEqual(pro.reasoning, { effort: 'max', mode: 'pro' })
+      // Compaction on a session with tools, as on the direct route.
+      const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
+      assert.deepEqual(mod.buildRequestBody(ASTRA, 1000, 'sys', messages, { tools }).context_management, [{ type: 'compaction', compact_threshold: 829_800 }])
+      for (const model of [CLAUDE, ...CHAT_ROUTES]) {
+        assert.equal('context_management' in mod.buildRequestBody(model, 1000, 'sys', messages, { tools }), false, model)
+      }
     })
   })
 
