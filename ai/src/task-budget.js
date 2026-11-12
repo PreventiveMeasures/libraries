@@ -23,6 +23,23 @@ export async function issueTurn({ model, maxTokens, systemPrompt, messages, thin
     const req = buildRequestBody(model, maxTokens, systemPrompt, messages, { think, effort, tools, taskBudget: useTaskBudget, turn })
     // Not fetchJSON directly: one provider serves its turns out of a browser rather than over HTTP,
     // and which it is belongs to the adapter.
+
+    // HACK! TODO: support compaction
+    if (req.model.startsWith('openai/') && req.input?.length > 100) {
+      const size = JSON.stringify(req.input).length
+      if (size > 1_500_000) {
+        const reasonings = req.input.filter(({ type }) => type === 'reasoning').length
+        let removed = 0
+        for (const row of req.input) {
+          if (row.type !== 'reasoning') continue
+          delete row.encrypted_content
+          if (++removed > reasonings / 3) break
+        }
+        const sizeNew = JSON.stringify(req.input).length
+        console.log(`WARNING: omitting older reasonong, old=${size}, reasonings=${reasonings}, removed=${removed}, new=${sizeNew}`)
+      }
+    }
+
     const res = await sendRequest(model, req, { taskBudget: useTaskBudget, debug, retries, label: `${label} (turn ${turn}${useTaskBudget ? ', task_budget' : ''})` })
     return { request: req, response: res }
   }
