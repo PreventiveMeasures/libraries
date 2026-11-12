@@ -33,12 +33,12 @@ const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 
 // Server-side compaction (`context_management`), on the rows OpenAI documents it for: GPT-6
 // "supports the existing API capabilities available with GPT-5.6, including ... compaction", and
-// the compaction guide's own example runs on gpt-5.3-codex. `maxInput` is the row's documented
-// input cap, its context window less its 128K of output, which is what a session has to be
+// the compaction guide's own example runs on gpt-5.3-codex. `inputCap` is the row's documented
+// maximum input, its context window less its 128K of output, which is what a session has to be
 // compacted short of. Other rows go without: nothing says whether a model that has no compaction
 // ignores the field or 400s on it.
-const OPENAI_COMPACTION = { maxInput: 922_000 }
-const OPENAI_COMPACTION_400K = { maxInput: 272_000 }
+const OPENAI_COMPACTION = { inputCap: 922_000 }
+const OPENAI_COMPACTION_400K = { inputCap: 272_000 }
 
 // Prices in dollars per million tokens. The main list is every paid model OpenRouter serves, plus the
 // `vendorOnly` rows that only their maker's own API reaches; OpenRouter's free endpoints have a list

@@ -137,7 +137,7 @@ describe('chat: compaction', () => {
     const sentBefore = requests.length
     queued = [compacted, answer]
     const result = await ask({
-      model: 'openai/gpt-6-astra', maxTokens: 1024, systemPrompt: 'sys', userContent: 'compact-A', think: true,
+      model: 'openai/gpt-6-astra', maxTokens: 128_000, systemPrompt: 'sys', userContent: 'compact-A', think: true,
       tools: [{ name: 'probe', description: 'probe', input_schema: { type: 'object' } }],
       handleToolCall: (tc) => `probed ${tc.args.path}`,
       label: 'test',

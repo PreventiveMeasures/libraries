@@ -118,7 +118,7 @@ function openaiResponsesShape(modelId) {
       // Compaction is for what grows turn by turn, a session with tools. A request without them that
       // comes near the cap should fail where it can be seen, not have its prompt summarised away.
       // Sent from the first turn on, so a session's requests all carry the same body.
-      const compactThreshold = tools ? compactThresholdFor(model) : undefined
+      const compactThreshold = tools ? compactThresholdFor(model, maxTokens) : undefined
       if (compactThreshold) body.context_management = [{ type: 'compaction', compact_threshold: compactThreshold }]
       // Thinking off on a row that reasons unless told not to: an omitted effort is the model's own
       // default, `medium` on every such row, so `none` has to be named.

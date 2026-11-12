@@ -1617,11 +1617,26 @@ describe('supportedModels', () => {
 })
 
 describe('compactThresholdFor', () => {
-  it('is the input cap less 128K on the rows OpenAI documents compaction for, aliases included', () => {
+  it('is the input cap less the request\'s output, on the rows OpenAI documents compaction for', () => {
+    // Aliases and pro rows included, all with a 922K cap.
     for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6-sol', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna-pro', 'openai/gpt-5.6']) {
-      assert.equal(compactThresholdFor(model), 794_000, model) // 922K less 128K
+      assert.equal(compactThresholdFor(model, 128_000), 794_000, model)
     }
-    assert.equal(compactThresholdFor('openai/gpt-5.3-codex'), 144_000) // 272K less 128K
+    // A smaller output budget leaves the session longer before it compacts.
+    assert.equal(compactThresholdFor('openai/gpt-6-astra', 32_000), 890_000)
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex', 128_000), 144_000) // of 272K
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex', 32_000), 240_000)
+  })
+
+  it('takes the row\'s own output cap when the request names none', () => {
+    assert.equal(compactThresholdFor('openai/gpt-6-astra'), 922_000 - 128_000)
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex'), 272_000 - 128 * 1024)
+  })
+
+  it('is never under half the cap, however much output a request asks for', () => {
+    assert.equal(compactThresholdFor('openai/gpt-6-astra', 600_000), 461_000)
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex', 200_000), 136_000)
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex', 1_000_000), 136_000)
   })
 
   it('is undefined wherever compaction is undocumented', () => {
