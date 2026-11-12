@@ -14,6 +14,7 @@ import {
   extractToolCalls,
   normalizeOneUsage,
   setProvider,
+  trimOldReasoning,
   turnCost,
 } from '../src/providers.js'
 
@@ -682,6 +683,96 @@ describe('buildRequestBody — provider-specific shapes', () => {
         )
       })
     }
+  })
+})
+
+describe('trimOldReasoning — a long session on a model that reasons', () => {
+  // One tool turn of a Responses session, as appendToolResults leaves it.
+  const turn = (n, { reasoning = 40_000, output = 10 } = {}) => [
+    { id: `rs_${n}`, type: 'reasoning', summary: [], encrypted_content: 'r'.repeat(reasoning) },
+    { id: `fc_${n}`, type: 'function_call', call_id: `c${n}`, name: 'fn', arguments: '{}', status: 'completed' },
+    { type: 'function_call_output', call_id: `c${n}`, output: 'o'.repeat(output) },
+  ]
+  const session = (turns, sizes) => [{ role: 'user', content: 'task' }, ...Array.from({ length: turns }, (_, n) => turn(n, sizes)).flat()]
+  const ids = (input) => input.map((item) => item.id ?? item.call_id ?? item.role)
+  // The reasoning items the session had and `out` does not.
+  const dropped = (input, out) => {
+    const sent = new Set(out.map((item) => item.id))
+    return input.filter((item) => item.type === 'reasoning' && !sent.has(item.id)).map((item) => item.id)
+  }
+  const size = (input) => JSON.stringify(input).length
+  const quiet = (t) => {
+    const warns = []
+    t.mock.method(console, 'warn', (...args) => warns.push(args.join(' ')))
+    return warns
+  }
+
+  it('sends a history under the limit as it is', (t) => {
+    const warns = quiet(t)
+    const input = session(30)
+    const out = trimOldReasoning(input)
+    assert.notEqual(out, input)
+    assert.deepEqual(out, input)
+    assert.deepEqual(warns, [])
+  })
+
+  it('drops the oldest reasoning items whole, and only enough of them', (t) => {
+    const warns = quiet(t)
+    const input = session(40)
+    const before = structuredClone(input)
+    const out = trimOldReasoning(input)
+    assert.ok(size(input) > 1_500_000 && size(out) <= 1_500_000)
+    // The oldest first; everything else is sent as it is, in order.
+    const gone = ['rs_0', 'rs_1', 'rs_2', 'rs_3', 'rs_4', 'rs_5', 'rs_6']
+    assert.deepEqual(dropped(input, out), gone)
+    assert.deepEqual(out, input.filter((item) => !gone.includes(item.id)))
+    assert.equal(size(out), size(input) - gone.length * (size([input[1]]) - 1))
+    // The history is what earlier turns' requests and responses were recorded
+    // with, so it keeps every item as it came back.
+    assert.deepEqual(input, before)
+    assert.equal(warns.length, 1)
+    assert.match(warns[0], /dropped the oldest 7 of 40 reasoning items/u)
+  })
+
+  it('keeps its cut as the session grows, until the next step past the limit', (t) => {
+    quiet(t)
+    const cut = (turns) => {
+      const input = session(turns)
+      return dropped(input, trimOldReasoning(input))
+    }
+    // A cut that crept forward a turn at a time would cost the prompt cache
+    // everything after it, every turn.
+    assert.deepEqual(cut(41), cut(40))
+    assert.deepEqual(cut(43), cut(40))
+    // A step further it moves, and keeps what it had stripped before.
+    assert.ok(cut(44).length > cut(43).length)
+    assert.deepEqual(cut(44).slice(0, cut(43).length), cut(43))
+  })
+
+  it('keeps the newest reasoning, the one the call being answered came from', (t) => {
+    quiet(t)
+    // Tool output is what grew here, and stripping every reasoning item would
+    // still not bring it under the limit.
+    const input = session(3, { reasoning: 10, output: 600_000 })
+    const out = trimOldReasoning(input)
+    assert.deepEqual(dropped(input, out), ['rs_0', 'rs_1'])
+    assert.deepEqual(ids(out), ['user', 'fc_0', 'c0', 'fc_1', 'c1', 'rs_2', 'fc_2', 'c2'])
+  })
+
+  it('is the Responses shape\'s, so it applies on the direct route and not to chat completions', (t) => {
+    quiet(t)
+    const input = session(40)
+    withProvider('openai', 'OPENAI_API_KEY', () => {
+      const body = buildRequestBody('openai/gpt-5.5', 1000, 'sys', input, { think: true })
+      // The direct route's wire id is bare, which a check on an `openai/`
+      // prefix never saw.
+      assert.equal(body.model, 'gpt-5.5')
+      assert.equal(dropped(input, body.input).length, 7)
+    })
+    withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
+      const body = buildRequestBody('openai/gpt-5.5', 1000, 'sys', input, { think: true })
+      assert.deepEqual(body.messages.slice(1), input)
+    })
   })
 })
 
