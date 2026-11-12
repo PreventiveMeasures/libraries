@@ -1,6 +1,6 @@
 {
   "name": "@preventive/rn-serve",
-  "version": "1.0.0-alpha.7",
+  "version": "1.0.0-alpha.8",
   "description": "Metro-compatible React Native dev server",
   "type": "module",
   "bin": {
@@ -60,7 +60,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@preventive/rn": "1.0.0-alpha.7"
+    "@preventive/rn": "1.0.0-alpha.8"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",

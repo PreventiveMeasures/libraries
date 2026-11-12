@@ -1,6 +1,6 @@
 {
   "name": "@preventive/rn",
-  "version": "1.0.0-alpha.7",
+  "version": "1.0.0-alpha.8",
   "description": "Metro-compatible React Native bundler",
   "type": "module",
   "exports": {
