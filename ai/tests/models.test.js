@@ -1617,11 +1617,11 @@ describe('supportedModels', () => {
 })
 
 describe('compactThresholdFor', () => {
-  it('is 90% of the input cap on the rows OpenAI documents compaction for, aliases included', () => {
+  it('is the input cap less 128K on the rows OpenAI documents compaction for, aliases included', () => {
     for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6-sol', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna-pro', 'openai/gpt-5.6']) {
-      assert.equal(compactThresholdFor(model), 829_800, model) // of 922K
+      assert.equal(compactThresholdFor(model), 794_000, model) // 922K less 128K
     }
-    assert.equal(compactThresholdFor('openai/gpt-5.3-codex'), 244_800) // of 272K
+    assert.equal(compactThresholdFor('openai/gpt-5.3-codex'), 144_000) // 272K less 128K
   })
 
   it('is undefined wherever compaction is undocumented', () => {

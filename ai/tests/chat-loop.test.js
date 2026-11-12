@@ -144,7 +144,7 @@ describe('chat: compaction', () => {
     })
     assert.equal(result.text, 'done')
     const [first, second] = requests.slice(sentBefore)
-    assert.deepEqual(first.context_management, [{ type: 'compaction', compact_threshold: 829_800 }])
+    assert.deepEqual(first.context_management, [{ type: 'compaction', compact_threshold: 794_000 }])
     assert.deepEqual(second.context_management, first.context_management)
     // What came before the compaction item is in it.
     assert.deepEqual(second.input.map((item) => item.type), ['compaction', 'function_call', 'function_call_output'])

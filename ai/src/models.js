@@ -340,15 +340,17 @@ export function reasoningModeFor(model) {
   return MODELS.get(resolveModel(model))?.reasoningMode
 }
 
-// How far into a row's input cap a tool session gets before OpenAI compacts it.
-const COMPACT_AT = 0.9
+// How far short of a row's input cap a tool session is compacted: one turn's largest output, 128K on
+// every row that compacts. A turn that starts under the threshold can add that much before the next
+// request, and the cap is checked on that request whether or not compaction has run.
+const COMPACT_HEADROOM = 128_000
 
 // The `compact_threshold` a tool session on this row sends -- rendered tokens, past which OpenAI
 // replaces the conversation so far with a compaction item -- or undefined for a row with no
 // documented compaction.
 export function compactThresholdFor(model) {
   const compaction = MODELS.get(resolveModel(model))?.compaction
-  return compaction ? Math.floor(COMPACT_AT * compaction.maxInput) : undefined
+  return compaction ? compaction.maxInput - COMPACT_HEADROOM : undefined
 }
 
 // Whether the model reads OpenAI's explicit `prompt_cache_breakpoint` marker. Version-gated rather

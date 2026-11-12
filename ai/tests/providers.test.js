@@ -402,16 +402,16 @@ describe('buildRequestBody — provider-specific shapes', () => {
   // deliberate and worth pinning. Tool results are replayed into the next
   // `input`, so nothing reads that state back — provided a reasoning item
   // carries its own reasoning, which the next case pins.
-  it('openai (Responses): a session with tools is compacted at 90% of the row\'s input cap', () => {
+  it('openai (Responses): a session with tools is compacted 128K short of the row\'s input cap', () => {
     const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
     const compaction = (threshold) => [{ type: 'compaction', compact_threshold: threshold }]
     withProvider('openai', 'OPENAI_API_KEY', () => {
       // 922K of input on the GPT-6 and gpt-5.6 rows, aliases and pro rows
       // included; 272K on gpt-5.3-codex.
       for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6.1-sol', 'openai/gpt-5.6-sol', 'openai/gpt-5.6']) {
-        assert.deepEqual(buildRequestBody(model, 1000, 'sys', messages, { think: true, tools }).context_management, compaction(829_800), model)
+        assert.deepEqual(buildRequestBody(model, 1000, 'sys', messages, { think: true, tools }).context_management, compaction(794_000), model)
       }
-      assert.deepEqual(buildRequestBody('openai/gpt-5.3-codex', 1000, 'sys', messages, { think: true, tools }).context_management, compaction(244_800))
+      assert.deepEqual(buildRequestBody('openai/gpt-5.3-codex', 1000, 'sys', messages, { think: true, tools }).context_management, compaction(144_000))
       // From the first turn, so no request of the session differs from the
       // one before it in anything but the items it adds.
       assert.ok('context_management' in buildRequestBody('openai/gpt-5.6-sol', 1000, 'sys', messages, { tools, turn: 0 }))
@@ -1486,7 +1486,7 @@ describe('gateway — Anthropic and OpenAI natively, everything else like openro
       assert.deepEqual(pro.reasoning, { effort: 'max', mode: 'pro' })
       // Compaction on a session with tools, as on the direct route.
       const tools = [{ name: 'fn', description: 'd', input_schema: { type: 'object' } }]
-      assert.deepEqual(mod.buildRequestBody(ASTRA, 1000, 'sys', messages, { tools }).context_management, [{ type: 'compaction', compact_threshold: 829_800 }])
+      assert.deepEqual(mod.buildRequestBody(ASTRA, 1000, 'sys', messages, { tools }).context_management, [{ type: 'compaction', compact_threshold: 794_000 }])
       for (const model of [CLAUDE, ...CHAT_ROUTES]) {
         assert.equal('context_management' in mod.buildRequestBody(model, 1000, 'sys', messages, { tools }), false, model)
       }
