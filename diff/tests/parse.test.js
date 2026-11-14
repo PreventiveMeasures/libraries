@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { applyRecords } from '../src/apply.js'
+import { applyChangeSet, applyRecords } from '../src/apply.js'
 import { splitRecords } from '../src/compare.js'
 import { formatContext, formatNormal, formatUnified } from '../src/format.js'
 import { DiffError, diffLines } from '../src/myers.js'
@@ -178,6 +178,10 @@ describe('applying a change set', () => {
   })
   it('is the identity on an empty change set', () => {
     assert.deepEqual(applyRecords(a, [], b), a)
+  })
+  it('carries out a block of any size, past what a spread into push takes', () => {
+    const lines = Array.from({ length: 300000 }, (_, i) => `${i}\n`)
+    assert.equal(applyChangeSet('', [{ a0: 0, a1: 0, b0: 0, b1: lines.length, remove: [], insert: lines }]), lines.join(''))
   })
   it('refuses a block it cannot fill', () => {
     assert.throws(() => applyRecords(a, [{ a0: 1, a1: 2, b0: 1, b1: 2 }]), DiffError)

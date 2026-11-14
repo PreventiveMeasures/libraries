@@ -1,38 +1,22 @@
-// A change set applied: what the diff describes, carried out. Keep the lines
-// between the blocks, and put each block's replacement where its old lines
-// were. That is the whole of it -- positions here are exact, because a change
-// set is only ever paired with the file it was computed against.
-//
-// Applying a patch to a file that has since moved on is a different problem
-// and not this one: that needs the hunk located rather than trusted, with a
-// search outward and a tolerance for context that no longer matches.
-//
-// The replacement lines come from whichever side has them. A change set from
-// the search points into the second file, so `b` supplies them; one read out
-// of a diff carries its own, since the diff is the only place they exist.
-
 import { splitRecords } from './compare.js'
 import { DiffError } from './myers.js'
 
+// Positions are exact, as a change set is only ever paired with the file it was computed against.
+// A block's lines are its own `insert`, as read out of a diff, or else taken from `b`.
 export function applyRecords(a, blocks, b = null) {
-  const out = []
+  const pieces = []
   let ai = 0
   for (const block of blocks) {
     const { a0, a1 } = block
     if (a0 < ai || a1 < a0 || a1 > a.length) throw new DiffError('a block is out of order or out of range')
-    for (; ai < a0; ai++) out.push(a[ai])
-    out.push(...replacement(block, b))
+    pieces.push(a.slice(ai, a0), replacement(block, b))
     ai = a1
   }
-  for (; ai < a.length; ai++) out.push(a[ai])
-  return out
+  pieces.push(a.slice(ai))
+  return pieces.flat()
 }
 
-// What a block puts in: the lines it carries, when it was read out of a
-// diff, and otherwise the second file's. A block naming a range the second
-// file does not have comes from somewhere this package cannot vouch for, so
-// it is refused -- `slice` would quietly clip it and hand back a plausible
-// wrong answer instead.
+// A range `b` does not have is refused, where slice would clip it to a plausible wrong answer
 function replacement({ b0, b1, insert }, b) {
   if (insert !== undefined) return insert
   if (b === null) throw new DiffError('a block has no replacement lines, and no second file to take them from')
@@ -40,8 +24,4 @@ function replacement({ b0, b1, insert }, b) {
   return b.slice(b0, b1)
 }
 
-// The same over text, which is what a caller holds: a file and a change set
-// read out of a diff, and the file that diff turns it into. Blocks from
-// `parseDiff` carry the lines they insert, so there is no second file to
-// pass and none to ask for.
 export const applyChangeSet = (text, blocks) => applyRecords(splitRecords(text), blocks).join('')

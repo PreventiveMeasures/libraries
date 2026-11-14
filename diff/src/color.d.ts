@@ -1,17 +1,33 @@
-// The typed contract for the second entry point, @preventive/diff/color.js.
-// Hand-written, and unchecked against the implementation: a change to a
-// signature there belongs in the same commit as the change here.
+/**
+ * What part each line of a diff plays, for the caller to paint
+ *
+ * ```js
+ * import { diffFormat, diffLineStyles } from '@preventive/diff/color.js'
+ * ```
+ *
+ * Read from markers a real diff emits and ordinary text does not, so a file full of `+` bullets or `---`
+ * rules stays plain.
+ *
+ * @module @preventive/diff/color.js
+ */
 
-// The three output styles, told apart by their structural markers.
-export type DiffFormat = 'unified' | 'context' | 'normal'
+export type DiffFormat = 'unified' | 'context' | 'normal';
 
-// The part a line plays, named as node:util's styleText names it. Nothing
-// in the module depends on that module; the caller does the painting.
-export type DiffStyle = 'bold' | 'cyan' | 'green' | 'red' | 'yellow' | 'gray'
+/** A line's part, as node:util's styleText names styles */
+export type DiffStyle = 'bold' | 'cyan' | 'green' | 'red' | 'yellow' | 'gray';
 
-// null for text that is not a diff.
-export function diffFormat(text: string): DiffFormat | null
+/**
+ * The format a text is written in; a diff quoted in it counts
+ *
+ * @param text - Any text
+ * @returns The format, or null for text that is not a diff
+ */
+export function diffFormat(text: string): DiffFormat | null;
 
-// One entry per line of `text.split('\n')`, null where a line takes no
-// style; null in place of the array when the text is not a diff.
-export function diffLineStyles(text: string): (DiffStyle | null)[] | null
+/**
+ * Each line's style
+ *
+ * @param text - Any text
+ * @returns One entry per line of `text.split('\n')`, null where a line takes none; null for text that is not a diff
+ */
+export function diffLineStyles(text: string): (DiffStyle | null)[] | null;

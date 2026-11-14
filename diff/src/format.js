@@ -1,14 +1,3 @@
-// The three output styles -- normal, unified and context -- rendered from a
-// change set. The formats are the ones every diff and patch already agree
-// on, and the rules below are those formats, so the same change set gives
-// the same bytes as any other implementation; that the change set is the
-// right one is what myers.js guarantees.
-//
-// What is printed is then read back before it is returned, and has to say
-// what it was given. That is the counterpart of the guarantee myers.js makes
-// on the change set, and the hole it leaves: a change set can be right and
-// the text describing it wrong, and nothing but a reader would ever notice.
-
 import { parseDiff } from './parse.js'
 
 export class FormatError extends Error {
@@ -18,31 +7,29 @@ export class FormatError extends Error {
   }
 }
 
-// Read back, and held to the change set and to the two files. Every line
-// printed is one of their lines: a removed line is the first file's, an
-// added line the second's, and a context line the first file's -- but in a
-// context-format hunk that removes nothing, which prints the second file's
-// side alone, the second's. That is true whatever comparison was in force,
-// so this holds under the whitespace and case options too, where the two
-// files' "equal" lines differ in text and rebuilding the second file from
-// the diff would not give it back.
-
+// What was printed, read back, has to give the blocks, and every line has to be one of the files' own:
+// a removed or kept line the first's, an added line the second's, and a kept line in a context hunk that
+// removes nothing the second's. That holds under any comparison, where rebuilding the second would not.
 function verifyRendering(a, b, blocks, body) {
   if (blocks.length === 0) {
     if (body !== '') throw new FormatError('there was nothing to print, and something was printed')
     return
   }
   let files
-  try { files = parseDiff(body) } catch (e) { throw new FormatError(`it does not read back (${e.message})`) }
+  try {
+    files = parseDiff(body)
+  } catch (error) {
+    throw new FormatError(`it does not read back (${error.message})`)
+  }
   if (files.length !== 1) throw new FormatError(`${files.length} files read back, not one`)
-  const read = files[0].blocks
+  const [{ format, hunks, blocks: read }] = files
   if (read.length !== blocks.length) throw new FormatError(`${read.length} blocks read back, not ${blocks.length}`)
   for (const [i, got] of read.entries()) {
     const want = blocks[i]
     if (got.a0 !== want.a0 || got.a1 !== want.a1 || got.b0 !== want.b0 || got.b1 !== want.b1) throw new FormatError(`block ${i + 1} reads back somewhere else`)
   }
-  for (const hunk of files[0].hunks) {
-    const secondSideOnly = files[0].format === 'context' && !hunk.lines.some(({ tag }) => tag === '-')
+  for (const hunk of hunks) {
+    const secondSideOnly = format === 'context' && !hunk.lines.some(({ tag }) => tag === '-')
     let ai = hunk.oldStart, bi = hunk.newStart
     for (const { tag, text } of hunk.lines) {
       const want = tag === '+' || (tag === ' ' && secondSideOnly) ? b[bi] : a[ai]
@@ -53,15 +40,10 @@ function verifyRendering(a, b, blocks, body) {
   }
 }
 
-// From a change set to what the context formats print: hunks, each a run of
-// changes close enough to share context lines. Two changes belong to one
-// hunk when the unchanged lines between them number at most twice the
-// context -- exactly when their context lines would touch or overlap.
-
+// Changes share a hunk when at most twice the context lies between them: when their context would touch
 function groupHunks(blocks, context, aLength, bLength) {
   const hunks = []
-  let i = 0
-  while (i < blocks.length) {
+  for (let i = 0; i < blocks.length;) {
     let j = i
     while (j + 1 < blocks.length && blocks[j + 1].a0 - blocks[j].a1 <= 2 * context) j++
     const first = blocks[i], last = blocks[j]
@@ -75,7 +57,8 @@ function groupHunks(blocks, context, aLength, bLength) {
   return hunks
 }
 
-// A format that prints hunks: each one's text from `printHunk`, given what -p names it, or null.
+// `label(index)` is what -p puts after a hunk's ranges, or null for nothing. The two lines a diff opens
+// with are not taken: a label reading like diff content would ride through the check untouched.
 const hunkFormat = (printHunk) => (a, b, blocks, { context, label = null }) => {
   let out = ''
   for (const hunk of groupHunks(blocks, context, a.length, b.length)) out += printHunk(a, b, hunk, label ? label(hunk.a0) : null)
@@ -83,21 +66,22 @@ const hunkFormat = (printHunk) => (a, b, blocks, { context, label = null }) => {
   return out
 }
 
-// A line is printed as it is stored, terminator included; one without a
-// terminator can only be a file's last, and says so on the next line.
+// A line without a terminator can only be a file's last, and says so on the next line
 const NO_NEWLINE = '\n\\ No newline at end of file\n'
 const printLine = (prefix, line) => prefix + line + (line.endsWith('\n') ? '' : NO_NEWLINE)
+const named = (header, name) => `${header}${name === null ? '' : ` ${name}`}\n`
 
-// `3c3`, `5a6,7`, `8,9d9`; an empty range prints the line before it.
-function normalRange(start, end) {
-  return end > start + 1 ? `${start + 1},${end}` : `${end > start ? start + 1 : start}`
-}
+// First,last inclusive, one line bare, and an empty range as the line before it
+const range = (start, end) => (end > start + 1 ? `${start + 1},${end}` : `${end > start ? start + 1 : start}`)
+
+// Unified ranges are first,count: one line bare, an empty range as the line before it with `,0`
+const unifiedRange = (start, end) => (end <= start ? `${start},0` : end === start + 1 ? `${start + 1}` : `${start + 1},${end - start}`)
 
 export function formatNormal(a, b, blocks) {
   let out = ''
   for (const { a0, a1, b0, b1 } of blocks) {
     const letter = a0 === a1 ? 'a' : b0 === b1 ? 'd' : 'c'
-    out += normalRange(a0, a1) + letter + normalRange(b0, b1) + '\n'
+    out += `${range(a0, a1)}${letter}${range(b0, b1)}\n`
     for (let i = a0; i < a1; i++) out += printLine('< ', a[i])
     if (letter === 'c') out += '---\n'
     for (let i = b0; i < b1; i++) out += printLine('> ', b[i])
@@ -106,21 +90,8 @@ export function formatNormal(a, b, blocks) {
   return out
 }
 
-// A unified range: one line prints bare, an empty range prints the line
-// before it with `,0`.
-function unifiedRange(start, end) {
-  if (end <= start) return `${start},0`
-  return end === start + 1 ? `${start + 1}` : `${start + 1},${end - start}`
-}
-
-// `label(index)` is what each hunk's own header line carries after its
-// ranges -- under -p, the function the hunk starts inside -- or null for none.
-// The two label lines a whole diff opens with are not taken here: they are a
-// constant the caller writes in front of this, and accepting them would mean
-// handing back bytes this cannot vouch for, since a label reading like diff
-// content would ride through the check below untouched.
-export const formatUnified = hunkFormat((a, b, hunk, named) => {
-  let out = `@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@${named === null ? '' : ' ' + named}\n`
+export const formatUnified = hunkFormat((a, b, hunk, name) => {
+  let out = named(`@@ -${unifiedRange(hunk.a0, hunk.a1)} +${unifiedRange(hunk.b0, hunk.b1)} @@`, name)
   let ai = hunk.a0, bi = hunk.b0
   for (const { a0, a1, b1 } of hunk.blocks) {
     for (; ai < a0; ai++, bi++) out += printLine(' ', a[ai])
@@ -131,34 +102,22 @@ export const formatUnified = hunkFormat((a, b, hunk, named) => {
   return out
 })
 
-// A context range is first,last inclusive; a single line prints bare, an
-// empty range as the line before it.
-function contextRange(start, end) {
-  if (end <= start) return `${start}`
-  return end === start + 1 ? `${start + 1}` : `${start + 1},${end}`
-}
+export const formatContext = hunkFormat((a, b, { a0, a1, b0, b1, blocks }, name) => [
+  named('***************', name),
+  `*** ${range(a0, a1)} ****\n`,
+  contextSide(a, a0, a1, blocks.map((block) => [block.a0, block.a1, block.b0 < block.b1]), '- '),
+  `--- ${range(b0, b1)} ----\n`,
+  contextSide(b, b0, b1, blocks.map((block) => [block.b0, block.b1, block.a0 < block.a1]), '+ '),
+].join(''))
 
-export const formatContext = hunkFormat((a, b, hunk, named) => {
-  let out = `***************${named === null ? '' : ' ' + named}\n`
-  out += `*** ${contextRange(hunk.a0, hunk.a1)} ****\n`
-  // A side with no changes of its own prints only its range line.
-  if (hunk.blocks.some((block) => block.a0 < block.a1)) out += contextSide(a, hunk.a0, hunk.a1, hunk.blocks, 'a')
-  out += `--- ${contextRange(hunk.b0, hunk.b1)} ----\n`
-  if (hunk.blocks.some((block) => block.b0 < block.b1)) out += contextSide(b, hunk.b0, hunk.b1, hunk.blocks, 'b')
-  return out
-})
-
-// `! ` marks a line whose block both deletes and inserts; `- ` or `+ ` one
-// whose block only does the one.
-function contextSide(lines, from, to, blocks, side) {
-  const end = side + '1', start = side + '0'
-  const other = side === 'a' ? 'b' : 'a'
+// `! ` marks a line whose block changes the other side too; a side with no changes prints nothing
+function contextSide(lines, from, to, runs, mark) {
+  if (!runs.some(([start, end]) => start < end)) return ''
   let out = ''
   let i = from
-  for (const block of blocks) {
-    for (; i < block[start]; i++) out += printLine('  ', lines[i])
-    const mark = block[other + '0'] < block[other + '1'] ? '! ' : side === 'a' ? '- ' : '+ '
-    for (; i < block[end]; i++) out += printLine(mark, lines[i])
+  for (const [start, end, both] of runs) {
+    for (; i < start; i++) out += printLine('  ', lines[i])
+    for (; i < end; i++) out += printLine(both ? '! ' : mark, lines[i])
   }
   for (; i < to; i++) out += printLine('  ', lines[i])
   return out

@@ -1,127 +1,175 @@
-// The typed contract for diff/index.js, hand-written because the package is
-// plain JavaScript. One file rather than a .d.ts per module: index.js IS the
-// surface, so the declarations below should read against it name for name,
-// in the same order and under the same headings. The second entry point has
-// its own, src/color.d.ts.
-//
-// Keep it honest. Nothing checks these against the implementation -- a
-// declaration that drifts is a silent lie to every caller that trusts it,
-// so a change to an exported signature belongs in the same commit as the
-// change here.
+/**
+ * Line diffs as GNU diff prints them, and diffs read back
+ *
+ * ```js
+ * import { changeSet, diff, formatChangeSet } from '@preventive/diff'
+ * import { applyChangeSet, parseDiff } from '@preventive/diff'
+ * ```
+ *
+ * A change set is replayed against the first file before it is printed, and what is printed is read
+ * back and held to the change set before it is returned.
+ *
+ * @module @preventive/diff
+ */
 
-// One block of a change set: `a[a0..a1)` is replaced by `b[b0..b1)`, counting
-// lines from zero. Either side may be empty -- an insertion or a deletion --
-// never both, and the blocks of a change set are disjoint and in order. A
-// block holds the lines it removes and inserts, records with their
-// terminators: read out of a diff, as the diff wrote them; from changeSet,
-// as the two files have them.
+/**
+ * A block of a change set: `a[a0..a1)` replaced by `b[b0..b1)`, counting lines from zero
+ *
+ * Either side may be empty but not both, and a change set's blocks are disjoint and in order.
+ */
 export interface Block {
-  a0: number
-  a1: number
-  b0: number
-  b1: number
-  remove: string[]
-  insert: string[]
+  a0: number;
+  a1: number;
+  b0: number;
+  b1: number;
+  /** The lines removed, terminators included */
+  remove: string[];
+  /** The lines inserted, terminators included */
+  insert: string[];
 }
 
-// One line of a hunk as the diff writes it: kept, removed or added.
+/** A line of a hunk: kept, removed or added */
 export interface HunkLine {
-  tag: ' ' | '-' | '+'
-  text: string
+  tag: ' ' | '-' | '+';
+  text: string;
 }
 
-// A hunk as it stands in the diff, its lines in the order they are printed
-// and its starting lines counting from zero. `label` is what its header line
-// carried after the ranges -- under -p, the function it starts inside.
+/** A hunk as the diff writes it */
 export interface Hunk {
-  oldStart: number
-  newStart: number
-  label: string | null
-  lines: HunkLine[]
+  /** Counting from zero */
+  oldStart: number;
+  /** Counting from zero */
+  newStart: number;
+  /** What its header carries after the ranges: under -p, the function it starts inside */
+  label: string | null;
+  /** In the order printed */
+  lines: HunkLine[];
 }
 
-// One file's worth of diff. `old` and `new` are the names its header gave,
-// null when it carried none.
+/** One file's worth of a diff */
 export interface ParsedFile {
-  old: string | null
-  new: string | null
-  format: 'unified' | 'context' | 'normal'
-  hunks: Hunk[]
-  blocks: Block[]
+  /** The name its header gave, or null */
+  old: string | null;
+  /** The name its header gave, or null */
+  new: string | null;
+  format: 'unified' | 'context' | 'normal';
+  hunks: Hunk[];
+  /** The change set the hunks describe */
+  blocks: Block[];
 }
 
-// How two lines are compared. `whitespace` is diff's four settings: 'none',
-// '-w' as 'all', '-b' as 'change', '-Z' as 'trailing'.
+/** When two lines are the same line */
 export interface CompareOptions {
-  ignoreCase?: boolean
-  whitespace?: 'none' | 'all' | 'change' | 'trailing'
+  /** -i, in the C locale (default: false) */
+  ignoreCase?: boolean;
+  /** -w as `'all'`, -b as `'change'`, -Z as `'trailing'` (default: `'none'`) */
+  whitespace?: 'none' | 'all' | 'change' | 'trailing';
 }
 
-// The whole of producing a diff, in one call. Empty when the two files
-// compare the same. `label` names each hunk the way -p does; the two label
-// lines a diff opens with are the caller's to write in front of the result.
-// 'brief' is -q: whether they differ at all, without searching for how.
-// `minimal` is --minimal: a shortest change set, with neither the search's
-// cutoff nor the lines diff otherwise sets aside before searching -- those
-// matching nothing in the other file, and some matching many; `discard:
-// false` keeps the cutoff but searches every line. A run that could sit in
-// more than one place is settled in every format, as diff settles it;
-// `slide: false` leaves where the search put it instead. Such a run moves
-// into the lines the two files share at either end only as far as the
-// context printed there, or `horizon` (--horizon-lines) if that is more,
-// which is why `diff` and `-U0` can agree where `-u` does not.
-export function diff(a: string, b: string, options?: CompareOptions & {
-  format?: 'unified' | 'context' | 'normal' | 'brief'
-  context?: number
-  label?: ((index: number) => string | null) | null
-  minimal?: boolean
-  discard?: boolean
-  slide?: boolean
-  horizon?: number
-}): string
+/** How the change set is searched for */
+export interface SearchOptions extends CompareOptions {
+  /** --minimal: a shortest change set, with no cutoff and no line set aside before the search (default: false) */
+  minimal?: boolean;
+  /** Set aside lines matching nothing, and some matching many, as diff does; false keeps the cutoff (default: true) */
+  discard?: boolean;
+  /** Settle a run that could sit in more than one place, as diff does in every format (default: true) */
+  slide?: boolean;
+  /** --horizon-lines: how far into the lines both files share at either end a run may move */
+  horizon?: number;
+}
 
-// The change set `diff` prints, unprinted: the same blocks a unified diff of
-// the two shows with three lines of context, each with the lines it removes
-// and inserts, as `parseDiff` reads them. `horizon` is the context to match
-// instead (0 for the normal format), or Infinity to let a run go as far into
-// the shared ends as it can, as git does. With no comparison option,
-// `applyChangeSet(a, changeSet(a, b))` is `b`.
-export function changeSet(a: string, b: string, options?: CompareOptions & {
-  minimal?: boolean
-  discard?: boolean
-  slide?: boolean
-  horizon?: number
-}): Block[]
+/** How a change set is printed */
+export interface FormatOptions {
+  /** Default: `'unified'` */
+  format?: 'unified' | 'context' | 'normal';
+  /** Lines of context (default: 3) */
+  context?: number;
+  /** What -p puts after a hunk's ranges, given the hunk's first line (default: nothing) */
+  label?: ((index: number) => string | null) | null;
+}
 
-// A change set in hand printed as `diff` prints the one it finds, with no
-// search: `formatChangeSet(a, b, changeSet(a, b))` is `diff(a, b)`. Only the
-// ranges of a block are read. It has to rebuild `b` from `a` under the
-// comparison options given, or a DiffError is thrown before anything prints.
-export function formatChangeSet(a: string, b: string, blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[], options?: CompareOptions & {
-  format?: 'unified' | 'context' | 'normal'
-  context?: number
-  label?: ((index: number) => string | null) | null
-}): string
+export interface DiffOptions extends SearchOptions, Omit<FormatOptions, 'format'> {
+  /** `'brief'` is -q: `'Files differ\n'` or `''`, with no search (default: `'unified'`) */
+  format?: FormatOptions['format'] | 'brief';
+}
 
-// A diff read back into the files it names and what it says about each.
-export function parseDiff(text: string): ParsedFile[]
+/**
+ * The diff of two files, empty where they compare the same
+ *
+ * The two header lines a diff opens with are the caller's to write in front. A run moves into the lines
+ * both files share at either end only as far as the context printed there, or `horizon` if that is more,
+ * as diff does: so `diff` and `-U0` can agree where `-u` does not.
+ *
+ * @param a - The first file
+ * @param b - The second file
+ * @param options - Format, search and comparison options
+ * @returns The diff
+ */
+export function diff(a: string, b: string, options?: DiffOptions): string;
 
-// A change set carried out over the file it was computed against. The blocks
-// carry the lines they insert, which is what a diff records.
-export function applyChangeSet(text: string, blocks: Block[]): string
+/**
+ * The change set `diff` prints, unprinted
+ *
+ * Its runs sit where a unified diff with three lines of context puts them; `horizon` is the context to
+ * match instead (0 for the normal format), or `Infinity` to let a run go as far as it can, as git does.
+ * With no comparison option, `applyChangeSet(a, changeSet(a, b))` is `b`.
+ *
+ * @param a - The first file
+ * @param b - The second file
+ * @param options - Search and comparison options
+ * @returns The blocks, in order
+ */
+export function changeSet(a: string, b: string, options?: SearchOptions): Block[];
 
-// Thrown when the search's change set would not rebuild the second file.
+/**
+ * A change set printed as `diff` prints its own: `formatChangeSet(a, b, changeSet(a, b))` is `diff(a, b)`
+ *
+ * Only a block's ranges are read. Throws a `DiffError`, before anything is printed, where the blocks do
+ * not rebuild `b` from `a` under the comparison given.
+ *
+ * @param a - The first file
+ * @param b - The second file
+ * @param blocks - The change set
+ * @param options - Format and comparison options
+ * @returns The diff
+ */
+export function formatChangeSet(
+  a: string,
+  b: string,
+  blocks: Pick<Block, 'a0' | 'a1' | 'b0' | 'b1'>[],
+  options?: FormatOptions & CompareOptions
+): string;
+
+/**
+ * Read a diff in any of the three formats, at any width
+ *
+ * @param text - The diff
+ * @returns Each file it names, with its hunks and the change set they describe
+ */
+export function parseDiff(text: string): ParsedFile[];
+
+/**
+ * Carry out a change set over the file it was computed against
+ *
+ * @param text - The first file
+ * @param blocks - The change set, each block carrying the lines it inserts, as `parseDiff` reads them
+ * @returns The second file
+ */
+export function applyChangeSet(text: string, blocks: Block[]): string;
+
+/** Thrown where a change set does not fit, or rebuild, the files it is given */
 export class DiffError extends Error {
-  constructor(detail: string)
+  constructor(detail: string);
 }
 
-// Thrown when what a formatter printed does not say what it was given.
+/** Thrown where what was printed does not read back as the change set given */
 export class FormatError extends Error {
-  constructor(detail: string)
+  constructor(detail: string);
 }
 
-// Thrown at a diff that cannot be read; `line` counts from zero.
+/** Thrown at a diff that cannot be read */
 export class PatchError extends Error {
-  constructor(detail: string, line?: number)
-  line: number | undefined
+  constructor(detail: string, line?: number);
+  /** Where, counting lines from zero */
+  line: number | undefined;
 }
