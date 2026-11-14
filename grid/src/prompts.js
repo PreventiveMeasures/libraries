@@ -1,28 +1,17 @@
 import { oneLine } from './json.js'
 
-// Every prompt the phases send, and the renderings of the data they carry. In one file so the
-// wording that decides what a run does is read in one sitting, and so a phase module holds the
-// logic alone.
-//
-// Each system prompt carries the task, which is stable for a whole run, and nothing of any one
-// entry or request: the layer marks the system prompt for a long-lived prompt-cache entry, and a
-// request's per-call text goes in the user message where the cache is keyed per call.
+// Every prompt the phases send, worded in one file. A system prompt carries the task and nothing of one
+// entry or request, as the layer marks it for a long-lived prompt-cache entry.
 
 const taskLines = (task) => `Task: ${task.prompt.trim()}\nMain question: ${task.question.trim()}`
 
-// The blocks of one user message, in order. Every block but the last ends in a blank line, because
-// on a route that reads no cache marker the layer joins the blocks with nothing between them, and
-// a request glued to the last row of a page reads as part of that row. The separator sits at the
-// end of the earlier block rather than the start of the later one so the shared prefix -- the page
-// in the first stage, the request after -- stays byte-identical whatever follows it.
+// Every block but the last ends in a blank line, as a route reading no cache marker joins them with
+// nothing between; at the end of the earlier one, so the shared prefix is the same whatever follows
 export const blocks = (...parts) => parts.map((part, i) => (i < parts.length - 1 ? `${part}\n\n` : part))
 
 const questionLines = (questions) => questions.map((q) => `${q.id}. ${q.text}`).join('\n')
 
-// Phase 0: the questions the compaction answers per entry, decided once per task before any entry
-// or request is seen. Everything the search later reads is what this schema carries, so the prompt
-// is explicit about what makes a question worth asking: answerable from the entry alone, with a
-// short comparable answer, and discriminating under the main question.
+// Phase 0: everything the search later reads is what this schema carries
 export function proposeSystem(maxQuestions) {
   return `You design a compact index of a large dataset for one fixed task. Each entry of the dataset will be reduced, before any request is seen, to a summary of one or two sentences and short answers to a fixed list of questions. Later, a reader holding only those summaries and answers, never the full entries, must pick the entries that best match a request under the task's main question.
 
@@ -38,8 +27,7 @@ Return only JSON: {"focus":"...","questions":["...","..."]} with at most ${maxQu
 
 export const proposeUser = taskLines
 
-// Phase 1: one entry into one row. `summarize` off is the supplement pass: extra questions a gate
-// asked for one request, answered by a cheaper model over the whole dataset, with no summary.
+// Phase 1; `summarize` off is the supplement pass, answers alone
 export function compactSystem({ task, focus, questions, summarize }) {
   const count = questions.length
   const summaryAsk = summarize ? `Write a summary of the entry in one or two sentences, focused on: ${oneLine(focus)}\nThen answer` : 'Answer'
@@ -56,10 +44,8 @@ Return only JSON: ${shape} with exactly ${count} answers, in the order of the qu
 
 export const compactUser = (entry) => `Entry:\n${entry.text}`
 
-// Phase 6, run first: whether this request's match turns on something the compaction never
-// extracted. Two answers, because they cost different things: a few more short-answer columns are
-// one cheap pass over the dataset, while reading the full entries is the expensive path the
-// compaction exists to avoid, taken only when nothing short of it would do.
+// Phase 6, run first: extra columns cost one cheap pass, reading the full entries the path the compaction
+// exists to avoid, so they are asked apart
 export function gateSystem({ task, focus, questions, maxExtra }) {
   return `A dataset was compacted for a task before any request was seen: every entry became a summary and short answers to fixed questions. A request has now arrived, and the search over the dataset will read those summaries and answers, not the entries.
 ${taskLines(task)}
@@ -76,9 +62,7 @@ Return only JSON: {"extraQuestions":["..."],"fullScan":false,"reason":"one sente
 
 export const requestBlock = (request) => `Request:\n${request.text}`
 
-// Phases 2-4: one page of rows against the request. The limit is a ceiling, not a quota -- the one
-// sentence that keeps a page of nothing from promoting its least bad row -- and every pick carries
-// a score, which is what the rounds are aggregated on.
+// Phases 2-4: the limit is a ceiling, not a quota, so a page of nothing promotes nothing
 export function searchSystem({ task, mode }) {
   const rows = mode === 'full'
     ? 'Each row is one full entry of the dataset.'
@@ -99,20 +83,16 @@ const summaryRow = (row, index, columns) => {
 
 const fullRow = (row, index) => `[${index + 1}]\n${row.entry.trim()}\n`
 
-// The page as the model reads it. Rows are numbered from 1 on the page and never carry their real
-// ids: an ordinal is three characters the model copies reliably, where a long id is something it
-// reconstructs. The limit is stated on the page rather than in the system prompt because it is the
-// page's own, and in the first stage the page is the block shared across requests.
+// Rows are numbered on the page rather than carry their ids, which a model reconstructs where it copies
+// an ordinal; the limit is the page's own, so it is stated there
 export function pageBlock({ page, columns, mode, cap }) {
   const head = mode === 'full' ? 'Rows:' : `${columnHeader(columns)}\nRows:`
   const body = mode === 'full' ? page.map(fullRow).join('\n') : page.map((row, i) => summaryRow(row, i, columns)).join('\n')
   return `Page of ${page.length} rows; pick at most ${cap}.\n${head}\n${body}`
 }
 
-// Phase 5: one finalist, in full, against the request in full. An absolute scale this time, since
-// a caller may cut by it. The evidence is asked for twice over -- a sentence, and the span it rests
-// on copied word for word -- because the copy can be checked against the entry without another
-// call, and a span that is not there is a score reasoned about something the entry does not say.
+// Phase 5: the evidence is asked for as a sentence and as a span copied word for word, which can be
+// checked against the entry without another call
 export function scoreSystem(task) {
   return `You judge one candidate entry of a dataset against a request, under a task.
 ${taskLines(task)}
@@ -123,9 +103,7 @@ Return only JSON: {"score":<0-100>,"reason":"...","evidence":"..."}`
 
 export const candidateBlock = (row) => `Candidate:\n${row.entry}`
 
-// Phase 5b: the top finalists as one list, ordered. The list is shuffled between rounds, and the
-// prompt says so in as many words as it takes to keep the model from reading the order it was
-// handed as a hint; the rows are numbered on the list as a page's are, for the same reason.
+// Phase 5b: the prompt says the order carries nothing, as the list is shuffled between rounds
 export function rerankSystem(task) {
   return `You order a short list of candidate entries of a dataset by how well each matches a request, under a task.
 ${taskLines(task)}

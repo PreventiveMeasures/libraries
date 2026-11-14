@@ -1,20 +1,9 @@
 import { newTally } from './call.js'
 import { select } from './select.js'
 
-// A run measured against requests whose matches are known. The pipeline has a dozen knobs -- the
-// questions, the page size, the pick ceiling, the rounds, the final fraction, which model reads
-// what -- and no way to turn one without a number to turn it by. This is the number: for each
-// labelled request, how many of its known matches the run returned (recall), how much of what it
-// returned was a known match (precision), and how far down the first match came (reciprocal rank),
-// at the cut the caller would use.
-//
-// Each case is a request and the ids that match it. select() runs with no topK cut, so that a
-// match the run missed can be told apart by where it was lost: below the cut (it reached the
-// finalists and was scored under the ones that made it -- the scorer's or the reranker's loss) or
-// dropped (no stage carried it to the finalists at all -- the compaction's, the search's, or a gate
-// that asked for too little). The two call for different fixes, and a single recall would hide
-// which. A result stands for the ids it holds as duplicates too, so a labelled copy of a returned
-// entry counts as found.
+// A run measured against requests whose matches are known: recall, precision and reciprocal rank at the
+// cut. A miss is `belowCut` where it reached the finalists and was scored under it, `dropped` where no
+// stage carried it there, as the two call for different fixes; a result counts for its copies too.
 
 const ratio = (part, whole) => (whole === 0 ? 0 : part / whole)
 
@@ -53,10 +42,7 @@ function checkCases(cases) {
 
 const mean = (runs, key) => runs.reduce((sum, run) => sum + run[key], 0) / runs.length
 
-// `cases` are `{ request, relevant }`; `topK` is the cut the measures are taken at (every finalist
-// when omitted); everything else is select()'s, with the table. Cases run one after another --
-// each one fans out inside -- and `onCase` sees each as it lands. Returns the per-case runs, each
-// with the routing and stages its select() took, the means over them, and the one tally.
+// Cases one after another, each fanning out inside, select() with no cut so that a miss can be placed
 export async function evaluate({ cases, topK, onCase, tally = newTally(), ...options }) {
   checkCases(cases)
   const runs = []

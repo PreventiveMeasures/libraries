@@ -1,14 +1,10 @@
-// Reading the JSON a model was asked for out of what it actually sent. Every prompt in this package
-// ends with "return only JSON", and most answers comply; the rest wrap it in a code fence, put a
-// sentence before it, or both. None of that is an error worth a re-ask, so the parse finds the JSON
-// and ignores the rest. What SHAPE the JSON has is the caller's to check -- a page's picks, a row's
-// answers -- since that is where the question of what counts as valid lives.
+// The JSON a model was asked for, out of what it sent: a fence or a sentence around it is no error worth
+// a re-ask. Its shape is the caller's to check, where what counts as valid is known.
 
 const FENCE = /```(?:json)?\s*([\s\S]*?)```/u
 
-// The outermost value of one kind: from its first opening bracket to its last closing one. Tried
-// for an object first and an array second, so a sentence like "the picks [below]" ahead of an
-// object does not win over the object.
+// From the first opening bracket to the last closing one; an object is tried before an array, so
+// "the picks [below]" ahead of an object does not win over it
 function outermost(text, open, close) {
   const start = text.indexOf(open)
   if (start < 0) return null
@@ -32,27 +28,22 @@ export function extractJSON(text) {
   throw new SyntaxError('no JSON in the response')
 }
 
-// The shape checks the modules share. Each throws the message the retry nudge is built around, so
-// a model that sent the wrong shape is told what was expected rather than asked again blind.
+// Each shape check throws what was expected, which the re-ask then carries
 export function expectObject(value, what) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`expected a JSON object with ${what}`)
   return value
 }
 
-// A string trimmed, and anything else -- a number, null, an object -- as the empty string, so a
-// caller checks for text with one truthiness test and never reads `true` or `[object Object]`.
+// A string trimmed, and anything else as '', so `true` or an object never reads as text
 export const textOf = (value) => (typeof value === 'string' ? value.trim() : '')
 
-// A list of non-empty strings, each trimmed, with anything else in the list dropped rather than
-// refused: one blank answer among eight is not worth a re-ask, and the caller pads what is missing.
+// The non-empty strings of a list, trimmed; one blank answer among eight is not worth a re-ask
 export function stringList(value) {
   if (!Array.isArray(value)) return []
   return value.map(textOf).filter(Boolean)
 }
 
-// The same list where every member has to be a sentence: a list of questions, whose one malformed
-// member dropped would read as a shorter list that was asked for -- or, when it was the only one,
-// as no questions at all. Not an array, or any member that is not a non-empty string, throws.
+// The same, where every member has to be a sentence: a question dropped would read as fewer asked for
 export function sentenceList(value, what) {
   if (!Array.isArray(value)) throw new TypeError(`expected a list of ${what}`)
   const kept = stringList(value)
@@ -60,22 +51,30 @@ export function sentenceList(value, what) {
   return kept
 }
 
-// A score as the model sent it: a finite number, or a string holding one, which a model asked for a
-// number sometimes quotes. Anything else is undefined rather than coerced -- Number(null) is 0 and
-// Number(true) is 1, and either read as a score would demote a finalist for a malformed answer.
+// A finite number, or a string holding one, else undefined: Number(null) is 0 and Number(true) 1, and
+// either read as a score would demote a finalist for a malformed answer
 export function numberOf(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
   if (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/u.test(value.trim())) return Number(value)
   return undefined
 }
 
-// An ordinal on a page or a list of `size` rows -- a whole number from 1 to `size` -- or undefined:
-// numberOf's rules, so `true` or `[1]` is never read as the first row.
+// A whole number from 1 to `size` by numberOf's rules, so `true` or `[1]` is never the first row
 export function ordinalOf(value, size) {
   const n = numberOf(value)
   return n !== undefined && Number.isInteger(n) && n >= 1 && n <= size ? n : undefined
 }
 
-// One line, for a row rendered into a page: a summary the model wrote with a newline in it would
-// otherwise read as two rows.
+// The members of `list` whose `ordinal` is one on a page of `size`, each ordinal's first alone, as [n, member]
+export function distinctOrdinals(list, size, ordinal = (member) => member) {
+  const seen = new Set()
+  return list.flatMap((member) => {
+    const n = ordinalOf(ordinal(member), size)
+    if (n === undefined || seen.has(n)) return []
+    seen.add(n)
+    return [[n, member]]
+  })
+}
+
+// One line, so a summary with a newline in it does not read as two rows on a page
 export const oneLine = (text) => String(text ?? '').replace(/\s*\n\s*/gu, ' ').trim()

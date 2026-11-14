@@ -23,7 +23,8 @@ const files = [
 
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/gu
 
-const allowed = (specifier) => specifier.startsWith('node:') || specifier === '@preventive/ai' || specifier.startsWith('./')
+// The package's own name resolves inside it, as the usage examples in index.d.ts import it
+const allowed = (specifier) => specifier.startsWith('node:') || specifier === '@preventive/ai' || specifier === '@preventive/grid' || specifier.startsWith('./')
 
 describe('grid is self-contained', () => {
   it('covers the surface and every module behind it', () => {
