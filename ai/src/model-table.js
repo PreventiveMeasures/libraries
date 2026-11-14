@@ -21,8 +21,9 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // `longContext` bills every request at its base rates.
 //
 // OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on the gpt-6
-// trio, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of
-// those. The minis, nano and codex have none.
+// trio and gpt-6-cyber, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every
+// -pro row of those. The minis, nano and codex have none, nor gpt-5.6-cyber, whose input stops
+// at 272K.
 //
 // Of the Anthropic rows only haiku-5.5 takes one, inline: its two rate cards are 5x apart on every
 // leg past a 100K prompt. For the rest that is the published price rather than a gap: Opus, Sonnet
@@ -80,6 +81,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-6.1-terra-pro', { input: 1, output: 5, cacheReadPrice: 0.05, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6.1-terra', reasoningMode: 'pro' }],
   ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
   ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-6-cyber', { input: 20, output: 100, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, vendorOnly: true }],
   // 4 / 20 is Sol's PROMOTIONAL rate, which OpenAI's pricing page publishes as its table price and
   // says holds at least through 2026-11-21 -- the one promotion in the openai rows. Recheck after
   // that date: the rate it reverts to is not published, so a lapse cannot be priced in advance.
@@ -89,6 +91,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-5.6-terra-pro', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
   ['openai/gpt-5.6-luna-pro', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-cyber', { input: 12.5, output: 75, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, vendorOnly: true }],
   // From gpt-5.5 down to gpt-4o-mini, OpenAI bills a cache write as ordinary input -- the 1.25x
   // write arrived with GPT-5.6 -- so each of these rows names its input rate as `cacheWritePrice`.
   ['openai/gpt-5.5', { input: 5, output: 30, cacheWritePrice: 5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'explicit', efforts: EFFORTS_THROUGH_XHIGH }],

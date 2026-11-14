@@ -460,6 +460,10 @@ describe('no-think wire form', () => {
     ['openai/gpt-6.1-sol-pro', false, false],
     ['openai/gpt-6.1-terra', true, true],
     ['openai/gpt-6.1-terra-pro', false, false],
+    // OpenAI documents no effort levels or off switch for the cyber models,
+    // so they are never sent `none`.
+    ['openai/gpt-6-cyber', false, false],
+    ['openai/gpt-5.6-cyber', false, false],
     ['made/up-model', false, true],
   ]) {
     it(model, () => {
@@ -1109,6 +1113,50 @@ describe('newer OpenAI models (gpt-5.6 Sol / Terra / Luna)', () => {
   })
 })
 
+describe('gpt cyber', () => {
+  // Both need OpenAI's Daybreak Red access, and OpenRouter serves neither,
+  // so both rows are vendorOnly. With no `access_programs` sent, OpenAI
+  // selects daybreak_red for its Red models. Their pages list no effort
+  // levels and no off switch: the rows take the default ladder and never
+  // send `none`. Neither is documented for compaction.
+  const CYBER6 = 'openai/gpt-6-cyber'
+  const CYBER56 = 'openai/gpt-5.6-cyber'
+  const bill = (model, fields) => calculateCost(model, { ...emptyUsage(), ...fields })
+
+  it('prices at OpenAI\'s $20 / $100 and $12.50 / $75 per Mtok, reads at 0.10x and 30-minute writes at 1.25x', () => {
+    assert.equal(bill(CYBER6, { input: 100_000, output: 100_000 }), 2 + 10)
+    assert.equal(bill(CYBER6, { cacheRead: 100_000 }), 0.2)
+    assert.equal(bill(CYBER6, { cacheWrite5m: 100_000 }), 2.5)
+    assert.equal(bill(CYBER56, { input: 100_000, output: 100_000 }), 1.25 + 7.5)
+    assert.equal(bill(CYBER56, { cacheRead: 100_000 }), 0.125)
+    assert.equal(bill(CYBER56, { cacheWrite5m: 100_000 }), 1.5625)
+  })
+
+  it('bills gpt-6-cyber past 272K at 2x input and cache and 1.5x output, on the whole request', () => {
+    assert.equal(bill(CYBER6, { input: 300_000, output: 100_000 }), 12 + 15)
+    assert.equal(bill(CYBER6, { input: 200_000, cacheRead: 125_000 }), 8 + 0.5)
+  })
+
+  it('bills gpt-5.6-cyber flat, its input stopping at 272K', () => {
+    assert.equal(bill(CYBER56, { input: 1_000_000 }), 12.5)
+  })
+
+  it('takes 128K of output and explicit cache breakpoints, and no compaction', () => {
+    for (const model of [CYBER6, CYBER56]) {
+      assert.equal(getMaxTokens(model), 128_000, model)
+      assert.equal(readsCacheBreakpoint(model), true, model)
+      assert.equal(compactThresholdFor(model), undefined, model)
+    }
+  })
+
+  it('thinks with no off switch, on the default ladder', () => {
+    for (const model of [CYBER6, CYBER56]) {
+      assert.equal(canDisableThink(model), false, model)
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
+    }
+  })
+})
+
 describe('resolveModel (alias canonicalization)', () => {
   it('maps the gpt-5.6 alias to the concrete Sol tier', () => {
     assert.equal(resolveModel('openai/gpt-5.6'), 'openai/gpt-5.6-sol')
@@ -1518,9 +1566,10 @@ describe('effortsFor / EFFORT_LEVELS', () => {
 describe('supportedModels', () => {
   const ids = (provider, free) => supportedModels({ provider, free }).map((m) => m.id)
   const entry = (id, provider) => supportedModels({ provider }).find((m) => m.id === id)
-  // The rows only their vendor serves: Mythos needs Anthropic's verification,
-  // and OpenRouter carries none of it.
-  const VENDOR_ONLY = ['anthropic/claude-mythos-5.2', 'anthropic/claude-mythos-5.1', 'anthropic/claude-mythos-5']
+  // The rows only their vendor serves: Mythos needs Anthropic's verification
+  // and the cyber models OpenAI's Daybreak Red access, and OpenRouter carries
+  // none of them.
+  const VENDOR_ONLY = ['anthropic/claude-mythos-5.2', 'anthropic/claude-mythos-5.1', 'anthropic/claude-mythos-5', 'openai/gpt-6-cyber', 'openai/gpt-5.6-cyber']
 
   it('is re-exported from index.js', () => {
     assert.equal(ai.supportedModels, supportedModels)
@@ -1571,9 +1620,9 @@ describe('supportedModels', () => {
     }
   })
 
-  it('lists the Mythos rows on anthropic and with no provider named, and leaves them off openrouter', () => {
+  it('lists each vendor-only row on its vendor and with no provider named, and leaves it off openrouter', () => {
     for (const id of VENDOR_ONLY) {
-      assert.ok(ids('anthropic').includes(id), id)
+      assert.ok(ids(id.split('/')[0]).includes(id), id)
       assert.ok(ids().includes(id), id)
       assert.equal(ids('openrouter').includes(id), false, id)
     }
@@ -1677,7 +1726,7 @@ describe('compactThresholdFor', () => {
 
 describe('readsCacheBreakpoint', () => {
   it('is set for the gpt-5.6 family and gpt-6, aliases included', () => {
-    for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna', 'openai/gpt-5.6']) {
+    for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna', 'openai/gpt-5.6', 'openai/gpt-6-cyber', 'openai/gpt-5.6-cyber']) {
       assert.equal(readsCacheBreakpoint(model), true, model)
     }
   })

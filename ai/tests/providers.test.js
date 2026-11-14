@@ -761,6 +761,11 @@ describe('buildRequestBody — provider-specific shapes', () => {
       assert.equal(buildRequestBody('openai/gpt-5.4', 1000, 'sys', messages).reasoning, undefined)
       assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).reasoning, undefined)
       assert.equal(buildRequestBody('openai/gpt-6.1-sol', 1000, 'sys', messages).reasoning, undefined)
+      for (const [model, wire] of [['openai/gpt-6-cyber', 'gpt-6-cyber'], ['openai/gpt-5.6-cyber', 'gpt-5.6-cyber']]) {
+        const body = buildRequestBody(model, 1000, 'sys', messages)
+        assert.equal(body.model, wire, model)
+        assert.equal(body.reasoning, undefined, model)
+      }
       assert.deepEqual(buildRequestBody('openai/gpt-6-sol-pro', 1000, 'sys', messages).reasoning, { mode: 'pro' })
       assert.deepEqual(buildRequestBody('openai/gpt-6.1-terra-pro', 1000, 'sys', messages).reasoning, { mode: 'pro' })
     })
