@@ -1,37 +1,18 @@
 import { hashSeed, random } from './random.js'
 
-// Near-duplicate entries, found before anything is compacted. A dataset of twenty thousand entries
-// rarely holds twenty thousand distinct texts: the same document filed under several ids, a copy
-// with a header changed, a revision a paragraph apart. Left alone, each copy is compacted (paid
-// for once per copy), takes a seat on every page it lands on and in the finalist pool, and matches
-// whatever its twin matches, so a topK of ten can be one entry ten times over. Here the copies are
-// grouped once, by text alone and with no model call: buildTable compacts one of each group and
-// marks the rest, select searches the one, and a result names the ids it stands for.
-//
-// The method is the standard one (Broder 1997; Leskovec, Rajaraman and Ullman, "Mining of Massive
-// Datasets", ch. 3): a text as the set of its word shingles, Jaccard similarity between two sets as
-// the measure, a MinHash signature per text so that the similarity of two is read off a few dozen
-// integers, and banded locality-sensitive hashing so that only pairs likely to be similar are ever
-// compared. Exact copies -- the same words, whatever the case and punctuation -- are grouped before
-// any of that, by one hash of the folded text.
-//
-// Deterministic: the hash functions are fixed by a constant seed, so one dataset groups the same
-// way on every run, and the first entry of a group in input order is its canonical one. Memory is
-// one typed array of shingle hashes per distinct text (a few kilobytes for a few pages) and nothing
-// per word: the folded words of a text are dropped as soon as its shingles are taken.
+// Near-duplicate entries, grouped by text alone before anything is compacted, as each copy would be paid
+// for and take a seat on every page: word shingles, MinHash signatures and banded LSH choose which pairs
+// to compare by exact Jaccard (Broder 1997; Leskovec et al., "Mining of Massive Datasets", ch. 3).
 
-// The words of a text, case and punctuation folded away: a copy that differs by a comma is a copy.
+// Case and punctuation folded away: a copy that differs by a comma is a copy
 export const words = (text) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
 
 const FNV_OFFSET = 0x811C9DC5
 const FNV_PRIME = 0x01000193
 
-// The text as the sorted set of its 32-bit shingle hashes: each run of `k` words hashed as one,
-// FNV-style over the words' own hashes so that a shingle costs k multiplies rather than a string.
-// A text shorter than `k` words is one shingle, the whole of it; an empty text has none. Sorted
-// and distinct, in a typed array -- twenty thousand entries of a few pages are sixteen million
-// shingles, and a Set each would not fit where four bytes each do -- so that two texts' Jaccard is
-// one merge pass over them.
+// The sorted distinct 32-bit hashes of each run of `k` words, hashed over the words' own hashes; a text
+// under `k` words is one shingle. A typed array, as sixteen million shingles fit in four bytes each where
+// a Set each would not, and two sorted sets' Jaccard is one merge pass.
 export function shingles(list, k) {
   if (list.length === 0) return new Uint32Array(0)
   const wordHashes = Uint32Array.from(list, hashSeed)
@@ -44,17 +25,10 @@ export function shingles(list, k) {
     hashed[i] = h >>> 0
   }
   hashed.sort()
-  let kept = 0
-  for (let i = 0; i < hashed.length; i++) {
-    if (i === 0 || hashed[i] !== hashed[i - 1]) {
-      hashed[kept] = hashed[i]
-      kept += 1
-    }
-  }
-  return hashed.subarray(0, kept)
+  return hashed.filter((h, i) => i === 0 || h !== hashed[i - 1])
 }
 
-// |A ∩ B| / |A ∪ B| over two sorted distinct arrays; two empty sets count as identical.
+// |A and B| / |A or B| over two sorted distinct arrays; two empty sets count as identical
 export function jaccard(a, b) {
   let i = 0
   let j = 0
@@ -74,10 +48,8 @@ export function jaccard(a, b) {
   return union === 0 ? 1 : both / union
 }
 
-// murmur3's finaliser: a bijection on 32 bits that spreads one changed bit over all of them. One
-// hash function per salt -- the shingle XOR the salt, mixed -- which is a multiply cheaper than the
-// textbook (a·x + b) mod p in a language without 64-bit integers, and as good for taking a minimum
-// over a set.
+// murmur3's finaliser, one hash function per salt: cheaper than (a*x + b) mod p without 64-bit integers,
+// and as good for taking a minimum over a set
 function mix(value) {
   let h = value >>> 0
   h ^= h >>> 16
@@ -93,9 +65,8 @@ function saltsFor(count) {
   return Uint32Array.from({ length: count }, () => Math.floor(rng() * 4294967296))
 }
 
-// The MinHash signature: under every hash function, the least value it takes over the set. Two
-// sets' signatures agree in a position with probability equal to their Jaccard similarity, which is
-// the whole trick.
+// The least value of each hash function over the set: two signatures agree in a position with the
+// probability of their sets' Jaccard similarity
 function signature(set, salts) {
   const sig = new Uint32Array(salts.length).fill(0xFFFFFFFF)
   for (const shingle of set) {
@@ -107,8 +78,7 @@ function signature(set, salts) {
   return sig
 }
 
-// Disjoint sets over indices, the root of a set always its least index, so that the canonical
-// entry of a group is the first of it in input order without a pass to pick one.
+// Disjoint sets whose root is the least index, so a group's canonical entry is its first in input order
 function unionFind(size) {
   const parent = Array.from({ length: size }, (_, i) => i)
   const find = (index) => {
@@ -127,10 +97,8 @@ function unionFind(size) {
   return { find, unite }
 }
 
-// Exact copies, by a 32-bit hash of the folded text and -- since twenty thousand texts stand a
-// real chance of one hash collision among them -- the folded text itself recomputed on a hash
-// match, so that a collision is two distinct texts and never a group. Returns the shingle sets of
-// the distinct texts, by index; the folded words of each text live no longer than this loop.
+// Exact copies, by a hash of the folded text, which is compared again on a match, as twenty thousand
+// texts stand a real chance of a collision. Returns the distinct texts' shingle sets, by index.
 function exactPass(entries, shingle, unite) {
   const seen = new Map()
   const sets = new Map()
@@ -151,17 +119,13 @@ function exactPass(entries, shingle, unite) {
   return sets
 }
 
-// How many distinct groups one bucket is compared against before the rest of its members are
-// passed over. A bucket is a band's worth of signature, and a dataset built from one template
-// (letters, tickets, listings) can land thousands of entries in one, most of them not copies of
-// each other; comparing every member to every other would be the quadratic pass the hashing exists
-// to avoid. A member that matches none of the first few groups seen in a bucket is still found
-// through any other band it shares with its copy.
+// The groups a bucket keeps to compare against: a templated dataset can land thousands of entries in one,
+// and comparing all would be the quadratic pass hashing avoids. A copy still meets its original in
+// another band they share.
 const REPRESENTATIVES = 8
 
-// The near pass over the distinct texts: a signature each, banded into buckets, and each text
-// compared -- by exact Jaccard; the signature only chose whom -- with the groups already in its
-// buckets, united with the first one at or over the threshold.
+// Each distinct text compared by exact Jaccard with the groups in its buckets, and united with the first
+// at the threshold
 function nearPass({ sets, threshold, hashes, bands, find, unite }) {
   const salts = saltsFor(hashes)
   const rows = hashes / bands
@@ -193,19 +157,9 @@ function checkOptions({ threshold, shingle, hashes, bands }) {
   }
 }
 
-// `entries` are `{ id, text }` with distinct ids. Returns the groups of two or more as a Map from
-// the canonical id -- the first of the group in input order -- to the ids of its copies, in input
-// order; an entry in no group is absent.
-//
-// `threshold` (0.8) is the Jaccard similarity over word `shingle`-grams (5) at which two texts are
-// copies: at five words a shingle, one word changed in a hundred leaves them at 0.9, three words
-// changed apart from each other at 0.73. `hashes` (64) and `bands` (16) shape the hashing: a pair
-// shares a bucket when all `hashes / bands` positions of one band agree, which a pair at similarity
-// s does with probability 1 - (1 - s^4)^16 -- all but certain at 0.8, one in sixteen at 0.3 --
-// and the exact similarity then decides, so the defaults trade a few needless comparisons for
-// missing next to nothing at the threshold. The cost is `hashes` mixes per shingle: of the order
-// of ten seconds over twenty thousand entries of two pages each, once per dataset, against the
-// hours the compaction of them takes.
+// A Map from each group's first id in input order to its copies' ids. At five-word shingles one word in
+// a hundred changed leaves 0.9 against the 0.8 threshold; a pair at similarity s shares a bucket with
+// probability 1 - (1 - s^4)^16 under the defaults: all but certain at 0.8, one in sixteen at 0.3.
 export function groupDuplicates(entries, { threshold = 0.8, shingle = 5, hashes = 64, bands = 16 } = {}) {
   checkOptions({ threshold, shingle, hashes, bands })
   if (new Set(entries.map((entry) => entry.id)).size !== entries.length) throw new TypeError('groupDuplicates: entry ids must be distinct')

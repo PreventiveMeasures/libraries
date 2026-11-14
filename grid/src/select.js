@@ -6,25 +6,16 @@ import { gate } from './schema.js'
 import { score } from './score.js'
 import { narrow } from './search.js'
 
-// The whole pipeline for one request against one table: the gate, the extra columns or the
-// full-text pass it asked for, the narrowing search over summaries, the full-text scoring of what
-// is left, and the listwise ordering of the top of that. The table (`rows`, with the `questions`
-// and `focus` it was compacted under) comes from buildTable and is shared by every request;
-// everything here is per request.
-//
-// Three models, because three kinds of work: `strong` reads the request and the finalists, and
-// decides the schema; `search` reads pages of summaries, hundreds of them per request; `cheap`
-// does whatever the gate sends over the WHOLE dataset again, which is the one place volume rules.
-// Each defaults to the one before it, so naming only `strong` runs everything on it.
+// The pipeline for one request against a shared table: the gate, the extra columns or full-text pass it
+// asks for, the search, the full-text scoring and the listwise ordering. `strong` reads the request and
+// the finalists, `search` the pages, `cheap` whatever goes over the whole dataset again.
 
 const resolveModels = ({ strong = DEFAULT_MODEL, search = strong, cheap = search } = {}) => ({ strong, search, cheap })
 
-// How many rows the full-text stage reads: `final` of the table, but never under `minFinal`, since
-// a small table narrowed to one percent would hand the last stage a single row.
+// `final` of the table, never under `minFinal`: a small table at one percent would be one row
 const finalTarget = (count, final, minFinal) => Math.min(count, Math.max(minFinal, Math.ceil(count * final)))
 
-// Extra columns for this request, appended to every row's answers behind the task's own, under the
-// `x` ids the gate gave them; the row's own fields are untouched, since the table is shared.
+// The request's extra answers after each row's own, on copies, as the table is shared
 async function supplement({ task, rows, extraQuestions, model, ...rest }) {
   const entries = rows.map((row) => ({ id: row.id, text: row.entry }))
   const extra = await compact({ task, questions: extraQuestions, entries, model, summarize: false, ...rest })
@@ -32,10 +23,8 @@ async function supplement({ task, rows, extraQuestions, model, ...rest }) {
   return rows.map((row) => ({ ...row, answers: [...row.answers, ...byId.get(row.id)] }))
 }
 
-// Two candidate lists into one, by id. The lists are ranked on different evidence (summaries by one
-// model, entries by a cheaper one), so nothing is summed: a row in both keeps whichever reading
-// gave it more votes, then the higher mean score, since that is the tie-break the scoring stage
-// reads back. The scoring stage ranks the union on its own scale either way.
+// The two lists ranked on different evidence, so nothing is summed: a row in both keeps the reading with
+// more votes, then the higher mean score
 export function union(first, second) {
   const byId = new Map(first.map((entry) => [entry.row.id, entry]))
   for (const entry of second) {
@@ -46,10 +35,8 @@ export function union(first, second) {
   return [...byId.values()]
 }
 
-// `rerank` is the window and rounds of the listwise pass, or false to keep the pointwise order.
-// A copy is told by the property being set, not by its value: an id can be the empty string.
-// Rows marked as a copy of another (`dupOf`, set by buildTable) are never searched or scored: the
-// row they copy is, and carries their ids out in the result.
+// A copy (`dupOf` set, whatever its value, as an id can be '') is never searched or scored: its original
+// is, and carries its id out in the result
 export async function select({ task, focus, questions, rows, request, models, topK, final = 0.01, minFinal = 20, useGate = true, search: searchOpts = {}, rerank: rerankOpts = {}, concurrency = 20, think, effort, tally = newTally(), ask }) {
   const { strong, search: searchModel, cheap } = resolveModels(models)
   const shared = { task, request, concurrency, think, effort, tally, ask }
@@ -60,29 +47,20 @@ export async function select({ task, focus, questions, rows, request, models, to
     ? await gate({ task, focus, questions, request, model: strong, think, effort, tally, ask })
     : { extraQuestions: [], fullScan: false, reason: 'gate skipped' }
 
-  let columns = questions
-  let table = live
-  if (routing.extraQuestions.length > 0) {
-    columns = [...questions, ...routing.extraQuestions]
-    table = await supplement({ task, rows: live, extraQuestions: routing.extraQuestions, model: cheap, concurrency, think, effort, tally, ask })
-  }
+  const extra = routing.extraQuestions.length > 0
+  const columns = extra ? [...questions, ...routing.extraQuestions] : questions
+  const table = extra ? await supplement({ task, rows: live, extraQuestions: routing.extraQuestions, model: cheap, concurrency, think, effort, tally, ask }) : live
 
-  // Extra columns make every page this request's own, so there is no shared page prefix left to
-  // keep and the request is the prefix from the first stage on; a caller's explicit choice still wins.
-  const supplemented = table !== live
+  // Extra columns make every page this request's own, so the request leads from the first stage on
   const narrowed = await narrow({
-    ...shared, ...searchOpts, requestFirst: searchOpts.requestFirst ?? supplemented,
+    ...shared, ...searchOpts, requestFirst: searchOpts.requestFirst ?? extra,
     rows: table, columns, model: searchModel, target, mode: 'summary', label: 'search',
   })
-  let candidates = narrowed.candidates
-  let fullStages = []
-  if (routing.fullScan) {
-    const full = await narrow({ ...shared, ...searchOpts, rows: table, model: cheap, target, mode: 'full', requestFirst: true, label: 'full' })
-    candidates = union(candidates, full.candidates)
-    fullStages = full.stages
-  }
+  const full = routing.fullScan
+    ? await narrow({ ...shared, ...searchOpts, rows: table, model: cheap, target, mode: 'full', requestFirst: true, label: 'full' })
+    : { candidates: [], stages: [] }
 
-  const ranked = await score({ ...shared, candidates, model: strong })
+  const ranked = await score({ ...shared, candidates: union(narrowed.candidates, full.candidates), model: strong })
   const listed = rerankOpts === false
     ? { results: ranked, reranked: 0 }
     : await rerank({ ...shared, ...rerankOpts, results: ranked, rows: live, model: strong })
@@ -91,7 +69,7 @@ export async function select({ task, focus, questions, rows, request, models, to
     reranked: listed.reranked,
     gate: routing,
     stages: narrowed.stages,
-    fullStages,
+    fullStages: full.stages,
     tally,
   }
 }
