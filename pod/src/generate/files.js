@@ -2,11 +2,7 @@
 
 import { extname, posix } from 'node:path'
 
-import { glob } from '../pathlist.js'
-
-// Xcodeproj's header extensions, and FileAccessor's source extensions.
-export const HEADERS = ['.h', '.hh', '.hpp', '.ipp', '.tpp', '.hxx', '.def', '.inl', '.inc']
-export const SOURCES = ['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS]
+import { HEADERS, SOURCES, glob } from '../pathlist.js'
 const DIR_PATTERNS = { source_files: `*{${SOURCES.join(',')}}`, public_header_files: `*{${HEADERS.join(',')}}` }
 
 const unique = (paths) => [...new Set(paths)]

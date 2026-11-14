@@ -34,7 +34,7 @@ function platformOf(specs, name, framework) {
 function podTarget(pod, platformName, options) {
   const where = `pods[${quote(pod.name)}]`
   const root = rootOf(pod.root, where)
-  const specs = [...pod.specs].sort(byBytes).map((name) => specNamed(pod.root, name) ?? fail(`its podspec has no ${quote(name)}, which the lockfile installs`, where))
+  const specs = [...pod.specs].sort(byBytes).map((name) => specNamed(pod.root, name) ?? fail(`its podspec has no ${quote(name)}`, where))
   for (const spec of specs) if (!supports(spec, platformName)) fail(`${quote(spec.name)} is not for ${platformName}`, where)
   // Analyzer#determine_build_type: a framework under `use_frameworks!`, static by it or by the podspec.
   const framework = options.linkage !== false
@@ -100,7 +100,7 @@ function embeddedPods(host, aggregates) {
 export function analyze(pods, user, config) {
   const platformName = config.platform.name
   const integrated = user.targets.filter((target) => target.label !== undefined)
-  if (integrated.length === 0) fail('the app\'s project has no target that takes pods: none has a Pods-<name> xcconfig for its configurations')
+  if (integrated.length === 0) fail('the app\'s project has no target with a Pods-<name> xcconfig')
   const swiftVersions = [...new Set(integrated.map((target) => target.swiftVersion).filter((version) => version !== undefined))]
   const podTargets = pods.map((pod) => podTarget(pod, platformName, {
     linkage: config.frameworks,

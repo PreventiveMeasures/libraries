@@ -66,6 +66,6 @@ export function readXcframework(dir, specName, where) {
   }).sort((a, b) => byBytes(a.identifier, b.identifier))
   const name = basename(dir, '.xcframework')
   const other = slices.find((slice) => slice.framework && basename(slice.path, '.framework') !== name)
-  if (other !== undefined) throw new PodError(`${quote(basename(dir))} holds the framework ${quote(basename(other.path))}, which is not of its name: a framework of an .xcframework is linked and embedded by the .xcframework's name, here ${quote(`${name}.framework`)}, which nothing is found by. The two have to be named alike`, where)
+  if (other !== undefined) throw new PodError(`${quote(basename(dir))} holds ${quote(basename(other.path))}, not ${quote(`${name}.framework`)}`, where)
   return { name, dir, targetName: specName, slices, framework: slices[0].framework, dynamic: slices[0].dynamic }
 }

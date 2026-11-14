@@ -82,13 +82,13 @@ const EMBEDS = new Set(['application', 'unit_test_bundle', 'ui_test_bundle', 'wa
 function checkIntegration(aggregates, files) {
   for (const { label, userTarget } of aggregates) {
     const where = `targets[${JSON.stringify(userTarget.name)}]`
-    const again = 'the project is integrated for other pods than the lockfile has, and has to be integrated again'
+    const again = 'integrate the project again'
     const phased = { resources: userTarget.productType !== 'static_library', frameworks: EMBEDS.has(userTarget.productType) }
     for (const [kind, what] of [['resources', 'resources to copy'], ['frameworks', 'frameworks to embed']]) {
       const path = `${label}/${label}-${kind}.sh`
       const [written, run] = [files.has(`Target Support Files/${path}`), userTarget.scripts.includes(path)]
-      if (run && !written) throw new PodError(`a phase of it in the app's project runs ${label}-${kind}.sh, which its pods have no more use for and is not written: ${again}, or the phase taken out of it`, where)
-      if (written && !run && phased[kind]) throw new PodError(`its pods have ${what}, and no phase of it in the app's project runs ${label}-${kind}.sh, which does it: ${again}`, where)
+      if (run && !written) throw new PodError(`a phase runs ${label}-${kind}.sh, which its pods no longer need: ${again}`, where)
+      if (written && !run && phased[kind]) throw new PodError(`its pods have ${what}, but no phase runs ${label}-${kind}.sh: ${again}`, where)
     }
   }
 }

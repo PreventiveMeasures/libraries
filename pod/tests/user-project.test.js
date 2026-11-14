@@ -30,6 +30,6 @@ describe('readUserProject', () => {
 
   it('refuses a target whose configurations are of more than one Pods target, or some of none', () => {
     const mixed = TEXT.replaceAll('Pods-defaults-App.release.xcconfig', 'Pods-defaults-Other.release.xcconfig')
-    assert.throws(() => readUserProject(mixed, 'App.xcodeproj'), /targets\["App"\]: its configurations are based on the xcconfigs of more than one Pods target, or some on none/u)
+    assert.throws(() => readUserProject(mixed, 'App.xcodeproj'), /targets\["App"\]: its configurations are not all based on one Pods xcconfig/u)
   })
 })

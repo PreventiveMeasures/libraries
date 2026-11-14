@@ -45,9 +45,9 @@ describe('a podspec of a React Native module', () => {
     same(['0.88.0', '0.88.1'])
     assert.equal(new Set(['0.78.3', '0.83.9', '0.85.1', '0.88.1'].map((reactNative) => convert(source, { reactNative, frameworks: 'static', prebuilt: { core: true } }).forms[1])).size, 4)
     for (const reactNative of ['0.77.3', '0.78.4', '0.79.0', '0.83.11', '0.84.1', '0.86.1', '0.87.0', '0.88.2', '0.89.0-rc.1', '1000.0.0']) {
-      assert.throws(() => convert(source, { reactNative }), (error) => error.name === 'PodError' && error.message === `pods["Name"]: line 3: \`install_modules_dependencies\` is React Native's, which is known only of React Native 0.78.0 to 0.78.3, 0.83.0 to 0.83.10, 0.85.0 to 0.86.3, 0.88.0 and 0.88.1: the lockfile has React-Core at ${reactNative}`, reactNative)
+      assert.throws(() => convert(source, { reactNative }), (error) => error.name === 'PodError' && error.message === `pods["Name"]: line 3: \`install_modules_dependencies\` needs React Native 0.78.0 to 0.78.3, 0.83.0 to 0.83.10, 0.85.0 to 0.86.3, 0.88.0 and 0.88.1, not ${reactNative}`, reactNative)
     }
-    assert.throws(() => convert(source), /line 3: `install_modules_dependencies` is React Native's, .*: the lockfile has no React-Core/u)
+    assert.throws(() => convert(source), /line 3: `install_modules_dependencies` needs React Native .*, and the lockfile has none$/u)
     assert.throws(() => convert(spec('  install_modules_dependencies(t)\n'), { reactNative: '0.78.3' }), /line 3: `t`/u)
     assert.throws(() => convert(spec("  install_modules_dependencies('s')\n"), { reactNative: '0.78.3' }), /line 3: a helper given what it does not take/u)
     assert.throws(() => convert(spec('  podspec_sources([], [])\n'), { reactNative: '0.78.3' }), /line 3: `podspec_sources`, which React Native 0\.78\.3 has not/u)
@@ -101,9 +101,9 @@ describe('a podspec of a React Native module', () => {
     assert.deepEqual(summary({ reactNative: '0.88.1', frameworks: 'dynamic', env: { RCT_NEW_ARCH_ENABLED: null, USE_HERMES: '0', OTHER: 'x' } }), ['|dynamic|0|0|x', ['RCT_NEW_ARCH_ENABLED not set', 'USE_FRAMEWORKS=dynamic', 'USE_HERMES=0', 'RCT_USE_RN_DEP=0', 'OTHER=x']])
     // Of a React Native that is not known, only what is given is known; and what the Podfile gave never is.
     assert.deepEqual(summary({ reactNative: '0.79.0', env: { RCT_NEW_ARCH_ENABLED: '1', USE_FRAMEWORKS: null, USE_HERMES: null, RCT_USE_RN_DEP: null, OTHER: null } })[0], '1||||')
-    assert.throws(() => convert(source, { reactNative: '0.79.0', env: { RCT_NEW_ARCH_ENABLED: '1' } }), /line 3: `ENV\['USE_FRAMEWORKS'\]` is not given by pod\.config\.json's `env`, and is then as React Native leaves it, which is known only of React Native 0\.78\.0 .*: the lockfile has React-Core at 0\.79\.0/u)
+    assert.throws(() => convert(source, { reactNative: '0.79.0', env: { RCT_NEW_ARCH_ENABLED: '1' } }), /line 3: `ENV\['USE_FRAMEWORKS'\]` without pod\.config\.json's `env` needs React Native 0\.78\.0 .*, not 0\.79\.0$/u)
     const app = spec("  s.summary = ENV['APP_PATH']\n")
-    assert.throws(() => convert(app, { reactNative: '0.85.1' }), /line 3: `ENV\['APP_PATH'\]` is as the Podfile had it, which pod\.config\.json's `env` has to give/u)
+    assert.throws(() => convert(app, { reactNative: '0.85.1' }), /line 3: `ENV\['APP_PATH'\]` comes from the Podfile: give it in pod\.config\.json's `env`/u)
     assert.equal(parsed(app, { reactNative: '0.85.1', env: { APP_PATH: '..' } }).summary, '..')
     assert.equal(parsed(app).summary, null)
   })
@@ -113,7 +113,7 @@ describe('a podspec of a React Native module', () => {
     const { summary, description, platforms } = parsed(spec(body), { reactNative: '0.78.3' })
     assert.deepEqual([summary, description, platforms], ['defined', 'responds', { ios: '15.1' }])
     assert.deepEqual([parsed(spec(body)).summary, parsed(spec(body)).description, Object.keys(parsed(spec(body)).platforms).length], ['not', 'not', 5])
-    assert.throws(() => convert(spec(body), { reactNative: '0.80.0' }), /line 3: `install_modules_dependencies` is React Native's, .*: the lockfile has React-Core at 0\.80\.0/u)
-    assert.throws(() => convert(spec('  s.platforms = { :ios => min_ios_version_supported }\n')), /line 3: `min_ios_version_supported` is React Native's, .*: the lockfile has no React-Core/u)
+    assert.throws(() => convert(spec(body), { reactNative: '0.80.0' }), /line 3: `install_modules_dependencies` needs React Native .*, not 0\.80\.0$/u)
+    assert.throws(() => convert(spec('  s.platforms = { :ios => min_ios_version_supported }\n')), /line 3: `min_ios_version_supported` needs React Native .*, and the lockfile has none$/u)
   })
 })

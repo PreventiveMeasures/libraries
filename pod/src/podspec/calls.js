@@ -46,7 +46,7 @@ function reactNativeOf(p, token, what) {
   const version = p.context.reactNative
   const known = version === undefined ? undefined : reactNative(version)
   if (known !== undefined) return known
-  throw new PodError(`line ${token.line}: ${what}, which is known only of React Native ${KNOWN}: the lockfile has ${version === undefined ? 'no React-Core' : `React-Core at ${version}`}`, p.where)
+  throw new PodError(`line ${token.line}: ${what} needs React Native ${KNOWN}, ${version === undefined ? 'and the lockfile has none' : `not ${version}`}`, p.where)
 }
 
 // `ENV['NAME']`: as pod.config.json's `env` gives it; else as the lockfile's React Native leaves it once
@@ -55,8 +55,8 @@ export function environment(p, name, token) {
   let value = null
   if (p.context.env.has(name)) value = p.context.env.get(name)
   else if (p.context.reactNative !== undefined) {
-    const known = reactNativeOf(p, token, `\`ENV['${name}']\` is not given by pod.config.json's \`env\`, and is then as React Native leaves it`)
-    if (known.podfile.has(name)) throw new PodError(`line ${token.line}: \`ENV['${name}']\` is as the Podfile had it, which pod.config.json's \`env\` has to give`, p.where)
+    const known = reactNativeOf(p, token, `\`ENV['${name}']\` without pod.config.json's \`env\``)
+    if (known.podfile.has(name)) throw new PodError(`line ${token.line}: \`ENV['${name}']\` comes from the Podfile: give it in pod.config.json's \`env\``, p.where)
     value = known.env(p.context)[name] ?? null
   }
   p.env.set(name, value)
@@ -80,7 +80,7 @@ export function global(p, token) {
 
 // The helper of the lockfile's React Native, or undefined where that version has none of the name.
 function helperOf(p, token, name = token.value) {
-  return reactNativeOf(p, token, `\`${name}\` is React Native's`).helpers[name]
+  return reactNativeOf(p, token, `\`${name}\``).helpers[name]
 }
 
 // One of React Native's helpers, called with `args` in their places and `options` by name.

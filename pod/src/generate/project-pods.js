@@ -6,7 +6,8 @@ import { extname, join, posix } from 'node:path'
 
 import { PodError, quote } from '../error.js'
 import { compareVersions } from '../order.js'
-import { SOURCES as SOURCE_EXTENSIONS, developerFiles } from './files.js'
+import { SOURCES as SOURCE_EXTENSIONS } from '../pathlist.js'
+import { developerFiles } from './files.js'
 import { COMPILED, addDataModel, addKnownRegions, addLocalized, allowablePaths, isLproj, mergeDocc, resourceRefs } from './project-resources.js'
 import { addFile, addSystemFramework, configurationsOf, groupNamed, newAggregateTarget, newFile, newGroup, newPhase, newTarget, phaseOf, setAll, targetDefaults } from './project.js'
 import { XCFRAMEWORKS_DIR } from './settings.js'
@@ -155,7 +156,7 @@ function addBundles(project, target, addSupport) {
   const [twice] = named.find(([name], at) => named.findIndex(([other]) => other === name) !== at) ?? []
   if (twice !== undefined) {
     const specs = named.filter(([name]) => name === twice).map(([, spec]) => spec)
-    throw new PodError(`the resource bundle ${quote(twice)} is of more than one of its specs, ${specs.join(' and ')}, which CocoaPods writes no sound project for: two targets of one id`, target.where)
+    throw new PodError(`the resource bundle ${quote(twice)} is in more than one spec: ${specs.join(' and ')}`, target.where)
   }
   for (const accessor of target.accessors) {
     for (const [name, paths] of Object.entries(accessor.resourceBundles)) {
@@ -226,7 +227,7 @@ function addScriptPhases(native, target, addSupport, lists) {
 // PodTargetInstaller#add_swift_library_compatibility_header_phase: a Swift library's generated header, put
 // where importers find it, with a module map that names it.
 function compatibilityHeaderPhase(target) {
-  if (target.accessors.some((accessor) => accessor.moduleMap !== undefined)) throw new PodError('a Swift pod built as a static library with a module map of its own is not supported, as CocoaPods refuses it', target.where)
+  if (target.accessors.some((accessor) => accessor.moduleMap !== undefined)) throw new PodError('a Swift static library with its own module map is not supported', target.where)
   const moduleMap = `\${PODS_ROOT}/${target.moduleMapLink}`
   const umbrella = `\${PODS_ROOT}/${posix.join(posix.dirname(target.moduleMapLink), `${target.label}-umbrella.h`)}`
   const generated = '${DERIVED_SOURCES_DIR}/${PRODUCT_MODULE_NAME}-Swift.h'

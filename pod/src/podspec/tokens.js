@@ -9,7 +9,7 @@ const PUNCTUATION = ['=>', '==', '!=', '&&', '&.', '||', '<<', '<=', '>=', '+=',
 const REFUSED = /^(?:===|=~|!~|-=|->|\|\|=|&&=|<<=|<=>|>>)/u
 
 function fail(t, what) {
-  throw new PodError(`line ${t.line}: ${what}, which is not in the form of a podspec that is read without Ruby`, t.where)
+  throw new PodError(`line ${t.line}: ${what}, which is not read without Ruby`, t.where)
 }
 const push = (t, type, value, extra) => t.tokens.push({ type, value, line: t.line, ...extra })
 const lineEnd = (t) => (t.source.indexOf('\n', t.at) === -1 ? t.source.length : t.source.indexOf('\n', t.at))

@@ -7,7 +7,7 @@ export const peek = (p) => p.tokens[p.at]
 export const next = (p) => p.tokens[p.at++]
 export const is = (p, type, value) => peek(p).type === type && (value === undefined || peek(p).value === value)
 export function fail(p, what, token = peek(p)) {
-  throw new PodError(`line ${token.line}: ${what}, which is not in the form of a podspec that is read without Ruby`, p.where)
+  throw new PodError(`line ${token.line}: ${what}, which is not read without Ruby`, p.where)
 }
 export function expect(p, type, value) {
   if (!is(p, type, value)) fail(p, `\`${peek(p).value ?? peek(p).type}\` where \`${value ?? type}\` is expected`)

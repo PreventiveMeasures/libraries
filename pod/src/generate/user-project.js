@@ -26,7 +26,7 @@ const PRODUCT_TYPES = {
 function common(objects, lists, key, where) {
   const [own, project] = lists.map((list) => objects[list].buildConfigurations.map((id) => objects[id]))
   const values = new Set(own.map((configuration) => configuration.buildSettings[key] ?? project.find((other) => other.name === configuration.name)?.buildSettings[key]))
-  if (values.size > 1) throw new PodError(`its configurations have ${key} as ${[...values].map((value) => quote(String(value))).join(' and ')}, of which CocoaPods takes one`, where)
+  if (values.size > 1) throw new PodError(`its configurations differ in ${key}: ${[...values].map((value) => quote(String(value))).join(' and ')}`, where)
   return [...values][0]
 }
 
@@ -51,7 +51,7 @@ export function readUserProject(text, where) {
     const at = `${where}: targets[${quote(target.name)}]`
     const own = objects[target.buildConfigurationList].buildConfigurations.map((id) => objects[id])
     const labels = new Set(own.map((configuration) => labelOf(objects[configuration.baseConfigurationReference]?.path, configuration.name)))
-    if (labels.size > 1) throw new PodError('its configurations are based on the xcconfigs of more than one Pods target, or some on none', at)
+    if (labels.size > 1) throw new PodError('its configurations are not all based on one Pods xcconfig', at)
     const lists = [target.buildConfigurationList, project.buildConfigurationList]
     const phases = (target.buildPhases ?? []).map((id) => objects[id]).filter((phase) => phase?.isa === 'PBXShellScriptBuildPhase')
     const dependencies = (target.dependencies ?? []).map((one) => objects[one]?.target ?? objects[objects[one]?.targetProxy]?.remoteGlobalIDString)
