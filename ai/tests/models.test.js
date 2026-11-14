@@ -420,6 +420,8 @@ describe('no-think wire form', () => {
     ['openai/gpt-5.5-pro', false, false],
     ['openai/gpt-5.4-pro', false, false],
     ['openai/gpt-5.3-codex', false, false],
+    // Google's lowest level is minimal, near-off rather than off.
+    ['google/gemini-3.5-flash-lite', false, false],
     ['google/gemini-3.1-flash-lite-preview', true, true],
     ['google/gemini-4-carbon', false, false],
     ['google/gemini-4-argon', false, false],
@@ -637,6 +639,31 @@ describe('gemini flash', () => {
     for (const m of ['google/gemini-3.8-flash', 'google/gemini-3.1-flash-lite-preview', 'google/gemini-3.1-pro-preview']) {
       assert.equal(canThink(m), true, m)
     }
+  })
+})
+
+describe('gemini 3.5 flash-lite', () => {
+  // Google's levels run minimal to high, defaulting to minimal, which is
+  // near-off rather than off. The table has no rung for minimal, so the row
+  // offers low to high and sends no off switch: leaving the level out keeps
+  // it at minimal.
+  const LITE = 'google/gemini-3.5-flash-lite'
+  const bill = (field) => calculateCost(LITE, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("prices at Google's $0.30 / $2.50 per Mtok, with cached input at the usual $0.03", () => {
+    assert.equal(bill('input'), 0.3)
+    assert.equal(bill('output'), 2.5)
+    assert.equal(bill('cacheRead'), 0.03)
+  })
+
+  it('registers its 65,536-token output limit', () => {
+    assert.equal(getMaxTokens(LITE), 64 * 1024)
+  })
+
+  it('thinks with no off switch, at low, medium or high', () => {
+    assert.equal(canThink(LITE), true)
+    assert.equal(canDisableThink(LITE), false)
+    assert.deepEqual(effortsFor(LITE), ['low', 'medium', 'high'])
   })
 })
 

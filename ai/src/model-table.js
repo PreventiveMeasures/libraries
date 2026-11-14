@@ -111,6 +111,7 @@ export const MAIN_MODELS = [
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemma-4-31b-it', { input: 0.14, output: 0.4, maxTokens: 128 * 1024 }],
   ['google/gemma-4-26b-a4b-it', { input: 0.13, output: 0.4, maxTokens: 128 * 1024 }],
+  ['google/gemini-3.5-flash-lite', { input: 0.3, output: 2.5, maxTokens: 64 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['nvidia/nemotron-3.5-super-vl', { input: 0.1, output: 0.4, cacheReadPrice: 0.08, maxTokens: 128 * 1024, noThink: 'explicit', efforts: [] }],
