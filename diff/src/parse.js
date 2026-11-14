@@ -155,7 +155,11 @@ function readSide(lines, at, tag) {
   for (; i < lines.length; i++) {
     const raw = lines[i]
     if (CONTEXT_FENCE.test(raw) || CONTEXT_OLD.test(raw) || CONTEXT_NEW.test(raw)) break
-    if (isNoNewline(raw)) { const last = out.at(-1); last.text = chop(last.text); continue }
+    if (isNoNewline(raw)) {
+      if (out.length === 0) throw new PatchError('a no-newline marker follows no line', i)
+      out.at(-1).text = chop(out.at(-1).text)
+      continue
+    }
     const mark = raw === '\n' ? ' ' : raw[0]
     if (mark !== ' ' && mark !== '!' && mark !== '-' && mark !== '+') break
     out.push({ tag: mark === ' ' ? ' ' : tag, text: raw === '\n' ? raw : raw.slice(2) })
@@ -168,11 +172,11 @@ function interleave(lhs, rhs) {
   const out = []
   let i = 0, j = 0
   while (i < lhs.length || j < rhs.length) {
-    if (lhs[i]?.tag === ' ' && rhs[j]?.tag === ' ') { out.push(lhs[i]); i++; j++; continue }
-    while (i < lhs.length && lhs[i].tag !== ' ') { out.push(lhs[i]); i++ }
-    while (j < rhs.length && rhs[j].tag !== ' ') { out.push(rhs[j]); j++ }
-    if (lhs[i]?.tag === ' ' && rhs[j] === undefined) { out.push(lhs[i]); i++ }
-    else if (rhs[j]?.tag === ' ' && lhs[i] === undefined) { out.push(rhs[j]); j++ }
+    if (lhs[i]?.tag === ' ' && rhs[j]?.tag === ' ') { out.push(lhs[i++]); j++; continue }
+    while (i < lhs.length && lhs[i].tag !== ' ') out.push(lhs[i++])
+    while (j < rhs.length && rhs[j].tag !== ' ') out.push(rhs[j++])
+    if (lhs[i]?.tag === ' ' && rhs[j] === undefined) out.push(lhs[i++])
+    else if (rhs[j]?.tag === ' ' && lhs[i] === undefined) out.push(rhs[j++])
   }
   return out
 }

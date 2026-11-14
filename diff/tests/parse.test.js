@@ -148,6 +148,7 @@ describe('what cannot be read is refused, and says where', () => {
     ['a normal hunk missing its separator', '1c1\n< a\n> b\n'],
     ['a normal hunk whose range counts backwards', '5,2c1\n< a\n---\n> b\n'],
     ['a context hunk with no new-side range', '***************\n*** 1 ****\n! a\n'],
+    ['a context side opening with a no-newline marker', '***************\n*** 1 ****\n\\ No newline at end of file\n--- 1 ----\n'],
   ]) {
     it(name, () => {
       assert.throws(() => parseDiff(text), PatchError, name)
@@ -170,31 +171,22 @@ describe('what cannot be read is refused, and says where', () => {
 
 describe('applying a change set', () => {
   const a = splitRecords('a\nb\nc\n'), b = splitRecords('a\nX\nc\n')
-  it('takes the replacement from the second file', () => {
-    assert.deepEqual(applyRecords(a, diffLines(a, b), b), b)
-  })
-  it('takes it from the block when the block carries its own', () => {
+  it('takes the lines each block carries', () => {
     assert.deepEqual(applyRecords(a, parseDiff('2c2\n< b\n---\n> X\n')[0].blocks), b)
+    assert.deepEqual(applyRecords(a, diffLines(a, b).map((block) => ({ ...block, insert: b.slice(block.b0, block.b1) }))), b)
   })
   it('is the identity on an empty change set', () => {
-    assert.deepEqual(applyRecords(a, [], b), a)
+    assert.deepEqual(applyRecords(a, []), a)
   })
   it('carries out a block of any size, past what a spread into push takes', () => {
     const lines = Array.from({ length: 300000 }, (_, i) => `${i}\n`)
     assert.equal(applyChangeSet('', [{ a0: 0, a1: 0, b0: 0, b1: lines.length, remove: [], insert: lines }]), lines.join(''))
   })
-  it('refuses a block it cannot fill', () => {
+  it('refuses a block with no lines to insert', () => {
     assert.throws(() => applyRecords(a, [{ a0: 1, a1: 2, b0: 1, b1: 2 }]), DiffError)
   })
   it('refuses blocks out of order or out of range', () => {
-    assert.throws(() => applyRecords(a, [{ a0: 2, a1: 3, b0: 0, b1: 0 }, { a0: 0, a1: 1, b0: 0, b1: 0 }], b), DiffError)
-    assert.throws(() => applyRecords(a, [{ a0: 0, a1: 9, b0: 0, b1: 0 }], b), DiffError)
-  })
-  it('refuses a replacement range the second file does not have', () => {
-    // `slice` clips a range past the end and empties a reversed one, either
-    // way handing back a plausible wrong answer rather than failing.
-    for (const range of [{ b0: 1, b1: 99 }, { b0: 2, b1: 1 }, { b0: -1, b1: 1 }]) {
-      assert.throws(() => applyRecords(a, [{ a0: 1, a1: 2, ...range }], b), DiffError, JSON.stringify(range))
-    }
+    assert.throws(() => applyRecords(a, [{ a0: 2, a1: 3, b0: 0, b1: 0, insert: [] }, { a0: 0, a1: 1, b0: 0, b1: 0, insert: [] }]), DiffError)
+    assert.throws(() => applyRecords(a, [{ a0: 0, a1: 9, b0: 0, b1: 0, insert: [] }]), DiffError)
   })
 })
