@@ -83,7 +83,8 @@ describe('diff/ is self-contained', () => {
   // Nothing is declared, so nothing but node: may be named. A dependency
   // added later has to be declared before this passes again, which is the
   // reminder worth having.
-  const declared = new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])
+  // The package's own name resolves inside it, as the usage examples in the .d.ts files import it
+  const declared = new Set([manifest.name, ...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])
 
   for (const file of files) {
     const name = file.href.slice(DIFF_DIR.href.length)

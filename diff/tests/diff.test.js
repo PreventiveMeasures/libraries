@@ -25,6 +25,13 @@ describe('one call produces what the parts produce', () => {
 })
 
 describe('what it does with the options', () => {
+  it('takes -b and -Z in time linear in a line, however many blanks it holds short of its end', () => {
+    // A trailing-blanks pattern retried at every blank of a run took seconds on a line like this one
+    const line = `a${' '.repeat(200000)}b\n`
+    const started = performance.now()
+    for (const whitespace of ['change', 'trailing']) assert.equal(diff(line, line.replace(/ +/u, ' '), { whitespace }), whitespace === 'change' ? '' : diff(line, line.replace(/ +/u, ' ')))
+    assert.ok(performance.now() - started < 1000, 'a line of 200,000 blanks took a second or more')
+  })
   it('defaults to unified with three lines of context', () => {
     const a = 'a\nb\nc\nd\ne\nf\ng\nh\n', b = 'a\nb\nc\nX\ne\nf\ng\nh\n'
     assert.equal(diff(a, b), '@@ -1,7 +1,7 @@\n a\n b\n c\n-d\n+X\n e\n f\n g\n')
@@ -258,5 +265,10 @@ describe('formatChangeSet prints a change set as diff prints it', () => {
 
   it('prints as unified, context or normal alone', () => {
     for (const format of ['brief', 'git', 'toString']) assert.throws(() => formatChangeSet('a\n', 'b\n', changeSet('a\n', 'b\n'), { format }), RangeError, format)
+  })
+  it('refuses a format diff does not have, whether or not the files differ', () => {
+    for (const [a, b] of [['a\n', 'a\n'], ['a\n', 'b\n']]) {
+      for (const format of ['git', 'toString']) assert.throws(() => diff(a, b, { format }), RangeError, format)
+    }
   })
 })

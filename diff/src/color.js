@@ -1,20 +1,9 @@
-// Which of diff's three output styles a piece of text is written in, and
-// what part each of its lines plays. The part is named with a style -- the
-// vocabulary node:util's styleText takes, because that is what a Node
-// caller will paint with -- but nothing here paints, and nothing here is
-// Node's: a caller holds the stream, knows whether a terminal is attached
-// at all, and decides what a name means.
-//
-// The style is recognised from the text's own structural markers rather
-// than from the command that produced it, because a caller may have nothing
-// but the text -- `cat` of a patch file deserves the same reading as a diff
-// that just ran. Each marker is one a real diff emits and ordinary text does
-// not, so a source file full of `+` bullets or `---` rules stays plain.
+// Which format a text is in and what part each line plays, named as node:util's styleText names styles;
+// nothing here paints. Read from the markers alone, so a patch shown by `cat` reads as a diff that ran.
 
 import { CONTEXT_FENCE, NORMAL_COMMAND, UNIFIED_HUNK } from './markers.js'
 
-// Longest prefix first, so `---` is read as a file header rather than a
-// removed line, and `+++` before `+`.
+// Longest prefix first, so `---` is a file header rather than a removed line
 const RULES = {
   unified: [
     [/^--- /u, 'bold'], [/^\+\+\+ /u, 'bold'], [UNIFIED_HUNK, 'cyan'],
@@ -30,7 +19,7 @@ const RULES = {
   ],
 }
 
-// Context diffs also carry `---` headers, so the fence is looked for first.
+// Context diffs carry `---` headers too, so the fence is looked for first
 function formatOf(lines) {
   if (lines.some((line) => CONTEXT_FENCE.test(line))) return 'context'
   if (lines.some((line) => UNIFIED_HUNK.test(line))) return 'unified'
@@ -38,15 +27,9 @@ function formatOf(lines) {
   return null
 }
 
-// 'unified', 'context' or 'normal', or null for text that is not a diff.
-// Markers elsewhere in the text still count: a diff quoted in a message is
-// read as one, and the lines around it simply take no style.
+// A diff quoted in a message is read as one, and the lines around it take no style
 export const diffFormat = (text) => formatOf(text.split('\n'))
 
-// One style name per line of `text`, null where a line takes none, so the
-// array runs parallel to `text.split('\n')`. Null in place of the array
-// when the text is not a diff at all -- a caller can then hand the text back
-// untouched without walking it.
 export function diffLineStyles(text) {
   const lines = text.split('\n')
   const rules = RULES[formatOf(lines)]

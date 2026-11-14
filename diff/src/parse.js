@@ -1,13 +1,5 @@
-// The other direction: a diff read back into what it says. The three styles
-// this package prints are the three it reads, and a file's worth of diff
-// comes back as the hunks it is written in and the change set they describe.
-//
-// What a hunk says is kept as it is written -- every line with its tag, `-`
-// and `+` and the context between them -- because that is what a patch
-// carries and what applying one to a file that has moved on would need. The
-// change set is derived from it, and is the same shape `diffLines` returns,
-// with each block also holding the lines it removes and inserts, since a
-// diff is the only place those exist.
+// A diff read back, in any of the three formats: each file's hunks as written, every line with its tag,
+// and the change set they describe, whose blocks hold the lines they remove and insert.
 
 import { splitRecords } from './compare.js'
 import { CONTEXT_FENCE, CONTEXT_NEW, CONTEXT_OLD, NORMAL_COMMAND, UNIFIED_HUNK } from './markers.js'
@@ -20,12 +12,10 @@ export class PatchError extends Error {
   }
 }
 
-// A range prints its start as the line before it when it covers nothing,
-// which `,0` marks; otherwise as the first line it covers, counting from one.
+// A range starts at the line before it when it covers nothing, else at its first line, counting from one
 const rangeStart = (start, count) => (count === 0 ? Number(start) : Number(start) - 1)
 
-// `\ No newline at end of file` is not a line of the hunk: it takes the
-// terminator off the line above it.
+// `\ No newline at end of file` is no line of the hunk, but takes the terminator off the one above
 const isNoNewline = (line) => line?.startsWith('\\')
 const chop = (text) => text.replace(/\n$/u, '')
 
@@ -36,9 +26,7 @@ export function parseDiff(text) {
   let starred = false
   for (let i = 0; i < lines.length;) {
     const line = lines[i]
-    // A file's name reaches its hunks from the header above them. `***` and
-    // `---` name a file only as a pair above a context diff, never as the
-    // range lines inside one.
+    // `***` and `---` name files only as a pair above a context diff, never as the range lines inside one
     const header = fileHeader(line, starred)
     starred = line.startsWith('***************') ? false : line.startsWith('*** ')
     if (header) {
@@ -61,23 +49,18 @@ export function parseDiff(text) {
   return files
 }
 
-// `--- a`/`+++ b` above a unified diff, `*** a`/`--- b` above a context one,
-// and the `diff --git a/x b/y` line some patches carry instead.
+// `--- a`/`+++ b` above a unified diff, `*** a`/`--- b` above a context one, or `diff --git a/x b/y`
 function fileHeader(line, starred) {
-  // A git header names both files at once, and names them the way the
-  // `---`/`+++` pair below it would, prefixes and all: stripping those is
-  // -p's job and -p is the applier's, not the reader's.
+  // Prefixes and all: stripping them is -p's job, and -p is the applier's
   const git = /^diff --git (\S+) (\S+)\n?$/u.exec(line)
   if (git) return { names: { old: git[1], new: git[2] } }
   if (CONTEXT_OLD.test(line) || CONTEXT_NEW.test(line)) return null
   const m = /^(\*\*\* |--- |\+\+\+ )(.*?)(?:\t.*)?\n?$/u.exec(line)
   if (!m) return null
-  if (m[1] === '--- ') return { slot: starred ? 'new' : 'old', name: m[2] }
-  return { slot: m[1] === '*** ' ? 'old' : 'new', name: m[2] }
+  return { slot: m[1] === '*** ' || (m[1] === '--- ' && !starred) ? 'old' : 'new', name: m[2] }
 }
 
-// The runs of `-` and `+` at one point in a hunk are one block, positioned
-// by the hunk's own starting lines.
+// The runs of `-` and `+` at one point in a hunk are one block
 function blocksOf(hunks) {
   const blocks = []
   for (const hunk of hunks) {
@@ -98,14 +81,14 @@ function blocksOf(hunks) {
 function parseUnified(lines, at) {
   const head = UNIFIED_HUNK.exec(lines[at] ?? '')
   if (!head) return null
-  const oldCount = head[2] === undefined ? 1 : Number(head[2])
-  const newCount = head[4] === undefined ? 1 : Number(head[4])
+  const oldCount = Number(head[2] ?? 1)
+  const newCount = Number(head[4] ?? 1)
   const hunk = { oldStart: rangeStart(head[1], oldCount), newStart: rangeStart(head[3], newCount), label: head[5] || null, lines: [] }
   let fresh = 0, i = at + 1, old = 0
   for (; old < oldCount || fresh < newCount; i++) {
     const raw = lines[i]
     if (raw === undefined) throw new PatchError('the patch ends inside a hunk', i)
-    // A bare newline is a context line whose text is empty.
+    // A bare newline is a context line whose text is empty
     const tag = raw === '\n' ? ' ' : raw[0]
     if (tag !== ' ' && tag !== '-' && tag !== '+') throw new PatchError(`a hunk line begins with ${JSON.stringify(tag)}`, i)
     let text = raw === '\n' ? raw : raw.slice(1)
@@ -146,9 +129,7 @@ function parseNormal(lines, at) {
   return { hunk, next: i }
 }
 
-// A context hunk lists each side separately, and leaves a side out entirely
-// when it has no changes of its own -- the lines it would have shown are the
-// other side's context lines.
+// A context hunk lists each side apart, leaving one out that has no changes of its own
 function parseContext(lines, at) {
   const fence = CONTEXT_FENCE.exec(lines[at] ?? '')
   if (!fence) return null
@@ -158,22 +139,16 @@ function parseContext(lines, at) {
   const newHead = CONTEXT_NEW.exec(lines[old.next] ?? '')
   if (!newHead) throw new PatchError("'--- ' range expected", old.next)
   const fresh = readSide(lines, old.next + 1, '+')
-  // A side with no changes of its own prints its range line and nothing
-  // else, so what it covers is read off the other side: the lines it would
-  // have shown are that side's context lines.
+  // A side left out covers the other side's context lines
   const lhs = old.lines.length === 0 ? fresh.lines.filter((l) => l.tag === ' ') : old.lines
   const rhs = fresh.lines.length === 0 ? old.lines.filter((l) => l.tag === ' ') : fresh.lines
-  // `*** 3,5 ****` is first and last inclusive and `*** 3 ****` one line,
-  // but a range covering nothing prints the line before it in that same
-  // bare form -- so which one it is comes from how many lines the hunk
-  // holds, not from the range line, which cannot say.
+  // `*** 3 ****` is one line or, covering nothing, the line before it: only the line count can say which
   const oldStart = rangeStart(oldHead[1], lhs.length)
   const newStart = rangeStart(newHead[1], rhs.length)
   return { hunk: { oldStart, newStart, label: fence[1] || null, lines: interleave(lhs, rhs) }, next: fresh.next }
 }
 
-// A side ends at the next range line or fence, or at a line that is not one
-// of its own.
+// A side ends at a range line, a fence, or a line that is not one of its own
 function readSide(lines, at, tag) {
   const out = []
   let i = at
@@ -188,7 +163,7 @@ function readSide(lines, at, tag) {
   return { lines: out, next: i }
 }
 
-// The two sides become one list: context once, each side's changes in turn.
+// The two sides as one list: context once, each side's changes in turn
 function interleave(lhs, rhs) {
   const out = []
   let i = 0, j = 0

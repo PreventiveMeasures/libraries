@@ -1,71 +1,33 @@
-// Myers' difference algorithm in its linear-space variation, as published
-// (Eugene W. Myers, "An O(ND) Difference Algorithm and Its Variations",
-// Algorithmica 1, 1986): a middle snake found by searching forward from the
-// start and backward from the end at once, then the two halves either side
-// of it, so the work is O((N+M)*D) in time and O(N+M) in space. Lines are
-// interned to integers first, so the inner loops compare numbers, never
-// strings.
-//
-// What comes out is a change set: blocks of `a` replaced by blocks of `b`.
-// Before any caller sees it, the change set is replayed against `a` and the
-// result compared with `b`, line by line. A change set that fails that check
-// is never returned, whatever the search did -- the guarantee is on the data,
-// not on how it was found.
+// Myers' O(ND) difference algorithm in its linear-space variation (Algorithmica 1, 1986), on lines
+// interned to integers. No change set is returned before it is replayed against `a` and gives `b`.
 
 import { lineComparisonKey } from './compare.js'
 import { slideRuns } from './slide.js'
 
-// The heuristic cutoff every practical implementation carries: past this
-// many edit steps in one subproblem, split at the furthest point reached
-// rather than keep searching for the minimum. The result is still a valid
-// change set, just not always the shortest one. `--minimal` turns it off,
-// along with setting confusing lines aside (setAside, below).
+// Past this many edit steps in one subproblem, split at the furthest point reached rather than search on
+// for a shortest change set, as GNU does unless --minimal
 function costLimit(total) {
   let limit = 1
   for (let i = total; i !== 0; i >>= 2) limit <<= 1
   return Math.max(256, limit)
 }
 
-// `ignoreCase` and `whitespace` are diff's comparison options -- -i, and
-// -w / -b / -Z as 'all' / 'change' / 'trailing' -- which decide when two
-// lines count as the same line. What they come to is a function mapping a
-// line to the string it is compared by, and that stays inside: a caller
-// says what it wants compared, not how to compare it.
-// `slide` settles a run that could sit in more than one place (slide.js),
-// as diff does for every output style; `slide: false` leaves the placement
-// the search reached, which no style prints. `horizon` is how many of the
-// lines the two files share at each end the search and the slide may use
-// (inView, below): diff uses as many as it prints context lines, so its
-// normal output and its -u output differ where a run is free to move into
-// the shared end of the files. Left unbounded, a run goes as far as it can.
+// `slide` settles a run that could sit in more than one place (slide.js), as every diff format does.
+// `horizon` is how many of the lines the two files share at each end the search and the slide may use.
 export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minimal = false, discard = true, slide = true, horizon = Infinity } = {}) {
   const key = lineComparisonKey({ ignoreCase, whitespace })
-  // Two files that are the same have no change set, and finding that out
-  // should not cost a pass of interning: the search trims what the two share
-  // at each end, but not before every line has been through the map.
-  //
-  // Only worth asking when the comparison is free, though. Under -i or the
-  // whitespace options this scan puts each line through the same work
-  // interning would, so two files that differ late would pay for it twice.
-  // Those go straight to the search, where the trim finds the same thing
-  // once the lines are numbers.
+  // Equal files skip interning, but only when comparing is free: under a key, the scan would cost as much
   if (key === null && sameLines(a, b)) return []
   const { A, B, classes } = intern(a, b, key)
   const changedA = new Uint8Array(A.length)
   const changedB = new Uint8Array(B.length)
   const view = inView(a, b, horizon)
-  // The search is given the lines in view less those set aside, by where
-  // they stand; a line set aside is changed without it.
+  // The search is given the lines in view less those set aside, by index; one set aside is changed without it
   const [asideA, asideB] = minimal || !discard ? [null, null] : setAside(A, B, classes, view)
   const xs = searched(view.lo, view.hiA, asideA, changedA), ys = searched(view.lo, view.hiB, asideB, changedB)
-  const foundA = new Uint8Array(xs.length), foundB = new Uint8Array(ys.length)
-  compareSequences(xs.map((i) => A[i]), ys.map((i) => B[i]), foundA, foundB, minimal)
-  for (let k = 0; k < xs.length; k++) if (foundA[k]) changedA[xs[k]] = 1
-  for (let k = 0; k < ys.length; k++) if (foundB[k]) changedB[ys[k]] = 1
+  compareSequences(xs.map((i) => A[i]), ys.map((i) => B[i]), xs, ys, changedA, changedB, minimal)
   if (slide) {
-    // Both files keep every line before `lo`, so kept lines counted from
-    // there pair the runs up as counted from the start. Lines set aside are
-    // runs like any other, and slide as GNU slides them.
+    // Both files keep every line before `lo`, so kept lines counted from there pair runs up as from the start
     const { lo, hiA, hiB } = view
     slideRuns(A.subarray(lo, hiA), changedA.subarray(lo, hiA), changedB.subarray(lo, hiB))
     slideRuns(B.subarray(lo, hiB), changedB.subarray(lo, hiB), changedA.subarray(lo, hiA))
@@ -75,14 +37,9 @@ export function diffLines(a, b, { ignoreCase = false, whitespace = 'none', minim
   return blocks
 }
 
-// What the search and the slide see of the two files: a[lo..hiA) and
-// b[lo..hiB). Before anything else, diff sets aside the lines the two files
-// share at the start, and then those they share at the end short of what it
-// set aside at the start, keeping `horizon` lines of each in view (GNU's
-// find_identical_ends, and its --horizon-lines). Shared means the same text,
-// whatever the comparison options -- text that is the same is the same line
-// under any of them -- so under -w a line differing only in its blanks is
-// in view, and a line set aside is kept, never searched.
+// What the search and the slide see: a[lo..hiA) and b[lo..hiB), the shared start and then the shared end
+// set aside but for `horizon` lines of each (GNU's find_identical_ends). Shared is the same text, which is
+// the same line under any comparison.
 function inView(a, b, horizon) {
   const shorter = Math.min(a.length, b.length)
   let start = 0
@@ -94,19 +51,9 @@ function inView(a, b, horizon) {
   return { lo, hiA: a.length - cut, hiB: b.length - cut }
 }
 
-// GNU's discard_confusing_lines, run on the lines in view unless the change
-// set has to be a shortest one, or `discard: false` asks for every line to
-// be searched (git sets lines aside by rules of its own). A line that
-// matches no line in view in the other file can only be changed, so it is
-// set aside rather than searched. A line that matches many there is set
-// aside too, but only well inside a run of the first kind, where what it
-// would match is most likely noise: a blank line or a `}` amid lines
-// rewritten around it. Taking those lines
-// out changes which of the shortest change sets the search reaches, which
-// is the point -- it is the one GNU reaches -- and setting aside a line that
-// matches can make the change set longer than the shortest, as the cutoff
-// can. What follows is GNU's rule, figure for figure, so that it reaches
-// the same change set.
+// GNU's discard_confusing_lines, figure for figure, so the search reaches the change set GNU reaches.
+// A line matching no line in view in the other file can only be changed, so it is not searched, and nor
+// is one matching many well inside a run of those: a blank line or a `}` amid rewritten lines.
 function setAside(A, B, classes, { lo, hiA, hiB }) {
   const inA = new Int32Array(classes), inB = new Int32Array(classes)
   for (let i = lo; i < hiA; i++) inA[A[i]]++
@@ -114,14 +61,11 @@ function setAside(A, B, classes, { lo, hiA, hiB }) {
   return [confusing(A.subarray(lo, hiA), inB), confusing(B.subarray(lo, hiB), inA)]
 }
 
-// Which of `lines` to set aside, given how many lines of the other file each
-// class has: 1 for a line matching none, 2 for one matching many, settled
-// below, and 0 for one searched.
+// 1 for a line set aside as matching none, 2 for one matching many, settled below, and 0 for one searched
 function confusing(lines, matches) {
   const end = lines.length
   const marks = new Uint8Array(end)
-  // Many is more than 5 with under 256 lines in view, doubling as they grow
-  // fourfold.
+  // Many is more than 5 under 256 lines in view, doubling as they grow fourfold
   let many = 5
   for (let tem = Math.floor(end / 64) >> 2; tem > 0; tem >>= 2) many *= 2
   for (let i = 0; i < end; i++) {
@@ -130,22 +74,19 @@ function confusing(lines, matches) {
     else if (n > many) marks[i] = 2
   }
   for (let i = 0; i < end; i++) {
-    // A line matching many is set aside only inside a run that starts and
-    // ends with lines matching none.
+    // One matching many is set aside only inside a run that starts and ends with lines matching none
     if (marks[i] === 2) { marks[i] = 0; continue }
     if (marks[i] === 0) continue
     let j = i, provisional = 0
     for (; j < end && marks[j] !== 0; j++) if (marks[j] === 2) provisional++
     while (j > i && marks[j - 1] === 2) { marks[--j] = 0; provisional-- }
     const length = j - i
-    // A run more than a quarter such lines has them all searched.
+    // A run more than a quarter such lines has them all searched
     if (provisional * 4 > length) {
       while (j > i) if (marks[--j] === 2) marks[j] = 0
       continue
     }
-    // So does a stretch of them in a row as long as about the root of a
-    // quarter of the run: two in a run under 16 lines, three under 64, five
-    // under 256.
+    // So does a stretch of them about as long as the root of a quarter of the run: 2 under 16 lines, 3 under 64
     let minimum = 1
     for (let tem = length >> 4; tem > 0; tem >>= 2) minimum <<= 1
     minimum++
@@ -154,29 +95,25 @@ function confusing(lines, matches) {
       else if (minimum === ++consec) k -= consec
       else if (minimum < consec) marks[i + k] = 0
     }
-    // And so do those near either end of the run: before three lines in a
-    // row that match nothing, or before the first such line eight lines in.
-    for (let consec = 0, k = 0; k < length; k++) {
-      if (k >= 8 && marks[i + k] === 1) break
-      if (marks[i + k] === 2) { consec = 0; marks[i + k] = 0 }
-      else if (marks[i + k] === 0) consec = 0
-      else consec++
-      if (consec === 3) break
-    }
+    searchNearEnd(marks, i, 1, length)
+    searchNearEnd(marks, i + length - 1, -1, length)
     i += length - 1
-    for (let consec = 0, k = 0; k < length; k++) {
-      if (k >= 8 && marks[i - k] === 1) break
-      if (marks[i - k] === 2) { consec = 0; marks[i - k] = 0 }
-      else if (marks[i - k] === 0) consec = 0
-      else consec++
-      if (consec === 3) break
-    }
   }
   return marks
 }
 
-// The lines from `lo` to `hi` the search is given, by index. A line set
-// aside is marked changed instead.
+// And so do those near either end of a run: up to three in a row matching nothing, or the first eight in
+function searchNearEnd(marks, from, step, length) {
+  for (let consec = 0, k = 0; k < length; k++) {
+    const at = from + k * step
+    if (k >= 8 && marks[at] === 1) break
+    if (marks[at] === 2) { consec = 0; marks[at] = 0 }
+    else if (marks[at] === 0) consec = 0
+    else consec++
+    if (consec === 3) break
+  }
+}
+
 function searched(lo, hi, aside, changed) {
   const kept = []
   for (let i = lo; i < hi; i++) {
@@ -186,11 +123,8 @@ function searched(lo, hi, aside, changed) {
   return Int32Array.from(kept)
 }
 
-// Two lines are the same line when their keys are, or when their text is
-// with no key in force.
 const equalUnder = (key) => (key ? (x, y) => key(x) === key(y) : (x, y) => x === y)
 
-// Whether two line arrays are equal under the comparison, without a search.
 export function sameLines(a, b, key = null) {
   if (a.length !== b.length) return false
   const equal = equalUnder(key)
@@ -206,38 +140,32 @@ function intern(a, b, key) {
     if (id === undefined) { id = ids.size; ids.set(k, id) }
     return id
   }
-  const A = Int32Array.from(a, assign)
-  const B = Int32Array.from(b, assign)
-  return { A, B, classes: ids.size }
+  return { A: Int32Array.from(a, assign), B: Int32Array.from(b, assign), classes: ids.size }
 }
 
-// Explicit stack rather than recursion: the cutoff can split unevenly, and
-// nothing about the depth should depend on the input.
-function compareSequences(A, B, changedA, changedB, minimal) {
+// `xs` and `ys` map the searched lines back to the files'. A stack rather than recursion, as the cutoff
+// can split unevenly and no depth should depend on the input.
+function compareSequences(A, B, xs, ys, changedA, changedB, minimal) {
   const diagonals = A.length + B.length + 3
-  // Diagonal d = x - y ranges over [-M-1, N+1]; offset it into the arrays.
+  // Diagonal d = x - y ranges over [-M-1, N+1], offset into the arrays
   const search = { A, B, fd: new Int32Array(diagonals), bd: new Int32Array(diagonals), base: B.length + 1, limit: costLimit(A.length + B.length) }
   const stack = [{ xoff: 0, xlim: A.length, yoff: 0, ylim: B.length, minimal }]
-  const part = { xmid: 0, ymid: 0, loMinimal: false, hiMinimal: false }
   while (stack.length) {
     let { xoff, xlim, yoff, ylim, minimal: findMinimal } = stack.pop()
     while (xoff < xlim && yoff < ylim && A[xoff] === B[yoff]) { xoff++; yoff++ }
     while (xoff < xlim && yoff < ylim && A[xlim - 1] === B[ylim - 1]) { xlim--; ylim-- }
-    if (xoff === xlim) { for (; yoff < ylim; yoff++) changedB[yoff] = 1; continue }
-    if (yoff === ylim) { for (; xoff < xlim; xoff++) changedA[xoff] = 1; continue }
-    middleSnake(search, xoff, xlim, yoff, ylim, findMinimal, part)
-    // The right half is pushed first so the left half is taken next: blocks
-    // are then noted in order, and the final collection is a single pass.
-    stack.push({ xoff: part.xmid, xlim, yoff: part.ymid, ylim, minimal: part.hiMinimal })
-    stack.push({ xoff, xlim: part.xmid, yoff, ylim: part.ymid, minimal: part.loMinimal })
+    if (xoff === xlim) { for (; yoff < ylim; yoff++) changedB[ys[yoff]] = 1; continue }
+    if (yoff === ylim) { for (; xoff < xlim; xoff++) changedA[xs[xoff]] = 1; continue }
+    const { xmid, ymid, loMinimal, hiMinimal } = middleSnake(search, xoff, xlim, yoff, ylim, findMinimal)
+    // The right half first, so the left is taken next
+    stack.push({ xoff: xmid, xlim, yoff: ymid, ylim, minimal: hiMinimal })
+    stack.push({ xoff, xlim: xmid, yoff, ylim: ymid, minimal: loMinimal })
   }
 }
 
-// The middle snake: a point on some shortest path -- or, past the cost
-// limit, the furthest point either search has reached -- splitting the
-// problem in two. Diagonals are numbered absolutely rather than per
-// subproblem, so a subproblem needs no coordinate shift.
-function middleSnake(search, xoff, xlim, yoff, ylim, findMinimal, part) {
+// A point on some shortest path, or past the cost limit the furthest either search reached, splitting the
+// problem in two. Diagonals are numbered absolutely, so a subproblem needs no coordinate shift.
+function middleSnake(search, xoff, xlim, yoff, ylim, findMinimal) {
   const { A, B, fd, bd, base, limit } = search
   const dmax = xlim - yoff, dmin = xoff - ylim
   const bmid = xlim - ylim, fmid = xoff - yoff
@@ -256,10 +184,7 @@ function middleSnake(search, xoff, xlim, yoff, ylim, findMinimal, part) {
       let y = x - d
       while (x < xlim && y < ylim && A[x] === B[y]) { x++; y++ }
       fd[base + d] = x
-      if (odd && bmin <= d && d <= bmax && bd[base + d] <= x) {
-        part.xmid = x; part.ymid = y; part.loMinimal = part.hiMinimal = true
-        return
-      }
+      if (odd && bmin <= d && d <= bmax && bd[base + d] <= x) return { xmid: x, ymid: y, loMinimal: true, hiMinimal: true }
     }
     if (bmin > dmin) bd[base + --bmin - 1] = 0x7FFFFFFF
     else ++bmin
@@ -271,22 +196,15 @@ function middleSnake(search, xoff, xlim, yoff, ylim, findMinimal, part) {
       let y = x - d
       while (xoff < x && yoff < y && A[x - 1] === B[y - 1]) { x--; y-- }
       bd[base + d] = x
-      if (!odd && fmin <= d && d <= fmax && x <= fd[base + d]) {
-        part.xmid = x; part.ymid = y; part.loMinimal = part.hiMinimal = true
-        return
-      }
+      if (!odd && fmin <= d && d <= fmax && x <= fd[base + d]) return { xmid: x, ymid: y, loMinimal: true, hiMinimal: true }
     }
-    if (findMinimal || c < limit) continue
-    splitAtFurthest(search, { xoff, xlim, yoff, ylim, fmin, fmax, bmin, bmax }, part)
-    return
+    if (!findMinimal && c >= limit) return splitAtFurthest(search, { xoff, xlim, yoff, ylim, fmin, fmax, bmin, bmax })
   }
 }
 
-// Past the cost limit: the forward point that got furthest, or the backward
-// point that got furthest, whichever made more progress. Any point a search
-// reached lies on a valid path, so the halves either side of it still
-// compose into a correct change set; the search just resumes from there.
-function splitAtFurthest(search, bounds, part) {
+// The forward or backward point that got furthest, whichever made more progress: any point a search
+// reached is on a valid path, so the halves either side still compose into a correct change set
+function splitAtFurthest(search, bounds) {
   const { fd, bd, base } = search
   const { xoff, xlim, yoff, ylim, fmin, fmax, bmin, bmax } = bounds
   let fxbest = 0, fxybest = -1
@@ -303,15 +221,11 @@ function splitAtFurthest(search, bounds, part) {
     if (y < yoff) { x = yoff + d; y = yoff }
     if (x + y < bxybest) { bxybest = x + y; bxbest = x }
   }
-  if (xlim + ylim - bxybest < fxybest - (xoff + yoff)) {
-    part.xmid = fxbest; part.ymid = fxybest - fxbest; part.loMinimal = true; part.hiMinimal = false
-  } else {
-    part.xmid = bxbest; part.ymid = bxybest - bxbest; part.loMinimal = false; part.hiMinimal = true
-  }
+  if (xlim + ylim - bxybest < fxybest - (xoff + yoff)) return { xmid: fxbest, ymid: fxybest - fxbest, loMinimal: true, hiMinimal: false }
+  return { xmid: bxbest, ymid: bxybest - bxbest, loMinimal: false, hiMinimal: true }
 }
 
-// Runs of changed lines, paired up: a[a0..a1) is replaced by b[b0..b1).
-// Either side may be empty, never both.
+// Runs of changed lines, paired up: a[a0..a1) replaced by b[b0..b1), either side empty but not both
 function collectBlocks(changedA, changedB) {
   const blocks = []
   const M = changedB.length, N = changedA.length
@@ -327,11 +241,8 @@ function collectBlocks(changedA, changedB) {
   return blocks
 }
 
-// The guarantee. Apply the change set to `a` the way patch would -- keep what
-// is between the blocks, take each block's replacement from `b` -- and the
-// result has to be `b`, line for line under the comparison in force. The
-// original strings are compared, not the interned ids, so the interning is
-// checked along with the search.
+// The guarantee: what lies between the blocks has to be the same lines in `a` and `b`, under the
+// comparison in force. The strings are compared, not interned ids, so the interning is checked too.
 export function verifyChangeSet(a, b, blocks, key = null) {
   const equal = equalUnder(key)
   let ai = 0, bi = 0
