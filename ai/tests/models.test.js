@@ -449,6 +449,7 @@ describe('no-think wire form', () => {
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
+    ['z-ai/glm-5.3-flash', false, false],
     // Same shape as fable 5, arrived at from the other direction: K3 has no
     // opt-out on either route, so omitting the effort field is all we can do.
     ['moonshotai/kimi-k3', false, false],
@@ -1357,6 +1358,26 @@ describe('glm 5.3', () => {
     assert.equal(canDisableThink(GLM), false)
     assert.deepEqual(effortsFor(GLM), ['low', 'high', 'max'])
     assert.deepEqual(normalizeThinkEffort(GLM, true), { useThink: true, useEffort: 'high' })
+  })
+})
+
+describe('glm 5.3 flash', () => {
+  const FLASH = 'z-ai/glm-5.3-flash'
+  const bill = (field) => calculateCost(FLASH, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("registers Z.ai's own $0.15 / $0.50 per Mtok, $0.03 cache reads and a 128k max_tokens", () => {
+    // OpenRouter's headline price is a third-party fp4 host's; the row takes
+    // Z.ai's.
+    assert.equal(bill('input'), 0.15)
+    assert.equal(bill('output'), 0.5)
+    assert.equal(bill('cacheRead'), 0.03)
+    assert.equal(getMaxTokens(FLASH), 128 * 1024)
+  })
+
+  it('always reasons, at low, high or max, as glm 5.3 does', () => {
+    assert.equal(canThink(FLASH), true)
+    assert.equal(canDisableThink(FLASH), false)
+    assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
   })
 })
 
