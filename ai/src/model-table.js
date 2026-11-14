@@ -21,8 +21,9 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // `longContext` bills every request at its base rates.
 //
 // OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on the gpt-6
-// trio, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every -pro row of
-// those. The minis, nano and codex have none.
+// trio and gpt-6-cyber, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every
+// -pro row of those. The minis, nano and codex have none, nor gpt-5.6-cyber, whose input stops
+// at 272K.
 //
 // Of the Anthropic rows only haiku-5.5 takes one, inline: its two rate cards are 5x apart on every
 // leg past a 100K prompt. For the rest that is the published price rather than a gap: Opus, Sonnet
@@ -80,6 +81,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-6.1-terra-pro', { input: 1, output: 5, cacheReadPrice: 0.05, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6.1-terra', reasoningMode: 'pro' }],
   ['openai/gpt-6-luna', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
   ['openai/gpt-6-luna-pro', { input: 0.1, output: 0.5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-6-cyber', { input: 20, output: 100, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, vendorOnly: true }],
   // 4 / 20 is Sol's PROMOTIONAL rate, which OpenAI's pricing page publishes as its table price and
   // says holds at least through 2026-11-21 -- the one promotion in the openai rows. Recheck after
   // that date: the rate it reverts to is not published, so a lapse cannot be priced in advance.
@@ -89,6 +91,7 @@ export const MAIN_MODELS = [
   ['openai/gpt-5.6-terra-pro', { input: 2, output: 12, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-5.6-terra', reasoningMode: 'pro' }],
   ['openai/gpt-5.6-luna', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'explicit', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
   ['openai/gpt-5.6-luna-pro', { input: 0.2, output: 1.2, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-5.6-luna', reasoningMode: 'pro' }],
+  ['openai/gpt-5.6-cyber', { input: 12.5, output: 75, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, vendorOnly: true }],
   // From gpt-5.5 down to gpt-4o-mini, OpenAI bills a cache write as ordinary input -- the 1.25x
   // write arrived with GPT-5.6 -- so each of these rows names its input rate as `cacheWritePrice`.
   ['openai/gpt-5.5', { input: 5, output: 30, cacheWritePrice: 5, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'explicit', efforts: EFFORTS_THROUGH_XHIGH }],
@@ -108,6 +111,7 @@ export const MAIN_MODELS = [
   ['google/gemini-3.1-pro-preview', { input: 2, output: 12, maxTokens: 64 * 1024, noThink: 'unsupported' }],
   ['google/gemma-4-31b-it', { input: 0.14, output: 0.4, maxTokens: 128 * 1024 }],
   ['google/gemma-4-26b-a4b-it', { input: 0.13, output: 0.4, maxTokens: 128 * 1024 }],
+  ['google/gemini-3.5-flash-lite', { input: 0.3, output: 2.5, maxTokens: 64 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['google/gemini-3.1-flash-lite-preview', { input: 0.25, output: 1.5, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['nvidia/nemotron-3-ultra-550b-a55b', { input: 0.625, output: 3.125, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['nvidia/nemotron-3.5-super-vl', { input: 0.1, output: 0.4, cacheReadPrice: 0.08, maxTokens: 128 * 1024, noThink: 'explicit', efforts: [] }],
@@ -115,6 +119,7 @@ export const MAIN_MODELS = [
   ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024 }],
   ['qwen/qwen3.8-max', { input: 2, output: 6, cacheReadPrice: 0.25, maxTokens: 128 * 1024, noThink: 'unsupported' }],
   ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, noThink: 'unsupported' }],
+  ['qwen/qwen3.8-flash', { input: 0.15, output: 0.47, cacheReadPrice: 0.016, cacheWritePrice: 0.2, maxTokens: 128 * 1024, noThink: 'explicit', efforts: [] }],
   ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, noThink: 'explicit' }],
@@ -122,6 +127,7 @@ export const MAIN_MODELS = [
   ['deepseek/deepseek-v4-pro', { input: 1.32, output: 3.96, cacheReadPrice: 0.044, maxTokens: 384 * 1024, noThink: 'explicit', efforts: ['high', 'xhigh'] }],
   ['x-ai/grok-4.7', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: { above: 200_000, input: 2, output: 2 }, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
   ['z-ai/glm-5.3', { input: 1.4, output: 4.4, cacheReadPrice: 0.26, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
+  ['z-ai/glm-5.3-flash', { input: 0.15, output: 0.5, cacheReadPrice: 0.03, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['moonshotai/kimi-k3.1-pro', { input: 2, output: 10, cacheWritePrice: 2, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   // Kimi K3 (1M context) at Moonshot's list rate. OpenRouter resells it a little cheaper but
   // reports its own per-request cost, which wins over this table, so one row serves both routes.
@@ -129,8 +135,10 @@ export const MAIN_MODELS = [
   ['moonshotai/kimi-k3', { input: 3, output: 15, cacheWritePrice: 3, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['xiaomi/mimo-v2.6-pro', { input: 0.435, output: 0.87, cacheReadPrice: 0.0036, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['xiaomi/mimo-v2.6-flash', { input: 0.14, output: 0.28, cacheReadPrice: 0.0028, maxTokens: 128 * 1024, noThink: 'explicit' }],
-  ['mistralai/mistral-large-4-0', { input: 0.68, output: 2.09, cacheReadPrice: 0.07, maxTokens: 256 * 1024, noThink: 'explicit', efforts: ['high'] }],
+  ['mistralai/mistral-large-4-0', { input: 0.7, output: 2.1, maxTokens: 256 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['meta/muse-wonder', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128 * 1024, noThink: 'unsupported' }],
+  ['meta/muse-ember', { input: 0.1, output: 0.5, cacheReadPrice: 0.004, longContext: { above: 200_000, input: 3, output: 3 }, maxTokens: 128 * 1024, noThink: 'unsupported' }],
+  ['unbiased/pareto-26.10', { input: 0.8, output: 3.2, cacheReadPrice: 0.03, maxTokens: 128 * 1024, canThink: false }],
   ['unbiased/pareto-26.9', { input: 2.5, output: 7.5, maxTokens: 128 * 1024, canThink: false }],
 ]
 

@@ -420,6 +420,8 @@ describe('no-think wire form', () => {
     ['openai/gpt-5.5-pro', false, false],
     ['openai/gpt-5.4-pro', false, false],
     ['openai/gpt-5.3-codex', false, false],
+    // Google's lowest level is minimal, near-off rather than off.
+    ['google/gemini-3.5-flash-lite', false, false],
     ['google/gemini-3.1-flash-lite-preview', true, true],
     ['google/gemini-4-carbon', false, false],
     ['google/gemini-4-argon', false, false],
@@ -438,15 +440,18 @@ describe('no-think wire form', () => {
     ['qwen/qwen3.8-27b', true, true],
     ['qwen/qwen3.8-2.4t-a95b', false, false],
     ['qwen/qwen3.8-max', false, false],
+    ['qwen/qwen3.8-flash', true, true],
     ['deepseek/deepseek-v4-pro', true, true],
     ['xiaomi/mimo-v2.6-pro', true, true],
     ['xiaomi/mimo-v2.6-flash', true, true],
-    ['mistralai/mistral-large-4-0', true, true],
+    ['mistralai/mistral-large-4-0', false, false],
     // Meta's API 400s on reasoning_effort "none".
     ['meta/muse-wonder', false, false],
+    ['meta/muse-ember', false, false],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
+    ['z-ai/glm-5.3-flash', false, false],
     // Same shape as fable 5, arrived at from the other direction: K3 has no
     // opt-out on either route, so omitting the effort field is all we can do.
     ['moonshotai/kimi-k3', false, false],
@@ -460,6 +465,10 @@ describe('no-think wire form', () => {
     ['openai/gpt-6.1-sol-pro', false, false],
     ['openai/gpt-6.1-terra', true, true],
     ['openai/gpt-6.1-terra-pro', false, false],
+    // OpenAI documents no effort levels or off switch for the cyber models,
+    // so they are never sent `none`.
+    ['openai/gpt-6-cyber', false, false],
+    ['openai/gpt-5.6-cyber', false, false],
     ['made/up-model', false, true],
   ]) {
     it(model, () => {
@@ -630,6 +639,31 @@ describe('gemini flash', () => {
     for (const m of ['google/gemini-3.8-flash', 'google/gemini-3.1-flash-lite-preview', 'google/gemini-3.1-pro-preview']) {
       assert.equal(canThink(m), true, m)
     }
+  })
+})
+
+describe('gemini 3.5 flash-lite', () => {
+  // Google's levels run minimal to high, defaulting to minimal, which is
+  // near-off rather than off. The table has no rung for minimal, so the row
+  // offers low to high and sends no off switch: leaving the level out keeps
+  // it at minimal.
+  const LITE = 'google/gemini-3.5-flash-lite'
+  const bill = (field) => calculateCost(LITE, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("prices at Google's $0.30 / $2.50 per Mtok, with cached input at the usual $0.03", () => {
+    assert.equal(bill('input'), 0.3)
+    assert.equal(bill('output'), 2.5)
+    assert.equal(bill('cacheRead'), 0.03)
+  })
+
+  it('registers its 65,536-token output limit', () => {
+    assert.equal(getMaxTokens(LITE), 64 * 1024)
+  })
+
+  it('thinks with no off switch, at low, medium or high', () => {
+    assert.equal(canThink(LITE), true)
+    assert.equal(canDisableThink(LITE), false)
+    assert.deepEqual(effortsFor(LITE), ['low', 'medium', 'high'])
   })
 })
 
@@ -1109,6 +1143,50 @@ describe('newer OpenAI models (gpt-5.6 Sol / Terra / Luna)', () => {
   })
 })
 
+describe('gpt cyber', () => {
+  // Both need OpenAI's Daybreak Red access, and OpenRouter serves neither,
+  // so both rows are vendorOnly. With no `access_programs` sent, OpenAI
+  // selects daybreak_red for its Red models. Their pages list no effort
+  // levels and no off switch: the rows take the default ladder and never
+  // send `none`. Neither is documented for compaction.
+  const CYBER6 = 'openai/gpt-6-cyber'
+  const CYBER56 = 'openai/gpt-5.6-cyber'
+  const bill = (model, fields) => calculateCost(model, { ...emptyUsage(), ...fields })
+
+  it('prices at OpenAI\'s $20 / $100 and $12.50 / $75 per Mtok, reads at 0.10x and 30-minute writes at 1.25x', () => {
+    assert.equal(bill(CYBER6, { input: 100_000, output: 100_000 }), 2 + 10)
+    assert.equal(bill(CYBER6, { cacheRead: 100_000 }), 0.2)
+    assert.equal(bill(CYBER6, { cacheWrite5m: 100_000 }), 2.5)
+    assert.equal(bill(CYBER56, { input: 100_000, output: 100_000 }), 1.25 + 7.5)
+    assert.equal(bill(CYBER56, { cacheRead: 100_000 }), 0.125)
+    assert.equal(bill(CYBER56, { cacheWrite5m: 100_000 }), 1.5625)
+  })
+
+  it('bills gpt-6-cyber past 272K at 2x input and cache and 1.5x output, on the whole request', () => {
+    assert.equal(bill(CYBER6, { input: 300_000, output: 100_000 }), 12 + 15)
+    assert.equal(bill(CYBER6, { input: 200_000, cacheRead: 125_000 }), 8 + 0.5)
+  })
+
+  it('bills gpt-5.6-cyber flat, its input stopping at 272K', () => {
+    assert.equal(bill(CYBER56, { input: 1_000_000 }), 12.5)
+  })
+
+  it('takes 128K of output and explicit cache breakpoints, and no compaction', () => {
+    for (const model of [CYBER6, CYBER56]) {
+      assert.equal(getMaxTokens(model), 128_000, model)
+      assert.equal(readsCacheBreakpoint(model), true, model)
+      assert.equal(compactThresholdFor(model), undefined, model)
+    }
+  })
+
+  it('thinks with no off switch, on the default ladder', () => {
+    for (const model of [CYBER6, CYBER56]) {
+      assert.equal(canDisableThink(model), false, model)
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
+    }
+  })
+})
+
 describe('resolveModel (alias canonicalization)', () => {
   it('maps the gpt-5.6 alias to the concrete Sol tier', () => {
     assert.equal(resolveModel('openai/gpt-5.6'), 'openai/gpt-5.6-sol')
@@ -1310,6 +1388,26 @@ describe('glm 5.3', () => {
   })
 })
 
+describe('glm 5.3 flash', () => {
+  const FLASH = 'z-ai/glm-5.3-flash'
+  const bill = (field) => calculateCost(FLASH, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("registers Z.ai's own $0.15 / $0.50 per Mtok, $0.03 cache reads and a 128k max_tokens", () => {
+    // OpenRouter's headline price is a third-party fp4 host's; the row takes
+    // Z.ai's.
+    assert.equal(bill('input'), 0.15)
+    assert.equal(bill('output'), 0.5)
+    assert.equal(bill('cacheRead'), 0.03)
+    assert.equal(getMaxTokens(FLASH), 128 * 1024)
+  })
+
+  it('always reasons, at low, high or max, as glm 5.3 does', () => {
+    assert.equal(canThink(FLASH), true)
+    assert.equal(canDisableThink(FLASH), false)
+    assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
+  })
+})
+
 describe('qwen3.8 max', () => {
   const MAX = 'qwen/qwen3.8-max'
 
@@ -1327,6 +1425,29 @@ describe('qwen3.8 max', () => {
     assert.equal(canThink(MAX), true)
     assert.equal(canDisableThink(MAX), false)
     assert.deepEqual(effortsFor(MAX), ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+})
+
+describe('qwen3.8 flash', () => {
+  const FLASH = 'qwen/qwen3.8-flash'
+  const bill = (field) => calculateCost(FLASH, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("registers Alibaba's international $0.15 / $0.47 per Mtok, its $0.016 cache reads and $0.20 cache writes", () => {
+    assert.equal(bill('input'), 0.15)
+    assert.equal(bill('output'), 0.47)
+    assert.equal(bill('cacheRead'), 0.016)
+    assert.equal(bill('cacheWrite5m'), 0.2)
+    assert.equal(getMaxTokens(FLASH), 128 * 1024)
+  })
+
+  it('thinks by default with no effort knob, and switches off', () => {
+    // Hybrid thinking, on by default; OpenRouter takes `reasoning` for it
+    // but no `reasoning_effort`.
+    assert.equal(canThink(FLASH), true)
+    assert.equal(canEffort(FLASH), false)
+    assert.deepEqual(resolveThinkEffort(FLASH, true), { useThink: true, useEffort: undefined })
+    assert.throws(() => resolveThinkEffort(FLASH, true, 'high'), /--effort is not supported/u)
+    assert.equal(needsExplicitNoThink(FLASH), true)
   })
 })
 
@@ -1355,6 +1476,28 @@ describe('deepseek v4', () => {
   it('takes low, high or max on flash, and high or xhigh on pro, as OpenRouter serves each id', () => {
     assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
     assert.deepEqual(effortsFor(PRO), ['high', 'xhigh'])
+  })
+})
+
+describe('pareto 26.10', () => {
+  const PARETO = 'unbiased/pareto-26.10'
+  const bill = (field) => calculateCost(PARETO, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it('prices at Unbiased\'s $0.80 / $3.20 per Mtok, with cache reads at $0.03, under 26.9\'s $2.50 / $7.50', () => {
+    assert.equal(bill('input'), 0.8)
+    assert.equal(bill('output'), 3.2)
+    assert.equal(bill('cacheRead'), 0.03)
+  })
+
+  it('registers its endpoint\'s 128K of output', () => {
+    assert.equal(getMaxTokens(PARETO), 128 * 1024)
+  })
+
+  it('takes no reasoning controls, so --think and --effort are refused up front', () => {
+    // Like 26.9, its only endpoint accepts no `reasoning` or `reasoning_effort`.
+    assert.equal(canThink(PARETO), false)
+    assert.equal(canEffort(PARETO), false)
+    assert.throws(() => resolveThinkEffort(PARETO, true), /--think is not supported/u)
   })
 })
 
@@ -1400,26 +1543,59 @@ describe('meta muse wonder', () => {
   })
 })
 
-describe('mistral large 4', () => {
-  // Mistral's public-preview sale price, half the $1.36 / $0.14 / $4.18 its
-  // docs list as the original. Mistral gives no end date, so recheck it.
-  const LARGE4 = 'mistralai/mistral-large-4-0'
+describe('meta muse ember', () => {
+  const EMBER = 'meta/muse-ember'
+  const bill = (fields) => calculateCost(EMBER, { ...emptyUsage(), ...fields })
 
-  it('prices at the sale $0.68 / $2.09 per Mtok, with cached input at $0.07', () => {
-    assert.equal(baseRate(LARGE4, 'input', 'output'), 0.68 + 2.09)
-    assert.equal(baseRate(LARGE4, 'cacheRead'), 0.07)
+  it("prices at Meta's $0.10 / $0.50 per Mtok, with cached input at $0.004, to 200K of input", () => {
+    assert.equal(bill({ input: 200_000 }), 0.02)
+    assert.equal(bill({ output: 1_000_000 }), 0.5)
+    assert.equal(bill({ cacheRead: 200_000 }), 0.0008)
+  })
+
+  it('bills every leg at 3x past 200,000 prompt tokens, cached ones included, on the whole request', () => {
+    // Meta's long-context card: $0.30 / $1.50, with cached input at $0.012.
+    assert.equal(bill({ input: 200_001 }), (200_001 * 0.1 * 3) / 1_000_000)
+    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 0.3 + 1.5)
+    assert.equal(bill({ cacheRead: 1_000_000 }), 0.012)
+  })
+
+  it('registers a 128K output default, well under the 524,288 Meta allows', () => {
+    assert.equal(getMaxTokens(EMBER), 128 * 1024)
+  })
+
+  it('reasons on every request, on the ladder through max', () => {
+    // Effort runs minimal to max, defaulting to max; none returns a 400.
+    assert.equal(canThink(EMBER), true)
+    assert.equal(canDisableThink(EMBER), false)
+    assert.deepEqual(effortsFor(EMBER), ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+})
+
+describe('mistral large 4', () => {
+  // GA now, at $0.70 / $2.10 with cached input at $0.07, the usual 0.10x,
+  // in place of the preview's $0.68 / $2.09 sale price.
+  const LARGE4 = 'mistralai/mistral-large-4-0'
+  const bill = (field) => calculateCost(LARGE4, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("prices at Mistral's $0.70 / $2.10 per Mtok, with cached input at $0.07", () => {
+    assert.equal(bill('input'), 0.7)
+    assert.equal(bill('output'), 2.1)
+    assert.equal(bill('cacheRead'), 0.07)
   })
 
   it('registers its 256K of output', () => {
     assert.equal(getMaxTokens(LARGE4), 256 * 1024)
   })
 
-  it('reasons by default, takes only high, and switches off with none', () => {
+  it('reasons at low, medium or high, with no off switch now that none is gone', () => {
+    // The preview's none / high pair became low / medium / high, and
+    // Mistral says Large 4 does not accept none.
     assert.equal(canThink(LARGE4), true)
-    assert.deepEqual(effortsFor(LARGE4), ['high'])
+    assert.deepEqual(effortsFor(LARGE4), ['low', 'medium', 'high'])
     assert.deepEqual(normalizeThinkEffort(LARGE4, true), { useThink: true, useEffort: 'high' })
-    assert.equal(canDisableThink(LARGE4), true)
-    assert.equal(needsExplicitNoThink(LARGE4), true)
+    assert.equal(canDisableThink(LARGE4), false)
+    assert.equal(needsExplicitNoThink(LARGE4), false)
   })
 })
 
@@ -1518,9 +1694,10 @@ describe('effortsFor / EFFORT_LEVELS', () => {
 describe('supportedModels', () => {
   const ids = (provider, free) => supportedModels({ provider, free }).map((m) => m.id)
   const entry = (id, provider) => supportedModels({ provider }).find((m) => m.id === id)
-  // The rows only their vendor serves: Mythos needs Anthropic's verification,
-  // and OpenRouter carries none of it.
-  const VENDOR_ONLY = ['anthropic/claude-mythos-5.2', 'anthropic/claude-mythos-5.1', 'anthropic/claude-mythos-5']
+  // The rows only their vendor serves: Mythos needs Anthropic's verification
+  // and the cyber models OpenAI's Daybreak Red access, and OpenRouter carries
+  // none of them.
+  const VENDOR_ONLY = ['anthropic/claude-mythos-5.2', 'anthropic/claude-mythos-5.1', 'anthropic/claude-mythos-5', 'openai/gpt-6-cyber', 'openai/gpt-5.6-cyber']
 
   it('is re-exported from index.js', () => {
     assert.equal(ai.supportedModels, supportedModels)
@@ -1571,9 +1748,9 @@ describe('supportedModels', () => {
     }
   })
 
-  it('lists the Mythos rows on anthropic and with no provider named, and leaves them off openrouter', () => {
+  it('lists each vendor-only row on its vendor and with no provider named, and leaves it off openrouter', () => {
     for (const id of VENDOR_ONLY) {
-      assert.ok(ids('anthropic').includes(id), id)
+      assert.ok(ids(id.split('/')[0]).includes(id), id)
       assert.ok(ids().includes(id), id)
       assert.equal(ids('openrouter').includes(id), false, id)
     }
@@ -1677,7 +1854,7 @@ describe('compactThresholdFor', () => {
 
 describe('readsCacheBreakpoint', () => {
   it('is set for the gpt-5.6 family and gpt-6, aliases included', () => {
-    for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna', 'openai/gpt-5.6']) {
+    for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna', 'openai/gpt-5.6', 'openai/gpt-6-cyber', 'openai/gpt-5.6-cyber']) {
       assert.equal(readsCacheBreakpoint(model), true, model)
     }
   })
