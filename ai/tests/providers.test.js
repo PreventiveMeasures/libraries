@@ -723,7 +723,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   it('think=false on openrouter switches off a model that reasons by default', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      for (const model of ['deepseek/deepseek-v4.1-flash', 'qwen/qwen3.6-27b', 'qwen/qwen3.8-flash', 'anthropic/claude-opus-5', 'openai/gpt-5.5', 'xiaomi/mimo-v2.6-flash', 'mistralai/mistral-large-4-0']) {
+      for (const model of ['deepseek/deepseek-v4.1-flash', 'qwen/qwen3.6-27b', 'qwen/qwen3.8-flash', 'anthropic/claude-opus-5', 'openai/gpt-5.5', 'xiaomi/mimo-v2.6-flash']) {
         const body = buildRequestBody(model, 1000, 'sys', messages)
         assert.deepEqual(body.reasoning, { enabled: false }, model)
         assert.equal(body.reasoning_effort, undefined, model)
@@ -747,7 +747,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
 
   it('think=false on openrouter sends nothing to a model with no off switch', () => {
     withProvider('openrouter', 'OPENROUTER_API_KEY', () => {
-      for (const model of ['x-ai/grok-4.7', 'z-ai/glm-5.3-flash', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol', 'meta/muse-wonder', 'meta/muse-ember']) {
+      for (const model of ['x-ai/grok-4.7', 'z-ai/glm-5.3-flash', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-sol', 'meta/muse-wonder', 'meta/muse-ember', 'mistralai/mistral-large-4-0']) {
         assert.equal(buildRequestBody(model, 1000, 'sys', messages).reasoning, undefined, model)
       }
     })

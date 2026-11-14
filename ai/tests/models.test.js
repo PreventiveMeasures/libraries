@@ -444,7 +444,7 @@ describe('no-think wire form', () => {
     ['deepseek/deepseek-v4-pro', true, true],
     ['xiaomi/mimo-v2.6-pro', true, true],
     ['xiaomi/mimo-v2.6-flash', true, true],
-    ['mistralai/mistral-large-4-0', true, true],
+    ['mistralai/mistral-large-4-0', false, false],
     // Meta's API 400s on reasoning_effort "none".
     ['meta/muse-wonder', false, false],
     ['meta/muse-ember', false, false],
@@ -1573,25 +1573,29 @@ describe('meta muse ember', () => {
 })
 
 describe('mistral large 4', () => {
-  // Mistral's public-preview sale price, half the $1.36 / $0.14 / $4.18 its
-  // docs list as the original. Mistral gives no end date, so recheck it.
+  // GA now, at $0.70 / $2.10 with cached input at $0.07, the usual 0.10x,
+  // in place of the preview's $0.68 / $2.09 sale price.
   const LARGE4 = 'mistralai/mistral-large-4-0'
+  const bill = (field) => calculateCost(LARGE4, { ...emptyUsage(), [field]: 1_000_000 })
 
-  it('prices at the sale $0.68 / $2.09 per Mtok, with cached input at $0.07', () => {
-    assert.equal(baseRate(LARGE4, 'input', 'output'), 0.68 + 2.09)
-    assert.equal(baseRate(LARGE4, 'cacheRead'), 0.07)
+  it("prices at Mistral's $0.70 / $2.10 per Mtok, with cached input at $0.07", () => {
+    assert.equal(bill('input'), 0.7)
+    assert.equal(bill('output'), 2.1)
+    assert.equal(bill('cacheRead'), 0.07)
   })
 
   it('registers its 256K of output', () => {
     assert.equal(getMaxTokens(LARGE4), 256 * 1024)
   })
 
-  it('reasons by default, takes only high, and switches off with none', () => {
+  it('reasons at low, medium or high, with no off switch now that none is gone', () => {
+    // The preview's none / high pair became low / medium / high, and
+    // Mistral says Large 4 does not accept none.
     assert.equal(canThink(LARGE4), true)
-    assert.deepEqual(effortsFor(LARGE4), ['high'])
+    assert.deepEqual(effortsFor(LARGE4), ['low', 'medium', 'high'])
     assert.deepEqual(normalizeThinkEffort(LARGE4, true), { useThink: true, useEffort: 'high' })
-    assert.equal(canDisableThink(LARGE4), true)
-    assert.equal(needsExplicitNoThink(LARGE4), true)
+    assert.equal(canDisableThink(LARGE4), false)
+    assert.equal(needsExplicitNoThink(LARGE4), false)
   })
 })
 

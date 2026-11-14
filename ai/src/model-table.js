@@ -135,7 +135,7 @@ export const MAIN_MODELS = [
   ['moonshotai/kimi-k3', { input: 3, output: 15, cacheWritePrice: 3, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['xiaomi/mimo-v2.6-pro', { input: 0.435, output: 0.87, cacheReadPrice: 0.0036, maxTokens: 128 * 1024, noThink: 'explicit' }],
   ['xiaomi/mimo-v2.6-flash', { input: 0.14, output: 0.28, cacheReadPrice: 0.0028, maxTokens: 128 * 1024, noThink: 'explicit' }],
-  ['mistralai/mistral-large-4-0', { input: 0.68, output: 2.09, cacheReadPrice: 0.07, maxTokens: 256 * 1024, noThink: 'explicit', efforts: ['high'] }],
+  ['mistralai/mistral-large-4-0', { input: 0.7, output: 2.1, maxTokens: 256 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['meta/muse-wonder', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128 * 1024, noThink: 'unsupported' }],
   ['meta/muse-ember', { input: 0.1, output: 0.5, cacheReadPrice: 0.004, longContext: { above: 200_000, input: 3, output: 3 }, maxTokens: 128 * 1024, noThink: 'unsupported' }],
   ['unbiased/pareto-26.10', { input: 0.8, output: 3.2, cacheReadPrice: 0.03, maxTokens: 128 * 1024, canThink: false }],
