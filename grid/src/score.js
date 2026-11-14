@@ -3,19 +3,11 @@ import { expectObject, extractJSON, numberOf, textOf } from './json.js'
 import { mapLimit } from './pool.js'
 import { blocks, candidateBlock, requestBlock, scoreSystem } from './prompts.js'
 
-// Phase 5: the finalists, each in full against the request in full, on an absolute scale. The
-// search ranked them on relative judgements over summaries; this is the first reading of the actual
-// entries, and its score is what a caller cuts by. The order among the top of them is then read
-// once more as a list (rerank.js), since an absolute scale given one finalist at a time is noisy
-// exactly there.
-//
-// The request is the shared prefix of every call here, so one request against two hundred
-// finalists writes it to the prompt cache once and reads it after.
+// Phase 5: each finalist in full against the request in full, on an absolute scale a caller cuts by.
+// The request is the shared prefix of every call.
 
-// A score that is not a number is re-asked, not coerced: null or a boolean would read as 0 or 1
-// and be cached as the finalist's verdict. The reason and the evidence are re-asked too when
-// missing or not text: they are what the result carries for the score, and an empty one, once
-// cached, would stay empty for every later run.
+// A score that is no number is re-asked rather than coerced, and so is a missing reason or evidence,
+// which once cached would stay missing
 function readScore(text) {
   const json = expectObject(extractJSON(text), 'score, reason and evidence')
   const value = numberOf(json.score)
@@ -27,13 +19,9 @@ function readScore(text) {
   return { score: Math.min(100, Math.max(0, value)), reason, evidence }
 }
 
-// Whether the evidence is in the entry word for word. The model was asked to copy a span, and
-// whether it did is the one check on the score's reasoning that costs no model call: a quote that
-// is not there was reasoned about something the entry does not say. Both sides are folded to lower
-// case, straight quotes and single spaces; the quote loses the quotation marks a model wraps it in
-// and the stop it ends it with, and nothing else -- a `#1`, a `--flag` or a `C++` keeps the
-// characters that make it what it is, or the check would pass on the bare word -- and a quote with
-// an ellipsis is several spans, each of which has to be there.
+// Whether the evidence is in the entry word for word, folded for case, quotes and spaces, the quote
+// shorn of its wrapping marks and final stop alone (so `C++` keeps its pluses), and each span of a quote
+// with an ellipsis there in turn: a quote that is not there was reasoned about something unsaid
 const fold = (text) => text.toLowerCase().replace(/[‘’]/gu, "'").replace(/[“”]/gu, '"').replace(/\s+/gu, ' ')
 const WRAPPING = /^[\s"'`«»]+|[\s"'`«»]+$/gu
 const STOP = /[.,;:!?]+$/u
@@ -53,10 +41,7 @@ export function isQuoted(evidence, entry) {
   return spans.length > 0 && spans.every((span) => haystack.includes(span))
 }
 
-// `candidates` are `{ row, votes, score }` as the search ranks them; the votes come along into the
-// result as a tie-break and as a trace of how each finalist got here, the row's duplicates as the
-// ids the result stands for. Best first: by score, a grounded reading ahead of one whose evidence
-// was not found at the same score, then votes.
+// Best first: by score, a grounded reading ahead of an ungrounded one, then the search's votes
 export async function score({ task, request, candidates, model, concurrency = 20, think, effort, tally, ask }) {
   const systemPrompt = scoreSystem(task)
   const scored = await mapLimit(candidates, concurrency, async ({ row, votes }) => {

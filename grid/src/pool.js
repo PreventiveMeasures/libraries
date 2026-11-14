@@ -1,12 +1,6 @@
-// A bounded fan-out: `fn` over every item, at most `limit` in flight, results in input order. The
-// transport under the model calls has its own global ceiling (ai's setFetchConcurrency), so this
-// one is about what sits in memory and open on disk at once -- a compaction fans out over twenty
-// thousand entries, and twenty thousand pending cache reads is not a concurrency, it is a leak.
-//
-// The first failure stops the pool: workers finish the item they hold and take no more, and the
-// pool rejects with that first error only once every started item has settled. Rejecting sooner
-// would hand control back while sibling calls are still writing the cache and the tally behind a
-// caller that has moved on -- or, in the CLI, closing the provider under them.
+// `fn` over every item, at most `limit` in flight, results in input order. The first failure stops the
+// pool, which rejects with it once every started item has settled: no call then writes the cache or the
+// tally behind a caller that has moved on. The transport has its own ceiling; this one bounds memory.
 export async function mapLimit(items, limit, fn) {
   const results = Array.from({ length: items.length })
   let next = 0
@@ -21,8 +15,7 @@ export async function mapLimit(items, limit, fn) {
       }
     }
   }
-  // Whole workers, at least one: a limit that is not a positive number would otherwise reach
-  // Array.from as a length it reads as zero, and a pool with no workers resolves having done nothing.
+  // At least one worker: a limit that is not a positive number would otherwise make none, doing nothing
   const workers = Math.max(1, Math.min(Math.floor(limit) || 0, items.length))
   await Promise.all(Array.from({ length: workers }, worker))
   if (failure) throw failure.err
