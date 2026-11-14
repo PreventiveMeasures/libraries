@@ -20,12 +20,8 @@ const RULES = {
 }
 
 // Context diffs carry `---` headers too, so the fence is looked for first
-function formatOf(lines) {
-  if (lines.some((line) => CONTEXT_FENCE.test(line))) return 'context'
-  if (lines.some((line) => UNIFIED_HUNK.test(line))) return 'unified'
-  if (lines.some((line) => NORMAL_COMMAND.test(line))) return 'normal'
-  return null
-}
+const MARKERS = [['context', CONTEXT_FENCE], ['unified', UNIFIED_HUNK], ['normal', NORMAL_COMMAND]]
+const formatOf = (lines) => MARKERS.find(([, marker]) => lines.some((line) => marker.test(line)))?.[0] ?? null
 
 // A diff quoted in a message is read as one, and the lines around it take no style
 export const diffFormat = (text) => formatOf(text.split('\n'))

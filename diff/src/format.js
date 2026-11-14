@@ -7,14 +7,13 @@ export class FormatError extends Error {
   }
 }
 
+const KIND = { ' ': 'kept', '-': 'removed', '+': 'added' }
+
 // What was printed, read back, has to give the blocks, and every line has to be one of the files' own:
 // a removed or kept line the first's, an added line the second's, and a kept line in a context hunk that
 // removes nothing the second's. That holds under any comparison, where rebuilding the second would not.
 function verifyRendering(a, b, blocks, body) {
-  if (blocks.length === 0) {
-    if (body !== '') throw new FormatError('there was nothing to print, and something was printed')
-    return
-  }
+  if (blocks.length === 0 && body === '') return
   let files
   try {
     files = parseDiff(body)
@@ -33,7 +32,7 @@ function verifyRendering(a, b, blocks, body) {
     let ai = hunk.oldStart, bi = hunk.newStart
     for (const { tag, text } of hunk.lines) {
       const want = tag === '+' || (tag === ' ' && secondSideOnly) ? b[bi] : a[ai]
-      if (text !== want) throw new FormatError(`a ${tag === '+' ? 'added' : tag === '-' ? 'removed' : 'kept'} line is not the line it stands for`)
+      if (text !== want) throw new FormatError(`a ${KIND[tag]} line is not the line it stands for`)
       if (tag !== '+') ai++
       if (tag !== '-') bi++
     }

@@ -10,6 +10,9 @@ import { formatContext, formatNormal, formatUnified } from '../src/format.js'
 // machine busy with other tests stretches on the clock and not here.
 const cpuMs = (start) => { const { user, system } = cpuUsage(start); return (user + system) / 1000 }
 
+// The change set carried out over `a`, each block taking its lines from `b`
+const rebuild = (a, blocks, b) => applyRecords(a, blocks.map((block) => ({ ...block, insert: b.slice(block.b0, block.b1) })))
+
 // The change set is the thing under test here, not its rendering: every
 // change set diffLines returns has to reconstruct the second input, and
 // when the inputs are small enough to check by other means, it also has to
@@ -49,7 +52,7 @@ describe('diffLines returns a change set that reconstructs the second input, a s
       for (const minimal of [true, false]) {
         const blocks = diffLines(a, b, { minimal })
         const replay = `round ${round}${minimal ? ', --minimal' : ''}: ${JSON.stringify([a.join(''), b.join('')])}`
-        assert.deepEqual(applyRecords(a, blocks, b), b, replay)
+        assert.deepEqual(rebuild(a, blocks, b), b, replay)
         // Without --minimal a line matching many can be set aside, as GNU
         // sets it aside, and the change set be the longer for it.
         if (minimal) assert.equal(editCount(blocks), shortest, `${replay}: not minimal`)
@@ -98,9 +101,9 @@ describe('diffLines returns a change set that reconstructs the second input, a s
     const a = Array.from({ length: 3000 }, () => `${Math.floor(next() * 100000)}\n`)
     const b = Array.from({ length: 3000 }, () => `${Math.floor(next() * 100000)}\n`)
     const blocks = diffLines(a, b)
-    assert.deepEqual(applyRecords(a, blocks, b), b)
+    assert.deepEqual(rebuild(a, blocks, b), b)
     const minimal = diffLines(a, b, { minimal: true })
-    assert.deepEqual(applyRecords(a, minimal, b), b)
+    assert.deepEqual(rebuild(a, minimal, b), b)
     assert.ok(editCount(minimal) <= editCount(blocks))
   })
 })
@@ -154,7 +157,7 @@ describe('the search stays fast', () => {
     const a = Array.from({ length: 200000 }, (_, i) => `line ${i}\n`)
     const b = a.map((line, i) => i % 97 === 0 ? `changed ${i}\n` : line)
     b.splice(50000, 0, 'inserted\n')
-    budget('200k lines', () => assert.deepEqual(applyRecords(a, diffLines(a, b), b), b), 3000)
+    budget('200k lines', () => assert.deepEqual(rebuild(a, diffLines(a, b), b), b), 3000)
   })
   it('twenty thousand lines sharing nothing', () => {
     const a = Array.from({ length: 20000 }, (_, i) => `left ${i}\n`)
@@ -164,6 +167,6 @@ describe('the search stays fast', () => {
   it('fifty thousand lines over a small alphabet', () => {
     const a = Array.from({ length: 50000 }, (_, i) => `${i % 7}\n`)
     const b = Array.from({ length: 50000 }, (_, i) => `${(i * 3) % 7}\n`)
-    budget('small alphabet', () => assert.deepEqual(applyRecords(a, diffLines(a, b), b), b), 3000)
+    budget('small alphabet', () => assert.deepEqual(rebuild(a, diffLines(a, b), b), b), 3000)
   })
 })
