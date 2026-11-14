@@ -444,6 +444,7 @@ describe('no-think wire form', () => {
     ['mistralai/mistral-large-4-0', true, true],
     // Meta's API 400s on reasoning_effort "none".
     ['meta/muse-wonder', false, false],
+    ['meta/muse-ember', false, false],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
     ['z-ai/glm-5.3', false, false],
@@ -1467,6 +1468,35 @@ describe('meta muse wonder', () => {
     assert.equal(canThink(WONDER), true)
     assert.equal(canDisableThink(WONDER), false)
     assert.deepEqual(effortsFor(WONDER), ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+})
+
+describe('meta muse ember', () => {
+  const EMBER = 'meta/muse-ember'
+  const bill = (fields) => calculateCost(EMBER, { ...emptyUsage(), ...fields })
+
+  it("prices at Meta's $0.10 / $0.50 per Mtok, with cached input at $0.004, to 200K of input", () => {
+    assert.equal(bill({ input: 200_000 }), 0.02)
+    assert.equal(bill({ output: 1_000_000 }), 0.5)
+    assert.equal(bill({ cacheRead: 200_000 }), 0.0008)
+  })
+
+  it('bills every leg at 3x past 200,000 prompt tokens, cached ones included, on the whole request', () => {
+    // Meta's long-context card: $0.30 / $1.50, with cached input at $0.012.
+    assert.equal(bill({ input: 200_001 }), (200_001 * 0.1 * 3) / 1_000_000)
+    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 0.3 + 1.5)
+    assert.equal(bill({ cacheRead: 1_000_000 }), 0.012)
+  })
+
+  it('registers a 128K output default, well under the 524,288 Meta allows', () => {
+    assert.equal(getMaxTokens(EMBER), 128 * 1024)
+  })
+
+  it('reasons on every request, on the ladder through max', () => {
+    // Effort runs minimal to max, defaulting to max; none returns a 400.
+    assert.equal(canThink(EMBER), true)
+    assert.equal(canDisableThink(EMBER), false)
+    assert.deepEqual(effortsFor(EMBER), ['low', 'medium', 'high', 'xhigh', 'max'])
   })
 })
 
