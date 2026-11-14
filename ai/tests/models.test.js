@@ -438,6 +438,7 @@ describe('no-think wire form', () => {
     ['qwen/qwen3.8-27b', true, true],
     ['qwen/qwen3.8-2.4t-a95b', false, false],
     ['qwen/qwen3.8-max', false, false],
+    ['qwen/qwen3.8-flash', true, true],
     ['deepseek/deepseek-v4-pro', true, true],
     ['xiaomi/mimo-v2.6-pro', true, true],
     ['xiaomi/mimo-v2.6-flash', true, true],
@@ -1376,6 +1377,29 @@ describe('qwen3.8 max', () => {
     assert.equal(canThink(MAX), true)
     assert.equal(canDisableThink(MAX), false)
     assert.deepEqual(effortsFor(MAX), ['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+})
+
+describe('qwen3.8 flash', () => {
+  const FLASH = 'qwen/qwen3.8-flash'
+  const bill = (field) => calculateCost(FLASH, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("registers Alibaba's international $0.15 / $0.47 per Mtok, its $0.016 cache reads and $0.20 cache writes", () => {
+    assert.equal(bill('input'), 0.15)
+    assert.equal(bill('output'), 0.47)
+    assert.equal(bill('cacheRead'), 0.016)
+    assert.equal(bill('cacheWrite5m'), 0.2)
+    assert.equal(getMaxTokens(FLASH), 128 * 1024)
+  })
+
+  it('thinks by default with no effort knob, and switches off', () => {
+    // Hybrid thinking, on by default; OpenRouter takes `reasoning` for it
+    // but no `reasoning_effort`.
+    assert.equal(canThink(FLASH), true)
+    assert.equal(canEffort(FLASH), false)
+    assert.deepEqual(resolveThinkEffort(FLASH, true), { useThink: true, useEffort: undefined })
+    assert.throws(() => resolveThinkEffort(FLASH, true, 'high'), /--effort is not supported/u)
+    assert.equal(needsExplicitNoThink(FLASH), true)
   })
 })
 

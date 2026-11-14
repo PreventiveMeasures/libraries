@@ -118,6 +118,7 @@ export const MAIN_MODELS = [
   ['nvidia/nemotron-3.5-lightning', { input: 0.08, output: 0.2, maxTokens: 128 * 1024 }],
   ['qwen/qwen3.8-max', { input: 2, output: 6, cacheReadPrice: 0.25, maxTokens: 128 * 1024, noThink: 'unsupported' }],
   ['qwen/qwen3.8-2.4t-a95b', { input: 2, output: 6, maxTokens: 64 * 1024, noThink: 'unsupported' }],
+  ['qwen/qwen3.8-flash', { input: 0.15, output: 0.47, cacheReadPrice: 0.016, cacheWritePrice: 0.2, maxTokens: 128 * 1024, noThink: 'explicit', efforts: [] }],
   ['qwen/qwen3.8-27b', { input: 0.214, output: 2.55, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['qwen/qwen3.6-27b', { input: 0.3, output: 2, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, noThink: 'explicit' }],
