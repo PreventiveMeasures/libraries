@@ -9,6 +9,8 @@ linkWorkspacePackages: true
 
 lockfileIncludeTarballUrl: true
 
+minimumReleaseAge: 20160
+
 minimumReleaseAgeExclude:
   - "@chalker/*"
   - "@preventive/*"
