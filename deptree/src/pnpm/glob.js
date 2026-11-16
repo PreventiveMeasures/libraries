@@ -1,8 +1,6 @@
-// glob 8 as npm-packlist 5 globs a `files` pattern for pnpm 10: dot
-// and nocase, a leading `!` or `#` taken as it is. Each path found is spelled
-// as glob spells it, a directory's with the trailing slash a pattern gave
-// it, and a file named by a pattern with no part to match against names
-// found alone where it is there.
+// glob 8 as npm-packlist 5 globs `files` for pnpm 10: dot and nocase, a leading `!` or `#` as it is. A path is
+// spelled as glob spells it, a directory's with the slash a pattern gave it; a pattern with nothing to match
+// names a file alone, where it is there.
 
 import { GLOBSTAR, OBJECT_5, checkGlob, checkLength, checkParts, readPart } from './minimatch.js'
 

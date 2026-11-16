@@ -1,7 +1,5 @@
-// A registry package as pnpm installs it: its tarball read as @pnpm/store.cafs
-// reads it, and held to what npm packs, more than pnpm holds it to. A
-// dependency the lockfile left out of a snapshot would leave the package to
-// find it wherever it is hoisted, if anywhere.
+// A registry package as pnpm installs it, its tarball read as @pnpm/store.cafs reads it and held to what npm
+// packs, more than pnpm holds it to: a dependency the lockfile left out would be found wherever it is hoisted
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { compareVersions } from '@preventive/upstream/semver.js'
@@ -19,10 +17,8 @@ function nameOf(stored) {
   return name.replaceAll('//', '/')
 }
 
-// pnpm 10 and 11 drop a name's first segment at a `\` as at a `/` where the
-// ustar header holds the name, and pnpm 10 and 11, where a name has a `.\`,
-// turn each `\` into a `/` before normalizing it; pnpm 12 takes every `\` for
-// a separator, and fails on a `..` that makes.
+// A `\` is refused: pnpm 10 and 11 drop a name's first segment at one as at a `/` and, in a name with a `.\`,
+// turn each into a `/`; pnpm 12 takes every one for a separator, and fails on a `..` that makes
 function filesOf(entries, where) {
   const files = new Map()
   const tops = new Set()
@@ -43,6 +39,7 @@ function filesOf(entries, where) {
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
+const isMapping = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const names = (value) => Object.keys(value ?? {})
 
@@ -51,8 +48,8 @@ const names = (value) => Object.keys(value ?? {})
 // linked as the lockfile has it.
 function hasBin({ bin, directories }, major) {
   if (major >= 12) {
-    const named = typeof bin === 'string' ? bin !== '' : bin !== null && typeof bin === 'object' && !Array.isArray(bin) && Object.keys(bin).length > 0
-    return named || (directories !== null && typeof directories === 'object' && !Array.isArray(directories) && typeof directories.bin === 'string' && directories.bin !== '')
+    const named = typeof bin === 'string' ? bin !== '' : isMapping(bin) && Object.keys(bin).length > 0
+    return named || (isMapping(directories) && typeof directories.bin === 'string' && directories.bin !== '')
   }
   if (bin == null) return Boolean(directories?.bin)
   if (bin && Object.keys(bin).length > 0) return true
@@ -68,17 +65,14 @@ function readManifest(files, pkg, where) {
   } catch {
     throw new DeptreeError('package.json is not JSON', where)
   }
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw new DeptreeError('package.json is not an object', where)
+  if (!isMapping(manifest)) throw new DeptreeError('package.json is not an object', where)
   checkNesting(manifest, `${where}: package.json`)
   if (manifest.name !== pkg.name || manifest.version !== pkg.version) throw new DeptreeError(`package.json is for ${quote(`${manifest.name}@${manifest.version}`)}`, where)
   return manifest
 }
 
-// npm's abbreviated metadata, which pnpm resolves from unless a setting such
-// as supportedArchitectures.libc has it ask for the full document, has no
-// libc, nor has the package.json pnpm 10 keeps in the store: a lockfile
-// may leave out a libc a registry package's package.json has. One it names is
-// held to it, as a directory's always is: pnpm reads that package.json whole.
+// npm's abbreviated metadata, which pnpm resolves from unless a setting like supportedArchitectures.libc asks
+// for the full document, has no libc, so a registry package's snapshot may lack one; one it names is held
 export function checkManifest(manifest, pkg, where, major, registry = false) {
   for (const field of ['os', 'cpu', 'libc']) {
     if (registry && field === 'libc' && pkg.libc === undefined) continue

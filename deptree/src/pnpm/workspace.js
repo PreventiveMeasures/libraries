@@ -1,8 +1,5 @@
-// The directories pnpm takes for a workspace's projects: the root, and each
-// whose package.json a glob of pnpm-workspace.yaml's `packages` takes, as
-// @pnpm/fs.find-packages globs for them with tinyglobby, or
-// as pnpm 12 walks (wax). pnpm 11 matches `!` globs with micromatch, dotted
-// names and all.
+// The directories pnpm takes for projects: the root, and each whose package.json a `packages` glob takes,
+// as @pnpm/fs.find-packages globs with tinyglobby, or pnpm 12 walks; pnpm 11 matches `!` with micromatch.
 
 import { compareNames, normalize } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -48,7 +45,7 @@ function enters({ names: glob, dot }, names) {
 // whether a glob with a `*` takes it (manifestOf).
 function compileAll(packages, major) {
   const twelve = major >= 12
-  const [enters_, ignored_, dropped] = twelve ? [enters12, underLeftOut, underLeftOut] : [enters, ignored, () => false]
+  const [walks, skips, dropped] = twelve ? [enters12, underLeftOut, underLeftOut] : [enters, ignored, () => false]
   const include = []
   const exclude = []
   for (const glob of packages ?? []) {
@@ -57,7 +54,7 @@ function compileAll(packages, major) {
     ;(negative ? exclude : include).push({ ...compiled, wild: twelve && glob.includes('*') })
   }
   return {
-    walked: (names) => include.some((glob) => enters_(glob, names)) && !ignored_(names),
+    walked: (names) => include.some((glob) => walks(glob, names)) && !skips(names),
     taken: takenBy(include, exclude, dropped),
     wild: (names) => include.some((glob) => glob.wild && takes(glob, names)),
   }

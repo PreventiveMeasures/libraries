@@ -1,7 +1,5 @@
-// A gitignore line as pnpm 12 reads one, by the ignore crate (0.4.32) and
-// its glob by globset (0.4.18): matched against a path's UTF-8 bytes, case
-// and all, from the directory of the file it is in. Only `*`, `?` and `**`
-// are followed of glob syntax, as in minimatch.js.
+// A gitignore line as pnpm 12 reads it, by the ignore crate 0.4.32 and globset 0.4.18: matched against a
+// path's UTF-8 bytes, case and all, from its file's directory; only `*`, `?` and `**` are followed
 
 import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { checkGlob, checkLength } from './minimatch.js'

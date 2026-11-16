@@ -1,7 +1,5 @@
-// Each setting pnpm reads, by its pnpm-workspace.yaml name, is either read
-// and checked (READ, READ_11, READ_12) or passed over as leaving
-// the tree as it is (IGNORED, IGNORED_11, IGNORED_12); any other is
-// refused.
+// Each setting pnpm reads, by its pnpm-workspace.yaml name, is read and checked (READ, READ_11, READ_12)
+// or passed over as leaving the tree as it is (IGNORED, IGNORED_11, IGNORED_12); any other is refused.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'

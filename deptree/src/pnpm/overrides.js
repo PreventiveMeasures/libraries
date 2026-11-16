@@ -1,7 +1,5 @@
-// Overrides as pnpm's parseOverrides reads them. A frozen install holds them
-// only to the lockfile's `overrides`, which they were resolved with. pnpm 11
-// reads `name@` and an exact version as converging: a dependency on `name`
-// whose range takes that version is given it where no override is chosen.
+// Overrides as pnpm's parseOverrides reads them, held by a frozen install only to the lockfile's. pnpm 11 reads
+// `name@` and an exact version as converging: a dependency whose range takes it gets it, where none is chosen.
 
 import { valid } from '@preventive/upstream/semver.js'
 import { join } from '@preventive/vfs/path.js'

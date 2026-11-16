@@ -1,16 +1,13 @@
-// Hoisting as @pnpm/hoist does it: an alias a pattern matches is linked in
-// node_modules (public) or node_modules/.pnpm/node_modules (private), and the
-// first to take it keeps it, in pnpm's order: the projects' direct
-// dependencies, then the graph by depth, then by directory.
+// @pnpm/hoist: an alias a pattern matches is linked in node_modules (public) or .pnpm/node_modules (private),
+// the first to take it keeping it, in pnpm's order: the projects' direct dependencies, then the graph by
+// depth, then by directory
 
 import { compareNames } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
 
-// pnpm's graphWalker: each node's children are walked to the bottom before the
-// next node's, so a node's depth is not always its least. A level's nodes are
-// listed, and all their children stepped to, before the first child's are;
-// on a stack of its own, where pnpm recurses, so a long chain runs out of none.
+// pnpm's graphWalker on a stack: a level's nodes are listed, and all their children stepped to, before the
+// first child's are, so a node's depth is not always its least
 function walk(nodes, starts) {
   const visited = new Set()
   const step = (dirs) => {
@@ -74,14 +71,9 @@ function hoistGraph(nodes, starts, taken, typeOf, { projects = new Map(), instal
   return links
 }
 
-// `projects` are the named projects by directory, which hoistWorkspacePackages
-// hoists by name too. pnpm 10 lists their names first among the root's aliases,
-// a direct dependency of the same name replacing one; a hoisted project takes
-// no name, and wins over a package hoisted to its place, as pnpm replaces a
-// link into the store with it but not its own with one. pnpm 10 takes the
-// root's aliases as spelled; pnpm 11 folds them too, and hoists a project
-// unless a project's direct dependency in the graph has its name. pnpm 12 walks
-// `hoisting`, through the skipped snapshots though it hoists none of them.
+// `projects`, by directory, are hoisted by name too. pnpm 10 lists them first among the root's aliases, as
+// spelled, a project winning over a package hoisted to its place; pnpm 11 folds case and skips one a project's
+// direct dependency is named as; pnpm 12 walks `hoisting`, through the skipped snapshots, hoisting none.
 export function hoist(nodes, direct, { hoistPattern, publicHoistPattern }, projects = new Map(), major = 10, hoisting) {
   if (hoistPattern === undefined && publicHoistPattern === undefined) return new Map()
   const isPublic = createMatcher(publicHoistPattern ?? [])

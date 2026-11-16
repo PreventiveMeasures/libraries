@@ -1,9 +1,6 @@
-// minimatch as npm-packlist runs it, with matchBase, dot, flipNegate and
-// nocase, of patterns whose only glob syntax is `*`, `?` and `**`: 5.1.6 for
-// pnpm 10 before 10.31, 5.1.9 from 10.31, which matches
-// `**` by other steps, and 10.2 for pnpm 11. Its regexps have no `u`, as
-// minimatch's have none: they take UTF-16 code units, and fold case as such
-// a regexp folds it.
+// minimatch as npm-packlist runs it (matchBase, dot, flipNegate, nocase) on `*`, `?` and `**` alone: 5.1.6
+// for pnpm 10 before 10.31, 5.1.9 from 10.31, which matches `**` by other steps, and 10.2 for pnpm 11. No `u`
+// on its regexps, as on minimatch's: they take UTF-16 code units, and fold case as such regexps fold it.
 
 import { DeptreeError, quote } from '../error.js'
 
@@ -69,11 +66,9 @@ const ANY = -2
 const SLASH = 0x2F
 const LINE_TERMINATORS = new Set([0x0A, 0x0D, 0x2028, 0x2029])
 
-// A part as minimatch's regexp of it matches a name, in time linear in
-// both: `*` any run of code units but `/`, `?` any one, each other one
-// itself without case. `lookahead` is minimatch 5's `(?=.)`, which takes no
-// name that is empty or starts with a line terminator; `traversal` its
-// lookahead that takes no `.` or `..`.
+// A part as minimatch's regexp matches a name, in time linear in both: `*` any run but `/`, `?` any one unit,
+// the rest caseless. `lookahead` is minimatch 5's `(?=.)`, which takes no empty name nor one opening with a
+// line terminator; `traversal` takes no `.` or `..`.
 function partOf(text, { lookahead = false, traversal = false, empty = true } = {}) {
   const units = Array.from({ length: text.length }, (_, i) => {
     const unit = unitAt(text, i)
@@ -217,10 +212,8 @@ function matchNew(file, pattern, partial) {
   return Boolean(matchSections(file, { sections, after, partial, sawTail: tailMatch > 0, memo: new Map() }, fileIndex, 0))
 }
 
-// Whether the sections from `index` match from `fileIndex`: minimatch's
-// answer, false, null where no later start can do, or true; each pair
-// reckoned once here. minimatch gives up past 200 sections, which more
-// than 100 `**` are refused before reaching.
+// Whether the sections from `index` match from `fileIndex`: false, null where no later start can, or true,
+// each pair reckoned once. minimatch gives up past 200 sections, and more than 100 `**` are refused first.
 function matchSections(file, walk, fileIndex, index) {
   const { sections, after, partial, sawTail, memo } = walk
   if (index === sections.length) {

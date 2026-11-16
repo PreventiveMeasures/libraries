@@ -1,8 +1,5 @@
-// Which snapshots a frozen install leaves out. pnpm 10 walks depth first
-// (@pnpm/lockfile.filtering's pkgAllDeps) and leave out an optional one the
-// host cannot run or first reached through one not installed: the first
-// reach decides. Projects go in lockfile order, pnpm's being the order it
-// finds them on disk, which only a snapshot reached both ways can tell.
+// Which snapshots a frozen install leaves out. pnpm 10 walks depth first (@pnpm/lockfile.filtering),
+// the first reach deciding, the projects in lockfile order; pnpm 11 breadth first by edge kind.
 
 import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
@@ -105,10 +102,9 @@ export function checkProject(manifest, where, { host, settings, root }) {
   if (settings.engineStrict && !takesEngine(engines, node)) throw new DeptreeError(`its engines.node, ${quote(String(engines.node))}, does not take Node ${node}, which engineStrict refuses`, where)
 }
 
-// True where the host can run a snapshot, false where it is optional and
-// cannot, null where it cannot but is installed anyway. pnpm 11 and 12 take
-// `optional` from the edge. A patched one's engines are checked later
-// (patchedLater), save its published ones by pnpm 12 `walking` the lockfile.
+// True where the host can run a snapshot, false where it is optional and cannot, null where it is
+// installed anyway. pnpm 11 and 12 take `optional` from the edge; a patched one's engines are checked
+// later (patchedLater), but for its published ones when pnpm 12 is `walking` the lockfile.
 function createCheck(context) {
   const { host, settings } = context
   const node = nodeOf(context)
@@ -166,7 +162,6 @@ function projectKeys(lockfile, ids, walked) {
   return all
 }
 
-// Each key by `check`: false adds it to `skipped`, null to `incompatible`.
 function checkEach(keys, check, skipped = new Set()) {
   const incompatible = new Set()
   for (const key of keys) {

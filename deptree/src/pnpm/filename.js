@@ -1,7 +1,5 @@
-// The directory pnpm gives a snapshot under node_modules/.pnpm, as its
-// depPathToFilename (@pnpm/dependency-path) spells it: `a@1.0.0(b@2.0.0)` is
-// `a@1.0.0_b@2.0.0`, `@s/a@1.0.0` `@s+a@1.0.0`, and one too long or with a
-// capital is cut short and hashed.
+// A snapshot's directory under node_modules/.pnpm, as @pnpm/dependency-path's depPathToFilename spells
+// it: `a@1.0.0(b@2.0.0)` is `a@1.0.0_b@2.0.0`, and one too long or with a capital is cut and hashed.
 
 import { quote } from '../error.js'
 import { sha256Hex } from '../hash.js'

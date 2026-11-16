@@ -1,11 +1,6 @@
-// Where the hoisted linker (nodeLinker: hoisted) of pnpm 10 and 11 puts
-// each package: @pnpm/real-hoist makes a tree of the lockfile, the root's
-// dependencies and each other project's under the root, which @yarnpkg/nm
-// hoists (nm-hoist.js; what pnpm 11 has of it, 4.0.7 to 4.1.1, differs
-// only with hoistingLimits, which is not supported); each package is then
-// copied to node_modules/<alias> under where it landed, and each project's
-// own lands in its node_modules. A project's `link:` dependencies are linked
-// there, as are none of a package's.
+// pnpm 10 and 11's hoisted linker: real-hoist's tree of the lockfile, every project under the root, hoisted
+// by @yarnpkg/nm (nm-hoist.js; pnpm 11's 4.0.7 to 4.1.1 differs only with hoistingLimits, not supported),
+// each package copied to node_modules/<alias> where it lands; a project's `link:`s alone are linked
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { valid } from '@preventive/upstream/semver.js'
@@ -14,10 +9,8 @@ import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
 import { REGULAR, WORKSPACE, depthFirst, hoist, reachable } from './nm-hoist.js'
 
-// pnpm's name@version of a snapshot, by which it takes every snapshot of a
-// package for the first it comes to. A directory has no version in the
-// lockfile, so all of one name are one; from pnpm 11.24 (`directories`),
-// each snapshot of one is its own.
+// pnpm's name@version of a snapshot, by which it takes every snapshot of a package for the first. A
+// directory has no version, so all of one name are one; from pnpm 11.24 (`directories`) each is its own.
 export function packageIdOf(key, pkg, directories = false) {
   if (directories && pkg.resolution.type === 'directory') return key
   const base = packageKeyOf(key)
@@ -94,13 +87,9 @@ export function hoistedTree(lockfile, autoInstallPeers, bounds, { directories = 
   return hoist(treeOf(lockfile, autoInstallPeers, { directories, rootLinks }), bounds)
 }
 
-// Each directory a package is copied to, from the lockfile's, in the order
-// pnpm makes them, a parent before what lands in its node_modules, with the
-// snapshot copied there, the node_modules it is in and its alias there; the
-// `link:`s of each project, by where they go; and the node_modules of the
-// projects pnpm fills, the root's first. `skipped` are the snapshots left
-// out, which are hoisted all the same. pnpm hoists from the importers the
-// lockfile has, not those made for projects it has none for.
+// Each copy pnpm makes, a parent before what lands in its node_modules; each project's `link:`s by where
+// they go; and the projects' node_modules, the root's first. pnpm hoists from the lockfile's importers,
+// `skipped` snapshots too, and not those made for projects it has none for.
 export function hoistedLayout(lockfile, { autoInstallPeers, skipped, directories = false, rootLinks = false }, bounds) {
   const tree = hoistedTree(lockfile, autoInstallPeers, bounds, { directories, rootLinks })
   const placed = new Map()
@@ -130,10 +119,8 @@ export function hoistedLayout(lockfile, { autoInstallPeers, skipped, directories
   return { placed, links, projects }
 }
 
-// pnpm from 11.28 links each project named in `names` into the root's
-// node_modules by its name where a hoist pattern matches it, unless the root
-// depends on that name, or a package landed there by it, with their case
-// folded.
+// From pnpm 11.28, each project in `names` linked into the root's node_modules by its name where a hoist
+// pattern matches it, unless the root depends on that name or a package landed there by it, case folded
 export function workspaceHoists(placed, lockfile, { hoistPattern, publicHoistPattern }, names) {
   const isPublic = createMatcher(publicHoistPattern ?? [])
   const isPrivate = createMatcher(hoistPattern ?? [])
@@ -149,21 +136,9 @@ export function workspaceHoists(placed, lockfile, { hoistPattern, publicHoistPat
   return links
 }
 
-// What pnpm's build pass does where any patch is configured, which it runs
-// though scripts are ignored: it builds each package patched or with an
-// install script in one of its copies, the first it comes to of those a
-// project's node_modules reaches through each package's dependencies, each
-// at the first copy of its snapshot, or from pnpm 11.23 of its package
-// (`idOf`). Then it links the built copy's files into every other: from
-// 10.21 (`hardlinks`) it puts a copy of hardlinks in place of the copy, with
-// no node_modules, which drops the copy's own; before, in place, where a
-// file is not already, which leaves the others unpatched. From pnpm 11.25
-// (`keepsModules`) it links each file but those under a node_modules in
-// place of the copy's own, and leaves the copy's node_modules and what the
-// built one has not. Which copy it builds turns on its build order, which is
-// not followed here. `projects` are the node_modules of the projects;
-// `byDir` the copies, in the order pnpm makes them; `changesOf` the changes
-// of a patched one's patch; `pnpm` the version, for what is refused.
+// pnpm's build pass where any patch is configured, scripts ignored or not: each package patched or with an
+// install script built at the first reached copy (of its snapshot, or from 11.23 its package: `idOf`), its
+// files then linked into the others as the refusals say. Which copy it builds turns on an order not followed.
 export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules = false, idOf = (key) => key, changesOf, pnpm = '10' }) {
   const first = new Map()
   for (const node of byDir.values()) if (!first.has(idOf(node.key))) first.set(idOf(node.key), node.dir)
@@ -199,12 +174,8 @@ export function hoistedBuilds(byDir, projects, builds, { hardlinks, keepsModules
   return built
 }
 
-// Where any patch is configured, from pnpm 10.21 to before 11.25, pnpm
-// builds one copy of each package patched or with an install script, which
-// only its tarball tells, and puts hardlinks of it in place of the others,
-// dropping their node_modules (hoistedBuilds): the packages of more than one
-// copy, one with a node_modules, which may lose it, by key, each with that
-// copy. `placed` are the copies, as hoistedLayout places them.
+// The packages of several copies, by key, with the copy whose node_modules pnpm 10.21 to before 11.25 may
+// drop where any patch is configured: it puts hardlinks of one built copy in place of the others
 export function mayDrop(placed) {
   const placedIn = new Set(placed.values().map((node) => node.modules))
   const dropping = new Map()

@@ -46,10 +46,8 @@ export function readDirectoryPackage(project, pkg, where, host) {
 // which no other resolver takes, and links to a directory of that name.
 const ALIASED = /(?:^|\/)(npm:(@[^/]+\/[^/]+)@(workspace:[^/]*))$/u
 
-// pnpm links to a directory that is not there all the same: pnpm 10 and 11
-// warn as they resolve, and none does as a frozen install. Refused, with the
-// project given or, for the spec it takes for a path, without, but where the
-// project holds a directory of that name.
+// pnpm links to a directory that is not there all the same, warning at most as it resolves: refused, from the
+// project given, or without it for the spec pnpm takes for a path, unless the project holds that directory
 export function readLinked(links, nodes, projects, project) {
   const linked = new Map()
   for (const [path, target] of links) {
