@@ -1,6 +1,5 @@
-// What buildCargoTree takes, as text or read from the project's root. Texts
-// given are laid out as the project they stand for, so that both are read
-// one way.
+// What buildCargoTree takes, as text or read from the project's root; texts given are laid out as the
+// project they stand for, so both are read one way
 
 import { Vfs } from '@preventive/vfs'
 import { DeptreeError, quote } from '../error.js'
@@ -18,9 +17,8 @@ export function checkHost(host) {
   return { cargo: host.cargo, os: host.os, comment: Number(minor) >= 97 }
 }
 
-// A file cargo reads, by its path from the root, as text, or undefined where
-// there is none: a link at it or on the way to it is refused, so that nothing
-// is read from outside the project's view.
+// A file cargo reads, or undefined where there is none: a link at or on the way to it is refused, so
+// nothing is read from outside the project's view
 export function readUnlinked(project, file, what) {
   const segments = file.split('/')
   for (let i = 1; i <= segments.length; i++) {
@@ -61,8 +59,7 @@ function given(manifests) {
 
 const LOCKFILE = 'lockfile must be the Cargo.lock text, or left out where project is given'
 
-// `project` the view manifests are read from, and `given` the directories
-// of those given, which have to be those read.
+// `given` are the directories of the manifests given, which have to be those read
 export function inputsOf(options) {
   const { lockfile, manifests, config, project } = options
   if (lockfile === undefined) {

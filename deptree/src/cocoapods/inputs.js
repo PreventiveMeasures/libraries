@@ -5,10 +5,7 @@ import { DeptreeError, quote } from '../error.js'
 import { checkHostKeys, checkLeftOut, checkProject, readBytes, readText, typeOf } from '../project.js'
 import { isObject } from './podspec.js'
 
-// CocoaPods 1.13.0 to 1.17.x, which download, clean and lock a pod alike
-// but for one thing, which tree.js follows: 1.16 on copy a download into
-// their cache with rsync, which leaves the clone's .git out, where those
-// before use FileUtils.cp_r, which copies it.
+// 1.13 to 1.17 download, clean and lock a pod alike but for the clone's .git, which tree.js follows
 const VERSION = /^1\.1[3-7]\.\d+$/u
 
 export function checkHost(host) {
@@ -18,8 +15,7 @@ export function checkHost(host) {
   return { cocoapods: host.cocoapods, os: host.os }
 }
 
-// What the Podfile's targets are for, as Platform names them, each once;
-// undefined for any.
+// What the Podfile's targets are for, as Platform names them, each once; undefined for any
 const PLATFORMS = new Set(['ios', 'osx', 'tvos', 'visionos', 'watchos'])
 const PLATFORMS_TYPE = 'platforms must be a non-empty list of ios, osx, tvos, visionos and watchos, each once, or left out'
 export function platformsOf(platforms) {
@@ -34,8 +30,7 @@ export function flagsOf({ manifest = false, partial = false }) {
   return { manifest, partial }
 }
 
-// `only`, the names of the pods to download, each once; undefined for every
-// pod there is.
+// The names of the pods to download, each once; undefined for every pod
 const ONLY = 'only must be a list of the names of pods, each once, or left out'
 export function onlyOf(only) {
   if (only === undefined) return undefined
@@ -48,9 +43,8 @@ const PODFILES = ['CocoaPods.podfile.yaml', 'CocoaPods.podfile', 'Podfile', 'Pod
 
 const LOCKFILE = 'lockfile must be the Podfile.lock text, or left out where project is given'
 
-// The podspecs of pods by :podspec, as CocoaPods writes each in Pods/Local
-// Podspecs, by name: those given, as text or bytes, or else those in the
-// project's Pods/Local Podspecs; undefined for one neither has.
+// The podspecs of pods by :podspec, by name: those given, or else the project's Pods/Local Podspecs;
+// undefined for one neither has
 const PODSPECS = 'podspecs must be an object of podspecs by name, each as text or bytes, or left out'
 function podspecsOf(podspecs, project) {
   if (podspecs !== undefined) {

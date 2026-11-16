@@ -12,12 +12,10 @@ import { checkoutOf, githubRepoOf } from '../github.js'
 import { checkHost, inputsOf } from './inputs.js'
 import { extractZip } from './zip.js'
 
-// What the registry takes, as @preventive/upstream/soldeer.js checks a name
-// and version, which Soldeer's sanitize_filename leaves as they are on Unix.
+// A name and version as upstream's soldeer.js checks them, which sanitize_filename leaves as they are on Unix
 const NAME = /^(?=.{3,100}$)[@\da-z][\da-z-]*[\da-z]$/u
 const VERSION = /^(?=.{1,128}$)[\dA-Za-z][\w.+-]*$/u
-// A folder sanitize_filename leaves as it is on Unix: none of the characters
-// it replaces, and at most 255 bytes, past which it cuts the name short.
+// Neither a character sanitize_filename replaces nor past the 255 bytes it cuts a name at
 const isKept = (folder) => !/[/?<>\\:*|"\p{Cc}]/u.test(folder) && utf8fromStringLoose(folder).length <= 255
 
 const GITHUB = 'github must be a GitHub client from createClient, which a git dependency is fetched through'

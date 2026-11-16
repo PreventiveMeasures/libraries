@@ -1,8 +1,5 @@
-// The workspace as cargo finds it from the project's root, which is taken to
-// be its root: the members, each path dependency of one that is in the root
-// and not excluded a member too, and every other path package cargo reads,
-// each manifest parsed as cargo reads it, inheriting from the root's
-// [workspace] where cargo has it inherit.
+// The workspace as cargo finds it from the project's root, taken to be its root: the members and every
+// other path package cargo reads, each parsed as cargo reads it, inheriting where cargo has it inherit
 
 import { LockfileError, parseCargoManifest } from '@preventive/lockfile/cargo.js'
 import { TomlError, parseToml } from '@preventive/lockfile/toml.js'
@@ -14,13 +11,11 @@ import { checkDefaultMembers, checkLists, explicitMembers, isExcluded, parts } f
 
 export const fileOf = (dir) => (dir === '.' ? 'Cargo.toml' : `${dir}/Cargo.toml`)
 const manifestPath = (dir) => [...parts(dir), 'Cargo.toml']
-// Whether the root's [workspace] takes `dir` in: there is one, and it does
-// not exclude it.
+// Whether the root has a [workspace] that does not exclude `dir`
 const inRoot = (workspace, dir) => workspace !== undefined && !isExcluded(workspace, manifestPath(dir))
 
-// A path as a manifest writes it, from the directory `base`: `..` only ahead
-// of every name, which the filesystem would otherwise walk through a name
-// that cargo's normalize_path drops unread.
+// A path from `base`, `..` only ahead of every name: else the filesystem would walk through a name that
+// cargo's normalize_path drops unread
 function resolvePath(base, path, where) {
   if (path.startsWith('/') || UNSAFE.test(path) || /^[A-Za-z]:/u.test(path)) throw new DeptreeError(`${quote(path)} is not a relative path within the project, which is all that is read`, where)
   const segments = parts(base)
@@ -59,8 +54,7 @@ const pointerOf = (doc) => (doc.package ?? doc.project)?.workspace
 const DEP_KEYS = { normal: 'dependencies', dev: 'dev-dependencies', build: 'build-dependencies' }
 const depWhere = (dir, dep) => `${fileOf(dir)}: ${dep.target === undefined ? '' : `target.${quote(dep.target)}.`}${DEP_KEYS[dep.kind]}.${dep.name}`
 
-// The context the steps below share: the root's manifest and [workspace],
-// each Cargo.toml read, and each path package loaded.
+// The root's manifest and [workspace], each Cargo.toml read, and each path package loaded
 function contextOf(project, folded) {
   const read = new Map()
   const raw = (dir) => {
@@ -75,8 +69,7 @@ function contextOf(project, folded) {
   return { project, folded, read, raw, root, workspace: root.workspace, packages: new Map() }
 }
 
-// Where cargo finds the workspace of the package in `dir`, below the root:
-// its own [workspace], the root's, or none. A package.workspace pointing
+// The workspace of the package in `dir`: its own, the root's, or none. A package.workspace pointing
 // elsewhere than the root, and a [workspace] between the two, are refused.
 function workspaceOf({ raw, workspace }, dir) {
   if (raw(dir).doc.workspace !== undefined) return 'own'
@@ -93,10 +86,8 @@ function workspaceOf({ raw, workspace }, dir) {
   return inRoot(workspace, dir) ? 'root' : 'none'
 }
 
-// A path package's manifest, and where its path dependencies lead: of a
-// member every kind, of another package all but dev-dependencies, which
-// cargo resolves for members alone. An inherited dependency's path is from
-// the root of the workspace it is inherited from.
+// A path package's manifest and where its path dependencies lead, dev-dependencies a member's alone; an
+// inherited one's path is from the root of the workspace it is inherited from
 function load(context, dir, member, where) {
   const { raw, root, packages } = context
   if (raw(dir) === undefined) throw new DeptreeError(`${quote(fileOf(dir))} is not there, which cargo fails on`, where)
@@ -114,9 +105,8 @@ function load(context, dir, member, where) {
   return links
 }
 
-// Those `members` takes and the root, then each path dependency of one that
-// is in the root and not excluded, of any kind. What else they lead to is
-// given back, for the packages that are not members.
+// The root, those `members` takes, and each path dependency of one in the root and not excluded; what
+// else they lead to is given back, for the packages that are not members
 function loadMembers(context) {
   const { project, folded, workspace } = context
   const members = new Set()
@@ -144,8 +134,7 @@ function loadMembers(context) {
   return others
 }
 
-// Each [patch] from a path, the root's from the root and the config's from
-// the directory its .cargo is in, which is the root too.
+// Each [patch] from a path, the config's from the directory its .cargo is in, which is the root too
 function patchesOf(root, config) {
   const files = [[root.patch, 'Cargo.toml'], [config.patch, config.file]]
   return files.flatMap(([patch, file]) => Object.entries(patch).flatMap(([table, specs]) => Object.entries(specs).filter(([, spec]) => spec.source.type === 'path').map(([name, spec]) => {
@@ -154,9 +143,7 @@ function patchesOf(root, config) {
   })))
 }
 
-// `config` is what parseCargoConfig gives, with the `file` it was read from.
-// `read` is each Cargo.toml read, by its directory: undefined where there is
-// none.
+// `config` is parseCargoConfig's, with its `file`; `read` each Cargo.toml read by directory, undefined for none
 export function findWorkspace(project, config, folded) {
   const context = contextOf(project, folded)
   const others = loadMembers(context)

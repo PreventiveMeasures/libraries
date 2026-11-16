@@ -1,8 +1,5 @@
-// A registry zip as Soldeer 0.12 extracts it (download.rs's
-// extract_dependency_archive, zip crate 8.6); what the archive reader takes
-// and the two would read otherwise is refused. As a 0o022 umask leaves them,
-// every directory is 0o755, and a file's mode its Unix mode as the zip crate
-// reads it, or 0o644 where it reads none; a symlink is a file of its target.
+// A registry zip as Soldeer 0.12 extracts it (download.rs's extract_dependency_archive, zip crate 8.6),
+// under a 0o022 umask; what the archive reader takes and the two would read otherwise is refused
 
 import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { ArchiveError, unzip } from '@preventive/archive/zip.js'
@@ -41,24 +38,18 @@ function unixMode({ system, attributes }) {
   return attributes & 0x01 ? mode & ~0o222 : mode
 }
 
-// What str::trim_end_matches(['.', ' ']) and eq_ignore_ascii_case make of
-// a component Soldeer holds to `.git`; git's verify_path refuses to check
-// one out, with core.protectNTFS, on by default.
+// A component Soldeer holds to `.git` (trim_end_matches(['.', ' ']), eq_ignore_ascii_case), which git's
+// verify_path refuses to check out with core.protectNTFS, on by default
 export const isGit = (component) => component.replace(/[. ]+$/u, '').replace(/[A-Z]/gu, (char) => char.toLowerCase()) === '.git'
 
-// getZip has held the zip to its checksum; it is held to it again where it
-// is unpacked.
+// getZip has held the zip to its checksum; it is held to it again where it is unpacked
 export async function extractZip(bytes, checksum, where) {
   if (await bytesSha256Hex(bytes) !== checksum) throw new DeptreeError(`its zip's sha256 is not ${checksum}`, where)
-  let entries
-  try {
-    entries = await unzip(bytes, { limit: MAX_BYTES })
-  } catch (error) {
+  const entries = await unzip(bytes, { limit: MAX_BYTES }).catch((error) => {
     if (error instanceof ArchiveError) throw new DeptreeError(`its zip cannot be read: ${error.message}`, where, { cause: error })
     throw error
-  }
-  // The zip crate keys entries by their names' bytes, here the stored names:
-  // of two of one name, the later is extracted where the first was.
+  })
+  // The zip crate keys entries by their stored names: of two of one name, the later is extracted where the first was
   const last = new Map()
   for (const [index, entry] of entries.entries()) {
     const here = `${where}: ${quote(entry.storedName)}`

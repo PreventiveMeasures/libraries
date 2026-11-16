@@ -18,14 +18,10 @@ import { SourceRefusal, sourceOf } from './source.js'
 const GITHUB = 'github must be a GitHub client from createClient, which each pod is fetched through'
 const GITHUB_METHODS = ['getRepo', 'compareCommits', 'getCommitTree', 'getRepoTreeTarball']
 
-// Trunk, as SPEC REPOS names it from CocoaPods 1.8, or the git repository
-// trunk's podspecs are kept in, as it named it before; trunk's CDN serves
-// the same files.
+// Trunk, as SPEC REPOS names it from 1.8, or by the git repository of its podspecs, as before
 const isTrunk = (repo) => repo === 'trunk' || /^https:\/\/github\.com\/cocoapods\/specs(?:\.git)?$/iu.test(repo)
 
-// What CocoaPods writes in Pods/ beside the pods, which a pod's directory
-// would be one with: Pods.xcodeproj among the projects of
-// generate_multiple_pod_projects, each `<name>.xcodeproj`.
+// What CocoaPods writes in Pods/ beside the pods, Pods.xcodeproj among generate_multiple_pod_projects'
 const GENERATED = ['Headers', 'Local Podspecs', 'Manifest.lock', 'Target Support Files']
 const isGenerated = (name, key) => GENERATED.some((other) => key(other) === key(name)) || key(name).endsWith(key('.xcodeproj'))
 
@@ -33,11 +29,8 @@ const checkNoPods = checkNoDir('Pods', 'a Pods directory')
 
 const about = (name) => `pods[${quote(name)}]`
 
-// A root CocoaPods downloads into Pods/, true: one from trunk, or by
-// :podspec, which CocoaPods downloads by its podspec's source, but where
-// it resolved that to a commit, CHECKOUT OPTIONS', which it downloads by
-// those. One by :path, which it reads where it is, false; any other,
-// refused.
+// True for a root CocoaPods downloads into Pods/, from trunk or by :podspec (unless by CHECKOUT OPTIONS,
+// refused); false for one by :path, read where it is; any other refused
 function isDownloaded(root, folded) {
   const where = about(root.name)
   if (root.external?.type === 'path') return false
@@ -45,8 +38,7 @@ function isDownloaded(root, folded) {
   if (root.external !== undefined && root.external.type !== 'podspec') throw new SourceRefusal(`a pod from an external source by :${root.external.type} is not supported: only those from trunk, by :podspec and by :path are`, where)
   if (root.external === undefined && !isTrunk(root.repo)) throw new SourceRefusal(`a pod from the spec repo ${quote(root.repo)} is not supported: only those from trunk are`, where)
   if (isGenerated(root.name, folded ? fold : (name) => name)) throw new DeptreeError('a pod named as what CocoaPods writes beside the pods in Pods/ is not supported', where)
-  // PodDirCleaner globs the pod's directory by its path as it is, which
-  // then matches what it should not, or nothing.
+  // PodDirCleaner globs the pod's directory by its path as it is
   if (/[*?[\]{}]/u.test(root.name)) throw new DeptreeError('a name with a glob\'s `*`, `?`, `[`, `]`, `{` or `}` in it, which CocoaPods cleans the pod by, is not supported', where)
   // ASCII, as the lockfile reader holds a pod's name to.
   if (root.name.length > 255) throw new DeptreeError('a name too long for a directory, which CocoaPods fails to make', where)
@@ -57,9 +49,7 @@ function refuse(detail, where) {
   throw new DeptreeError(detail, where)
 }
 
-// What `attempt` gives, or comes to where it is async, or with `partial`,
-// where it refuses where the pod is downloaded from, undefined, its refusal
-// kept in `skipped` by the pod's name; any other refusal stands.
+// What `attempt` gives or comes to; with `partial` (`skipped`), undefined for a SourceRefusal, kept there
 function unlessSkipped(attempt, root, skipped) {
   const skip = (error) => {
     if (skipped === undefined || !(error instanceof SourceRefusal)) throw error
@@ -74,8 +64,7 @@ function unlessSkipped(attempt, root, skipped) {
   }
 }
 
-// The podspec of a pod by :podspec, as CocoaPods wrote it in Pods/Local
-// Podspecs, held to the lockfile's checksum, which is its sha1.
+// The podspec of a pod by :podspec, held to the lockfile's checksum, its sha1
 async function localPodspec(root, podspecs, where) {
   const bytes = podspecs(root.name)
   if (bytes === undefined) throw new SourceRefusal(`its podspec, the JSON CocoaPods writes as Pods/Local Podspecs/${root.name}.podspec.json, is not given`, where)
@@ -84,10 +73,8 @@ async function localPodspec(root, podspecs, where) {
   return bytes
 }
 
-// Each root's podspec, its source, and what of its download it keeps,
-// planPod's, all before any download, so that a pod refused fails the call
-// before any tarball or archive is fetched. A pod skipped for its source
-// has no plan, its podspec held to the lockfile all the same.
+// Each root's podspec, source and plan, before any download, so a pod refused costs none; a pod skipped
+// for its source has no plan, its podspec held to the lockfile all the same
 async function planAll(roots, { github, podspecs, platforms, prepare }, skipped) {
   const plans = new Map()
   await eachConcurrently(roots, async (root) => {
@@ -107,9 +94,8 @@ async function planAll(roots, { github, podspecs, platforms, prepare }, skipped)
   return plans
 }
 
-// What a download comes to, each fetched once, for every pod of it: a
-// checkout, by its repository and commit; an archive, by its hash and what
-// RemoteFile makes of it.
+// A download, fetched once for every pod of it: a checkout by its repository and commit, an archive by its
+// hash and what RemoteFile makes of it
 const downloadOf = ({ source }) => (source.type === 'git' ? `git ${source.repo}@${source.commit}` : `http ${source.sha256} ${source.file} ${source.flatten}`)
 async function contentsOf({ root, source }, github) {
   const where = about(root.name)
@@ -119,8 +105,7 @@ async function contentsOf({ root, source }, github) {
 
 const PREPARED = 'prepare must give the download back as it is after the command: its dirs, a Map of its files, each with data and a mode, and a Map of its links'
 
-// A download as `prepare` leaves it: the pod's prepare_command run in a
-// copy of it, by the caller, which gives back what is there afterwards.
+// A copy of the download, with the pod's prepare_command run in it by the caller
 async function prepared(prepare, { root, command }, contents) {
   const copy = { dirs: new Set(contents.dirs), files: new Map(contents.files), links: new Map(contents.links) }
   const after = await prepare({ name: root.name, version: root.version, command, contents: copy })
@@ -131,10 +116,8 @@ async function prepared(prepare, { root, command }, contents) {
   return { dirs: new Set(after.dirs), files: after.files, links: after.links }
 }
 
-// What CocoaPods keeps of each pod's download, held only while the pods of
-// it are installed. A pod with a prepare_command is cleaned as that leaves
-// its download: CocoaPods runs it in its copy of the download, before it
-// cleans that.
+// What CocoaPods keeps of each pod's download, held only while its pods are installed; a prepare_command
+// runs in the copy before it is cleaned
 async function installAll(plans, github, { prepare, ...options }) {
   const byDownload = Map.groupBy(plans.values(), downloadOf)
   const installed = new Map()
@@ -150,18 +133,14 @@ async function installAll(plans, github, { prepare, ...options }) {
   return installed
 }
 
-// A pod written, as CocoaPodsInstalled has it: from git, by the commit
-// checked out; by :http, by the URL and the sha256 it is held to.
 function installedOf({ name, version, checksum, pods }, { source }) {
   const pod = { path: `Pods/${name}`, name, version, checksum, pods: [...pods] }
   if (source.type === 'git') return { ...pod, git: source.url, commit: source.commit }
   return { ...pod, http: source.url, sha256: source.sha256 }
 }
 
-// Pods/Manifest.lock, which CocoaPods writes as it writes Podfile.lock;
-// the lockfile reader holds the lockfile to be as CocoaPods writes it, so
-// it is the lockfile's bytes: its text as UTF-8, of no lone surrogate, as
-// the reader refuses one.
+// Pods/Manifest.lock, as CocoaPods writes Podfile.lock: the reader holds the lockfile to be that, so it is
+// the lockfile's UTF-8
 function writeManifest(vfs, lockfile, stats) {
   const data = utf8fromString(lockfile)
   makeDirs(vfs, 'Pods')
@@ -181,8 +160,7 @@ export async function buildCocoaPodsTree(options) {
   const only = onlyOf(all.only)
   const host = checkHost(all.host)
   const folded = host.os === 'darwin'
-  // 1.13 to 1.15 copy a download into their cache with FileUtils.cp_r,
-  // which copies the clone's .git; 1.16 on, with rsync, which leaves it out.
+  // 1.13 to 1.15 copy a download into the cache with FileUtils.cp_r, which copies .git; 1.16 on, rsync
   const keepsGit = Number(host.cocoapods.split('.')[1]) < 16
   // Refused before anything is fetched; mount checks again.
   if (into !== undefined) checkNoPods(into, folded)

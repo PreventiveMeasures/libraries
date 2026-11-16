@@ -1,8 +1,5 @@
-// A .crate as `cargo vendor` unpacks it into vendor/, cargo 1.94 to 1.99:
-// registry/mod.rs's unpack, through vendor.rs's vendor_this; what the archive
-// reader takes and cargo would read otherwise is refused. As a 0o022 umask
-// leaves them, each directory is 0o755 unless its own entry gives a mode, and
-// each file its mode within 0o777, both without group and other write bits.
+// A .crate as `cargo vendor` 1.94 to 1.99 unpacks it (registry/mod.rs's unpack, vendor.rs's vendor_this),
+// under a 0o022 umask; what the archive reader takes and cargo would read otherwise is refused
 
 import { crc32 } from '@exodus/bytes/crc.js'
 import { utf8fromString, utf8toString } from '@exodus/bytes/utf8.js'
@@ -13,13 +10,11 @@ import { DeptreeError, quote } from '../error.js'
 import { bytesSha256Hex } from '../hash.js'
 import { own } from '../manifest.js'
 
-// Cargo's bound on what a .crate unpacks to: 512 MiB, or twenty times the
-// .crate where that is more.
+// Cargo's bound on what a .crate unpacks to: 512 MiB, or twenty times the .crate where that is more
 const unpackLimit = (bytes) => Math.max(512 * 1024 * 1024, bytes.length * 20)
 const [FTEXT, FEXTRA, FNAME, FCOMMENT] = [0x01, 0x04, 0x08, 0x10]
 
-// Where the gzip member's deflate data starts, past its header: a header CRC
-// or a reserved flag, which a reader may take or not, is refused.
+// Where the deflate data starts; a header CRC or a reserved flag, which a reader may take or not, is refused
 function deflateStart(bytes, where) {
   if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 0x08) throw new DeptreeError('the .crate is not gzipped', where)
   const flags = bytes[3]
@@ -35,22 +30,15 @@ function deflateStart(bytes, where) {
   return at
 }
 
-// flate2's GzDecoder, which cargo reads a .crate through, reads its first
-// gzip member alone, where the platform's stream reads on into any after it;
-// so the first has to be all of it. Its deflate data has to end where its
-// eight-byte trailer starts, which deflate-raw holds it to, refusing what
-// follows; and the trailer has to be the data's CRC-32 and length, as flate2
-// checks them.
+// flate2's GzDecoder reads the first gzip member alone, where the platform reads on, so it has to be all
+// of it: deflate-raw holds its data to end at the trailer, which has to be its CRC-32 and length
 async function gunzip(bytes, where) {
   const start = deflateStart(bytes, where)
   const limit = unpackLimit(bytes)
-  let tar
-  try {
-    tar = await decompress(bytes.subarray(start, bytes.length - 8), 'deflate-raw', { limit })
-  } catch (error) {
+  const tar = await decompress(bytes.subarray(start, bytes.length - 8), 'deflate-raw', { limit }).catch((error) => {
     if (!(error instanceof CompressionError)) throw error
     throw new DeptreeError(error.limited ? `the .crate unpacks to more than ${limit} bytes, which cargo refuses` : 'the .crate is not one gzip member, which cargo reads the first of alone', where, { cause: error })
-  }
+  })
   const trailer = new DataView(bytes.buffer, bytes.byteOffset + bytes.length - 8, 8)
   if (trailer.getUint32(0, true) !== crc32(tar) || trailer.getUint32(4, true) !== tar.length >>> 0) throw new DeptreeError('the .crate\'s gzip trailer does not match its data', where)
   return tar
@@ -65,20 +53,16 @@ function entriesOf(tar, where) {
   }
 }
 
-// vendor_this: a `.git` anywhere on the way, a .gitattributes or .gitignore
-// by name, .cargo-ok at the root; each is passed over before its type is
-// looked at, unlike unpack's own .cargo-ok anywhere, after it.
+// vendor_this passes over a `.git` anywhere on the way, a .gitattributes or .gitignore, and .cargo-ok at
+// the root, before the type is looked at, unlike unpack's own .cargo-ok anywhere, after it
 const vendored = (segments, last) => !segments.includes('.git') && last !== '.gitattributes' && last !== '.gitignore' && segments.join('/') !== '.cargo-ok'
 
 const modeOf = (entry) => entry.mode & 0o777 & ~0o022
 const unsupported = (entry, why, here) => new DeptreeError(`mode ${entry.mode.toString(8)}, which keeps cargo from ${why} as any user but root, is not supported`, here)
 
-// As any user but root, cargo reads back no file without its owner's read
-// bit; lists nothing in a directory without its owner's read and search
-// bits, leaving what is in it out of .cargo-checksum.json; and writes
-// nothing into one without its write bit once its entry has set it, `after`.
-// A directory nothing is in may have any mode. The package's always has
-// something written into it last, its .cargo-checksum.json.
+// As any user but root, cargo reads back no file without its owner's read, lists nothing in a directory
+// without its owner's read and search, and writes nothing into one without its write once its entry has
+// set it (`after`), as .cargo-checksum.json always is into the package's
 function fileMode(entry, here) {
   const mode = modeOf(entry)
   if (!(mode & 0o400)) throw unsupported(entry, 'reading it back to checksum it', here)
@@ -91,9 +75,7 @@ function dirMode({ entry, here, after }, content) {
   return mode
 }
 
-// The directory `<name>-<version>` every entry has to be in, as Rust's
-// strip_prefix reads a path: by its components, so `./` or `/` before it
-// is not it.
+// The directory every entry has to be in, by components as Rust's strip_prefix reads them: not `./` or `/` it
 function segmentsOf(entry, prefix, here) {
   const [first, ...rest] = entry.name.split('/')
   if (entry.storedName.startsWith('/') || entry.storedName.startsWith('./') || first !== prefix) throw new DeptreeError(`not under ${quote(prefix)}, which cargo refuses`, here)
@@ -102,8 +84,7 @@ function segmentsOf(entry, prefix, here) {
   return rest
 }
 
-// `root` is the mode of the package's directory; `dirs` maps each directory
-// under it to its mode, 0o755 where no entry of its own gives one.
+// `root` is the package's directory's mode, `dirs` each under it, 0o755 where no entry of its own gives one
 function vendorEntries(entries, prefix, where) {
   const dirs = new Map()
   const files = new Map()
@@ -140,8 +121,7 @@ function vendorEntries(entries, prefix, where) {
 
 const COMMENT = 'This file only protects against accidental modifications. It is not a security mechanism and does not protect against malicious changes.'
 
-// vendor.rs's, as serde_json writes it: compact, each map's keys in UTF-8
-// byte order, `$comment` from cargo 1.97 on.
+// vendor.rs's, as serde_json writes it: compact, keys in UTF-8 byte order, `$comment` from cargo 1.97 on
 async function checksumFile(files, checksum, comment) {
   const paths = [...files.keys()].sort(compareNames)
   const sums = await Promise.all(paths.map((path) => bytesSha256Hex(files.get(path).data)))
@@ -149,15 +129,11 @@ async function checksumFile(files, checksum, comment) {
   return `{${comment ? `"$comment":${JSON.stringify(COMMENT)},` : ''}"files":{${listed}},"package":${JSON.stringify(checksum)}}`
 }
 
-// A full commit id, as git writes one: 40 lowercase hex digits, or 64 in a
-// repository of SHA-256 objects.
+// A full commit id: 40 lowercase hex digits, or 64 in a repository of SHA-256 objects
 const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/u
 
-// The commit .cargo_vcs_info.json names, which `cargo package` writes where
-// it packs from a git checkout: none where it found the checkout dirty, as
-// the files are then not that commit's, nor where it names anything but a
-// full id. Cargo reads none of it, so one that is not JSON names none, and
-// is vendored all the same.
+// The commit `cargo package` wrote in .cargo_vcs_info.json, none where the checkout was dirty or it is not
+// a full id. Cargo reads none of it, so one that is not JSON names none and is vendored all the same.
 function vcsCommitOf(file) {
   if (file === undefined) return undefined
   try {
@@ -170,9 +146,8 @@ function vcsCommitOf(file) {
   }
 }
 
-// What vendor/<directory> holds of a package, `.cargo-checksum.json` among
-// its files. getCrate has held the .crate to its checksum; it is held to it
-// again where it is unpacked.
+// What vendor/<directory> holds, .cargo-checksum.json among it. getCrate has held the .crate to its
+// checksum; it is held to it again where it is unpacked.
 export async function vendorCrate(bytes, { name, version, checksum }, comment, where) {
   if (await bytesSha256Hex(bytes) !== checksum) throw new DeptreeError(`its .crate's sha256 is not ${checksum}`, where)
   const { root, dirs, files } = vendorEntries(entriesOf(await gunzip(bytes, where), where), `${name}-${version}`, where)
