@@ -31,6 +31,7 @@ const DEFAULTS = {
   runtimeOnFail: undefined,
   packageImportMethod: 'auto',
   nodeLinker: 'isolated',
+  lockfileFormat: undefined,
 }
 
 describe('parseNpmrc', () => {
@@ -90,6 +91,16 @@ describe('readSettings', () => {
     assert.throws(() => read({ workspace: 'pnpmfile: .pnpmfile.mjs\n', major: 12 }), /pnpmfile: "\.pnpmfile\.mjs" is not supported/u, 'pnpm 12 takes a string too')
     assert.throws(() => read({ workspace: 'pnpmfile: [hooks.cjs]\n', major: 11 }), /pnpmfile: a list is not supported/u)
     assert.throws(() => read({ workspace: 'pnpmfile: [1]\n' }), /pnpmfile: expected a string or a list of strings, found a list/u)
+  })
+
+  // pnpm 12's lockfile section, of which `format` alone is taken; tree.js
+  // holds it to pnpm 12.19.0 and later.
+  it('reads the lockfile section pnpm 12 has', () => {
+    assert.equal(read({ workspace: 'lockfile:\n  format: v13\n', major: 12 }).lockfileFormat, 'v13')
+    assert.equal(read({ workspace: 'lockfile: true\n', major: 12 }).lockfileFormat, undefined)
+    assert.throws(() => read({ workspace: 'lockfile:\n  format: v13\n', major: 11 }), /^DeptreeError: pnpm-workspace\.yaml: lockfile: expected true or false, found a mapping$/u)
+    assert.throws(() => read({ workspace: 'lockfile:\n  includeResolutionSettings: true\n', major: 12 }), /lockfile\.includeResolutionSettings: true is not supported: what the lockfile records beside the graph is not read here/u)
+    assert.throws(() => read({ workspace: 'lockfile: false\n', major: 12 }), /lockfile: false is not supported: the tree is the lockfile's/u)
   })
 
   it('passes over what leaves the tree as it is', () => {

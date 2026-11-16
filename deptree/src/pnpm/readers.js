@@ -46,6 +46,10 @@ export const readers = {
   pnpmfile(value, where) {
     return typeof value === 'string' ? value : readers.list(value, where, 'a string or a list of strings')
   },
+  // pnpm 12's `lockfile`: a boolean, or a section, which turns it on.
+  lockfile(value, where) {
+    return typeof value === 'boolean' || typeof value === 'string' ? readers.boolean(value, where) : readers.mapping(value, where)
+  },
   sideEffectsCache(value, where) {
     if (typeof value === 'boolean') return value
     if (readers.mapping(value, where).remote != null) never('what a build left in a remote cache is not restored here')(value.remote, `${where}.remote`)
@@ -176,9 +180,23 @@ const IGNORED_12 = new Set([
 const notEnabled = (value, where) => {
   if (value.enabled != null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
 }
+// `format` leaves the tree as it is; the rest change what the lockfile
+// records, and pnpm fails on a key it does not know.
+const LOCKFILE_FORMATS = new Set(['v9', 'v13'])
+function checkLockfile(value, where) {
+  if (typeof value === 'boolean') return READ.lockfile.check(value, where)
+  for (const [key, item] of Object.entries(value)) {
+    const here = `${where}.${key}`
+    if (key === 'format') oneOf(LOCKFILE_FORMATS)(item, here)
+    else if (key === 'includeResolutionSettings' || key === 'integrityTarget') never('what the lockfile records beside the graph is not read here')(item, here)
+    else throw new DeptreeError('pnpm fails on a key of the lockfile section it does not know', here)
+  }
+}
+
 const READ_12 = {
   __proto__: null,
   nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 12'),
+  lockfile: { kind: 'lockfile', check: checkLockfile },
   cargo: { kind: 'mapping', check: notEnabled },
   python: { kind: 'mapping', check: notEnabled },
 }

@@ -1,23 +1,18 @@
-// A pnpm lockfile, `lockfileVersion: '9.0'`, as pnpm 9 to 12 write it. The
-// fields read are the ones below; any other, at any depth, is refused
-// rather than dropped, and so is any older format.
-//
-// pnpm 11 and later write a file of two documents where there is something
-// to lock beside the project: the env document first, with the config
-// dependencies and, from pnpm 12, the package manager a project pins, locked
-// the same way; the project's lockfile second. Before anything is installed
-// the second may be missing, and the file ends at the `---` after the env
-// document.
+// A pnpm lockfile of '9.0', as pnpm 9 to 12 write it, or of '13.0', which
+// next.js reads into v9's shape. A field not read below, at any depth, is
+// refused, and so is any older format.
 
 import { parseYamlStream } from '../yaml/parse.js'
 import { fromHex } from '@exodus/bytes/hex.js'
-import { LockfileError, at, quote } from '../error.js'
+import { LockfileError, at, attempt, quote } from '../error.js'
 import { KINDS, flagsOf, unreached } from '../graph.js'
 import { checkIntegrity, checkName, checkRelative, isVersion } from '../names.js'
 import { boolean, count, field, kind, mapping, orEmpty, record, string, text, textMap, texts } from '../shape.js'
 import { ENV_KINDS, readImporters } from './importers.js'
 import { fromBase32Bare, isHash, splitPackageKey } from './key.js'
-import { byName, readPackages } from './packages.js'
+import { parseLockfileJson } from './json.js'
+import { fromNext, placeNext } from './next.js'
+import { INFO_13, byName, readPackages } from './packages.js'
 
 const FIELDS = [
   'lockfileVersion', 'settings', 'catalogs', 'overrides', 'patchedDependencies',
@@ -108,13 +103,17 @@ function setFlags(importers, packages, env) {
   }
 }
 
-function readDocument(doc, prefix, env) {
+// `info`: the fields a package may have, more of them in 13.0.
+function readDocument(doc, prefix, env, info) {
   const where = prefix === '' ? undefined : prefix
   const version = record(doc, where).lockfileVersion
-  if (version !== '9.0') throw new LockfileError(`unsupported version: expected "9.0", found ${kind(version)}`, at(prefix, 'lockfileVersion'))
+  if (version !== '9.0') {
+    const json = version === '13.0' ? ', as a lockfile of 13.0 is written in JSON' : ''
+    throw new LockfileError(`unsupported version: expected "9.0", found ${kind(version)}${json}`, at(prefix, 'lockfileVersion'))
+  }
   record(doc, where, env ? ENV_FIELDS : FIELDS)
   const patchedDependencies = readPatches(doc.patchedDependencies, at(prefix, 'patchedDependencies'))
-  const { packages, snapshots } = readPackages(doc, prefix, new Map(Object.entries(patchedDependencies)))
+  const { packages, snapshots } = readPackages(doc, prefix, new Map(Object.entries(patchedDependencies)), info)
   const importers = readImporters(doc.importers, at(prefix, 'importers'), snapshots, env)
   checkReached(importers, packages, prefix, env ? ENV_KINDS : KINDS)
   setFlags(importers, packages, env)
@@ -134,29 +133,39 @@ function readDocument(doc, prefix, env) {
   }
 }
 
-// The split is pnpm's own (@pnpm/lockfile.fs, yamlDocuments.js), made on
-// the text: a file that starts with a line of `---` leads with the env
-// document, which runs to the next line of `---` alone, and what follows
-// that is the project's lockfile, unless it is blank, when there is none.
-// The YAML is still read as one stream, so a line number counts from the
-// top of the file, and has to hold the documents the split does.
+function readNext(json, first) {
+  const v9 = fromNext(parseLockfileJson(json, first))
+  const lockfile = attempt(() => readDocument(v9, '', false, INFO_13), (error) => {
+    throw placeNext(error, v9)
+  })
+  return Object.assign(lockfile, { lockfileVersion: '13.0' })
+}
+
+// pnpm's split of the text (yamlDocuments.js): a leading `---` starts the
+// env document, which pnpm 11 and later write, up to the next `---` line.
+// A project's lockfile opening with `{` is one of 13.0, in JSON.
 export function parsePnpmLockfile(source) {
   if (typeof source !== 'string') throw new TypeError('expected a string')
   const lead = /^---\r?\n/u.exec(source)?.[0]
   if (lead === undefined) {
+    if (source.startsWith('{')) return { lockfile: readNext(source, 0), env: undefined }
     const docs = parseYamlStream(source)
     if (docs.length !== 1) throw new LockfileError(`expected one document, found ${docs.length}`)
     return { lockfile: readDocument(docs[0], '', false), env: undefined }
   }
+  if (source.startsWith('{', lead.length)) throw new LockfileError('expected the env document in YAML, as pnpm 12 writes it, found one in JSON, which pnpm writes from pnpm 14')
   const separator = /\n---\r?\n/gu
   separator.lastIndex = lead.length
   const found = separator.exec(source)
   if (found === null) throw new LockfileError('expected the env document the first "---" starts to end at a line of "---"')
   // Spaces and line ends alone: anything else, the YAML would refuse or read.
   const alone = /^(?: *\r?\n)* *$/u.test(source.slice(separator.lastIndex))
-  const docs = parseYamlStream(alone ? source.slice(0, found.index + 1) : source)
-  if (docs.length !== (alone ? 1 : 2)) {
-    throw new LockfileError(`expected the env document${alone ? '' : ' and the lockfile'} between lines of "---" alone, found ${docs.length} documents`)
+  const json = !alone && source.startsWith('{', separator.lastIndex)
+  const docs = parseYamlStream(alone || json ? source.slice(0, found.index + 1) : source)
+  if (docs.length !== (alone || json ? 1 : 2)) {
+    throw new LockfileError(`expected the env document${alone || json ? '' : ' and the lockfile'} between lines of "---" alone, found ${docs.length} documents`)
   }
-  return { lockfile: alone ? undefined : readDocument(docs[1], '', false), env: readDocument(docs[0], 'env', true) }
+  const first = source.slice(0, separator.lastIndex).split('\n').length - 1
+  const lockfile = alone ? undefined : json ? readNext(source.slice(separator.lastIndex), first) : readDocument(docs[1], '', false)
+  return { lockfile, env: readDocument(docs[0], 'env', true) }
 }

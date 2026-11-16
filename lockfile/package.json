@@ -164,10 +164,16 @@
     "src/npm/valid.js",
     "src/order.js",
     "src/pnpm/importers.js",
+    "src/pnpm/json.js",
     "src/pnpm/key.js",
+    "src/pnpm/next-packages.js",
+    "src/pnpm/next.js",
     "src/pnpm/packages.js",
     "src/pnpm/parse.js",
     "src/pnpm/resolution.js",
+    "src/pnpm/restore-keys.js",
+    "src/pnpm/restore.js",
+    "src/pnpm/tarjan.js",
     "src/poetry/lock.js",
     "src/poetry/package.js",
     "src/pylock/package.js",
@@ -177,6 +183,7 @@
     "src/python/pep508.js",
     "src/rubygems/gem.js",
     "src/rubygems/version.js",
+    "src/sha256.js",
     "src/shape.js",
     "src/soldeer/config.js",
     "src/soldeer/parse.js",
@@ -219,7 +226,7 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/cocoapods/*.test.js ./tests/composer/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/swiftpm/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
+    "test": "node --test ./tests/*.test.js ./tests/bundler/*.test.js ./tests/cargo/*.test.js ./tests/cocoapods/*.test.js ./tests/composer/*.test.js ./tests/foundry/*.test.js ./tests/npm/*.test.js ./tests/pnpm-13/*.test.js ./tests/poetry/*.test.js ./tests/pylock/*.test.js ./tests/python/*.test.js ./tests/soldeer/*.test.js ./tests/swiftpm/*.test.js ./tests/toml/*.test.js ./tests/uv/*.test.js ./tests/yaml/*.test.js ./tests/yarn1/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "author": {

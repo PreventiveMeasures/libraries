@@ -137,6 +137,7 @@ function derive(get) {
     runtimeOnFail: get('runtimeOnFail'),
     packageImportMethod: get('packageImportMethod') ?? 'auto',
     nodeLinker: get('nodeLinker') ?? 'isolated',
+    lockfileFormat: get('lockfile')?.format,
   }
 }
 

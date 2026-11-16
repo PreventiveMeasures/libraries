@@ -8,8 +8,8 @@
 import { LockfileError, at } from '../error.js'
 import { checkName, checkRelative } from '../names.js'
 import { KINDS } from '../graph.js'
-import { boolean, field, mapping, orEmpty, record, string, text } from '../shape.js'
-import { byName, target } from './packages.js'
+import { field, mapping, orEmpty, record, string, text } from '../shape.js'
+import { readDependenciesMeta, target } from './packages.js'
 
 const FIELDS = [...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
 export const ENV_KINDS = ['configDependencies', 'packageManagerDependencies']
@@ -33,12 +33,6 @@ function readDependencies(importer, kinds, id, where, snapshots) {
   return result
 }
 
-// What a dependency's meta may carry into the lockfile: `injected`, a
-// workspace package installed as a copy, a `file:` snapshot, rather than
-// linked; and `node`, the Node executable its bins are run with, where it
-// is not the one pnpm runs on.
-const readMeta = byName(['injected', 'node'], (item, here) => ({ injected: field(item, 'injected', here, boolean) ?? false, node: field(item, 'node', here, text) }))
-
 // `publishDirectory` is the subdirectory a project is linked by instead of
 // its own, unless `linkDirectory` is false.
 function readImporter(importer, id, where, snapshots) {
@@ -48,7 +42,7 @@ function readImporter(importer, id, where, snapshots) {
   }
   return {
     ...readDependencies(importer, KINDS, id, where, snapshots),
-    dependenciesMeta: readMeta(importer.dependenciesMeta, at(where, 'dependenciesMeta')),
+    dependenciesMeta: readDependenciesMeta(importer.dependenciesMeta, at(where, 'dependenciesMeta')),
     publishDirectory: field(importer, 'publishDirectory', where, checkRelative),
     linkDirectory: importer.linkDirectory !== false,
   }
