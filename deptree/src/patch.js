@@ -74,14 +74,25 @@ function readHunks(lines, where) {
   return { hunks, blocks: files[0].blocks }
 }
 
+// git writes no carriage return in a header or an `@@` line. One in a hunk's
+// other lines is the file's own, as a CRLF file's lines end in one.
+function checkReturns(lines, where) {
+  let inHunks = false
+  for (const line of lines) {
+    inHunks ||= line.startsWith('@@ ')
+    if (line.includes('\r') && (!inHunks || line.startsWith('@@ '))) throw new DeptreeError('a carriage return is not supported', `${where}: ${quote(line)}`)
+  }
+}
+
 export function parsePatch(text, where) {
-  if (text.includes('\r')) throw new DeptreeError('a carriage return is not supported', where)
   if (!text.startsWith(HEADER)) throw new DeptreeError(`expected ${quote(HEADER)} first`, where)
   return text.split(/\n(?=diff --git )/u).map((section) => {
     const lines = section.split('\n')
     if (lines.at(-1) === '') lines.pop()
+    checkReturns(lines.slice(0, 1), where)
     const path = checkPath(pathOf(lines[0]), `${where}: ${quote(lines[0])}`)
     const here = `${where}: ${quote(path)}`
+    checkReturns(lines.slice(1), here)
     const { change, mode, body } = readHeader(lines, path, here)
     return { path, change, mode, ...readHunks(lines.slice(body), here), where: here }
   })
