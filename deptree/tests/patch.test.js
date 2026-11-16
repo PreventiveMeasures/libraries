@@ -47,11 +47,16 @@ index 4444444444444444444444444444444444444444..00000000000000000000000000000000
 -b
 `
 
+// As git writes it for a CRLF file: each of the hunk's lines ends in a
+// carriage return, the headers and the `@@` line do not.
+const MODIFY_CRLF = MODIFY.replace(/(?<=@@ one\n)[^]*/u, (hunk) => hunk.replaceAll('\n', '\r\n'))
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const pkg = () => new Map(Object.entries({ 'lib/x.js': FILE, 'gone.js': 'a\nb\n', 'package.json': '{}' }).map(([path, text]) => [path, { data: encoder.encode(text), mode: 0o644 }]))
 const apply = (files, text) => applyPatch(files, parsePatch(text, 'x.patch'))
 const text = (files, path) => decoder.decode(files.get(path).data)
+const crlf = () => new Map([...pkg(), ['lib/x.js', { data: encoder.encode(FILE.replaceAll('\n', '\r\n')), mode: 0o644 }]])
 
 describe('applyPatch', () => {
   it('changes, creates and deletes files, and leaves what it is given', () => {
@@ -69,6 +74,17 @@ describe('applyPatch', () => {
     const files = apply(pkg(), DELETE_FULL.replaceAll('gone.js', 'lib/x.js').replace('@@ -1,2 +0,0 @@\n-a\n-b\n', `@@ -1,7 +0,0 @@\n${FILE.replace(/^/gmu, '-').slice(0, -1)}`))
     assert.equal(files.has('lib/x.js'), false)
     assert.deepEqual(files.get('lib'), { directory: true })
+  })
+
+  it('takes a carriage return in a hunk\'s lines as the file\'s own', () => {
+    assert.equal(text(apply(crlf(), MODIFY_CRLF), 'lib/x.js'), FILE.replaceAll('\n', '\r\n').replace('four', 'FOUR'))
+    assert.equal(text(apply(pkg(), MODIFY.replace('+FOUR\n', '+FOUR\r\n')), 'lib/x.js'), FILE.replace('four', 'FOUR\r'))
+    assert.equal(text(apply(pkg(), CREATE.replace('+x\n', '+x\r\n')), 'new.js'), '#!/usr/bin/env node\nx\r')
+  })
+
+  it('refuses context whose carriage returns are not the file\'s', () => {
+    assert.throws(() => apply(pkg(), MODIFY_CRLF), /"lib\/x\.js": the hunk at line 2 does not apply/u)
+    assert.throws(() => apply(crlf(), MODIFY), /"lib\/x\.js": the hunk at line 2 does not apply/u)
   })
 
   it('keeps a changed file\'s mode', () => {
@@ -89,7 +105,8 @@ describe('applyPatch', () => {
     ['a line between hunks', `${MODIFY}garbage\n`, /expected only hunks after the header/u],
     ['a line past a hunk\'s count', `${MODIFY} extra\n`, /expected unified hunks and nothing between them/u],
     ['a preamble', `From: someone\n${MODIFY}`, /expected "diff --git a\/" first/u],
-    ['a carriage return', MODIFY.replaceAll('\n', '\r\n'), /a carriage return is not supported/u],
+    ['a carriage return on every line', MODIFY.replaceAll('\n', '\r\n'), /^x\.patch: "diff --git a\/lib\/x\.js b\/lib\/x\.js\\r": a carriage return is not supported$/u],
+    ...[['a mode', CREATE, '100755'], ['an index', MODIFY, '100644'], ['a ---', MODIFY, '--- a/lib/x.js'], ['a +++', MODIFY, '+++ b/lib/x.js'], ['an @@', MODIFY_CRLF, '@@ one'], ['a later @@', `${MODIFY_CRLF}@@ -7 +7 @@\n-seven\r\n+SEVEN\r\n`, '@@ -7 +7 @@']].map(([what, patch, line]) => [`a carriage return in ${what} line`, patch.replace(`${line}\n`, `${line}\r\n`), /^x\.patch: "[^"]+": "[^"]+\\r": a carriage return is not supported$/u]),
     ['a file created over one', CREATE.replaceAll('new.js', 'package.json'), /creates a file that is there/u],
     ['a file created over a directory', CREATE.replaceAll('new.js', 'lib'), /creates a file that is there/u],
     ['a file created inside a file', CREATE.replaceAll('new.js', 'package.json/x'), /creates a file that is there/u],
