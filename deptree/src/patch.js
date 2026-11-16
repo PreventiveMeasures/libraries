@@ -121,16 +121,15 @@ const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) =
 
 // `files` maps each path to `{ data, mode }` or `{ directory: true }`. A
 // deleted file leaves its directory, empty or not, as pnpm does; a created
-// one has `createdMode` where given, as pnpm 12 before 12.11.0 writes one
-// plain, and the mode the patch gives it otherwise.
-export function applyPatch(files, patch, { createdMode } = {}) {
+// one has the mode the patch gives it.
+export function applyPatch(files, patch) {
   const next = new Map(files)
   for (const file of patch) {
     const current = next.get(file.path)
     if (file.change === 'create') {
       const taken = current !== undefined || next.keys().some((path) => path.startsWith(`${file.path}/`)) || parentsOf(file.path).some((dir) => next.get(dir)?.data !== undefined)
       if (taken) throw new DeptreeError('creates a file that is there', file.where)
-      next.set(file.path, { data: bytesOf(applyTo('', file), file.where), mode: createdMode ?? file.mode })
+      next.set(file.path, { data: bytesOf(applyTo('', file), file.where), mode: file.mode })
       continue
     }
     if (current?.data === undefined) throw new DeptreeError('changes a file that is not there', file.where)
