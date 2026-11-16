@@ -5,10 +5,8 @@ import { settled } from './concurrent.js'
 import { quote } from './error.js'
 import { mount } from './mount.js'
 
-// `byPath` holds each package by its path from the tree's root, as
-// `installed` lists it; `unpackOne` writes one and gives back its entry. One
-// asked for again, or while it is unpacked, is unpacked once; one refused is
-// refused again, as nothing of it was written.
+// `unpackOne` writes the package at a path, as `installed` lists it. One asked for again, or while it is
+// unpacked, is unpacked once; one refused is refused again, as nothing of it was written.
 export function unpacker(byPath, unpackOne) {
   const unpacking = new Map()
   return async function unpack(paths) {

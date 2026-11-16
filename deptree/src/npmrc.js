@@ -1,7 +1,5 @@
-// An .npmrc as the `ini` package reads it for npm and pnpm, as far as a key
-// and the text after its `=` go; each settings.js refuses a value ini would
-// unquote, unescape, cut at a `;` or `#`, or fill in from the environment. A
-// section, which npm reads under a prefix no setting here has, is refused.
+// An .npmrc as `ini` reads it for npm and pnpm, as far as a key and the text after its `=`; each
+// settings.js refuses a value ini would unquote, unescape, cut or fill from the environment
 
 import { DeptreeError } from './error.js'
 

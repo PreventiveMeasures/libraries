@@ -1,7 +1,5 @@
-// A tree mounted into the caller's Vfs at the lockfile's directory, writing
-// over and removing nothing; Vfs.mount judges it whole first, so a refusal
-// leaves the Vfs as it was. A node_modules there already is refused: kept,
-// Node would read it as the tree's, and removed, the caller's would be lost.
+// A tree mounted into the caller's Vfs, judged whole first so a refusal leaves it as it was. A
+// node_modules there already is refused: kept, Node would read it as the tree's; removed, it would be lost.
 
 import { VfsError } from '@preventive/vfs'
 import { basename, dirname } from '@preventive/vfs/path.js'
@@ -50,12 +48,9 @@ export const UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}\\]/u
 
 const asRefusal = (error, what, path) => (error instanceof VfsError ? new DeptreeError(`cannot be ${what}: ${error.message}`, quote(path), { cause: error }) : error)
 
-// Each builder holds what a tarball names and where a package goes to that
-// first, and makes no link where a package is written after. What is made
-// is held to it again, so that one slip puts nothing out of the tree or the
-// package's directory. A directory: a place within the tree, each one on
-// the way made where its parent is, or there already and no link. `real`
-// keeps the directories found so, as a package's files share them.
+// What a builder makes is held again to staying within the tree, so one slip puts nothing outside it:
+// each directory on the way made where its parent is, or there already and no link. `real` keeps those
+// found so, as a package's files share them.
 export function makeDirs(vfs, path, real = new Set()) {
   if (!isInside(path)) throw new DeptreeError('is not a place within the tree', quote(path))
   let at = ''
@@ -132,10 +127,8 @@ export function writeFiles(vfs, root, { dirs, files, links = new Map() }, stats,
   }
 }
 
-// `target` with `tree` in it, or `tree` where there is none; on macOS, two
-// names that are one there are refused first. A clash is refused by what is
-// there; at the root, a path there is the tree's too. The tree's bytes are
-// shared with `target`, not copied.
+// `target` with `tree` in it, or `tree` where there is none, names one on macOS refused first. A clash
+// is refused by what is there; the tree's bytes are shared with `target`, not copied.
 export function mount(tree, target, folded, check = checkNoModules) {
   if (folded) checkCollisions(tree)
   if (target === undefined) return tree

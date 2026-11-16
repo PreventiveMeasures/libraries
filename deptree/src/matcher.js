@@ -2,11 +2,9 @@
 // `public-hoist-pattern` read them; and the walk of a path through a glob,
 // which pnpm's workspace globs and yarn's share.
 
-// Whether a text matches `pattern`, `*` any run of what `any` takes and,
-// with `one`, `?` any one code point; anything else itself. The places of
-// `pattern` a text reaches are kept a code point at a time, in O(n*m) for
-// any pattern, where a regexp of k `*`s backtracks in O(n^k): a glob from a
-// project's own files is no one's to stall.
+// `*` any run of what `any` takes and, with `one`, `?` any one code point. The places reached are kept a
+// code point at a time, O(n*m) for any pattern, where a regexp of k `*`s backtracks in O(n^k): a glob
+// from a project's own files is no one's to stall.
 export function wildcard(pattern, { one = false, any = () => true } = {}) {
   const parts = [...pattern]
   const end = parts.length

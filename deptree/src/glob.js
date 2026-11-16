@@ -27,10 +27,8 @@ export const matchesGlob = (glob, path) => placesOf(glob, path).at(-1)
 // Whether `glob` may take a path below `dir`: some of it left to take.
 const reachesBelow = (glob, dir) => placesOf(glob, dir).slice(0, -1).some(Boolean)
 
-// The directories the globs take that have a package.json, as yarn and npm
-// walk for them. glob follows a link or not by where it is, so one the
-// globs reach is refused. `enter` refuses a directory, or says whether it
-// is kept and walked into.
+// The directories the globs take that have a package.json, as yarn and npm walk for them; a link they
+// reach is refused, as glob follows one or not by where it is. `enter` says whether one is walked into.
 export function walkWorkspaces(project, globs, { manager, fold = (path) => path, skip = () => false, enter = () => true }) {
   const folded = globs.map(fold)
   const found = []

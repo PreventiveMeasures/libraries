@@ -8,16 +8,12 @@ import { HttpError } from '@preventive/upstream/github.js'
 import { DeptreeError, quote } from './error.js'
 import { MAX_BYTES } from './tarball.js'
 
-// A name git's checkout refuses, as its verify_path does with
-// core.protectNTFS, on by default wherever git runs: `.git`, or its short
-// name `git~1`, in any case, dots and spaces after it, and then nothing, or
-// a `:` and anything.
+// A name git's checkout refuses under core.protectNTFS, on by default: `.git` or `git~1` in any case,
+// dots and spaces after it, then nothing or a `:` and anything
 const isDotGit = (name) => /^(?:\.git|git~1)[. ]*(?::|$)/iu.test(name)
 
-// A GitHub repository as git takes its URL over https and ssh, `.git` after
-// it or not, the scheme and host in any case: https://github.com/<repo>,
-// ssh://git@github.com/<repo> and git@github.com:<repo>. The owner and name
-// are as GitHub takes them.
+// https://github.com/<repo>, ssh://git@github.com/<repo> and git@github.com:<repo>, `.git` after it or
+// not, scheme and host in any case, the owner and name as GitHub takes them
 const REPO = String.raw`(?<repo>(?=[\dA-Za-z-]{1,39}\/)[\dA-Za-z](?:-?[\dA-Za-z])*\/[\w.-]{1,100}?)(?:\.git)?`
 const URL_FORM = new RegExp(String.raw`^(?:(?i:https):\/\/|(?i:ssh):\/\/git@)(?i:github\.com)\/${REPO}\/?$`, 'u')
 const SCP_FORM = new RegExp(String.raw`^git@(?i:github\.com):${REPO}$`, 'u')
@@ -29,10 +25,8 @@ export function githubRepoOf(url) {
 
 const isRedirect = (error) => error instanceof HttpError && error.status >= 300 && error.status < 400
 
-// A repository renamed or transferred since it was named, which GitHub
-// answers with a redirect that git's clone follows, is asked for by the
-// name GitHub gives it now, as upstream's getRepo follows the redirect;
-// any other redirect is refused there.
+// A repository renamed or moved since, which git's clone follows, is asked for by its name now, as
+// upstream's getRepo follows the redirect; any other redirect is refused there
 async function followingMoves(github, repo, ask) {
   try {
     return await ask(repo)
@@ -43,11 +37,9 @@ async function followingMoves(github, repo, ask) {
   }
 }
 
-// That `commit` is one a clone of the repository has, which GitHub's API
-// does not tell: it answers for a commit of any fork through the
-// repository's name, and for one no branch or tag reaches any longer. Of
-// what a clone fetches, the default branch's history alone is asked of, so
-// that a commit on another branch alone is refused too.
+// That a clone has `commit`, which GitHub's API does not tell, answering for any fork's commit and for
+// one nothing reaches. The default branch's history alone is asked of, so one on another branch alone
+// is refused too.
 export async function checkCloned(github, repo, commit, where) {
   const { status } = await followingMoves(github, repo, async (name) => {
     const { default_branch: branch } = await github.getRepo({ repo: name })
@@ -58,13 +50,9 @@ export async function checkCloned(github, repo, commit, where) {
   }
 }
 
-// GitHub's tarball of the commit's tree: the tree read off the commit's own
-// object, which upstream's getCommitTree fetches as git does and holds to
-// the commit's id, so that it is the commit's whatever GitHub's API says;
-// and the tarball held to that tree, files, symlinks and the submodules it
-// shows as empty directories alike. Unpacked as a checkout with umask
-// 0o022 writes it: directories 0o755, files 0o644 or 0o755 by the bit git
-// keeps, symlinks as symlinks.
+// GitHub's tarball of the tree read off the commit's own object, both held to it by upstream whatever
+// GitHub's API says, unpacked as a checkout under umask 0o022 writes it: directories 0o755, files 0o644
+// or 0o755 by the bit git keeps, submodules empty directories
 export async function checkoutOf(github, repo, rev, where) {
   const bytes = await followingMoves(github, repo, async (name) => github.getRepoTreeTarball({ repo: name, tree: await github.getCommitTree({ repo: name, sha: rev }) }))
   let entries

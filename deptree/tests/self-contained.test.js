@@ -72,7 +72,8 @@ describe('deptree/ ships every module it has', () => {
 })
 
 describe('deptree/ imports nothing from outside but what it declares', () => {
-  const declared = new Set(Object.keys(manifest.dependencies))
+  // The package's own name resolves inside it, as the usage examples in the .d.ts files import it
+  const declared = new Set([manifest.name, ...Object.keys(manifest.dependencies)])
 
   it('declares no peer dependencies', () => {
     assert.equal(manifest.peerDependencies, undefined)

@@ -1,7 +1,5 @@
-// The two sides `deptree compare` sets beside each other, what is on disk
-// and what deptree builds, each a map from a path under the folders an
-// install makes to its type, mode, and bytes or link target; and how they
-// differ: files and links as @preventive/compare tells them, the rest here.
+// What is on disk and what deptree builds, each a map from a path under the install's folders to its type,
+// mode, and bytes or target; and how they differ, files and links as @preventive/compare tells them
 
 import { Buffer } from 'node:buffer'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
@@ -29,17 +27,12 @@ export function projectView(root) {
   }
 }
 
-// What deptree never builds: the .bin directories, each package manager's
-// record of its install and pnpm 11's unread package map, the .git of a
-// dependency Soldeer clones, and what CocoaPods generates in Pods beside the
-// pods but its record, Manifest.lock: the podspecs of pods by :path, headers,
-// support files and the projects.
+// What deptree never builds: .bin, each manager's record of its install and pnpm 11's unread package map,
+// a Soldeer clone's .git, and what CocoaPods generates in Pods but Manifest.lock
 const NOT_BUILT = /(?:^|\/)node_modules\/(?:\.bin|\.modules\.yaml|\.pnpm-workspace-state(?:-v\d+)?\.json|\.pnpm\/lock\.yaml|\.package-lock\.json|\.package-map\.json|\.yarn-integrity)(?:\/|$)|^dependencies\/[^/]+\/\.git(?:\/|$)|^Pods\/(?:Local Podspecs|Headers|Target Support Files|\.project_cache|[^/]+\.xcodeproj)(?:\/|$)/u
 
-// Everything under each of `dirs` as `view` has it, the disk's projectView
-// or the tree's Vfs: links not followed, every file read whole, and a
-// folder not there left out. A directory deptree never builds is one entry,
-// not entered, as only it is ever listed.
+// Everything under each of `dirs` as `view` has it, links not followed and files read whole; a directory
+// deptree never builds is one entry, not entered
 export function readSide(view, dirs) {
   const entries = new Map()
   const stack = dirs.filter((dir) => typeOf(view, dir, false) !== undefined)
@@ -55,10 +48,8 @@ export function readSide(view, dirs) {
   return entries
 }
 
-// The paths on disk alone that hold nothing Node resolves: what deptree never
-// builds, and directories of nothing else, as pnpm leaves a node_modules of a
-// .bin of links to what it removed, a scope once its last package goes, or
-// the hoisted linker's .pnpm of its state alone.
+// The paths on disk alone that hold nothing Node resolves: what deptree never builds, and directories of
+// nothing else, as pnpm leaves a .bin of links to what it removed, or an emptied scope
 export function leftOut(changes, disk) {
   const left = new Set(changes.filter(({ mark }) => mark === '-').map(({ path }) => path))
   for (const [path, { type }] of disk) {
@@ -105,10 +96,8 @@ function changeOf({ status, old: disk, new: tree }) {
   return { mark: '~', type: tree.type, what: what.join('; '), content }
 }
 
-// How the disk differs from the tree, in walk order, each file or link with
-// compare's `status` of it, as formatPatch takes it. Nothing is listed under
-// a path only one side has, or of another type on each, as only a directory
-// has anything in it; a directory's own mode is the umask's, not compared.
+// How the disk differs from the tree, in walk order, each file or link with compare's `status` of it.
+// Nothing under a path one side lacks or types otherwise is listed; a directory's mode is not compared.
 export function difference(disk, tree) {
   const shown = (path) => disk.get(dirname(path))?.type === tree.get(dirname(path))?.type
   const changes = []
