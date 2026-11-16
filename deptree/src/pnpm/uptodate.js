@@ -15,6 +15,8 @@ const outdated = (name, detail) => new DeptreeError(`${detail}, which a frozen i
 const SIDES = ['the lockfile', 'the settings']
 
 // `hashes` is { hash, path } by selector, `byHash` { text, path } by hash.
+// pnpm hashes CRLF as LF but applies each selector's own file, so two texts
+// of one hash are refused: a carriage return in a hunk line is content.
 async function hashPatches(configured, given) {
   const texts = new Map()
   for (const [key, text] of given) {
@@ -34,7 +36,9 @@ async function hashPatches(configured, given) {
     const where = `patches[${quote(path)}]`
     const hash = await sha256Hex(normalized, where)
     hashes[selector] = { hash, path }
-    if (!byHash.has(hash)) byHash.set(hash, { text, path })
+    const first = byHash.get(hash)
+    if (first === undefined) byHash.set(hash, { text, path })
+    else if (first.text !== text) throw new DeptreeError(`it differs from ${quote(first.path)} in line endings alone, so the two have one hash, and two texts under one hash are not supported`, where)
   }
   for (const path of texts.keys()) {
     if (!named.has(path)) throw new DeptreeError('no patchedDependencies setting names this patch', `patches[${quote(path)}]`)
