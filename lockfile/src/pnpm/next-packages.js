@@ -30,7 +30,7 @@ const SNAPSHOT_REFUSED = { id: REFUSED.id }
 
 // A reference: a version, an alias's `name@version` or a `link:`, with no
 // peer or patch group, and the bindings that name its snapshot, by peer.
-export function readRef(value, where, alias) {
+function readRef(value, where, alias) {
   if (isMapping(value)) {
     record(value, where, ['version', 'with'])
     if (value.with === undefined) throw new LockfileError('expected "with", as pnpm writes a reference that names no snapshot as its version alone', where)
@@ -47,7 +47,9 @@ export function refVersion(value, where, alias) {
   return version
 }
 
-export const readWith = (value, where) => new Map(Object.entries(mapping(value, where, (item, here, name) => readRef(item, here, checkName(name, here)))))
+// References by name: the bindings of a `with`, or a snapshot's
+// dependencies by alias.
+export const readWith =(value, where) => new Map(Object.entries(mapping(value, where, (item, here, name) => readRef(item, here, checkName(name, here)))))
 
 // A peer of the map: its range alone, or what there is to say of it.
 function readPeer(value, where, name) {
@@ -70,12 +72,11 @@ function readPeer(value, where, name) {
 // its optional ones by alias, its own bindings and those from below by
 // peer, and the peers below it nothing binds, where written.
 function readGraph(holder, where, peers) {
-  const refs = (kind) => new Map(Object.entries(mapping(orEmpty(holder[kind]), at(where, kind), (item, here, alias) => readRef(item, here, checkName(alias, here)))))
   const [own, below] = [new Map(), new Map()]
   for (const [name, peer] of peers) if (peer.binding !== undefined) (peer.below ? below : own).set(name, peer.binding)
   return {
-    dependencies: refs('dependencies'),
-    optionalDependencies: refs('optionalDependencies'),
+    dependencies: readWith(orEmpty(holder.dependencies), at(where, 'dependencies')),
+    optionalDependencies: readWith(orEmpty(holder.optionalDependencies), at(where, 'optionalDependencies')),
     own,
     below,
     unbound: field(holder, 'unboundPeerDependencies', where, texts),
@@ -95,7 +96,7 @@ function readSnapshot(value, where) {
 }
 
 // Whether two references, or two references' bindings, are the same.
-export const sameRef = (a, b) => a.version === b.version && sameWith(a.with, b.with)
+const sameRef = (a, b) => a.version === b.version && sameWith(a.with, b.with)
 export const sameWith = (a, b) => (a === undefined || b === undefined ? a === b : a.size === b.size && a.entries().every(([name, ref]) => b.has(name) && sameRef(ref, b.get(name))))
 const MAPS = ['dependencies', 'optionalDependencies', 'own', 'below']
 const MAP_FIELD = { dependencies: 'dependencies', optionalDependencies: 'optionalDependencies', own: 'peerDependencies', below: 'peerDependencies' }

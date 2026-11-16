@@ -17,17 +17,9 @@
 // The orders pnpm takes, by name, by importer, by key, are taken here too,
 // as each decides which snapshot a tie goes to.
 
+import { compareCodePoints } from '../order.js'
 import { refToKey } from './key.js'
 import { sameWith } from './next-packages.js'
-
-// Code point order, which is UTF-8's byte order, as Rust sorts a string.
-export function byCodePoint(a, b) {
-  const length = Math.min(a.length, b.length)
-  for (let i = 0; i < length; i++) {
-    if (a.codePointAt(i) !== b.codePointAt(i)) return a.codePointAt(i) - b.codePointAt(i)
-  }
-  return a.length - b.length
-}
 
 // pnpm's order of package names: by scope, a name of none first, then by
 // the rest.
@@ -35,12 +27,12 @@ const partsOf = (name) => (name.startsWith('@') ? [name.slice(1, name.indexOf('/
 function compareNames(a, b) {
   const [[scopeA, bareA], [scopeB, bareB]] = [partsOf(a), partsOf(b)]
   if ((scopeA === undefined) !== (scopeB === undefined)) return scopeA === undefined ? -1 : 1
-  return (scopeA === undefined ? 0 : byCodePoint(scopeA, scopeB)) || byCodePoint(bareA, bareB)
+  return (scopeA === undefined ? 0 : compareCodePoints(scopeA, scopeB)) || compareCodePoints(bareA, bareB)
 }
 
 const nameOf = (key) => key.slice(0, key.indexOf('@', 1))
-export const resolveKey = (version, alias) => (version.startsWith('link:') ? undefined : refToKey(version, alias))
-export const bindingsOf = (entry) => [...entry.own, ...entry.below]
+const resolveKey = (version, alias) => (version.startsWith('link:') ? undefined : refToKey(version, alias))
+const bindingsOf = (entry) => [...entry.own, ...entry.below]
 
 // Whether `binding` is the one `wanted` names: its version, and its
 // bindings where `wanted` names any.
@@ -90,36 +82,41 @@ function bindingInScope(graph, referrer, name, ref) {
 function snapshotInScope(graph, start, count, referrer) {
   let best
   for (let sid = start; sid < start + count; sid++) {
-    let [agreeing, absent] = [0, 0]
     const stands = bindingsOf(graph.entries[sid]).map(([name, ref]) => bindingInScope(graph, referrer, name, ref))
     if (stands.includes(-1)) continue
-    for (const stand of stands) {
-      if (stand === 1) agreeing++
-      else absent++
-    }
+    const agreeing = stands.filter((stand) => stand === 1).length
+    const absent = stands.length - agreeing
     if (best === undefined || agreeing > best.agreeing || (agreeing === best.agreeing && absent < best.absent)) best = { sid, agreeing, absent }
   }
   return best?.sid ?? start
 }
 
 // The snapshot that binds every peer `peers` names as it names it, of the
-// fewest bindings.
+// fewest bindings; undefined where `peers` names none. A snapshot binds a
+// name once, its own or from below.
 function snapshotWithBindings(graph, start, count, peers) {
+  if (peers === undefined) return undefined
   let best
   for (let sid = start; sid < start + count; sid++) {
-    const bindings = bindingsOf(graph.entries[sid])
-    const binds = peers.entries().every(([name, wanted]) => bindings.some(([bound, ref]) => bound === name && namesBinding(wanted, ref)))
-    if (binds && (best === undefined || bindings.length < best.count)) best = { sid, count: bindings.length }
+    const { own, below } = graph.entries[sid]
+    const binds = peers.entries().every(([name, wanted]) => {
+      const bound = own.get(name) ?? below.get(name)
+      return bound !== undefined && namesBinding(wanted, bound)
+    })
+    if (binds && (best === undefined || own.size + below.size < best.count)) best = { sid, count: own.size + below.size }
   }
   return best?.sid
 }
 
-function choose(graph, key, peers, referrer) {
+// The snapshot of `key` a reference names: its package's one, or the one
+// its bindings name, else `otherwise(start, count)` of them; undefined
+// where the lockfile has none.
+function snapshotOf(graph, key, peers, otherwise) {
   const range = graph.byPackage.get(key)
   if (range === undefined) return undefined
   const [start, count] = range
   if (count === 1) return start
-  return (peers === undefined ? undefined : snapshotWithBindings(graph, start, count, peers)) ?? snapshotInScope(graph, start, count, referrer)
+  return snapshotWithBindings(graph, start, count, peers) ?? otherwise(start, count)
 }
 
 // A referrer's children, by alias, in pnpm's order of names.
@@ -127,7 +124,7 @@ function childrenOf(graph, refs, referrer) {
   const list = []
   for (const [alias, ref] of refs) {
     const key = resolveKey(ref.version, alias)
-    const sid = key === undefined ? undefined : choose(graph, key, ref.with, referrer)
+    const sid = key === undefined ? undefined : snapshotOf(graph, key, ref.with, (start, count) => snapshotInScope(graph, start, count, referrer))
     if (sid !== undefined) list.push([alias, sid])
   }
   list.sort(([a], [b]) => compareNames(a, b))
@@ -154,13 +151,13 @@ function parentsOf(graph) {
       for (const [, child] of graph.children[sid].list) if (!visited[child]) reach(child, { snapshot: sid })
     }
   }
-  for (const id of [...graph.importerChildren.keys()].sort(byCodePoint)) {
+  for (const id of [...graph.importerChildren.keys()].sort(compareCodePoints)) {
     for (const [, child] of graph.importerChildren.get(id).list) reach(child, { importer: id })
     drain()
   }
+  // By key, and a package's in their order, as a sort is stable.
   const unreached = parent.keys().filter((sid) => parent[sid] === undefined).toArray()
-  const indexOf = (sid) => sid - graph.byPackage.get(graph.keys[sid])[0]
-  unreached.sort((a, b) => byCodePoint(graph.keys[a], graph.keys[b]) || indexOf(a) - indexOf(b))
+  unreached.sort((a, b) => compareCodePoints(graph.keys[a], graph.keys[b]))
   for (const sid of unreached) {
     queue.push(sid)
     drain()
@@ -170,10 +167,10 @@ function parentsOf(graph) {
 
 // The snapshot of `start..start + count` linked as `name` in the scope
 // `sid` was reached in: under its parent, its parent's parent, and so on up
-// to an importer.
+// to an importer. A parent is reached before its child, so it ends.
 function linkedAbove(graph, sid, name, start, count) {
   let referrer = graph.parent[sid]
-  for (let steps = 0; referrer !== undefined && steps <= graph.keys.length; steps++) {
+  while (referrer !== undefined) {
     const linked = referrer.importer === undefined
       ? graph.children[referrer.snapshot].byAlias.get(name) ?? (graph.names[referrer.snapshot] === name ? referrer.snapshot : undefined)
       : graph.importerChildren.get(referrer.importer).byAlias.get(name)
@@ -188,12 +185,8 @@ function linkedAbove(graph, sid, name, start, count) {
 function providerOf(graph, sid, name, ref) {
   if (ref.version.startsWith('link:')) return { link: ref.version.slice(5) }
   const key = resolveKey(ref.version, name)
-  const range = graph.byPackage.get(key)
-  if (range === undefined) return { missing: key }
-  const [start, count] = range
-  if (count === 1) return { snapshot: start }
-  const named = ref.with === undefined ? undefined : snapshotWithBindings(graph, start, count, ref.with)
-  return { snapshot: named ?? linkedAbove(graph, sid, name, start, count) ?? snapshotInScope(graph, start, count, { snapshot: sid }) }
+  const snapshot = snapshotOf(graph, key, ref.with, (start, count) => linkedAbove(graph, sid, name, start, count) ?? snapshotInScope(graph, start, count, { snapshot: sid }))
+  return snapshot === undefined ? { missing: key } : { snapshot }
 }
 
 // `packages` by package key, each with its snapshots; `importers` by id,

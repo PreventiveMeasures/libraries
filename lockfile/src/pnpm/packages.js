@@ -13,6 +13,8 @@ import { fromBase32Bare, isHash, packageKeyOf, refToKey, splitPackageKey, splitS
 import { readRelative, readResolution } from './resolution.js'
 
 const INFO = ['resolution', 'version', 'name', 'engines', 'cpu', 'os', 'libc', 'deprecated', 'hasBin', 'bundledDependencies', 'peerDependencies', 'peerDependenciesMeta']
+// A lockfile of 13.0 records a directory's specifiers too.
+export const INFO_13 = [...INFO, 'specifiers']
 const SNAPSHOT = ['dependencies', 'optionalDependencies', 'optional', 'transitivePeerDependencies']
 
 // The prefixes pnpm keeps from naming a registry (its
@@ -80,13 +82,13 @@ function readSpecifiers(value, where, resolution) {
   return {
     dependencies: textMap(orEmpty(value.dependencies), at(where, 'dependencies'), checkName),
     optionalDependencies: textMap(orEmpty(value.optionalDependencies), at(where, 'optionalDependencies'), checkName),
-    dependenciesMeta: readDirectoryMeta(value.dependenciesMeta, at(where, 'dependenciesMeta')),
+    dependenciesMeta: readDependenciesMeta(value.dependenciesMeta, at(where, 'dependenciesMeta')),
     manifestSource: source,
   }
 }
 
-function readInfo(key, entry, where, next) {
-  record(entry, where, next ? [...INFO, 'specifiers'] : INFO)
+function readInfo(key, entry, where, fields) {
+  record(entry, where, fields)
   const { name, ref } = splitPackageKey(key, where)
   if (entry.name !== undefined && entry.name !== name) throw new LockfileError(`expected the name in the key, ${quote(name)}`, at(where, 'name'))
   const resolution = readResolution(entry.resolution, at(where, 'resolution'))
@@ -118,8 +120,11 @@ export const byName = (fields, read) => (value, where) => mapping(orEmpty(value)
 
 const readPeersMeta = byName(['optional'], (item, here) => ({ optional: flag(item.optional, at(here, 'optional')) }))
 
-// As an importer's dependenciesMeta is read (importers.js).
-const readDirectoryMeta = byName(['injected', 'node'], (item, here) => ({ injected: field(item, 'injected', here, boolean) ?? false, node: field(item, 'node', here, text) }))
+// What a dependency's meta may carry into the lockfile, an importer's or a
+// directory's: `injected`, a workspace package installed as a copy, a
+// `file:` snapshot, rather than linked; and `node`, the Node executable its
+// bins are run with, where it is not the one pnpm runs on.
+export const readDependenciesMeta = byName(['injected', 'node'], (item, here) => ({ injected: field(item, 'injected', here, boolean) ?? false, node: field(item, 'node', here, text) }))
 
 // What a dependency's reference leads to: the key of a snapshot, or
 // `link:` and a directory linked in place, which the lockfile does not
@@ -283,7 +288,7 @@ function patchOf(info, patches, where) {
 // `prefix` is where the document is, for messages; `patches` its
 // patchedDependencies, by selector, each of which patches a package, and
 // a package with a patch hash is patched by one.
-export function readPackages(doc, prefix, patches, next) {
+export function readPackages(doc, prefix, patches, fields = INFO) {
   const infos = new Map()
   // Where a registry package has its version in a field too, until a
   // snapshot of it is found with a source in its peers: a registry package
@@ -291,7 +296,7 @@ export function readPackages(doc, prefix, patches, next) {
   const versioned = new Map()
   const packagesAt = at(prefix, 'packages')
   for (const [key, entry, where] of entries(orEmpty(doc.packages), packagesAt)) {
-    const info = readInfo(key, entry, where, next)
+    const info = readInfo(key, entry, where, fields)
     infos.set(key, info)
     if (entry.version !== undefined && key === `${info.name}@${info.version}`) versioned.set(key, at(where, 'version'))
   }

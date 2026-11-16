@@ -49,8 +49,10 @@ describe('a lockfile of 13.0 reads to what pnpm reads it as', () => {
       }
       // A lockfile of 13.0 keeps no deprecation, which pnpm read anew where
       // it resolved before.
-      for (const pkg of Object.values(theirs.packages)) delete pkg.specifiers
-      for (const pkg of Object.values(theirs.packages)) pkg.deprecated = undefined
+      for (const pkg of Object.values(theirs.packages)) {
+        delete pkg.specifiers
+        pkg.deprecated = undefined
+      }
       assert.deepEqual({ ...mine, lockfileVersion: '9.0' }, plain(theirs))
       const recorded = specifiersOf(read)
       assert.deepEqual(Object.keys(specifiers).sort(), Object.keys(recorded).sort())

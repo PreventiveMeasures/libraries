@@ -155,9 +155,9 @@ const project = (name, c) => JSON.stringify({ name, version: '1.0.0', dependenci
 const MANIFESTS = { '.': JSON.stringify({ name: 'root', private: true }), 'p/x': project('x', '2.0.0'), 'p/y': project('y', '2.1.0') }
 const WORKSPACE = 'packages:\n  - p/*\n'
 
-const build = (lockfile, { host = HOST_12, workspace = WORKSPACE } = {}) => {
+const build = (lockfile, { host = HOST_12, workspace = WORKSPACE, manifests = MANIFESTS } = {}) => {
   stubRegistry(TARBALLS)
-  return buildPnpmTree({ lockfile, manifests: MANIFESTS, workspace, host })
+  return buildPnpmTree({ lockfile, manifests, workspace, host })
 }
 
 // Each path, with a link's target.
@@ -199,7 +199,6 @@ describe('a lockfile of 13.0', () => {
     const recorded = V13.replace('\t\t"b@1.0.0": {\n\t\t\t"integrity": "', '\t\t"d@file:d": {\n\t\t\t"specifiers": {\n\t\t\t\t"manifestSource": "path",\n\t\t\t},\n\t\t},\n\n\t\t"b@1.0.0": {\n\t\t\t"integrity": "')
       .replace('\t\t".": {},', '\t\t".": {\n\t\t\t"dependencies": {\n\t\t\t\t"d": "file:d",\n\t\t\t},\n\t\t},')
     const manifests = { ...MANIFESTS, '.': JSON.stringify({ name: 'root', private: true, dependencies: { d: 'file:d' } }) }
-    stubRegistry(TARBALLS)
-    await assert.rejects(buildPnpmTree({ lockfile: recorded, manifests, workspace: WORKSPACE, host: HOST_12 }), { message: '"d@file:d": a directory whose package.json the lockfile records is not supported: pnpm holds a frozen install to it by a check of its own, which is not built here' })
+    await assert.rejects(build(recorded, { manifests }), { message: '"d@file:d": a directory whose package.json the lockfile records is not supported: pnpm holds a frozen install to it by a check of its own, which is not built here' })
   })
 })

@@ -10,15 +10,16 @@
 // before it, which pnpm refuses, as it leaves the comma.
 
 import { hex } from '../excerpt.js'
-import { MAX_LINE, UNWRITTEN } from '../lines.js'
+import { MAX_LINE, UNWRITTEN, take } from '../lines.js'
 import { YamlError } from '../yaml/error.js'
 
 const MAX_DEPTH = 64
 const UNWRITTEN_RAW = new RegExp(`(?![\t\n\r])${UNWRITTEN.source}`, 'u')
 const ESCAPES = { __proto__: null, '"': '"', '\\': '\\', n: '\n', r: '\r', t: '\t' }
-const INTEGER = /0|[1-9]\d*/uy
+const ESCAPE = /\\(?:(["\\nrt])|u00([01][\da-f]))/uy
+const RUN = /[^"\\\t\n\r]*/uy
+const SCALAR = /(?:true|false|null|0|[1-9]\d*)(?![\w.+-])/uy
 const SPACE = /[\t \n\r]*/uy
-const WORD = /true|false|null/uy
 
 // Where reading is: `pos` in `text`, and the line it is on, from `first`.
 function scanner(text, first) {
@@ -33,12 +34,8 @@ function scanner(text, first) {
 }
 
 const fail = (src, detail, pos = src.pos) => new YamlError(detail, src.lineOf(pos))
-
-function skip(src) {
-  SPACE.lastIndex = src.pos
-  SPACE.exec(src.text)
-  src.pos = SPACE.lastIndex
-}
+const found = (src) => (src.pos < src.text.length ? JSON.stringify(src.text[src.pos]) : 'the end of the document')
+const skip = (src) => take(src, SPACE)
 
 function expect(src, char, what) {
   skip(src)
@@ -46,34 +43,27 @@ function expect(src, char, what) {
   src.pos++
 }
 
-const found = (src) => (src.pos < src.text.length ? JSON.stringify(src.text[src.pos]) : 'the end of the document')
+function readEscape(src) {
+  const at = src.pos
+  const [, short, code] = take(src, ESCAPE) ?? []
+  if (short !== undefined) return ESCAPES[short]
+  if (code !== undefined && code !== '09' && code !== '0a' && code !== '0d') return String.fromCodePoint(Number.parseInt(code, 16))
+  throw fail(src, `${JSON.stringify(src.text.slice(at, at + 6))} is not an escape pnpm writes`, at)
+}
 
+// What is raw a run at a time, up to the closing quote.
 function readString(src) {
+  src.pos++
   let value = ''
-  let pos = src.pos + 1
   for (;;) {
-    const char = src.text[pos]
-    if (char === undefined || char === '\n' || char === '\r') throw fail(src, 'a string with no closing quote')
+    value += take(src, RUN)[0]
+    const char = src.text[src.pos]
     if (char === '"') break
-    if (char === '\t') throw fail(src, 'a tab in a string, which pnpm writes as "\\t"', pos)
-    if (char !== '\\') {
-      value += char
-      pos++
-      continue
-    }
-    const next = src.text[pos + 1]
-    const code = /^u00([01][\da-f])$/u.exec(src.text.slice(pos + 1, pos + 6))?.[1]
-    if (next in ESCAPES) {
-      value += ESCAPES[next]
-      pos += 2
-    } else if (code !== undefined && code !== '09' && code !== '0a' && code !== '0d') {
-      value += String.fromCodePoint(Number.parseInt(code, 16))
-      pos += 6
-    } else {
-      throw fail(src, `${JSON.stringify(src.text.slice(pos, pos + 6))} is not an escape pnpm writes`, pos)
-    }
+    if (char === '\t') throw fail(src, 'a tab in a string, which pnpm writes as "\\t"')
+    if (char !== '\\') throw fail(src, 'a string with no closing quote')
+    value += readEscape(src)
   }
-  src.pos = pos + 1
+  src.pos++
   return value
 }
 
@@ -81,18 +71,13 @@ function readString(src) {
 // `close` follows the last.
 function readEntries(src, close, entry) {
   src.pos++
-  skip(src)
-  if (src.text[src.pos] === close) {
-    src.pos++
-    return
-  }
   for (;;) {
+    skip(src)
+    if (src.text[src.pos] === close) break
     entry()
     skip(src)
     if (src.text[src.pos] === close) break
     expect(src, ',', `"," or "${close}"`)
-    skip(src)
-    if (src.text[src.pos] === close) break
   }
   src.pos++
 }
@@ -123,22 +108,15 @@ function readValue(src, depth) {
   if (char === '{') return readObject(src, depth)
   if (char === '[') return readArray(src, depth)
   if (char === '"') return readString(src)
-  for (const re of [WORD, INTEGER]) {
-    re.lastIndex = src.pos
-    const word = re.exec(src.text)?.[0]
-    if (word !== undefined && !/[\w.+-]/u.test(src.text[re.lastIndex] ?? '')) {
-      src.pos = re.lastIndex
-      return JSON.parse(word)
-    }
-  }
-  throw fail(src, `expected a value as pnpm writes one, found ${found(src)}`)
+  const scalar = take(src, SCALAR)?.[0]
+  if (scalar === undefined) throw fail(src, `expected a value as pnpm writes one, found ${found(src)}`)
+  return JSON.parse(scalar)
 }
 
-// The document `text`, whose first line is the file's line `first`: a
-// mapping, and nothing after it but line ends.
+// The document `text`, whose first line is the file's line `first`, and
+// nothing after it but line ends: parse.js reads it where it opens with `{`.
 export function parseLockfileJson(text, first = 0) {
   const src = scanner(text, first)
-  if (text[0] !== '{') throw fail(src, 'expected "{" to open the document')
   const value = readValue(src, 0)
   skip(src)
   if (src.pos !== text.length) throw fail(src, `expected the end of the document, found ${found(src)}`)

@@ -186,7 +186,7 @@ const notEnabled = (value, where) => {
 // records, and pnpm fails on a key it does not know.
 const LOCKFILE_FORMATS = new Set(['v9', 'v13'])
 function checkLockfile(value, where) {
-  if (typeof value === 'boolean') return only('boolean', true, 'the tree is the lockfile\'s').check(value, where)
+  if (typeof value === 'boolean') return READ.lockfile.check(value, where)
   for (const [key, item] of Object.entries(value)) {
     const here = `${where}.${key}`
     if (key === 'format') oneOf(LOCKFILE_FORMATS)(item, here)

@@ -68,10 +68,11 @@ function checkLockfile(lockfile, folded) {
 // own, which is not built here. The setting is read by pnpm from 12.19.0,
 // and leaves the tree as it is: a frozen install reads either format.
 function checkFormat(lockfile, settings, host) {
-  if (settings.lockfileFormat !== undefined && compareVersions(host.pnpm, '12.19.0') < 0) throw new DeptreeError(`pnpm ${quote(host.pnpm)} fails on it, which pnpm has from 12.19.0`, 'pnpm-workspace.yaml: lockfile.format')
+  const before19 = compareVersions(host.pnpm, '12.19.0') < 0
+  if (settings.lockfileFormat !== undefined && before19) throw new DeptreeError(`pnpm ${quote(host.pnpm)} fails on it, which pnpm has from 12.19.0`, 'pnpm-workspace.yaml: lockfile.format')
   if (lockfile.lockfileVersion !== '13.0') return
   if (compareVersions(host.pnpm, '12.20.0') < 0) {
-    const reads = compareVersions(host.pnpm, '12.19.0') < 0 ? 'does not read one' : 'reads a snapshot named by its bindings otherwise'
+    const reads = before19 ? 'does not read one' : 'reads a snapshot named by its bindings otherwise'
     throw new DeptreeError(`a lockfile of 13.0 is built for as pnpm 12.20.0 and later read it, and pnpm ${quote(host.pnpm)} ${reads}`, 'lockfileVersion')
   }
   const recorded = Object.keys(lockfile.packages).find((key) => lockfile.packages[key].specifiers !== undefined)

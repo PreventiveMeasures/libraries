@@ -23,7 +23,7 @@ import { ENV_KINDS, readImporters } from './importers.js'
 import { fromBase32Bare, isHash, splitPackageKey } from './key.js'
 import { parseLockfileJson } from './json.js'
 import { fromNext, placeNext } from './next.js'
-import { byName, readPackages } from './packages.js'
+import { INFO_13, byName, readPackages } from './packages.js'
 
 const FIELDS = [
   'lockfileVersion', 'settings', 'catalogs', 'overrides', 'patchedDependencies',
@@ -114,18 +114,18 @@ function setFlags(importers, packages, env) {
   }
 }
 
-// `next` where `doc` is the v9 document next.js made of a lockfile of
-// `lockfileVersion: '13.0'`, which says so.
-function readDocument(doc, prefix, env, next = false) {
+// `info` is the fields a package may have, past v9's where `doc` is the
+// v9 document next.js made of a lockfile of 13.0.
+function readDocument(doc, prefix, env, info) {
   const where = prefix === '' ? undefined : prefix
   const version = record(doc, where).lockfileVersion
-  if (version !== (next ? '13.0' : '9.0')) {
+  if (version !== '9.0') {
     const json = version === '13.0' ? ', as a lockfile of 13.0 is written in JSON' : ''
     throw new LockfileError(`unsupported version: expected "9.0", found ${kind(version)}${json}`, at(prefix, 'lockfileVersion'))
   }
   record(doc, where, env ? ENV_FIELDS : FIELDS)
   const patchedDependencies = readPatches(doc.patchedDependencies, at(prefix, 'patchedDependencies'))
-  const { packages, snapshots } = readPackages(doc, prefix, new Map(Object.entries(patchedDependencies)), next)
+  const { packages, snapshots } = readPackages(doc, prefix, new Map(Object.entries(patchedDependencies)), info)
   const importers = readImporters(doc.importers, at(prefix, 'importers'), snapshots, env)
   checkReached(importers, packages, prefix, env ? ENV_KINDS : KINDS)
   setFlags(importers, packages, env)
@@ -149,9 +149,10 @@ function readDocument(doc, prefix, env, next = false) {
 // line `first`.
 function readNext(json, first) {
   const v9 = fromNext(parseLockfileJson(json, first))
-  return attempt(() => readDocument(v9, '', false, true), (error) => {
+  const lockfile = attempt(() => readDocument(v9, '', false, INFO_13), (error) => {
     throw placeNext(error, v9)
   })
+  return Object.assign(lockfile, { lockfileVersion: '13.0' })
 }
 
 // The split is pnpm's own (@pnpm/lockfile.fs, yamlDocuments.js), made on
@@ -178,16 +179,13 @@ export function parsePnpmLockfile(source) {
   if (found === null) throw new LockfileError('expected the env document the first "---" starts to end at a line of "---"')
   // Spaces and line ends alone: anything else, the YAML would refuse or read.
   const alone = /^(?: *\r?\n)* *$/u.test(source.slice(separator.lastIndex))
-  if (!alone && source.startsWith('{', separator.lastIndex)) {
-    const docs = parseYamlStream(source.slice(0, found.index + 1))
-    if (docs.length !== 1) throw new LockfileError(`expected the env document between lines of "---" alone, found ${docs.length} documents`)
-    const [env] = docs
-    const first = source.slice(0, separator.lastIndex).split('\n').length - 1
-    return { lockfile: readNext(source.slice(separator.lastIndex), first), env: readDocument(env, 'env', true) }
+  // The project's lockfile in JSON is read apart, from its line.
+  const json = !alone && source.startsWith('{', separator.lastIndex)
+  const docs = parseYamlStream(alone || json ? source.slice(0, found.index + 1) : source)
+  if (docs.length !== (alone || json ? 1 : 2)) {
+    throw new LockfileError(`expected the env document${alone || json ? '' : ' and the lockfile'} between lines of "---" alone, found ${docs.length} documents`)
   }
-  const docs = parseYamlStream(alone ? source.slice(0, found.index + 1) : source)
-  if (docs.length !== (alone ? 1 : 2)) {
-    throw new LockfileError(`expected the env document${alone ? '' : ' and the lockfile'} between lines of "---" alone, found ${docs.length} documents`)
-  }
-  return { lockfile: alone ? undefined : readDocument(docs[1], '', false), env: readDocument(docs[0], 'env', true) }
+  const first = () => source.slice(0, separator.lastIndex).split('\n').length - 1
+  const lockfile = alone ? undefined : json ? readNext(source.slice(separator.lastIndex), first()) : readDocument(docs[1], '', false)
+  return { lockfile, env: readDocument(docs[0], 'env', true) }
 }

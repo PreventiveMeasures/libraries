@@ -13,30 +13,29 @@
 // snapshots, keyed and referred to with no peers (next-packages.js).
 
 import { LockfileError, at, quote } from '../error.js'
-import { packageKeyOf } from './key.js'
-import { checkName, checkRelative } from '../names.js'
+import { KINDS } from '../graph.js'
+import { checkName, checkRelative, relativeTo } from '../names.js'
+import { compareCodePoints } from '../order.js'
 import { isMapping, kind as kindOf, mapping, orEmpty, record, string, text } from '../shape.js'
+import { packageKeyOf } from './key.js'
 import { readEntry, readWith, refVersion } from './next-packages.js'
-import { byCodePoint } from './restore.js'
 import { restoreSections } from './restore-keys.js'
 
 const FIELDS = ['lockfileVersion', 'settings', 'projects', 'packages', 'time']
 const SETTINGS = ['autoInstallPeers', 'dedupePeers', 'excludeLinksFromLockfile', 'injectWorkspacePackages', 'peersSuffixMaxLength']
 const RECORDS = ['catalogs', 'overrides', 'patchedDependencies', 'packageExtensionsChecksum', 'pnpmfileChecksum', 'ignoredOptionalDependencies']
-const PROJECT = ['name', 'dependencies', 'devDependencies', 'optionalDependencies', 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
-const KINDS = ['dependencies', 'devDependencies', 'optionalDependencies']
+const PROJECT = ['name', ...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
 
-// The package of an `npm:` alias's target, `name` or `name@range`.
-const aliasName = (target) => (target.indexOf('@', 1) === -1 ? target : target.slice(0, target.indexOf('@', 1)))
+// `name@rest` at its `@`, a scope's aside; `rest` undefined where there is
+// none: an `npm:` alias's target, a `workspace:` specifier's, a key.
+function splitName(spec) {
+  const sep = spec.indexOf('@', 1)
+  return sep === -1 ? [spec, undefined] : [spec.slice(0, sep), spec.slice(sep + 1)]
+}
 
 // The version a catalog entry's specifier implies: the specifier, or the
 // version of an `npm:` alias, which a catalog records bare.
-function catalogVersion(specifier) {
-  if (!specifier.startsWith('npm:')) return specifier
-  const target = specifier.slice(4)
-  const sep = target.indexOf('@', 1)
-  return sep === -1 ? undefined : target.slice(sep + 1)
-}
+const catalogVersion = (specifier) => (specifier.startsWith('npm:') ? splitName(specifier.slice(4))[1] : specifier)
 
 // By catalog and name, `{specifier, version}`, as v9 writes them.
 const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, here) => mapping(names, here, (item, there) => {
@@ -56,32 +55,27 @@ const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, he
 function injectedPaths(keys) {
   const paths = new Map()
   for (const key of keys) {
-    const sep = key.indexOf('@', 1)
-    if (!key.startsWith('file:', sep + 1)) continue
-    const name = key.slice(0, sep)
-    paths.set(name, paths.has(name) ? undefined : key.slice(sep + 6))
+    const [name, ref] = splitName(key)
+    if (ref?.startsWith('file:')) paths.set(name, paths.has(name) ? undefined : ref.slice(5))
   }
   return paths
 }
 
+// The names claimed once, each of an id no other name claims.
 function oneToOne(claims) {
   const byName = new Map(claims.entries().filter(([, id]) => id !== undefined))
-  const ids = [...byName.values()]
-  return new Map(byName.entries().filter(([, id]) => ids.indexOf(id) === ids.lastIndexOf(id)))
+  const counts = new Map()
+  for (const id of byName.values()) counts.set(id, (counts.get(id) ?? 0) + 1)
+  return new Map(byName.entries().filter(([, id]) => counts.get(id) === 1))
 }
 
 const claim = (claims, name, id) => claims.set(name, claims.has(name) && claims.get(name) !== id ? undefined : id)
 
-const segmentsOf = (id) => id.split('/').filter((segment) => segment !== '' && segment !== '.')
-function linkPath(from, to) {
-  const [a, b] = [segmentsOf(from), segmentsOf(to)]
-  let common = 0
-  while (common < a.length && common < b.length && a[common] === b[common]) common++
-  return [...Array.from({ length: a.length - common }, () => '..'), ...b.slice(common)].join('/') || '.'
-}
-
+// The project a link from `id` leads to, as pnpm's link_target finds it:
+// none where it climbs out of the lockfile's directory, which resolvePath
+// would go on past.
 function linkTarget(id, link) {
-  const path = segmentsOf(id)
+  const path = id === '.' ? [] : id.split('/')
   for (const segment of link.split('/')) {
     if (segment === '..') {
       if (path.pop() === undefined) return undefined
@@ -92,7 +86,10 @@ function linkTarget(id, link) {
   return path.join('/') || '.'
 }
 
-const workspaceName = (target) => (target.indexOf('@', 1) === -1 ? undefined : target.slice(0, target.indexOf('@', 1)))
+const workspaceName = (target) => {
+  const [name, range] = splitName(target)
+  return range === undefined ? undefined : name
+}
 
 // The version a specifier implies, as pnpm's implied_version has it: an
 // exact version itself, `npm:` its target, a `catalog:` its entry's, a
@@ -105,16 +102,18 @@ function implied(context, id, alias, specifier) {
     const pkg = name ?? alias
     const [path, project] = [context.injected.get(pkg), context.linked.get(pkg)]
     if ((path === undefined) === (project === undefined)) return undefined
-    if (project !== undefined) return `link:${linkPath(id, project)}`
+    if (project !== undefined) return `link:${relativeTo(id, project)}`
     return name !== undefined && name !== alias ? `${name}@file:${path}` : `file:${path}`
   }
   if (specifier.startsWith('catalog:')) {
     const entry = context.catalogs[specifier.slice(8) || 'default']?.[alias]
     if (entry === undefined) return undefined
-    return entry.specifier.startsWith('npm:') ? `${aliasName(entry.specifier.slice(4))}@${entry.version}` : entry.version
+    return entry.specifier.startsWith('npm:') ? `${splitName(entry.specifier.slice(4))[0]}@${entry.version}` : entry.version
   }
   return specifier.startsWith('npm:') ? specifier.slice(4) : specifier
 }
+
+const readImporterVersion = (value, where, alias) => refVersion(value, where, checkName(alias, where))
 
 function readDependency(value, where, alias) {
   if (!isMapping(value)) return { specifier: text(value, where), version: undefined, with: undefined }
@@ -127,9 +126,8 @@ function readDependency(value, where, alias) {
   }
 }
 
-const readImporterVersion = (value, where, alias) => refVersion(value, where, checkName(alias, where))
-
-// Each project, its dependencies by kind and alias, each with its version.
+// Each project: its dependencies by kind and alias, each with its version,
+// and by alias, every kind together, `byAlias`.
 function readProjects(value, where, context) {
   const projects = new Map()
   for (const [id, project] of Object.entries(record(orEmpty(value), where))) {
@@ -137,7 +135,8 @@ function readProjects(value, where, context) {
     checkRelative(id, here)
     record(project, here, PROJECT)
     const kinds = Object.fromEntries(KINDS.map((kind) => [kind, mapping(orEmpty(project[kind]), at(here, kind), readDependency)]))
-    projects.set(id, { project, kinds, name: project.name === undefined ? undefined : text(project.name, at(here, 'name')) })
+    const byAlias = new Map(KINDS.flatMap((kind) => Object.entries(kinds[kind])))
+    projects.set(id, { project, kinds, byAlias, name: project.name === undefined ? undefined : text(project.name, at(here, 'name')) })
   }
   context.linked = oneToOne(projects.entries().reduce((claims, [id, { name }]) => (name === undefined ? claims : claim(claims, name, id)), new Map()))
   for (const [id, { kinds }] of projects) {
@@ -159,8 +158,8 @@ function readProjects(value, where, context) {
 // project links to it, by the name the dependency gives it.
 function checkNames(projects, where) {
   const claims = new Map()
-  for (const [id, { kinds }] of projects) {
-    for (const [alias, dep] of KINDS.flatMap((kind) => Object.entries(kinds[kind]))) {
+  for (const [id, { byAlias }] of projects) {
+    for (const [alias, dep] of byAlias) {
       if (!dep.specifier.startsWith('workspace:') || !dep.version.startsWith('link:')) continue
       const target = linkTarget(id, dep.version.slice(5))
       if (target !== undefined && projects.has(target)) claim(claims, workspaceName(dep.specifier.slice(10)) ?? alias, target)
@@ -176,14 +175,15 @@ function v9Importer({ project, kinds }, versions) {
   const importer = Object.create(null)
   for (const kind of KINDS) {
     if (project[kind] === undefined) continue
-    importer[kind] = Object.fromEntries(Object.entries(kinds[kind]).toSorted(([a], [b]) => byCodePoint(a, b)).map(([alias, dep]) => [alias, { specifier: dep.specifier, version: versions.get(alias) }]))
+    importer[kind] = Object.fromEntries(Object.entries(kinds[kind]).toSorted(([a], [b]) => compareCodePoints(a, b)).map(([alias, dep]) => [alias, { specifier: dep.specifier, version: versions.get(alias) }]))
   }
   for (const name of ['dependenciesMeta', 'publishDirectory', 'linkDirectory']) if (project[name] !== undefined) importer[name] = project[name]
   return importer
 }
 
 // The document as the v9 one pnpm holds in memory for it, in the shape
-// the YAML of one reads to.
+// the YAML of one reads to, under '9.0'; a dependency listed under two
+// kinds is left for that reader to refuse.
 export function fromNext(doc) {
   const version = record(doc, undefined).lockfileVersion
   if (version !== '13.0') throw new LockfileError(`unsupported version: expected "13.0", found ${kindOf(version)}, as pnpm writes a lockfile in JSON of 13.0 alone`, 'lockfileVersion')
@@ -192,25 +192,18 @@ export function fromNext(doc) {
   const catalogs = readCatalogs(settings.catalogs, 'settings.catalogs')
   const patches = new Map(Object.entries(record(orEmpty(settings.patchedDependencies), 'settings.patchedDependencies')))
   const packages = new Map(Object.entries(record(orEmpty(doc.packages), 'packages')).map(([key, entry]) => [key, readEntry(key, entry, at('packages', key))]))
-  const context = { catalogs, injected: injectedPaths(packages.keys()), linked: new Map() }
-  const projects = readProjects(doc.projects, 'projects', context)
-  for (const [id, { kinds }] of projects) {
-    const both = KINDS.flatMap((kind) => Object.keys(kinds[kind])).find((alias, index, all) => all.indexOf(alias) !== index)
-    if (both !== undefined) throw new LockfileError('listed under two kinds of dependency', at(at('projects', id), both))
-  }
-  const importers = new Map(projects.entries().map(([id, { kinds }]) => [id, { byAlias: new Map(KINDS.flatMap((kind) => Object.entries(kinds[kind]))) }]))
-  const restored = restoreSections(packages, importers, settings, patches)
+  const projects = readProjects(doc.projects, 'projects', { catalogs, injected: injectedPaths(packages.keys()) })
+  const restored = restoreSections(packages, projects, settings, patches)
   const snapshots = Object.create(null)
-  for (const [key, entry] of restored.snapshots.toSorted(([a], [b]) => byCodePoint(a, b))) {
+  for (const [key, entry] of restored.snapshots.toSorted(([a], [b]) => compareCodePoints(a, b))) {
     if (key in snapshots) throw new LockfileError(`two snapshots of a package are both read as ${quote(key)}`, at('packages', packageKeyOf(key)))
     snapshots[key] = entry
   }
   const v9 = Object.create(null)
-  v9.lockfileVersion = '13.0'
+  v9.lockfileVersion = '9.0'
   const base = Object.fromEntries(SETTINGS.filter((name) => settings[name] !== undefined).map((name) => [name, settings[name]]))
   if (Object.keys(base).length > 0) v9.settings = base
-  if (settings.catalogs !== undefined) v9.catalogs = catalogs
-  for (const name of RECORDS.slice(1)) if (settings[name] !== undefined) v9[name] = settings[name]
+  for (const name of RECORDS) if (settings[name] !== undefined) v9[name] = name === 'catalogs' ? catalogs : settings[name]
   v9.importers = Object.fromEntries(projects.entries().map(([id, project]) => [id, v9Importer(project, restored.versions.get(id))]))
   v9.packages = Object.fromEntries(packages.entries().map(([key, { info }]) => [key, info]))
   v9.snapshots = snapshots

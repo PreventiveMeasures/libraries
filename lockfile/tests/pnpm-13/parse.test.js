@@ -117,10 +117,9 @@ describe('a lockfile of 13.0 is held to what pnpm writes', () => {
     const text = write(base())
     assert.throws(() => parsePnpmLockfile(text.replace('"settings"', '"lockfileVersion": "13.0",\n\t"settings"')), { name: 'YamlError', message: 'the key "lockfileVersion" twice in one mapping at line 3' })
     assert.throws(() => parsePnpmLockfile(text.replace('{\n', '{\n,')), { name: 'YamlError', message: 'expected a key in double quotes, found "," at line 2' })
-    assert.throws(() => parsePnpmLockfile(text.replace('"autoInstallPeers": true', '"autoInstallPeers": "\\/"')), { name: 'YamlError' })
-    assert.throws(() => parsePnpmLockfile(text.replace('"autoInstallPeers": true', '"autoInstallPeers": 1.0')), { name: 'YamlError' })
+    assert.throws(() => parsePnpmLockfile(text.replace('"autoInstallPeers": true', '"autoInstallPeers": "\\/"')), YamlError)
+    assert.throws(() => parsePnpmLockfile(text.replace('"autoInstallPeers": true', '"autoInstallPeers": 1.0')), YamlError)
     assert.throws(() => parsePnpmLockfile(`${text}x`), { name: 'YamlError', message: `expected the end of the document, found "x" at line ${text.split('\n').length}` })
-    assert.ok(YamlError)
     // A comma after the last entry, as pnpm writes one.
     assert.deepEqual(plain(parsePnpmLockfile(text.replace('"autoInstallPeers": true,', '"autoInstallPeers": true,\n\t\t"dedupePeers": false,')).lockfile.settings), { autoInstallPeers: true, dedupePeers: false })
   })
