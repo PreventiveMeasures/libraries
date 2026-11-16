@@ -732,6 +732,23 @@ describe('buildPnpmTree refuses', () => {
     await refuses({ manifest: root({ pnpm: { patchedDependencies: undefined } }), patches: {} }, /^patchedDependencies: the patches differ: "p@1\.0\.0" is .* in the lockfile and nothing in the settings/u)
   })
 
+  // pnpm hashes CRLF as LF and applies each selector's own patch file, so
+  // two of one hash share a text only if it is the same.
+  it('two patches of one hash that differ in line endings', async () => {
+    const both = serving(await tarball('e', '1.0.0', { 'index.js': 'module.exports = 1\n' }))
+      .replace('    path: patches/p.patch\n', `    path: patches/p.patch\n  e@1.0.0:\n    hash: ${H}\n    path: patches/e.patch\n`)
+      .replace('      e:\n        specifier: 1.0.0\n        version: 1.0.0\n', `      e:\n        specifier: 1.0.0\n        version: 1.0.0(patch_hash=${H})\n`)
+      .replace('  e@1.0.0: {}\n', `  e@1.0.0(patch_hash=${H}): {}\n`)
+    const manifest = root({ pnpm: { patchedDependencies: { 'p@1.0.0': 'patches/p.patch', 'e@1.0.0': 'patches/e.patch' } } })
+    const crlf = PATCH.replace('+module.exports = 2\n', '+module.exports = 2\r\n')
+    assert.equal(hex(crlf.replaceAll('\r\n', '\n')), H)
+    const vfs = await build({ lockfile: both, manifest, patches: { 'patches/p.patch': PATCH, 'patches/e.patch': PATCH } })
+    assert.deepEqual(['p', 'e'].map((name) => vfs.readText(`/node_modules/${name}/index.js`)), ['module.exports = 2\n', 'module.exports = 2\n'])
+    for (const [p, e] of [[PATCH, crlf], [crlf, PATCH]]) {
+      await refuses({ lockfile: both, manifest, patches: { 'patches/p.patch': p, 'patches/e.patch': e } }, /^patches\["patches\/e\.patch"\]: it differs from "patches\/p\.patch" in line endings alone, so the two have one hash, and two texts under one hash are not supported$/u)
+    }
+  })
+
   it('reads the patch where pnpm-workspace.yaml names it instead', async () => {
     stubRegistry(TARBALLS)
     const vfs = await build({ manifest: root({ pnpm: { patchedDependencies: undefined } }), workspace: 'patchedDependencies:\n  p@1.0.0: ./patches/p.patch\n' })
