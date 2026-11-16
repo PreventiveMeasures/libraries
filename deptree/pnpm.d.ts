@@ -27,6 +27,8 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // its changelog says it installs otherwise, as its bug, which is not built
 // for: a `file:` directory's file whose mode is not 0o644, for 12.8.0, and
 // a production tree an edge to an optional peer changes, before 12.7.0.
+// A file a patch creates has the mode the patch gives it, which pnpm 12
+// before 12.11.0 does not keep, as its bug, writing it at 0o644.
 // Left out, it is the one the root package.json's
 // packageManager pins, which pnpm switches to, and has to be given where
 // that pins none. `node` is the Node it runs on, an exact version,
@@ -517,8 +519,7 @@ export interface PnpmLazyTree extends PnpmTree {
 // directories.bin otherwise, dotfiles among them, and a package's null
 // `bin` beside a directories.bin as its store has the package or not,
 // which is refused. It links no package to
-// a dependency of its own name, and writes a file a patch makes as
-// 0o644, whatever mode the patch gives it. It hoists from a graph of every
+// a dependency of its own name. It hoists from a graph of every
 // snapshot, those left out walked through but not hoisted, keeps from
 // hoisting the root project's aliases but its `link:`s, those left out
 // among them, and takes the snapshots of one depth in the order of their

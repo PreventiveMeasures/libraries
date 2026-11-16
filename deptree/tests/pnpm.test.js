@@ -971,6 +971,24 @@ describe('buildPnpmTree for pnpm 12', () => {
     stubRegistry(TARBALLS)
     for (const pnpm of ['12.0.0', '12.6.0', '12.8.0']) assert.equal((await built({ host: { ...HOST, pnpm } })).vfs.readText('/node_modules/p/index.js'), 'module.exports = 2\n', pnpm)
   })
+
+  // A file a patch creates has the mode the patch gives it, as pnpm 11.x and
+  // 12.21.0 install it; pnpm 12 before 12.11.0 writes it at 0o644, its bug,
+  // which is not followed.
+  it('writes a file a patch creates at the mode the patch gives it', async () => {
+    stubRegistry(TARBALLS)
+    const created = (path, mode, line) => `diff --git a/${path} b/${path}\nnew file mode ${mode}\nindex 0000000..2222222\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1 @@\n+${line}\n`
+    const patch = `${PATCH}${created('run.sh', '100755', '#!/bin/sh')}${created('plain.txt', '100644', 'plain')}`
+    const options = (host) => ({ lockfile: flatLockfile({ patchHash: hex(patch) }), manifests: { '.': UNPATCHED }, workspace: PATCHED_IN_YAML, patches: { 'patches/p.patch': patch }, host })
+    const modes = (vfs) => ['run.sh', 'plain.txt'].map((path) => vfs.stat(`/node_modules/p/${path}`).mode)
+    for (const pnpm of ['12.8.1', '12.21.0', '11.28.2']) {
+      const host = { ...HOST, pnpm }
+      assert.deepEqual(modes((await buildPnpmTree(options(host))).vfs), [0o755, 0o644], pnpm)
+      const lazy = await buildPnpmTree({ ...options(host), lazy: true })
+      await lazy.unpack([lazy.installed.find(({ name }) => name === 'p').path])
+      assert.deepEqual(modes(lazy.vfs), [0o755, 0o644], `${pnpm} lazy`)
+    }
+  })
 })
 
 describe('buildPnpmTree with a workspace', () => {

@@ -23,7 +23,7 @@ export function compose(node, patches, { targets, executable }, { major, checkPa
   if (patchHash !== undefined) {
     const patch = parsedPatch(patches, patchHash)
     patch.applied ??= new WeakMap()
-    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, { createdMode: major >= 12 ? 0o644 : undefined }))
+    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed))
     files = patch.applied.get(files)
     const manifest = checkPatchOfBins(node, files, targets, where, major)
     checkPatched?.(manifest, where)
