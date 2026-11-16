@@ -134,6 +134,8 @@ function derive(get) {
     runtimeOnFail: get('runtimeOnFail'),
     packageImportMethod: get('packageImportMethod') ?? 'auto',
     nodeLinker: get('nodeLinker') ?? 'isolated',
+    hoistingLimits: get('hoistingLimits') ?? 'none',
+    externalDependencies: get('externalDependencies') ?? [],
   }
 }
 
