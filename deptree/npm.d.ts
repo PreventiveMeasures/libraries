@@ -1,410 +1,286 @@
-import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js'
-import type { NodeType, Vfs } from '@preventive/vfs'
+/**
+ * A node_modules tree built in memory from a package-lock.json, as npm 10 or 11 installs it with `npm ci`
+ *
+ * ```js
+ * import { buildNpmTree, findNpmWorkspaces } from '@preventive/deptree/npm.js'
+ * ```
+ *
+ * Nothing is left to a guess: a lockfile the reader refuses, a setting not followed, a package from
+ * anywhere but the registry (git, another tarball, a directory by `file:`) or with no resolved URL, a
+ * bundled package, a link but to a workspace, overrides, acceptDependencies, or a check that fails is
+ * refused with a DeptreeError or a LockfileError saying where. Options of the wrong type throw a TypeError.
+ *
+ * @module @preventive/deptree/npm.js
+ */
 
-export { LockfileError } from '@preventive/lockfile/npm.js'
+import type { CacheOptions, PackageBugs, PackageRepository } from '@preventive/upstream/npm.js';
+import type { NodeType, Vfs } from '@preventive/vfs';
 
-// Where @preventive/upstream caches what it fetches, tarballs among them.
-// Tarballs are fetched through it, and that is the one place anything here
-// touches a filesystem. Before the network, it takes a tarball from npm's
-// cache -- under $npm_config_cache, or ~/.npm -- from ~/.audit/cache/tgz, or
-// from its own default cache directory or stasis's, where one there has the
-// lockfile's integrity, and writes none of them; then from its own cache,
-// where one is set, which is where it writes each tarball it fetches:
-// setCacheDir() sets the default one, and setCacheDir(false) unsets it.
-// Unset, which it is until set, it writes nothing. The project is read
-// only through the view given as `project`, and the tree built in a Vfs.
-export { setCacheDir } from '@preventive/upstream/npm.js'
+export { LockfileError } from '@preventive/lockfile/npm.js';
 
-// The machine npm would install on, which a tree depends on. `npm` is the
-// version that installs, exact: 10.9.3 to 10.9.9, or 11.11.1 to 11.21.0
-// (10.9.0 to 10.9.2 escape a `#` in the project's path, which is not known
-// here); npm reads no packageManager field, so the root package.json's is
-// not read. `node` is the Node npm runs on, an exact version, or left out
-// for one unknown, which every engines.node and devEngines.runtime version
-// takes; `os` and `cpu` as Node names them -- `linux`, `x64`; and `libc`
-// the C library npm finds on Linux, `glibc` or `musl`, and left out
-// elsewhere, where npm finds none. Windows is refused: npm links bins
-// there with shims, and workspaces with junctions.
-//
-// A package whose os, cpu, libc or engines the host does not take is left
-// out where npm takes it as optional, and with it what npm leaves out with
-// it; one that is not optional is refused where its platform is not the
-// host's, as npm fails on it, and installed where its engines are not, as
-// npm warns of them, unless engine-strict is set. So for the root and each
-// workspace, by their package.json. A libc a package names fails a host
-// with none, whatever it names.
+/**
+ * Sets where @preventive/upstream caches what it fetches, which is unset until set
+ *
+ * Tarballs are fetched through it, the one place anything here touches a filesystem: before the network
+ * it reads npm's cache, ~/.audit/cache/tgz and its own or stasis's default directory for one of the
+ * lockfile's integrity, writing none of them, then this one, which it writes each tarball it fetches to.
+ * `setCacheDir()` sets the default directory and `setCacheDir(false)` unsets it.
+ */
+export { setCacheDir } from '@preventive/upstream/npm.js';
+
+/**
+ * The machine npm would install on; Windows is refused, as npm links bins there with shims
+ *
+ * A package whose os, cpu, libc or engines the host does not take is left out where npm takes it as
+ * optional, with what npm leaves out with it. One not optional is refused where its platform is not the
+ * host's, as npm fails on it, and installed where its engines are not, as npm warns, unless engine-strict
+ * is set; so for the root and each workspace. A libc a package names fails a host with none.
+ */
 export interface NpmHost {
-  npm: string
-  node?: string
-  os: string
-  cpu: string
-  libc?: 'glibc' | 'musl'
+  /** The npm that installs, exact: 10.9.3 to 10.9.9, or 11.11.1 to 11.21.0; no packageManager is read */
+  npm: string;
+  /** The Node npm runs on, exact, or left out for one unknown, which every engines.node and devEngines takes */
+  node?: string;
+  /** As Node names it, such as `linux` */
+  os: string;
+  /** As Node names it, such as `x64` */
+  cpu: string;
+  /** The C library npm finds on Linux, and left out elsewhere */
+  libc?: 'glibc' | 'musl';
 }
 
-// A view of the lockfile's directory, by paths from `/`: a Vfs, or
-// anything with its readdir, lstat, stat and readFile, such as one of a
-// directory on disk, of which only this is read: the names in a
-// directory; what a path is, `file`, `directory` or `symlink`, with lstat,
-// and what it leads to with stat; and a file's bytes. Each throws an error
-// whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads nowhere.
-// Nothing is written to it.
+/**
+ * A view of the lockfile's directory by paths from `/`, such as a Vfs; nothing is written to it
+ *
+ * Each method throws an error whose `code` is ENOENT, ENOTDIR or ELOOP for a path that leads nowhere.
+ */
 export interface NpmProject {
-  readdir(path: string): string[]
-  lstat(path: string): { type: NodeType }
-  stat(path: string): { type: NodeType }
-  readFile(path: string): Uint8Array
+  readdir(path: string): string[];
+  /** What a path is */
+  lstat(path: string): { type: NodeType };
+  /** What a path leads to */
+  stat(path: string): { type: NodeType };
+  readFile(path: string): Uint8Array;
 }
 
-// The files `npm ci` reads: package-lock.json; the package.json of the
-// root and of every workspace; and the .npmrc, where there is one.
-//
-// With `lockfile`, they are given as text: `manifests` by the project's
-// directory relative to the lockfile's (`.` for the root, then each
-// workspace's, as findNpmWorkspaces lists them: a directory under the
-// lockfile's, with no `.`, `..` or empty segment). Every workspace npm would
-// find has to be given, and none else: the lockfile's have to be those.
-//
-// Without it, they are read from `project`, as npm reads them there, and
-// none of them may be given: package-lock.json, which has to be there; the
-// root package.json, which has to be there too; the package.json of every
-// directory the root's `workspaces` globs take, as npm globs for them,
-// outside node_modules, on macOS whatever the case; and the .npmrc. Each
-// is read as UTF-8, and refused where it is not. A refusal names each as
-// it would given: `manifests["packages/x"]`. Refused there: an
-// npm-shrinkwrap.json, which npm reads in the lockfile's stead; and a link
-// anywhere the globs reach, which glob follows or not by where it is.
-//
-// Settings from anywhere else -- an .npmrc in the home directory or npm's
-// own, the environment, NODE_ENV among it, the command line -- are not
-// read, and are taken to be at their defaults; so is the directory npm is
-// run in, taken to be the lockfile's, with no workspace above it.
-//
-// Of the .npmrc, as npm reads it: npm hands the install each setting as
-// ini reads it, before it checks it, so `bin-links=0` links bins, "0" being
-// a truthy string. A setting that can change what npm installs is read
-// only in a form with one reading, a key and a value neither quoted,
-// escaped, cut at a `;` or `#`, nor filled in from the environment, and
-// refused in any other. Three are followed: legacy-peer-deps, engine-strict
-// and bin-links, each true or false. install-strategy is taken as hoisted,
-// lockfile-version as 1, 2 or 3, allow-git, allow-directory, allow-file
-// and allow-remote as all, and install-links, force, dry-run, global,
-// package-lock-only, usage and include-workspace-root as false, and refused
-// otherwise. omit, include, production, dev, only, also, optional, os,
-// cpu, libc, workspace, workspaces, location, umask, prefix, globalconfig,
-// userconfig, allow-scripts and a credential not scoped to a registry are
-// refused, whatever their value, which of the dependencies are installed
-// being `production`'s to say; so are two settings npm takes as
-// exclusive, set together, and a section. Any other setting is passed
-// over: npm reads it for where it fetches from, how, what it prints, or
-// another command, and the tree is held to the lockfile's integrities
-// whatever serves it.
-//
-// `vfs` is a Vfs to mount the tree into, at its root, which is taken to
-// be the lockfile's directory, beside whatever it holds, such as the
-// projects themselves -- it may be `project` too; without one, a new Vfs
-// holds the tree alone. Nothing the tree is built from is read from it. A
-// Vfs that holds a node_modules anywhere, or on macOS a name that is one
-// there, is refused before anything is fetched: kept beside the tree, Node
-// would read it as the tree's, and removed, it would be the caller's lost.
-// Nothing there is written over: each directory the tree has is one there
-// or is made, and every file and link is written where nothing is. The
-// tree is built, and held to every check below, before any of it is
-// written, so a refusal leaves the Vfs as it was.
-//
-// `metadata`, true unless given false, has each registry package's version
-// document asked for beside its tarball, through getMeta of
-// @preventive/upstream given the lockfile's dist: the one `cache` keeps,
-// where its dist is that one, else the registry's, a request for each name
-// and version. Its dist has to be the lockfile's, the tarball
-// the registry's own URL and the integrity the lockfile's sha512, compared
-// as text, with nothing hashed again, as the lockfile copies the
-// registry's; and its gitHead, repository, homepage and bugs are the
-// package's. False fetches none, and gives none of them.
-//
-// `cache` is where each registry package's tarball and version document
-// are kept, as @preventive/upstream's CacheOptions take it: in setCacheDir's
-// cache where it is left out; in a store of the caller's, with `read` and
-// `write`, in place of it; or with false, nowhere, though setCacheDir's
-// cache is read all the same. Other tools' caches are read for tarballs
-// whatever it is. A TypeError is thrown for anything else.
-//
-// `sizeEstimateOnly`, false unless given true, builds the tree's directories
-// and links alone, and fetches no tarball: each package's directory is made
-// where the lockfile puts it, and left empty, and each link is made as it is.
-// Each package's version document is asked for as `metadata` asks for it,
-// whatever `metadata` says, and held to the lockfile's dist as it is held
-// there; and each package is listed with its `size`, the document's
-// dist.unpackedSize, as getMeta of @preventive/upstream reads it: the bytes
-// of the files in its tarball, as the registry counted them when it was
-// published, which is what npm writes of it, but for a .gitignore it drops
-// and a CRLF `#!` line of a bin it rewrites; not the blocks they take. It is
-// undefined where the document names none. What is checked of a package's
-// tarball and files is not, so a lockfile one of those checks would refuse is
-// laid out all the same. A `vfs` is not taken with it.
-//
-// `lazy`, false unless given true, lays the tree out as sizeEstimateOnly
-// does, each package's directory made and left empty and each link made,
-// but fetches nothing, not even a version document: each package is
-// unpacked into it once asked for by the tree's `unpack`, and only then
-// fetched, as `metadata` and `cache` say. A package unpacked is what the
-// full tree has at its path, file for file, with the bins it links fixed,
-// which the lockfile alone tells, and held to every check of its tarball and
-// files the full tree holds it to; one never asked for is never fetched, so
-// a lockfile one of those checks would refuse is laid out all the same, and
-// refused where that package is unpacked. A `vfs` is not taken with it, nor
-// `sizeEstimateOnly`.
-//
-// `production`, false unless given true, builds the tree `npm ci
-// --omit=dev` makes: each package the lockfile's flags, as npm takes them,
-// say dev dependencies alone reach is left out, as is what is beneath it,
-// and its bins are linked by none of its names. npm 10 makes every
-// package's directory before it leaves those out, and so leaves the
-// directories they were in, a scope's or a workspace's node_modules, which
-// the tree has too, empty; it holds each of them that is not optional to
-// the host as without it, and leaves out nothing for one that is and that
-// the host cannot run. npm 11 holds to the host none of them but those that
-// are optional, each left out with its optionalSet where the host cannot
-// run it, as without it. A workspace is linked all the same.
-export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead
+/**
+ * The files `npm ci` reads, either given as text or read from `project`
+ *
+ * Read, they are package-lock.json and the root's package.json, which have to be there; the package.json
+ * of each directory the root's `workspaces` globs take, outside node_modules and on macOS whatever the case;
+ * and the .npmrc. Each is UTF-8, and a refusal names it as it would given: `manifests["packages/x"]`.
+ * Refused there: an npm-shrinkwrap.json, and a link the globs reach. Settings from anywhere else, NODE_ENV
+ * among them, are taken at their defaults, and npm as run in the lockfile's directory.
+ *
+ * Of the .npmrc, as ini reads it before npm checks it (`bin-links=0` links bins): a setting that can change
+ * what npm installs is read only as a bare key and value, neither quoted, escaped, cut at `;` or `#`, nor
+ * taken from the environment. legacy-peer-deps, engine-strict and bin-links are followed, true or false;
+ * install-strategy has to be hoisted, lockfile-version 1, 2 or 3, the allow-* settings all, and
+ * install-links, force, dry-run, global, package-lock-only, usage and include-workspace-root false. omit,
+ * include, production, dev, optional, os, cpu, libc, workspace, location, umask, prefix, the config paths,
+ * allow-scripts, an unscoped credential, two exclusive settings together and a section are refused; any
+ * other setting is passed over, as npm reads it for where it fetches from, how, or what it prints.
+ */
+export type NpmTreeOptions = NpmTreeGiven | NpmTreeRead;
 
-export type NpmLayoutOptions = NpmTreeOptions & { sizeEstimateOnly: true, vfs?: undefined }
+export type NpmLayoutOptions = NpmTreeOptions & { sizeEstimateOnly: true; vfs?: undefined };
 
-export type NpmLazyOptions = NpmTreeOptions & { lazy: true, sizeEstimateOnly?: false, vfs?: undefined }
+export type NpmLazyOptions = NpmTreeOptions & { lazy: true; sizeEstimateOnly?: false; vfs?: undefined };
 
-export interface NpmTreeGiven {
-  lockfile: string
-  manifests: Record<string, string> | Map<string, string>
-  npmrc?: string
-  project?: undefined
-  host: NpmHost
-  vfs?: Vfs
-  metadata?: boolean
-  cache?: CacheOptions['cache']
-  sizeEstimateOnly?: boolean
-  lazy?: boolean
-  production?: boolean
+interface NpmTreeShared {
+  host: NpmHost;
+  /**
+   * A Vfs to mount the tree into, at the lockfile's directory, beside what it holds (default: a new one)
+   *
+   * One holding a node_modules, or on macOS a name that is one there, is refused before anything is
+   * fetched. Nothing there is written over, and the tree is built and checked first, so a refusal leaves
+   * it as it was. Not taken with `sizeEstimateOnly` or `lazy`.
+   */
+  vfs?: Vfs;
+  /**
+   * Fetch each registry package's version document by @preventive/upstream's getMeta, its dist held to the
+   * lockfile's, for `commit`, `repository`, `homepage` and `bugs` (default: true)
+   */
+  metadata?: boolean;
+  /** Where tarballs and version documents are kept, as @preventive/upstream's CacheOptions take it */
+  cache?: CacheOptions['cache'];
+  /**
+   * Build the directories and links alone, fetching each package's version document and no tarball, and
+   * list each package with its `size` (default: false)
+   *
+   * `size` is the document's dist.unpackedSize, the bytes of its files as the registry counted them, or
+   * undefined. A package's tarball and files go unchecked, so a lockfile those checks refuse is laid out.
+   */
+  sizeEstimateOnly?: boolean;
+  /**
+   * Build the directories and links alone, fetching nothing, each package unpacked once the tree's
+   * `unpack` asks for it, and fetched only then (default: false)
+   *
+   * An unpacked package is what the full tree has, file for file, with the bins it links fixed, and held
+   * to every check the full tree holds it to; one never asked for is never fetched, nor refused.
+   */
+  lazy?: boolean;
+  /**
+   * The tree `--omit=dev` makes: each package only dev dependencies reach by the lockfile's flags left out,
+   * with what is beneath it (default: false)
+   *
+   * npm 10 makes every directory before it leaves those out, leaving the directories they were in empty,
+   * and holds each not optional to the host as without it; npm 11 holds to the host only the optional.
+   */
+  production?: boolean;
 }
 
-export interface NpmTreeRead {
-  lockfile?: undefined
-  manifests?: undefined
-  npmrc?: undefined
-  project: NpmProject
-  host: NpmHost
-  vfs?: Vfs
-  metadata?: boolean
-  cache?: CacheOptions['cache']
-  sizeEstimateOnly?: boolean
-  lazy?: boolean
-  production?: boolean
+export interface NpmTreeGiven extends NpmTreeShared {
+  lockfile: string;
+  /**
+   * Each project's package.json by its directory from the lockfile's, `.` for the root, as
+   * findNpmWorkspaces lists them: every workspace npm would find, and those alone
+   */
+  manifests: Record<string, string> | Map<string, string>;
+  npmrc?: string;
+  project?: undefined;
 }
 
-// What buildNpmTree counts, all of it plain numbers: `packages` the
-// lockfile's, each a copy in a node_modules; `installed` those in the
-// tree; `skipped` those left out, as the host cannot run them or only such
-// need them; `tarballs` those fetched, each once; `files` and `bytes` what
-// is written; `links` the workspaces linked. With `sizeEstimateOnly`,
-// `tarballs` counts those fetched by their version document alone; `files`
-// is 0, as none is written, and `bytes` what the sizes of those installed
-// add up to, each copy's, of those with one. With `lazy`, `tarballs`,
-// `files` and `bytes` count what is unpacked, each 0 until `unpack` is
-// asked, which adds to them. With `production`, those it leaves out are
-// counted in neither `installed` nor `skipped`.
+export interface NpmTreeRead extends NpmTreeShared {
+  lockfile?: undefined;
+  manifests?: undefined;
+  npmrc?: undefined;
+  project: NpmProject;
+}
+
+/** What buildNpmTree counts */
 export interface NpmTreeStats {
-  packages: number
-  installed: number
-  skipped: number
-  tarballs: number
-  files: number
-  bytes: number
-  links: number
+  /** The lockfile's, each a copy in a node_modules */
+  packages: number;
+  /** Those in the tree */
+  installed: number;
+  /** Those left out as the host cannot run them, or only such need them; not those `production` leaves out */
+  skipped: number;
+  /** Those fetched, each once; with `sizeEstimateOnly` by their document, with `lazy` as unpacked */
+  tarballs: number;
+  /** Written; 0 with `sizeEstimateOnly`, and with `lazy` as unpacked */
+  files: number;
+  /** Written; with `sizeEstimateOnly` the sizes of those installed, with `lazy` as unpacked */
+  bytes: number;
+  /** The workspaces linked */
+  links: number;
 }
 
-// A package in the tree, as an SBOM would list it: `path` is where its
-// files are, the lockfile's key of it, from the lockfile's directory,
-// which is `/` of the Vfs -- node_modules/<name>, beneath another package's
-// node_modules, or beneath a workspace's. `name` and `version` are the
-// package's own, whatever alias it is installed as, as the lockfile has
-// them; `integrity` the sha512 its tarball is held to. `commit` is the
-// gitHead of the registry's version document, where `metadata` has it
-// fetched and it is a full commit id, the commit npm read off the checkout
-// it published from; `repository`, `homepage` and `bugs` the document's,
-// as getMeta of @preventive/upstream reads them; each undefined elsewhere,
-// and all of it the publisher's word, held to no repository. The flags are
-// those
-// npm installs by, the lockfile's as npm 10 takes them and as npm 11 works
-// them out again: `dev` is whether dev dependencies alone reach it, which
-// --omit=dev leaves out, and so none is with `production`; `optional`
-// whether optional dependencies alone
-// reach it, which --omit=optional leaves out; `devOptional` whether either
-// is, or both together, which --omit=dev with --omit=optional leaves out;
-// `peer` whether peer dependencies alone reach it, which --omit=peer
-// leaves out.
+/** A package in the tree, as an SBOM would list it */
 export interface NpmInstalled {
-  path: string
-  name: string
-  version: string
-  integrity: string
-  commit: string | undefined
-  repository: string | PackageRepository | undefined
-  homepage: string | undefined
-  bugs: string | PackageBugs | undefined
-  dev: boolean
-  optional: boolean
-  devOptional: boolean
-  peer: boolean
+  /** Where its files are, the lockfile's key of it, from the lockfile's directory */
+  path: string;
+  /** The package's own, whatever alias it is installed as */
+  name: string;
+  version: string;
+  /** The sha512 its tarball is held to */
+  integrity: string;
+  /** Its version document's gitHead, where fetched and a full commit id: the publisher's word */
+  commit: string | undefined;
+  /** Its version document's, as getMeta reads it, where fetched; held to no repository */
+  repository: string | PackageRepository | undefined;
+  homepage: string | undefined;
+  bugs: string | PackageBugs | undefined;
+  /** Whether only dev dependencies reach it, as --omit=dev leaves out; none with `production` */
+  dev: boolean;
+  /** Whether only optional dependencies reach it, as --omit=optional leaves out */
+  optional: boolean;
+  /** Whether either does, or both together, as --omit=dev with --omit=optional leaves out */
+  devOptional: boolean;
+  /** Whether only peer dependencies reach it, as --omit=peer leaves out */
+  peer: boolean;
 }
 
-// `vfs` is the one given, the tree mounted into it, or a new one.
-// `installed` is each package in the tree, in the lockfile's order; a
-// workspace, whose files the tree does not hold, is not among them.
 export interface NpmTree {
-  vfs: Vfs
-  stats: NpmTreeStats
-  installed: NpmInstalled[]
+  /** The Vfs given, the tree mounted into it, or a new one */
+  vfs: Vfs;
+  stats: NpmTreeStats;
+  /** Each package in the tree, in the lockfile's order; no workspace, whose files the tree does not hold */
+  installed: NpmInstalled[];
 }
 
-// With `sizeEstimateOnly`, each package as `installed` lists it, with its
-// `size`.
 export interface NpmLaidOut extends NpmInstalled {
-  size: number | undefined
+  /** dist.unpackedSize, or undefined where the document names none */
+  size: number | undefined;
 }
 
-// With `sizeEstimateOnly`: `vfs` a new one, of the tree's directories and
-// links.
+/** With `sizeEstimateOnly`: a new Vfs of the tree's directories and links */
 export interface NpmLayout {
-  vfs: Vfs
-  stats: NpmTreeStats
-  installed: NpmLaidOut[]
+  vfs: Vfs;
+  stats: NpmTreeStats;
+  installed: NpmLaidOut[];
 }
 
-// With `lazy`: `vfs` a new one, of the tree's directories and links, which
-// `unpack` writes each package's files into; `installed` each package, with
-// nothing its version document says, as none is fetched. `unpack` takes the
-// paths of packages as `installed` lists them, and resolves once each is
-// unpacked, to their entries in that order, with what each one's version
-// document says where `metadata` has it fetched. Each is unpacked once,
-// however often and at once it is asked for, and a few tarballs are fetched at
-// a time; each is written whole or not at all, and one refused rejects the
-// call, and each call that asks for it after, with the DeptreeError the full
-// tree is refused with, once every package the call asks for is done. A path
-// the tree installs no package at is a TypeError.
+/** With `lazy`: a new Vfs of the tree's directories and links, and nothing a version document says yet */
 export interface NpmLazyTree extends NpmTree {
-  unpack(paths: Iterable<string>): Promise<NpmInstalled[]>
+  /**
+   * Unpack the packages at `paths`, as `installed` lists them, a few tarballs at a time
+   *
+   * Each is unpacked once however often it is asked for, written whole or not at all; one refused rejects
+   * this call and each after that asks for it, with the full tree's DeptreeError, once the rest are done.
+   *
+   * @param paths - Paths of packages; one the tree has no package at is a TypeError
+   * @returns Their entries in that order, with what each version document says where `metadata` fetches it
+   */
+  unpack(paths: Iterable<string>): Promise<NpmInstalled[]>;
 }
 
-// The node_modules tree `npm ci --ignore-scripts` makes, with `production`
-// --omit=dev too, with host.npm, into a project with no node_modules yet:
-// rooted at the lockfile's directory, each package's files unpacked where
-// the lockfile puts it, and each workspace linked as node_modules/<its
-// name>, by a relative link to its directory, with what the lockfile puts
-// beneath it in that directory's own node_modules. The tree holds
-// node_modules and nothing else of the projects.
-//
-// Each package is unpacked as npm's tar unpacks it: the first segment of
-// each name dropped; a file alone kept, so that a link, a device and a
-// directory entry are passed over and no empty directory is made; each
-// file's mode the tarball's with read and write for all added, and a umask
-// of 0o022 then taken off, so that its execute bits stay; and a .gitignore
-// renamed .npmignore, and dropped where a .npmignore came before it in its
-// directory, or, where one comes after it, holding the second's bytes with
-// the first's mode. Directories are 0o755.
-//
-// Scripts are always ignored, as `--ignore-scripts` has npm ignore them,
-// whatever the settings say; npm 10 runs a workspace's prepare script all
-// the same, and one with a prepare script is refused for it. No .bin is
-// written, nor npm's own node_modules/.package-lock.json; but each bin's
-// target is changed as linking it changes it, unless bin-links is false:
-// of the bins the lockfile gives the packages of one node_modules, the
-// first of each name, as npm sorts its packages by path, is linked, and its
-// target, where the package has it, made 0o755, and the CR dropped from a
-// first line in its first 2048 bytes that is a shebang ending in CRLF. A
-// target that is a directory, runs through a file, or is in the package's
-// own node_modules is refused, and one with such a line that is not UTF-8,
-// which npm rewrites with replacement characters. A workspace's bins are
-// its own files, which the tree does not hold; one in the workspace's own
-// node_modules, or by directories.bin, is refused. So is the root's
-// allowScripts, which npm 11.16 and later read for whose bins to link.
-//
-// npm 10 leaves out an optional package the host cannot run only once it
-// has made directories for every package, and so leaves the directories
-// it was in, a scope's or another package's node_modules, which the tree
-// has too, empty. Of what only such a package needs, npm 11.13 and later
-// leave out too what another left out needs as well. The tar of npm 10.9.9
-// and 11.18 on gives up on a tarball that inflates more than 1000 times
-// what it has read at any point, which is refused where it may, with a
-// margin, as where it checks depends on how the bytes come.
-//
-// The lockfile is held to what the lockfile reader holds it to, with the
-// flags npm installs by: npm 11 works them out again at every install, and
-// npm 10 takes them as written, unless the root package.json asks for
-// other than the lockfile's entry of it to the letter, as one asking for a
-// name in two lists, or for a workspace by name too, does. Each project's
-// package.json is held to the lockfile's entry of its directory: the same
-// names asked for, in the same lists, by the same specs, as npm ci would
-// otherwise resolve them anew or refuse; and each workspace to the name
-// and version the lockfile gives it. The root's devEngines are checked as
-// npm checks them, against the host, which has no os version to check.
-// Refused too, as npm's releases read them otherwise: a range with a
-// wildcard before a number, `1.x.0`, and for npm 10 an optional peer the
-// lockfile does not meet by a range, which it resolves again.
-//
-// And to more than npm holds it to, where a lockfile npm writes, or a
-// package the registry serves, always holds: each tarball gzipped, every
-// entry under one directory, named as tar reads it, with no `\` and no
-// more than 1024 segments, none in the package's own node_modules, where
-// npm installs its dependencies, no setuid, setgid or sticky bit, no link
-// name on a file, no global pax header, and no pax size with a long name, a
-// long link or a global header between it and its entry, which tar's
-// releases read otherwise; each with the sha512 integrity the lockfile
-// records. A pax size is taken over the header's, as every tar release
-// takes it; npm's tar writes one into each pax header it packs, as for a
-// name ustar cannot hold. On
-// macOS, two names in one directory that differ only in case or
-// normalization are refused, as they would be one name there.
-//
-// Packages come from npm's registry alone: each lockfile entry's
-// `resolved` has to be the registry's own URL of its tarball,
-// https://registry.npmjs.org/<name>/-/<base>-<version>.tgz, a scope's `/`
-// as `%2f` or not, or that same URL on yarn's mirror,
-// https://registry.yarnpkg.com/, which is taken for npm's; it is fetched
-// from npm's through @preventive/upstream.
-//
-// Ranges and versions are read with npm's own semver, borrowed from the
-// npm beside node as @preventive/upstream borrows it, or with its semver
-// peer where there is no npm, without either of which this throws.
-//
-// Nothing is left to a guess: a lockfile the lockfile reader refuses, a
-// setting this does not know or does not build for, a package from
-// anywhere but the registry -- git, a tarball's URL or one on disk, a
-// directory by `file:` -- or with no resolved URL, which npm fetches by the
-// registry's packument, a package bundled in another, a link but to a
-// workspace, overrides, acceptDependencies, a check above that fails --
-// each is refused with a DeptreeError or a LockfileError that says where.
-// A TypeError is thrown for options of the wrong type.
-export function buildNpmTree(options: NpmLayoutOptions): Promise<NpmLayout>
-export function buildNpmTree(options: NpmLazyOptions): Promise<NpmLazyTree>
-export function buildNpmTree(options: NpmTreeOptions): Promise<NpmTree>
+/**
+ * The node_modules tree `npm ci --ignore-scripts` makes with host.npm into a project with no node_modules
+ * yet
+ *
+ * Each package's files are unpacked where the lockfile puts it, and each workspace linked as
+ * node_modules/<its name> by a relative link, with what is beneath it in its own node_modules; nothing else
+ * of the projects is in the tree. Unpacked as npm's tar unpacks it: the first segment dropped, files alone
+ * (no link, device or empty directory), modes with read and write for all and a 0o022 umask taken off, a
+ * .gitignore renamed .npmignore unless one came before it, and directories 0o755.
+ *
+ * Scripts never run (a workspace with a prepare script, which npm 10 runs anyway, is refused), and no .bin
+ * or .package-lock.json is written. Unless bin-links is false, each bin's target is changed as linking it
+ * changes it: of a node_modules' packages, by path, the first bin of each name is linked, its target made
+ * 0o755, and a CRLF shebang in its first 2048 bytes made LF. A target that is a directory, runs through a
+ * file, or is in its own node_modules is refused, as is a workspace's bin in its node_modules, by
+ * directories.bin, or under the root's allowScripts.
+ *
+ * Held to the lockfile reader's checks, with the flags npm installs by: npm 11 works them out again, npm 10
+ * takes them as written unless the root asks for other than its entry to the letter. Each project's
+ * package.json is held to its lockfile entry (the same names, lists and specs) and each workspace to its
+ * name and version; the root's devEngines are checked against the host. Refused too, as npm's releases read
+ * them otherwise: a wildcard before a number (`1.x.0`), and for npm 10 an optional peer the lockfile does
+ * not meet. npm 10.9.9 and 11.18 on give up on a tarball inflating 1000 times what they read, so one near
+ * that is refused.
+ *
+ * And held to what npm's lockfiles and the registry always hold: each tarball gzipped, under one directory,
+ * named as tar reads it (no `\`, at most 1024 segments), with nothing in its own node_modules, no setuid,
+ * setgid or sticky bit, no link name on a file, no global pax header or pax size ahead of another extended
+ * header, and the lockfile's sha512. On macOS, two names in a directory differing only in case or
+ * normalization are refused. Each package's `resolved` has to be the registry's own tarball URL, a scope's
+ * `/` as `%2f` or not, or that on yarn's mirror. Ranges are read with the semver of the npm beside node.
+ *
+ * @param options - The files, the host and where the tree goes
+ * @returns The tree
+ */
+export function buildNpmTree(options: NpmLayoutOptions): Promise<NpmLayout>;
+export function buildNpmTree(options: NpmLazyOptions): Promise<NpmLazyTree>;
+export function buildNpmTree(options: NpmTreeOptions): Promise<NpmTree>;
 
-// The directories of the projects npm finds in `project`, by which
-// buildNpmTree takes their package.json given: `.`, the root, first, then
-// each directory with a package.json that a glob of the root's
-// `workspaces` takes, outside node_modules, as npm finds them, and as
-// buildNpmTree reads them from a project; with `os` darwin, whatever the
-// case, as npm's glob matches on macOS. Refused as buildNpmTree refuses
-// it: a link where the globs reach; and a root with no package.json.
 export interface NpmWorkspacesOptions {
-  project: NpmProject
-  os?: string
+  project: NpmProject;
+  /** `darwin` matches the globs whatever the case, as npm's glob does on macOS */
+  os?: string;
 }
 
-export function findNpmWorkspaces(options: NpmWorkspacesOptions): string[]
+/**
+ * The directories of the projects npm finds in `project`, by which buildNpmTree takes their package.json
+ * given; refused as buildNpmTree refuses them, as is a root with no package.json
+ *
+ * @returns `.` first, then each directory with a package.json a glob of the root's `workspaces` takes
+ */
+export function findNpmWorkspaces(options: NpmWorkspacesOptions): string[];
 
-// `where` is what a refusal is about -- `.npmrc:3`, `manifests["."]`, a
-// lockfile entry, `packages["node_modules/a"]` -- or undefined for the call
-// as a whole; the message leads with it. `cause` is what a package beneath
-// refused with, where one did.
+/** A refusal; `cause` is what a package beneath refused with, where one did */
 export class DeptreeError extends Error {
-  constructor(detail: string, where?: string, options?: { cause?: unknown })
-  where: string | undefined
+  constructor(detail: string, where?: string, options?: { cause?: unknown });
+  /** What it is about, which the message leads with (`.npmrc:3`, `packages["node_modules/a"]`), or undefined */
+  where: string | undefined;
 }

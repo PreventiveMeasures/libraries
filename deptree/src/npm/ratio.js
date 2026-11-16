@@ -1,8 +1,6 @@
-// tar 7.5.19 on gives up once what it has inflated is over 1000 times what
-// it has read, checked at each piece of output, so where depends on how the
-// bytes arrive: a tarball is refused if any prefix inflates 900 times. Such
-// a prefix is no longer than 1/900 of what all of it, or any longer prefix,
-// inflates to: a bound that shrinks each time it is taken again.
+// tar 7.5.19 on gives up once it has inflated over 1000 times what it has read, at each piece of output,
+// so where depends on how the bytes come: refused where any prefix inflates 900 times. Such a prefix is
+// no longer than 1/900 of what any longer one inflates to, a bound that shrinks each time it is taken.
 
 import { decompress } from '@preventive/archive/compression.js'
 import { DeptreeError } from '../error.js'

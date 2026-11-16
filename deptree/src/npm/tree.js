@@ -1,9 +1,6 @@
-// The tree `npm ci --ignore-scripts` makes, but node_modules/.bin and npm's
-// node_modules/.package-lock.json. With `sizeEstimateOnly`, its directories
-// and links alone, each package's sized by its version document, of which
-// nothing is fetched but those documents. With `lazy`, its directories and
-// links alone too, fetching nothing, and each package unpacked into it as
-// it is asked for (lazyUnpacker). With `production`, as --omit=dev leaves it.
+// The tree `npm ci --ignore-scripts` makes, but node_modules/.bin and .package-lock.json, with `production`
+// as --omit=dev leaves it. `sizeEstimateOnly` and `lazy` lay out its directories and links alone, the
+// first sizing each package by its version document, the second unpacking each when asked.
 
 import { parseNpmLockfile } from '@preventive/lockfile/npm.js'
 import { Vfs } from '@preventive/vfs'
@@ -120,11 +117,9 @@ function writeTree({ lockfile, kept, fetched, changed, residue, sizeEstimateOnly
   return { vfs, stats }
 }
 
-// A lazy tree's unpack (../lazy.js): each tarball fetched once for all the
-// packages it is, a few at a time, and held to what the full tree holds it
-// to; each package written as the full tree writes it, with the bins it
-// links fixed, which the lockfile alone tells. A tarball's files are let go
-// once each of its packages is unpacked.
+// A lazy tree's unpack (../lazy.js): each tarball fetched once for its packages, a few at a time, held to
+// what the full tree holds it to, and let go once each is written as the full tree writes it, with the
+// bins it links fixed, which the lockfile alone tells
 function lazyUnpacker({ vfs, kept, tarballOf, settings, host, fetching, stats, folded, entryOf }) {
   const limit = limited()
   const claimed = settings.binLinks ? claimedBins(kept) : new Map()

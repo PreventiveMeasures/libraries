@@ -1,9 +1,6 @@
-// A tarball unpacked as pacote has tar unpack it: files alone, so no empty
-// directory; modes with read and write for all, less a 0o022 umask, and no
-// execute bits added, as npm reads no packument for a resolved URL. Where a
-// .npmignore follows a .gitignore renamed to it, tar writes the second's
-// bytes into the first's file, keeping its mode. What tar's releases read
-// otherwise, or npm never packs, is refused.
+// A tarball as pacote has tar unpack it: files alone, so no empty directory; modes with read and write for
+// all, less a 0o022 umask, and no execute bit added, as npm reads no packument for a resolved URL. What
+// tar's releases read otherwise, or npm never packs, is refused.
 
 import { DeptreeError, quote } from '../error.js'
 import { fetchTarball, fromMirror, isModules, ownTarball, withDirs } from '../tarball.js'
@@ -22,12 +19,8 @@ export function registryTarball({ name, version, resolution }, where) {
 
 const FILES = new Set(['file', 'contiguous-file'])
 
-// Every tar release takes a pax size over the header's. Up to 7.5.15, as
-// npm 10.9.8 and 11.16 and before bundle it, tar reads it into each header
-// after the pax one up to its entry too, so a long name, a long link or a
-// global header between them is read by it, and all that follows otherwise
-// than later releases read it. The archive reader lists the extended headers
-// ahead of each entry, in their order.
+// tar up to 7.5.15 (npm 10.9.8, 11.16 and before) reads a pax size into each header after the pax one up
+// to its entry, so a long name, long link or global header between them, and all after, reads otherwise
 function checkPaxSizes(entries, where) {
   for (const { storedName, pax, extended } of entries) {
     if (pax.has('size') && extended.findIndex(({ kind }) => kind === 'pax') < extended.length - 1) {
@@ -59,6 +52,7 @@ function unpack(entries, where) {
       path = path.replace(/\.gitignore$/u, '.npmignore')
       if (ignores.has(path)) continue
     }
+    // A .npmignore after a .gitignore renamed to it: its bytes, in the first's file and mode
     files.set(path, { data, mode: files.get(path)?.mode ?? ((mode | 0o666) & ~UMASK & 0o777) })
   }
   return withDirs(files, where)

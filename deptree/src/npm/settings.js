@@ -1,8 +1,6 @@
-// The project's .npmrc. npm hands the install its settings as ini reads
-// them, before validating them (`bin-links=0` links bins, "0" being
-// truthy), so one that can change the tree is read only in a form with one
-// reading. The rest only change where and how npm fetches, which the
-// lockfile's integrities make moot, or what it prints.
+// The project's .npmrc. npm hands the install each setting as ini reads it, unvalidated (`bin-links=0`
+// links bins, "0" being truthy), so one that can change the tree is read only in a form with one reading;
+// the rest change where and how npm fetches, which the integrities make moot, or what it prints.
 
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from '../npmrc.js'

@@ -1,7 +1,5 @@
-// A node_modules tree as `yarn install --frozen-lockfile --ignore-scripts`
-// makes it in a directory with no node_modules yet, and with `production`, as
-// --production does too. Not written: node_modules/.bin, yarn's
-// .yarn-integrity, and anything a script builds.
+// The tree `yarn install --frozen-lockfile --ignore-scripts` makes in a directory with no node_modules,
+// with `production` --production too: no .bin, .yarn-integrity or anything a script builds
 
 import { parseYarn1Lockfile } from '@preventive/lockfile/yarn1.js'
 import { Vfs } from '@preventive/vfs'
@@ -68,10 +66,8 @@ function locationOf(names, workspaces) {
   return `node_modules/${names.join('/node_modules/')}`
 }
 
-// With --production yarn asks for the root's devDependencies all the same,
-// fetches and checks them, and hoists them, but marks each as ignored
-// (install.js's markIgnored): it is installed only where something else
-// needs it.
+// With --production yarn still asks for, fetches, checks and hoists the root's devDependencies, but marks
+// each ignored (install.js's markIgnored), installed only where something else needs it
 function resolveProject(inputs, host, production) {
   const lockfile = parseYarn1Lockfile(inputs.lockfile, { manifests: Object.fromEntries(inputs.manifests), semver: { clean, satisfies, valid, validRange } })
   const manifests = new Map([...inputs.manifests].map(([dir, manifest]) => [dir, fixLists(manifest)]))
@@ -89,11 +85,9 @@ function resolveProject(inputs, host, production) {
   return { workspaces, asked, resolved }
 }
 
-// As in yarn, every package is fetched before any is checked, in the order
-// its resolver hands them over. Of two its cache keeps in one place, only the
-// first is fetched; the rest keep their lockfile entry as package.json, with
-// no peers, bins, platforms or engines, and the first's files, and their
-// hashes are held to the first's tarball.
+// Every package fetched before any is checked, in yarn's resolver's order. Of two its cache keeps in one
+// place only the first is fetched; the rest have their lockfile entry for package.json, with no peers,
+// bins, platforms or engines, and are held to the first's tarball.
 async function fetchChecked(resolved, host, settings, project, fetching) {
   const order = [...new Set(resolved.patterns.values())]
   const registry = order.filter((ref) => ref.kind === 'registry')
@@ -175,11 +169,8 @@ function writeTree(placed, fetched) {
     }
     const pkg = fetched.get(ref)
     const earlier = copies.get(dest)
-    if (earlier?.[0].ref === ref) {
-      earlier.push(info)
-    } else {
-      copies.set(dest, [info])
-    }
+    if (earlier?.[0].ref === ref) earlier.push(info)
+    else copies.set(dest, [info])
     writeFiles(vfs, dest, pkg, counted, skipped)
     left.set(pkg, left.get(pkg) - 1)
     if (left.get(pkg) === 0) letGo(pkg)

@@ -6,12 +6,9 @@ import { satisfies, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
 import { matchesGlob } from '../glob.js'
 
-// Beneath a top-level request, all run at once, each taking these microtask
-// turns, by its resolver, before it checks for a package of its version: a
-// tarball URL as many as the registry. A directory is read at the top level
-// alone, where nothing runs beside it; beneath, only one read already is
-// asked for again, which yarn reads once all else has run, and takes the
-// first's package for.
+// The microtask turns each request beneath a top-level one takes, all at once, before it checks for a
+// package of its version, a tarball URL as many as the registry. A directory is read at the top level
+// alone; beneath, only one read already, which yarn reads once all else has run, taking the first's.
 const TURNS = { registry: 5, workspace: 3, directory: 1 }
 
 // yarn's normalizePattern.
@@ -22,11 +19,9 @@ export function splitPattern(pattern) {
   return { name: scoped ? `@${name}` : name, range: parts.length === 0 ? 'latest' : version || '*', hasVersion: version !== '' }
 }
 
-// yarn's normalizeRange: any range but a semver range or one with a `:`,
-// such as an `npm:` alias, is a tag. Of the sources getExoticResolver takes,
-// in its order, a tarball first, where a path ends in .tgz: the registry's
-// own tarball by its URL, on npm's registry or yarn's mirror; and a
-// directory, by `file:` or a path.
+// yarn's normalizeRange: a range neither semver nor with a `:`, as an `npm:` alias has, is a tag. Of
+// getExoticResolver's sources, in its order: a tarball where a path ends in .tgz, the registry's own
+// alone, then a directory by `file:` or a path.
 const TAG = /^[\w~-][\w.~-]*$/u
 const TARBALL = /^https?:\/\/|^[^@]*\.(?:tgz|tar\.gz)$/u
 const REGISTRY_TARBALL = /^https:\/\/registry\.(?:npmjs\.org|yarnpkg\.com)\/[^#?]+\.tgz$/u

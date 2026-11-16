@@ -73,11 +73,9 @@ function optionalSet(node, host, skipped) {
 
 const whereOf = (node) => `packages[${quote(node.location)}]`
 
-// npm 11 checks optional packages in inventory order, passing over one an
-// earlier set took; npm 10 checks them all as it extracts. What is in the
-// node_modules of a node left out goes with it. Of those `omitted` leaves
-// out, npm 10 checks only those that are not optional, before it extracts,
-// and npm 11 only those that are.
+// npm 11 checks optional packages in inventory order, passing over one an earlier set took, npm 10 all
+// as it extracts; what is beneath one left out goes with it. Of those `omitted` leaves out, npm 10 checks
+// only those not optional, before it extracts, and npm 11 only those optional.
 export function skippedOf(nodes, host, settings, omitted = new Set()) {
   const skipped = new Set()
   for (const node of nodes.values()) {
