@@ -1,6 +1,5 @@
-// SHA-256, FIPS 180-4, of a string as UTF-8, in lowercase hex: what pnpm
-// hashes a peer suffix past peersSuffixMaxLength with. Synchronous, as the
-// readers are, where WebCrypto's digest is not.
+// SHA-256 of a string as UTF-8, in hex: synchronous, as the readers are,
+// where WebCrypto's digest is not.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 
@@ -17,7 +16,6 @@ const K = Uint32Array.from([
 
 const rotate = (value, by) => (value >>> by) | (value << (32 - by))
 
-// The message, padded to whole blocks with its length in bits at the end.
 function padded(bytes) {
   const blocks = Math.ceil((bytes.length + 9) / 64)
   const out = new Uint8Array(blocks * 64)

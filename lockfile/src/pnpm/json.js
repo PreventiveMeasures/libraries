@@ -1,13 +1,6 @@
-// The syntax pnpm 12 writes a lockfile of `lockfileVersion: '13.0'` in:
-// JSON, with a comma after the last entry of a collection that spans lines,
-// which pnpm reads by blanking such commas and parsing the rest as JSON
-// (@pnpm/lockfile, json_document.rs). It is still YAML, in flow style, but
-// it is read here as pnpm reads it. A string is held to the escapes pnpm
-// writes: `\"`, `\\`, `\n`, `\r`, `\t`, and `\u00xx` for any other control;
-// all else raw, where a raw one is not refused before, as yaml/parse.js
-// refuses one. A key given twice, which JSON.parse reads as the last and
-// pnpm's map readers too, is refused, and so is a comma with no entry
-// before it, which pnpm refuses, as it leaves the comma.
+// A lockfile of 13.0 as pnpm reads it (@pnpm/lockfile, json_document.rs):
+// JSON, a comma allowed after a collection's last entry. Strings take only
+// the escapes pnpm writes, and a key given twice is refused.
 
 import { hex } from '../excerpt.js'
 import { MAX_LINE, UNWRITTEN, take } from '../lines.js'
@@ -21,7 +14,6 @@ const RUN = /[^"\\\t\n\r]*/uy
 const SCALAR = /(?:true|false|null|0|[1-9]\d*)(?![\w.+-])/uy
 const SPACE = /[\t \n\r]*/uy
 
-// Where reading is: `pos` in `text`, and the line it is on, from `first`.
 function scanner(text, first) {
   const char = UNWRITTEN_RAW.exec(text)?.[0]
   const lineOf = (pos) => first + (text.slice(0, pos).match(/\n/gu)?.length ?? 0)
@@ -51,7 +43,6 @@ function readEscape(src) {
   throw fail(src, `${JSON.stringify(src.text.slice(at, at + 6))} is not an escape pnpm writes`, at)
 }
 
-// What is raw a run at a time, up to the closing quote.
 function readString(src) {
   src.pos++
   let value = ''
@@ -67,8 +58,6 @@ function readString(src) {
   return value
 }
 
-// Entries up to `close`, each read by `entry`, a comma after each but where
-// `close` follows the last.
 function readEntries(src, close, entry) {
   src.pos++
   for (;;) {
@@ -113,8 +102,7 @@ function readValue(src, depth) {
   return JSON.parse(scalar)
 }
 
-// The document `text`, whose first line is the file's line `first`, and
-// nothing after it but line ends: parse.js reads it where it opens with `{`.
+// `first` is the file's line the document starts on.
 export function parseLockfileJson(text, first = 0) {
   const src = scanner(text, first)
   const value = readValue(src, 0)

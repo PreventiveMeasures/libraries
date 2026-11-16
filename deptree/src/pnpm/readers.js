@@ -46,8 +46,7 @@ export const readers = {
   pnpmfile(value, where) {
     return typeof value === 'string' ? value : readers.list(value, where, 'a string or a list of strings')
   },
-  // pnpm 12's `lockfile`: on or off, or the section of what it records,
-  // which turns it on.
+  // pnpm 12's `lockfile`: a boolean, or a section, which turns it on.
   lockfile(value, where) {
     return typeof value === 'boolean' || typeof value === 'string' ? readers.boolean(value, where) : readers.mapping(value, where)
   },
@@ -181,8 +180,7 @@ const IGNORED_12 = new Set([
 const notEnabled = (value, where) => {
   if (value.enabled != null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
 }
-// Of the section, `format` alone is read, which is the syntax the lockfile
-// is written in and leaves the tree as it is; the rest change what it
+// `format` leaves the tree as it is; the rest change what the lockfile
 // records, and pnpm fails on a key it does not know.
 const LOCKFILE_FORMATS = new Set(['v9', 'v13'])
 function checkLockfile(value, where) {

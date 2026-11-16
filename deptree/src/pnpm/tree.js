@@ -60,13 +60,8 @@ function checkLockfile(lockfile, folded) {
   }
 }
 
-// A lockfile of 13.0, which pnpm 12 writes from 12.19.0 with
-// lockfile.format: v13, is read as pnpm 12.20.0 and later read it, into the
-// lockfile with v9's keys they install from; 12.19 reads a snapshot named by
-// its bindings otherwise. A directory's package.json, which 12.20.0 and
-// later record in one, they hold a frozen install to by a check of their
-// own, which is not built here. The setting is read by pnpm from 12.19.0,
-// and leaves the tree as it is: a frozen install reads either format.
+// A lockfile of 13.0 is read as pnpm 12.20 and later read it. They hold a
+// directory's recorded package.json to a check of their own, not built here.
 function checkFormat(lockfile, settings, host) {
   const before19 = compareVersions(host.pnpm, '12.19.0') < 0
   if (settings.lockfileFormat !== undefined && before19) throw new DeptreeError(`pnpm ${quote(host.pnpm)} fails on it, which pnpm has from 12.19.0`, 'pnpm-workspace.yaml: lockfile.format')

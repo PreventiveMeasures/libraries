@@ -1,16 +1,6 @@
-// A lockfile of `lockfileVersion: '13.0'`, which pnpm 12 writes from 12.19.0
-// with `lockfile.format: v13` (@pnpm/lockfile, next_format), read into the
-// v9 document pnpm holds it as, for parse.js to read as it reads a v9 one:
-// pnpm keeps a lockfile with v9's keys in memory whichever it writes, and
-// it is that it installs from. It is read as pnpm 12.20 and later read it;
-// 12.19 reads a reference's bindings as versions alone, and where several
-// snapshots have them takes the first, rather than the one of the fewest
-// bindings.
-//
-// What v9 has as sections of their own is in `settings`, `importers` are
-// `projects`, a dependency whose version follows from its specifier is the
-// specifier alone, and `packages` are one entry per package, with its
-// snapshots, keyed and referred to with no peers (next-packages.js).
+// A lockfile of 13.0 as the v9 document pnpm 12.20 and later hold it as in
+// memory and install from (@pnpm/lockfile, next_format), for parse.js to
+// read as it reads a v9 one.
 
 import { LockfileError, at, quote } from '../error.js'
 import { KINDS } from '../graph.js'
@@ -26,18 +16,15 @@ const SETTINGS = ['autoInstallPeers', 'dedupePeers', 'excludeLinksFromLockfile',
 const RECORDS = ['catalogs', 'overrides', 'patchedDependencies', 'packageExtensionsChecksum', 'pnpmfileChecksum', 'ignoredOptionalDependencies']
 const PROJECT = ['name', ...KINDS, 'dependenciesMeta', 'publishDirectory', 'linkDirectory']
 
-// `name@rest` at its `@`, a scope's aside; `rest` undefined where there is
-// none: an `npm:` alias's target, a `workspace:` specifier's, a key.
+// `name@rest` at its `@`, past a scope's.
 function splitName(spec) {
   const sep = spec.indexOf('@', 1)
   return sep === -1 ? [spec, undefined] : [spec.slice(0, sep), spec.slice(sep + 1)]
 }
 
-// The version a catalog entry's specifier implies: the specifier, or the
-// version of an `npm:` alias, which a catalog records bare.
+// A catalog records an `npm:` alias's version bare.
 const catalogVersion = (specifier) => (specifier.startsWith('npm:') ? splitName(specifier.slice(4))[1] : specifier)
 
-// By catalog and name, `{specifier, version}`, as v9 writes them.
 const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, here) => mapping(names, here, (item, there) => {
   if (!isMapping(item)) {
     const version = catalogVersion(text(item, there))
@@ -49,9 +36,7 @@ const readCatalogs = (value, where) => mapping(orEmpty(value), where, (names, he
   return item
 }))
 
-// What follows a `workspace:` specifier's version from: the path of each
-// package of a single `name@file:<path>` key, and each project's id by the
-// name it records, where one name is one project's.
+// By name, the path of a package of one `name@file:<path>` key alone.
 function injectedPaths(keys) {
   const paths = new Map()
   for (const key of keys) {
@@ -61,7 +46,7 @@ function injectedPaths(keys) {
   return paths
 }
 
-// The names claimed once, each of an id no other name claims.
+// The names claimed once, of ids no other name claims.
 function oneToOne(claims) {
   const byName = new Map(claims.entries().filter(([, id]) => id !== undefined))
   const counts = new Map()
@@ -71,9 +56,8 @@ function oneToOne(claims) {
 
 const claim = (claims, name, id) => claims.set(name, claims.has(name) && claims.get(name) !== id ? undefined : id)
 
-// The project a link from `id` leads to, as pnpm's link_target finds it:
-// none where it climbs out of the lockfile's directory, which resolvePath
-// would go on past.
+// As pnpm's link_target: none where the link climbs out of the lockfile's
+// directory, which resolvePath goes on past.
 function linkTarget(id, link) {
   const path = id === '.' ? [] : id.split('/')
   for (const segment of link.split('/')) {
@@ -91,11 +75,8 @@ const workspaceName = (target) => {
   return range === undefined ? undefined : name
 }
 
-// The version a specifier implies, as pnpm's implied_version has it: an
-// exact version itself, `npm:` its target, a `catalog:` its entry's, a
-// `workspace:` the injected package's `file:` or the linked project's
-// `link:`; undefined for a `workspace:` that is neither or both, or a
-// catalog that has no such entry.
+// As pnpm's implied_version: what a dependency written as its specifier
+// alone resolves to, or undefined.
 function implied(context, id, alias, specifier) {
   if (specifier.startsWith('workspace:')) {
     const name = workspaceName(specifier.slice(10))
@@ -126,8 +107,6 @@ function readDependency(value, where, alias) {
   }
 }
 
-// Each project: its dependencies by kind and alias, each with its version,
-// and by alias, every kind together, `byAlias`.
 function readProjects(value, where, context) {
   const projects = new Map()
   for (const [id, project] of Object.entries(record(orEmpty(value), where))) {
@@ -154,8 +133,8 @@ function readProjects(value, where, context) {
   return projects
 }
 
-// pnpm records a project's name exactly where a `workspace:` dependency of a
-// project links to it, by the name the dependency gives it.
+// pnpm records a project's name exactly where a `workspace:` dependency
+// links to it by that name.
 function checkNames(projects, where) {
   const claims = new Map()
   for (const [id, { byAlias }] of projects) {
@@ -181,9 +160,7 @@ function v9Importer({ project, kinds }, versions) {
   return importer
 }
 
-// The document as the v9 one pnpm holds in memory for it, in the shape
-// the YAML of one reads to, under '9.0'; a dependency listed under two
-// kinds is left for that reader to refuse.
+// A dependency listed under two kinds is left for the v9 reader to refuse.
 export function fromNext(doc) {
   const version = record(doc, undefined).lockfileVersion
   if (version !== '13.0') throw new LockfileError(`unsupported version: expected "13.0", found ${kindOf(version)}, as pnpm writes a lockfile in JSON of 13.0 alone`, 'lockfileVersion')
@@ -211,9 +188,8 @@ export function fromNext(doc) {
   return v9
 }
 
-// A refusal of the v9 document fromNext made, placed where the lockfile has
-// what it is about: `importers` are `projects`, the sections `settings`
-// holds are under it, and a snapshot is of its package's entry.
+// A refusal of fromNext's document, placed where the lockfile of 13.0 has
+// what it is about.
 export function placeNext(error, v9) {
   if (!(error instanceof LockfileError) || error.where === undefined) return error
   const detail = error.message.slice(error.where.length + 2)

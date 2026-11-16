@@ -16,13 +16,14 @@
 // references to name their snapshots by their bindings. Each is installed,
 // and then again from the lockfile alone, frozen, which leaves what pnpm
 // read it as in node_modules/.pnpm/lock.yaml, in v9's shape: the fixture
-// holds both texts, `lockfile` and `read`, by `<project>@<pnpm>`.
+// holds both texts, `lockfile` and `read`, by `<project>@<pnpm>`, beside
+// those scripts/record-pnpm.js records there, which it keeps.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { brotliCompressSync } from 'node:zlib'
+import { brotliCompressSync, brotliDecompressSync } from 'node:zlib'
 
 const OUT = new URL('../tests/pnpm-13/fixtures.json.br', import.meta.url)
 const VERSIONS = ['12.19.0', '12.20.0', '12.21.0']
@@ -122,7 +123,7 @@ function lay(dir, files) {
   writeFileSync(join(dir, 'pnpm-workspace.yaml'), `${files['pnpm-workspace.yaml'] ?? ''}lockfile:\n  format: v13\n`)
 }
 
-const fixtures = {}
+const fixtures = existsSync(OUT) ? JSON.parse(brotliDecompressSync(readFileSync(OUT)).toString('utf8')) : {}
 for (const pnpmVersion of VERSIONS) {
   for (const [project, files] of Object.entries(PROJECTS)) {
     const dir = mkdtempSync(join(tmpdir(), `${project}-`))

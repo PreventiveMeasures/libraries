@@ -1,8 +1,5 @@
-// Strongly connected components, as pnpm finds the cycles of peers it
-// collapses (@pnpm/lockfile, next_format/tarjan.rs): of the nodes of
-// `0..count`, by the edges `neighbors` gives. `components` holds each
-// component after every component it has an edge to; `componentOf` gives a
-// node's index among them.
+// Tarjan's strongly connected components of `0..count`, as pnpm's
+// next_format/tarjan.rs: each after every component it has an edge to.
 
 export function components(count, neighbors) {
   const index = Array.from({ length: count }, () => undefined)

@@ -66,11 +66,8 @@ function readVersion(name, ref, entry, resolution, where) {
 
 const names = (value, where) => texts(value, where, checkName)
 
-// What a directory's package.json asked for when the lockfile was written,
-// which pnpm records in a lockfile of 13.0 from 12.20.0, and refuses a
-// frozen install by where it no longer does: by kind and name, each
-// specifier as written, the dependenciesMeta, and whether the directory is
-// a workspace project, `workspace`, or a path, `path`.
+// What a directory's package.json asked for, which pnpm 12.20 and later
+// record in 13.0 and hold a frozen install to.
 const SPECIFIERS = ['dependencies', 'optionalDependencies', 'dependenciesMeta', 'manifestSource']
 const SOURCES_OF = new Set(['path', 'workspace'])
 
@@ -120,10 +117,8 @@ export const byName = (fields, read) => (value, where) => mapping(orEmpty(value)
 
 const readPeersMeta = byName(['optional'], (item, here) => ({ optional: flag(item.optional, at(here, 'optional')) }))
 
-// What a dependency's meta may carry into the lockfile, an importer's or a
-// directory's: `injected`, a workspace package installed as a copy, a
-// `file:` snapshot, rather than linked; and `node`, the Node executable its
-// bins are run with, where it is not the one pnpm runs on.
+// `injected`: copied, a `file:` snapshot, rather than linked; `node`: the
+// Node its bins run with, where not pnpm's.
 export const readDependenciesMeta = byName(['injected', 'node'], (item, here) => ({ injected: field(item, 'injected', here, boolean) ?? false, node: field(item, 'node', here, text) }))
 
 // What a dependency's reference leads to: the key of a snapshot, or

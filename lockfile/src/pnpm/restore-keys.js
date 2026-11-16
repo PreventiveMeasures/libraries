@@ -1,8 +1,5 @@
-// The keys and entries of the snapshots restore.js matched up: each key
-// built from its providers as pnpm's resolver writes the peer suffix, and
-// each entry with its peers among its dependencies again, as a v9 lockfile
-// has them (@pnpm/lockfile, next_format/read/keys.rs, entries.rs,
-// unbound.rs).
+// Each snapshot's key from its providers, as pnpm's resolver writes a peer
+// suffix, and its entry with its peers among its dependencies, as in v9.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { compareCodePoints } from '../order.js'
@@ -13,8 +10,7 @@ import { components } from './tarjan.js'
 
 const DEFAULT_MAX_LENGTH = 1000
 
-// pnpm's linkPathToPeerVersion: a link's path as a peer's version, each run
-// of what a file name cannot hold one `+`.
+// pnpm's linkPathToPeerVersion.
 function linkVersion(path) {
   let out = ''
   let plus = true
@@ -32,16 +28,13 @@ function linkVersion(path) {
   return path === '' ? '' : '+'
 }
 
-// pnpm's createPeerDepGraphHash: the peers sorted and each in parentheses,
-// or the sha256 of them in place of them all past `maxLength` bytes.
+// pnpm's createPeerDepGraphHash.
 function peerSuffix(segments, maxLength) {
   const body = segments.toSorted(compareCodePoints).join(')(')
   return utf8fromString(body).length > maxLength ? `(${sha256(body).slice(0, 32)})` : `(${body})`
 }
 
-// `(patch_hash=...)` where `patchedDependencies` patches the package: by its
-// name and version, else its name, as pnpm's get_patch_info finds it, with
-// a version that is none but the key's source taken for one.
+// As pnpm's get_patch_info, a directory's `file:` source its version.
 function patchGroup(graph, sid, infos, patches) {
   if (patches.size === 0) return ''
   const key = graph.keys[sid]
@@ -51,8 +44,7 @@ function patchGroup(graph, sid, infos, patches) {
   return hash === undefined ? '' : `(patch_hash=${hash})`
 }
 
-// The peer names on a cycle of the graph from a package's name to the names
-// of the peers it binds, which pnpm writes as `name@version` alone.
+// The names on a cycle from a package's name to those of the peers it binds.
 function cyclicNames(graph) {
   const index = new Map()
   const edges = []
@@ -70,9 +62,8 @@ function cyclicNames(graph) {
   return new Set(found.components.filter((component) => component.length > 1 || edges[component[0]].has(component[0])).flat().map((node) => names[node]))
 }
 
-// Each snapshot's key: its package's, its patch group, and its peers, each
-// a provider's own key or, under dedupePeers, in a peer cycle or for a name
-// on a cycle of names, its name and version alone; built providers first.
+// A provider is its own key, or `name@version` alone under dedupePeers, in
+// a cycle of peers or for a name on a cycle of names.
 function keysOf(graph, infos, { dedupePeers, peersSuffixMaxLength = DEFAULT_MAX_LENGTH }, patches) {
   const keys = Array.from({ length: graph.keys.length }, () => undefined)
   const order = components(graph.keys.length, (sid) => graph.providers[sid].flatMap(([, p]) => (p.snapshot === undefined ? [] : [p.snapshot])))
@@ -85,21 +76,17 @@ function keysOf(graph, infos, { dedupePeers, peersSuffixMaxLength = DEFAULT_MAX_
       if (provider.link !== undefined) return `${name}@${linkVersion(provider.link)}`
       if (provider.missing !== undefined) return provider.missing
       const collapsed = dedupePeers || component === order.componentOf.get(provider.snapshot) || cyclic.has(name)
-      // A provider collapsed is its name and version, which its package's
-      // key is: `name@version`, of no patch.
       return collapsed ? graph.keys[provider.snapshot] : keys[provider.snapshot]
     })
     return `${base}${peerSuffix(segments, peersSuffixMaxLength)}`
   }
-  // A component comes after those of its providers, whose keys are built
-  // by then; a provider in its own component is collapsed.
+  // Each component follows its providers'.
   for (const members of order.components) for (const sid of members) keys[sid] = keyOf(sid)
   return keys
 }
 
-// The peers each snapshot and everything below it declare and nothing
-// binds, a cycle of dependencies sharing one set; by each snapshot, less
-// those its package declares, as its dependents list those.
+// The peers declared below each snapshot that nothing binds, less those it
+// declares itself, which its dependents list.
 function unboundBelow(graph, infos) {
   const declared = graph.keys.map((key) => Object.keys(infos.get(key).peerDependencies))
   const own = graph.entries.map((entry, sid) => declared[sid].filter((name) => !entry.own.has(name) && !entry.dependencies.has(name) && !entry.optionalDependencies.has(name)))
@@ -117,9 +104,7 @@ function unboundBelow(graph, infos) {
   return (sid) => (declared[sid].length === 0 ? below[sid] : below[sid].difference(new Set(declared[sid])))
 }
 
-// A reference made to lead to the snapshot `to` chosen for it, in the shape
-// it has: an alias's whole key, a version's key past the name; as it is
-// where none is.
+// The reference made to lead to the snapshot `to`, where one was chosen.
 function restoredRef(version, to, keys) {
   if (to === undefined || version.startsWith('link:')) return version
   const key = keys[to]
@@ -147,10 +132,8 @@ function entryOf(graph, sid, keys, infos, unbound) {
   return out
 }
 
-// The snapshots by their keys, as the v9 `snapshots` are, and each
-// importer's dependencies with their versions leading to them, as the v9
-// `importers` have them. A reference to a package the lockfile has none of
-// is left as it is, for the reader of those to refuse.
+// A reference to a package the lockfile has none of is left for the v9
+// reader to refuse.
 export function restoreSections(packages, importers, settings, patches) {
   const graph = buildGraph(packages, importers)
   const infos = new Map(packages.entries().map(([key, { info }]) => [key, info]))

@@ -13,17 +13,11 @@ import { FIXTURES } from './fixtures.js'
 // it is read as one with both taken out, and the specifiers held apart.
 // The lockfiles: scripts/record-pnpm-13.js's, of peers in every way the
 // format records them, by pnpm 12.19.0, 12.20.0 and 12.21.0, and
-// scripts/record-pnpm.js's, of the workspace the v9 fixtures are of, its
-// config dependency and pinned pnpm, and the small project its pnpmfile
-// and package extension rewrite.
+// scripts/record-pnpm.js's, `pnpm-13` and those after it, of the workspace
+// the v9 fixtures are of, its config dependency and pinned pnpm, and the
+// small project its pnpmfile and package extension rewrite.
 
-const DIR = new URL('../fixtures/', import.meta.url)
-const RECORDED = ['pnpm-13', 'pnpm-13-env', 'pnpm-13-hooks', 'pnpm-13-12.19']
-const fixture = (name) => readFileSync(new URL(`${name}.yaml`, DIR), 'utf8')
-const ALL = {
-  ...FIXTURES,
-  ...Object.fromEntries(RECORDED.map((name) => [name, { lockfile: fixture(name), read: fixture(`${name}-read`) }])),
-}
+const lockfileOf = (name) => FIXTURES[name].lockfile
 
 const plain = (value) => structuredClone(value)
 
@@ -36,7 +30,7 @@ function asV9(read) {
 const specifiersOf = (read) => Object.fromEntries(Object.entries(parseYaml(read).packages ?? {}).filter(([, pkg]) => pkg.specifiers !== undefined).map(([key, pkg]) => [key, plain(pkg.specifiers)]))
 
 describe('a lockfile of 13.0 reads to what pnpm reads it as', () => {
-  for (const [name, { lockfile, read }] of Object.entries(ALL)) {
+  for (const [name, { lockfile, read }] of Object.entries(FIXTURES)) {
     it(name, () => {
       const ours = parsePnpmLockfile(lockfile).lockfile
       const theirs = asV9(read)
@@ -65,8 +59,8 @@ describe('a lockfile of 13.0 reads to what pnpm reads it as', () => {
 })
 
 describe('the workspace of the v9 fixtures, as pnpm 12 writes it in 13.0', () => {
-  const v13 = parsePnpmLockfile(fixture('pnpm-13'))
-  const v9 = parsePnpmLockfile(fixture('pnpm-12')).lockfile
+  const v13 = parsePnpmLockfile(lockfileOf('pnpm-13'))
+  const v9 = parsePnpmLockfile(readFileSync(new URL('../fixtures/pnpm-12.yaml', import.meta.url), 'utf8')).lockfile
   const lock = v13.lockfile
 
   it('asks for the same, of the same importers', () => {
@@ -85,19 +79,19 @@ describe('the workspace of the v9 fixtures, as pnpm 12 writes it in 13.0', () =>
   it('records what a directory asked for, from 12.20.0', () => {
     assert.deepEqual(plain(lock.packages['local-dir@file:local-dir'].specifiers), { dependencies: { 'is-number': '^7.0.0' }, optionalDependencies: {}, dependenciesMeta: {}, manifestSource: 'path' })
     assert.equal(lock.packages['ws-a@file:packages/ws-a(react@18.2.0)'].specifiers.manifestSource, 'workspace')
-    assert.equal(parsePnpmLockfile(fixture('pnpm-13-12.19')).lockfile.packages['local-dir@file:local-dir'].specifiers, undefined)
+    assert.equal(parsePnpmLockfile(lockfileOf('pnpm-13-12.19')).lockfile.packages['local-dir@file:local-dir'].specifiers, undefined)
     assert.equal(v9.packages['local-dir@file:local-dir'].specifiers, undefined)
   })
 
   it('leads with the env document in v9, where there is one', () => {
-    const { env, lockfile } = parsePnpmLockfile(fixture('pnpm-13-env'))
+    const { env, lockfile } = parsePnpmLockfile(lockfileOf('pnpm-13-env'))
     assert.equal(env.lockfileVersion, '9.0')
     assert.deepEqual(Object.keys(env.importers['.'].packageManagerDependencies), ['pnpm'])
     assert.equal(lockfile.lockfileVersion, '13.0')
   })
 
   it('the small project, with its checksums, ignored optional dependencies and publish times', () => {
-    const hooks = parsePnpmLockfile(fixture('pnpm-13-hooks')).lockfile
+    const hooks = parsePnpmLockfile(lockfileOf('pnpm-13-hooks')).lockfile
     assert.match(hooks.packageExtensionsChecksum, /^sha256-/u)
     assert.match(hooks.pnpmfileChecksum, /^sha256-/u)
     assert.deepEqual(plain(hooks.ignoredOptionalDependencies), ['fsevents', '@esbuild/*'])

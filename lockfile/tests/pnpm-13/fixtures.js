@@ -1,5 +1,5 @@
-// What scripts/record-pnpm-13.js records, by `<project>@<pnpm>`: each a
-// lockfile of 13.0 pnpm wrote, `lockfile`, and what pnpm read it as,
+// What scripts/record-pnpm-13.js and record-pnpm.js record of lockfiles of
+// 13.0: by name, each one pnpm wrote, `lockfile`, and what pnpm read it as,
 // `read`, in one JSON object, brotli-compressed, in fixtures.json.br.
 import { readFileSync } from 'node:fs'
 import { brotliDecompressSync } from 'node:zlib'

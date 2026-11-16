@@ -38,14 +38,18 @@
 // by 12.21.0, and the workspace by 12.19.0, which lays it out otherwise.
 // Each of them is installed again from the lockfile alone, frozen, and
 // what pnpm reads it as, which it keeps in node_modules/.pnpm/lock.yaml in
-// v9's shape, is recorded beside it, as `<name>-read.yaml`.
+// v9's shape, is recorded beside it: both texts, `lockfile` and `read`, by
+// the run's name, in tests/pnpm-13/fixtures.json.br, with
+// scripts/record-pnpm-13.js's.
 
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { brotliCompressSync, brotliDecompressSync } from 'node:zlib'
 
 const OUT = new URL('../tests/fixtures/', import.meta.url)
+const NEXT = new URL('../tests/pnpm-13/fixtures.json.br', import.meta.url)
 
 const RUNS = [
   { name: 'pnpm-9', pnpm: '9.15.9' },
@@ -175,7 +179,9 @@ const only = process.argv.slice(2)
 const unknown = only.find((name) => !RUNS.some((run) => run.name === name))
 if (unknown !== undefined) throw new Error(`no run is named ${unknown}`)
 
-for (const run of RUNS.filter(({ name }) => only.length === 0 || only.includes(name))) {
+const next = existsSync(NEXT) ? JSON.parse(brotliDecompressSync(readFileSync(NEXT)).toString('utf8')) : {}
+const runs = RUNS.filter(({ name }) => only.length === 0 || only.includes(name))
+for (const run of runs) {
   const dir = mkdtempSync(join(tmpdir(), `${run.name}-`))
   const pnpm = (...args) => execFileSync('npx', ['-y', `pnpm@${run.pnpm}`, ...args, `--config.store-dir=${dir}.store`], { cwd: dir, stdio: 'inherit' })
   try {
@@ -184,14 +190,17 @@ for (const run of RUNS.filter(({ name }) => only.length === 0 || only.includes(n
     else lay(dir, run)
     if (!run.bare) pnpm('install')
     if (run.config) pnpm('add', '--config', CONFIG)
-    copyFileSync(join(dir, 'pnpm-lock.yaml'), new URL(`${run.name}.yaml`, OUT))
-    if (run.format !== undefined) {
+    if (run.format === undefined) {
+      copyFileSync(join(dir, 'pnpm-lock.yaml'), new URL(`${run.name}.yaml`, OUT))
+    } else {
+      const lockfile = readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')
       for (const project of ['.', 'packages/ws-a', 'packages/ws-b']) rmSync(join(dir, project, 'node_modules'), { recursive: true, force: true })
       pnpm('install', '--frozen-lockfile', '--ignore-scripts')
-      copyFileSync(join(dir, 'node_modules/.pnpm/lock.yaml'), new URL(`${run.name}-read.yaml`, OUT))
+      next[run.name] = { lockfile, read: readFileSync(join(dir, 'node_modules/.pnpm/lock.yaml'), 'utf8') }
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(`${dir}.store`, { recursive: true, force: true })
   }
 }
+if (runs.some((run) => run.format !== undefined)) writeFileSync(NEXT, brotliCompressSync(JSON.stringify(next)))
