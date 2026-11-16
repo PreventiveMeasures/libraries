@@ -439,6 +439,7 @@ describe('no-think wire form', () => {
     ['qwen/qwen3.6-35b-a3b', true, true],
     ['qwen/qwen3.8-27b', true, true],
     ['qwen/qwen3.8-2.4t-a95b', false, false],
+    ['qwen/qwen4-max', true, true],
     ['qwen/qwen3.8-max', false, false],
     ['qwen/qwen3.8-flash', true, true],
     ['deepseek/deepseek-v4-pro', true, true],
@@ -1405,6 +1406,33 @@ describe('glm 5.3 flash', () => {
     assert.equal(canThink(FLASH), true)
     assert.equal(canDisableThink(FLASH), false)
     assert.deepEqual(effortsFor(FLASH), ['low', 'high', 'max'])
+  })
+})
+
+describe('qwen4 max', () => {
+  const MAX = 'qwen/qwen4-max'
+  const bill = (field) => calculateCost(MAX, { ...emptyUsage(), [field]: 1_000_000 })
+
+  it("registers Alibaba's international $1.50 / $4.50 per Mtok, one tier across the 1M window, and a 128k max_tokens", () => {
+    assert.equal(bill('input'), 1.5)
+    assert.equal(bill('output'), 4.5)
+    assert.equal(getMaxTokens(MAX), 128 * 1024)
+  })
+
+  it('bills cache reads at $0.075, 0.05x of input, and both writes at the usual 1.25x and 2x', () => {
+    assert.equal(bill('cacheRead'), 0.075)
+    assert.equal(bill('cacheWrite5m'), 1.875)
+    assert.equal(bill('cacheWrite1h'), 3)
+  })
+
+  it('thinks by default, switches off, and takes the three efforts Alibaba names', () => {
+    // Alibaba maps medium to high and max to xhigh; offering those would
+    // swap the level silently, so the row names only low, high and xhigh.
+    assert.equal(canThink(MAX), true)
+    assert.equal(needsExplicitNoThink(MAX), true)
+    assert.deepEqual(effortsFor(MAX), ['low', 'high', 'xhigh'])
+    assert.deepEqual(normalizeThinkEffort(MAX, true), { useThink: true, useEffort: 'high' })
+    assert.throws(() => resolveThinkEffort(MAX, true, 'medium'), /--effort medium is not supported by model\. Use: low, high, xhigh/u)
   })
 })
 
