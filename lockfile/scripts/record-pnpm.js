@@ -2,7 +2,10 @@
 // tests/fixtures/pnpm-*.yaml. Needs npm, git and network access to the npm
 // registry and github.com:
 //
-//     node lockfile/scripts/record-pnpm.js
+//     node lockfile/scripts/record-pnpm.js [<name>...]
+//
+// With names, only the runs of those names are recorded, so the rest stay
+// as they were recorded, against the registry as it was.
 //
 // One workspace, installed by each version in a temporary directory of its
 // own, pulls in every kind of dependency a v9 lockfile records: a registry
@@ -28,6 +31,14 @@
 // direct dependency was published; pnpm 9 writes its checksums bare, pnpm
 // 10 and later as integrities. pnpm 9 takes the settings from package.json
 // and has neither the limit nor the resolution mode to set.
+//
+// The runs with `format` set `lockfile.format: v13`, which pnpm 12 has from
+// 12.19.0, and write the lockfile of `lockfileVersion: '13.0'`: the
+// workspace, the config dependency and pinned pnpm, and the small project,
+// by 12.21.0, and the workspace by 12.19.0, which lays it out otherwise.
+// Each of them is installed again from the lockfile alone, frozen, and
+// what pnpm reads it as, which it keeps in node_modules/.pnpm/lock.yaml in
+// v9's shape, is recorded beside it, as `<name>-read.yaml`.
 
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -46,7 +57,13 @@ const RUNS = [
   { name: 'pnpm-12-env-only', pnpm: '12.6.0', bare: true, config: true },
   { name: 'pnpm-9-hooks', pnpm: '9.15.9', hooks: true },
   { name: 'pnpm-12-hooks', pnpm: '12.6.0', hooks: true },
+  { name: 'pnpm-13', pnpm: '12.21.0', format: 'v13' },
+  { name: 'pnpm-13-env', pnpm: '12.21.0', packageManager: 'pnpm@12.21.0', config: true, format: 'v13' },
+  { name: 'pnpm-13-hooks', pnpm: '12.21.0', hooks: true, format: 'v13' },
+  { name: 'pnpm-13-12.19', pnpm: '12.19.0', format: 'v13' },
 ]
+
+const FORMAT = (run) => (run.format === undefined ? [] : ['lockfile:', `  format: ${run.format}`])
 
 const HOOKS = {
   packageExtensions: { 'is-odd': { dependencies: { 'is-number': '6.0.0' } } },
@@ -126,7 +143,7 @@ function lay(dir, run) {
     ...(run.packageManager ? { packageManager: run.packageManager } : {}),
     ...(legacy ? { pnpm: { overrides: OVERRIDES, patchedDependencies: PATCHES } } : {}),
   })
-  const settings = legacy ? [] : [...yamlMap('overrides', OVERRIDES), ...yamlMap('patchedDependencies', PATCHES)]
+  const settings = legacy ? [] : [...yamlMap('overrides', OVERRIDES), ...yamlMap('patchedDependencies', PATCHES), ...FORMAT(run)]
   write(dir, 'pnpm-workspace.yaml', `${[...WORKSPACE, ...settings].join('\n')}\n`)
 }
 
@@ -149,11 +166,16 @@ function layHooks(dir, run) {
     'ignoredOptionalDependencies:', ...HOOKS.ignoredOptionalDependencies.map((name) => `  - '${name}'`),
     'peersSuffixMaxLength: 0',
     'resolutionMode: time-based',
+    ...FORMAT(run),
   ]
   write(dir, 'pnpm-workspace.yaml', `${workspace.join('\n')}\n`)
 }
 
-for (const run of RUNS) {
+const only = process.argv.slice(2)
+const unknown = only.find((name) => !RUNS.some((run) => run.name === name))
+if (unknown !== undefined) throw new Error(`no run is named ${unknown}`)
+
+for (const run of RUNS.filter(({ name }) => only.length === 0 || only.includes(name))) {
   const dir = mkdtempSync(join(tmpdir(), `${run.name}-`))
   const pnpm = (...args) => execFileSync('npx', ['-y', `pnpm@${run.pnpm}`, ...args, `--config.store-dir=${dir}.store`], { cwd: dir, stdio: 'inherit' })
   try {
@@ -163,6 +185,11 @@ for (const run of RUNS) {
     if (!run.bare) pnpm('install')
     if (run.config) pnpm('add', '--config', CONFIG)
     copyFileSync(join(dir, 'pnpm-lock.yaml'), new URL(`${run.name}.yaml`, OUT))
+    if (run.format !== undefined) {
+      for (const project of ['.', 'packages/ws-a', 'packages/ws-b']) rmSync(join(dir, project, 'node_modules'), { recursive: true, force: true })
+      pnpm('install', '--frozen-lockfile', '--ignore-scripts')
+      copyFileSync(join(dir, 'node_modules/.pnpm/lock.yaml'), new URL(`${run.name}-read.yaml`, OUT))
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
     rmSync(`${dir}.store`, { recursive: true, force: true })

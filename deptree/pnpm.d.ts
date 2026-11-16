@@ -27,7 +27,10 @@ export { setCacheDir } from '@preventive/upstream/npm.js'
 // its changelog says it installs otherwise, as its bug, which is not built
 // for: a `file:` directory's file whose mode is not 0o644, for 12.8.0, and
 // a production tree an edge to an optional peer changes, before 12.7.0.
-// Left out, it is the one the root package.json's
+// A lockfile of `lockfileVersion: '13.0'`, which pnpm 12 writes from 12.19.0
+// with `lockfile.format: v13`, is built from as pnpm 12.20.0 and later read
+// it, and so is taken from them alone: 12.19 reads a snapshot named by its
+// bindings otherwise. Left out, it is the one the root package.json's
 // packageManager pins, which pnpm switches to, and has to be given where
 // that pins none. `node` is the Node it runs on, an exact version,
 // unless the settings name a nodeVersion or, for pnpm 11, the root
@@ -200,7 +203,13 @@ export interface PnpmProject {
 // holds to be wrong: that is not checked here of a key that leaves the
 // tree as it is. Where there is no pnpm-workspace.yaml, it writes one of
 // the root package.json's `workspaces` list, its strings but empty ones,
-// and installs by it, as this does for it.
+// and installs by it, as this does for it. Of its `lockfile` section,
+// `format` alone is taken, from 12.19.0, as a frozen install reads a
+// lockfile in either format whatever it says; what else the section says
+// the lockfile records is refused, and so, in a lockfile of 13.0, is a
+// directory whose package.json it records, as pnpm 12.20.0 and later write
+// one, which they hold a frozen install to by a check that is not built
+// here.
 //
 // `project` is read only where it is said to be here: for the files an
 // install reads, without `lockfile`; for the directories a `link:` or an

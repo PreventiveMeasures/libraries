@@ -1,9 +1,19 @@
 export { YamlError } from './yaml.js'
 
 // Reads a pnpm-lock.yaml of `lockfileVersion: '9.0'`, as pnpm 9 to 12 write
-// it. Throws a YamlError for YAML pnpm would not write, a LockfileError for
-// anything this reader does not know or a lockfile that contradicts itself,
-// and a TypeError for anything but a string.
+// it, or of `lockfileVersion: '13.0'`, as pnpm 12 writes it from 12.19.0
+// with `lockfile.format: v13`. Throws a YamlError for YAML pnpm would not
+// write, or JSON, in which a lockfile of 13.0 is written; a LockfileError
+// for anything this reader does not know or a lockfile that contradicts
+// itself; and a TypeError for anything but a string.
+//
+// A lockfile of 13.0 comes back as the v9 one pnpm reads it as, and
+// installs from, as pnpm 12.20 and later read it: by the same keys, its
+// snapshots by their peers, which 13.0 writes beside a package rather than
+// in its key, a reference's snapshot chosen by the referrer's scope as
+// pnpm chooses it. 12.19 reads a snapshot named by its bindings otherwise
+// where more than one has them. Its packages keep no deprecation, and a
+// directory's keeps what its package.json asked for, from 12.20.0.
 export function parsePnpmLockfile(text: string): PnpmLockfileFile
 
 // The key in `packages` of a snapshot key, its patch hash and peers dropped:
@@ -11,7 +21,10 @@ export function parsePnpmLockfile(text: string): PnpmLockfileFile
 export function packageKeyOf(key: string): string
 
 // `where` is a property path into the result, `packages["q@1.5.1"].resolution`,
-// under `env` for the env document; undefined for the file as a whole.
+// under `env` for the env document; undefined for the file as a whole. In
+// a lockfile of 13.0, it is a path into the file, as 13.0 lays it out:
+// `projects` for `importers`, the sections it keeps in `settings` under it,
+// and a snapshot by the entry of its package.
 export class LockfileError extends Error {
   constructor(detail: string, where?: string)
   where: string | undefined
@@ -23,15 +36,15 @@ export class LockfileError extends Error {
 export type Target = string
 
 // `env` is the document pnpm 11 and later write first, for config
-// dependencies and the package manager a project pins; `lockfile` the
-// project's. Either may be absent.
+// dependencies and the package manager a project pins, in v9 whichever the
+// project's is in; `lockfile` the project's. Either may be absent.
 export interface PnpmLockfileFile {
   lockfile: PnpmLockfile | undefined
   env: PnpmEnvLockfile | undefined
 }
 
 export interface PnpmLockfile {
-  lockfileVersion: '9.0'
+  lockfileVersion: '9.0' | '13.0'
   settings: PnpmSettings
   // By catalog, then by name.
   catalogs: Record<string, Record<string, PnpmCatalogEntry>>
@@ -39,7 +52,7 @@ export interface PnpmLockfile {
   overrides: Record<string, string>
   // By selector, `foo@1.0.0` or `foo`, each of which patches a package; a
   // range, which pnpm matches by semver, is refused. `path` is from the
-  // lockfile's directory, absent from pnpm 11.
+  // lockfile's directory, absent from pnpm 11 and in 13.0.
   patchedDependencies: Record<string, { hash: string, path: string | undefined }>
   // Set where packageExtensions or a pnpmfile rewrote manifests: then a
   // package's dependencies here may not be what it publishes.
@@ -121,7 +134,8 @@ export interface PnpmPackage {
   devOptional: boolean
   transitivePeerDependencies: string[]
   // As the manifest says: absent `os`, `cpu` or `libc` means any, and
-  // `bundledDependencies` true means all.
+  // `bundledDependencies` true means all. `deprecated` is never set from
+  // a lockfile of 13.0, which keeps none.
   engines: Record<string, string>
   os: string[] | undefined
   cpu: string[] | undefined
@@ -131,6 +145,19 @@ export interface PnpmPackage {
   bundledDependencies: string[] | true | undefined
   peerDependencies: Record<string, string>
   peerDependenciesMeta: Record<string, { optional: boolean }>
+  // A directory's, in a lockfile of 13.0 from pnpm 12.20.0: what its
+  // package.json asked for when the lockfile was written, which a frozen
+  // install is refused by where it no longer does.
+  specifiers: PnpmDirectorySpecifiers | undefined
+}
+
+// By name, each specifier as the package.json writes it, and whether the
+// directory is a workspace project, `workspace`, or a path, `path`.
+export interface PnpmDirectorySpecifiers {
+  dependencies: Record<string, string>
+  optionalDependencies: Record<string, string>
+  dependenciesMeta: Record<string, { injected: boolean, node: string | undefined }>
+  manifestSource: 'path' | 'workspace' | undefined
 }
 
 // A registry package's tarball usually has no URL: it comes from the

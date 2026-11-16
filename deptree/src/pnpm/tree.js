@@ -60,6 +60,24 @@ function checkLockfile(lockfile, folded) {
   }
 }
 
+// A lockfile of 13.0, which pnpm 12 writes from 12.19.0 with
+// lockfile.format: v13, is read as pnpm 12.20.0 and later read it, into the
+// lockfile with v9's keys they install from; 12.19 reads a snapshot named by
+// its bindings otherwise. A directory's package.json, which 12.20.0 and
+// later record in one, they hold a frozen install to by a check of their
+// own, which is not built here. The setting is read by pnpm from 12.19.0,
+// and leaves the tree as it is: a frozen install reads either format.
+function checkFormat(lockfile, settings, host) {
+  if (settings.lockfileFormat !== undefined && compareVersions(host.pnpm, '12.19.0') < 0) throw new DeptreeError(`pnpm ${quote(host.pnpm)} fails on it, which pnpm has from 12.19.0`, 'pnpm-workspace.yaml: lockfile.format')
+  if (lockfile.lockfileVersion !== '13.0') return
+  if (compareVersions(host.pnpm, '12.20.0') < 0) {
+    const reads = compareVersions(host.pnpm, '12.19.0') < 0 ? 'does not read one' : 'reads a snapshot named by its bindings otherwise'
+    throw new DeptreeError(`a lockfile of 13.0 is built for as pnpm 12.20.0 and later read it, and pnpm ${quote(host.pnpm)} ${reads}`, 'lockfileVersion')
+  }
+  const recorded = Object.keys(lockfile.packages).find((key) => lockfile.packages[key].specifiers !== undefined)
+  if (recorded !== undefined) throw new DeptreeError('a directory whose package.json the lockfile records is not supported: pnpm holds a frozen install to it by a check of its own, which is not built here', quote(recorded))
+}
+
 // The lockfile reader holds a directory's key to it.
 function checkSource(node, installed) {
   const { key, pkg } = node
@@ -284,6 +302,7 @@ export async function buildPnpmTree(options) {
   const empty = major >= 12 ? Object.keys(lockfile.packages).find((key) => packageKeyOf(key).endsWith('@file:')) : undefined
   if (empty !== undefined) throw new DeptreeError('pnpm 12 refuses as broken a lockfile with `file:` and an empty path', quote(empty))
   const settings = readSettings({ workspace, npmrc: inputs.npmrc, manifest: manifests.get('.'), major, pinned: pinsPnpm(manifests.get('.'), host.pnpm) })
+  checkFormat(lockfile, settings, host)
   checkWorkspace(Object.keys(lockfile.importers), settings.packages, major)
   const overrides = listOverrides(settings.overrides, settings.catalogs, major)
   const extensions = listExtensions(settings.packageExtensions, major)

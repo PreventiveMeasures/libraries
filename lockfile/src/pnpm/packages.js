@@ -7,7 +7,7 @@
 import { LockfileError, at, attempt, quote } from '../error.js'
 import { readLists } from '../graph.js'
 import { checkName, checkRegistryTarball, checkVersion, isVersion, joinRelative } from '../names.js'
-import { entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
+import { boolean, entries, field, flag, mapping, orEmpty, record, text, textMap, texts } from '../shape.js'
 import { fromHex } from '@exodus/bytes/hex.js'
 import { fromBase32Bare, isHash, packageKeyOf, refToKey, splitPackageKey, splitSnapshotKey } from './key.js'
 import { readRelative, readResolution } from './resolution.js'
@@ -64,8 +64,29 @@ function readVersion(name, ref, entry, resolution, where) {
 
 const names = (value, where) => texts(value, where, checkName)
 
-function readInfo(key, entry, where) {
-  record(entry, where, INFO)
+// What a directory's package.json asked for when the lockfile was written,
+// which pnpm records in a lockfile of 13.0 from 12.20.0, and refuses a
+// frozen install by where it no longer does: by kind and name, each
+// specifier as written, the dependenciesMeta, and whether the directory is
+// a workspace project, `workspace`, or a path, `path`.
+const SPECIFIERS = ['dependencies', 'optionalDependencies', 'dependenciesMeta', 'manifestSource']
+const SOURCES_OF = new Set(['path', 'workspace'])
+
+function readSpecifiers(value, where, resolution) {
+  record(value, where, SPECIFIERS)
+  if (resolution.type !== 'directory') throw new LockfileError('a package not from a directory has no specifiers', where)
+  const source = field(value, 'manifestSource', where, text)
+  if (source !== undefined && !SOURCES_OF.has(source)) throw new LockfileError(`expected "path" or "workspace", found ${quote(source)}`, at(where, 'manifestSource'))
+  return {
+    dependencies: textMap(orEmpty(value.dependencies), at(where, 'dependencies'), checkName),
+    optionalDependencies: textMap(orEmpty(value.optionalDependencies), at(where, 'optionalDependencies'), checkName),
+    dependenciesMeta: readDirectoryMeta(value.dependenciesMeta, at(where, 'dependenciesMeta')),
+    manifestSource: source,
+  }
+}
+
+function readInfo(key, entry, where, next) {
+  record(entry, where, next ? [...INFO, 'specifiers'] : INFO)
   const { name, ref } = splitPackageKey(key, where)
   if (entry.name !== undefined && entry.name !== name) throw new LockfileError(`expected the name in the key, ${quote(name)}`, at(where, 'name'))
   const resolution = readResolution(entry.resolution, at(where, 'resolution'))
@@ -83,6 +104,7 @@ function readInfo(key, entry, where) {
     bundledDependencies: bundled === undefined || bundled === true ? bundled : names(bundled, at(where, 'bundledDependencies')),
     peerDependencies: textMap(orEmpty(entry.peerDependencies), at(where, 'peerDependencies'), checkName),
     peerDependenciesMeta: readPeersMeta(entry.peerDependenciesMeta, at(where, 'peerDependenciesMeta')),
+    specifiers: field(entry, 'specifiers', where, (value, here) => readSpecifiers(value, here, resolution)),
   }
 }
 
@@ -95,6 +117,9 @@ export const byName = (fields, read) => (value, where) => mapping(orEmpty(value)
 })
 
 const readPeersMeta = byName(['optional'], (item, here) => ({ optional: flag(item.optional, at(here, 'optional')) }))
+
+// As an importer's dependenciesMeta is read (importers.js).
+const readDirectoryMeta = byName(['injected', 'node'], (item, here) => ({ injected: field(item, 'injected', here, boolean) ?? false, node: field(item, 'node', here, text) }))
 
 // What a dependency's reference leads to: the key of a snapshot, or
 // `link:` and a directory linked in place, which the lockfile does not
@@ -258,7 +283,7 @@ function patchOf(info, patches, where) {
 // `prefix` is where the document is, for messages; `patches` its
 // patchedDependencies, by selector, each of which patches a package, and
 // a package with a patch hash is patched by one.
-export function readPackages(doc, prefix, patches) {
+export function readPackages(doc, prefix, patches, next) {
   const infos = new Map()
   // Where a registry package has its version in a field too, until a
   // snapshot of it is found with a source in its peers: a registry package
@@ -266,7 +291,7 @@ export function readPackages(doc, prefix, patches) {
   const versioned = new Map()
   const packagesAt = at(prefix, 'packages')
   for (const [key, entry, where] of entries(orEmpty(doc.packages), packagesAt)) {
-    const info = readInfo(key, entry, where)
+    const info = readInfo(key, entry, where, next)
     infos.set(key, info)
     if (entry.version !== undefined && key === `${info.name}@${info.version}`) versioned.set(key, at(where, 'version'))
   }
