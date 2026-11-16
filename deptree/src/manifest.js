@@ -36,10 +36,8 @@ export function readManifest(text, where) {
   return checkNesting(manifest, where)
 }
 
-// The package.json texts given by directory, in a Map or a Record: the
-// project's, and its workspaces', each in a directory under it, as one
-// found in a project is. A workspace's dependencies are written in its
-// directory, and a link made to it.
+// The package.json texts by directory, in a Map or a Record: the project's at `.`, and its workspaces',
+// each in a directory under it
 export function readManifests(texts) {
   const read = new Map()
   for (const [dir, text] of texts instanceof Map ? texts : Object.entries(texts)) {

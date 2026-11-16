@@ -1,10 +1,6 @@
-// The files pnpm's directory fetcher installs of a `file:` dependency, as its
-// packlist picks them: npm-packlist 5.1.3 for pnpm 10, 10.0.4 for pnpm
-// 11, and pnpm 12's own port of it, by package.json's `files`, `main` and
-// `bin`, the .npmignore and .gitignore files where they read them, and their
-// own rules. Of glob syntax only `*`, `?` and `**` are followed, which they
-// all read alike. Refused are a link the walk comes on, which they treat
-// differently, and a mode a checkout does not have under umask 022 or 002.
+// The files pnpm's directory fetcher installs of a `file:` dependency: npm-packlist 5.1.3 for pnpm 10, 10.0.4
+// for 11, pnpm 12's own port, of whose glob syntax only `*`, `?` and `**`, read alike, are followed. Refused:
+// a link the walk meets, which they treat differently, and a mode no checkout has under umask 022 or 002.
 
 import { utf8toString } from '@exodus/bytes/utf8.js'
 import { compareVersions, valid } from '@preventive/upstream/semver.js'

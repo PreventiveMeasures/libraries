@@ -1,6 +1,5 @@
-// The packages `cargo vendor` copies into vendor/, each from its .crate:
-// every one of the lockfile's but a path package, which is in the project
-// already. Each is fetched from crates.io and unpacked as cargo unpacks it.
+// The packages `cargo vendor` copies into vendor/: every one of the lockfile's but a path package, each
+// fetched from crates.io and unpacked as cargo unpacks it
 
 import { parseVersion } from '@preventive/lockfile/rust-semver.js'
 import { getCrate } from '@preventive/upstream/cargo.js'
@@ -15,10 +14,8 @@ export const about = (key) => `packages[${quote(key)}]`
 
 const sign = (a, b) => (a === b ? 0 : a < b ? -1 : 1)
 
-// The semver crate's order of two versions the lockfile reader has read, but
-// for build metadata, which crates.io takes no two versions apart by: a
-// pre-release before its release, its identifiers digits before others and
-// digits by their value.
+// The semver crate's order, but for build metadata, which crates.io parts no two versions by: a pre-release
+// before its release, its identifiers digits before others and digits by their value
 function compareVersions(a, b) {
   const [x, y] = [parseVersion(a), parseVersion(b)]
   for (const part of ['major', 'minor', 'patch']) if (x[part] !== y[part]) return sign(x[part], y[part])
@@ -34,8 +31,7 @@ function compareVersions(a, b) {
   return sign(ids1.length, ids2.length)
 }
 
-// vendor.rs: the greatest version of a name has a directory of the name
-// alone, and any other `<name>-<version>`.
+// vendor.rs: the greatest version of a name has a directory of the name alone, any other `<name>-<version>`
 export function vendoredPackages(lock) {
   const crates = []
   for (const [key, pkg] of Object.entries(lock.packages)) {

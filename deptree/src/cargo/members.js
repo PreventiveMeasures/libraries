@@ -1,7 +1,5 @@
-// workspace.members, exclude and default-members as cargo reads them: each
-// glob from the root through the glob crate, `*` and `?` taking any name in
-// a directory, one with a leading dot too; `**` and `[`, and a path that
-// leads out of the root or depends on where it is, are refused.
+// workspace.members, exclude and default-members as cargo reads them, through the glob crate: `*` and
+// `?` take any name, a leading dot too; `**`, `[`, and a path out of the root or by where it is, are refused
 
 import { compareNames, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
@@ -28,8 +26,7 @@ export function checkLists(workspace) {
   }
 }
 
-// is_excluded: under an `exclude` path and no `members` one, each taken as
-// written, a glob's wildcards as names.
+// is_excluded: under an `exclude` path and no `members` one, each as written, wildcards as names
 export function isExcluded(workspace, path) {
   const under = (list) => list.some((entry) => {
     const prefix = parts(entry)
@@ -46,8 +43,7 @@ function literal(names, segment, folded, dir, where) {
   return []
 }
 
-// Every path the glob takes, files among them, which glob() lists too. A
-// link it reaches is refused, as glob() follows it.
+// Every path the glob takes, files among them as glob() lists them; a link is refused, as glob() follows it
 function expand(project, glob, folded, where) {
   let found = ['.']
   for (const segment of parts(glob)) {
@@ -67,8 +63,7 @@ function expand(project, glob, folded, where) {
   return found.sort(compareNames)
 }
 
-// members_paths: the directories each glob takes, where one that takes
-// nothing at all fails as cargo goes to read it.
+// members_paths: the directories each glob takes; one taking nothing fails as cargo goes to read it
 function pathsOf(project, globs, key, folded) {
   return globs.flatMap((glob, index) => {
     const where = `Cargo.toml: workspace.${key}[${index}]`
@@ -80,8 +75,7 @@ function pathsOf(project, globs, key, folded) {
 
 export const explicitMembers = (project, workspace, folded) => pathsOf(project, workspace.members, 'members', folded)
 
-// Cargo, run at the root, holds each default member to be a member, or a
-// directory `members` takes, `listed`, that is excluded.
+// Each default member has to be a member, or a directory `members` takes (`listed`) that is excluded
 export function checkDefaultMembers(project, workspace, members, listed, folded) {
   if (workspace.defaultMembers === undefined) return
   for (const dir of pathsOf(project, workspace.defaultMembers, 'default-members', folded)) {

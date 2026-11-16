@@ -1,8 +1,6 @@
-// What bin-links does to the packages' files, the .bin links aside. Bins
-// come from the lockfile; in a node_modules, the first package to claim a
-// name links it, by Intl.Collator('en') on paths, as npm sorts its nodes,
-// even where its target is missing. A linked target is made 0o755, its
-// first line's CRLF made LF where that is a shebang in the first 2048 bytes.
+// What bin-links does to the packages' files, the .bin links aside: in a node_modules, the first package
+// by Intl.Collator('en') on paths claims a lockfile bin's name, even where its target is missing; a
+// linked target is made 0o755, and a CRLF shebang in its first 2048 bytes LF
 
 import { basename, dirname, join } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'

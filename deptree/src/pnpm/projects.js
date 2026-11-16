@@ -1,9 +1,5 @@
-// Each project's package.json, read through its read-package hook (hook.js),
-// held to its importer as a frozen install holds it
-// (@pnpm/lockfile.verification's satisfiesPackageManifest). Every importer
-// has to be a project, or pnpm would leave it out. The check pnpm 10 makes
-// only when not frozen, that workspace packages are linked exactly where
-// their version is in range, is not made.
+// Each project's package.json, through its read-package hook, held to its importer as a frozen install
+// holds it (@pnpm/lockfile.verification). Every importer has to be a project, or pnpm would leave it out.
 
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, difference, quote } from '../error.js'

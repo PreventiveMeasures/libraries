@@ -1,17 +1,13 @@
-// A podspec as CocoaPods reads one from trunk's JSON, Specification.from_hash,
-// and what its Consumer makes of the attributes that say which of a pod's
-// files are used, on a platform: each spec's own value, the platform's laid
-// over it, and for an inherited attribute the parent's under both. What
-// CocoaPods would fail on, and what one release reads otherwise than
-// another, is refused.
+// A podspec as Specification.from_hash reads trunk's JSON, and what its Consumer makes of the attributes
+// naming a pod's files on a platform: the spec's, the platform's over it, and an inherited one's parent's
+// under both. What CocoaPods fails on, or one release reads otherwise than another, is refused.
 
 import { DeptreeError, quote } from '../error.js'
 import { UNSAFE } from '../mount.js'
 import { CASE_UNSTABLE } from './unicode.js'
 
-// The platforms CocoaPods takes, by the names a podspec gives them, and
-// all of them, in its order, for a spec that names none; Platform takes
-// another case of a name, or `xros`, from 1.16 alone.
+// The platforms by a podspec's names, and all in CocoaPods' order for a spec naming none; another case of a
+// name, or `xros`, Platform takes from 1.16 alone
 const PLATFORM_NAMES = { __proto__: null, osx: 'osx', macos: 'osx', ios: 'ios', tvos: 'tvos', visionos: 'visionos', watchos: 'watchos' }
 const PLATFORMS = ['osx', 'ios', 'tvos', 'visionos', 'watchos']
 // What Version.create takes of a deployment target, as trunk has them.
@@ -28,9 +24,7 @@ const PATHS = ['prefix_header_file', 'module_map']
 export const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 // Given at all: a podspec leaves a value out as undefined, null or false.
 export const given = (value) => value !== undefined && value !== null && value !== false
-// Text a pattern or a path can be: not what reads otherwise than it is
-// written, nor what CocoaPods compares by a case Ruby maps otherwise in one
-// release than another.
+// Not what reads otherwise than written, nor what CocoaPods compares by a case releases map otherwise
 const isText = (value) => typeof value === 'string' && value.isWellFormed() && !UNSAFE.test(value) && !CASE_UNSTABLE.test(value)
 
 function readJson(bytes, where) {
@@ -44,8 +38,7 @@ function readJson(bytes, where) {
   return json
 }
 
-// A spec and those inside it, each with its name in full, `Root/Sub`, and
-// its parent. `at` is where it is in the podspec, for a refusal.
+// A spec and those inside it, each named in full, `Root/Sub`; `at` is where it is, for a refusal
 function specOf(hash, parent, at, where) {
   const name = hash.name
   if (!isText(name) || name === '' || name.includes('/')) throw new DeptreeError(`${at}name is not a spec's name`, where)
@@ -62,8 +55,7 @@ function specOf(hash, parent, at, where) {
   return spec
 }
 
-// The root spec of `bytes`, held to be the lockfile's: of `name` at
-// `version`, as Pod::Version writes it back.
+// The root spec, held to be the lockfile's `name` at `version`, as Pod::Version writes it back
 export function readPodspec(bytes, name, version, where) {
   const root = specOf(readJson(bytes, where), undefined, '', where)
   if (root.name !== name) throw new DeptreeError(`its podspec is of ${quote(root.name)}`, where)
@@ -71,8 +63,7 @@ export function readPodspec(bytes, name, version, where) {
   return root
 }
 
-// Every spec, the root first, then each inside one after it, depth first,
-// as recursive_subspecs lists them.
+// Every spec, depth first, as recursive_subspecs lists them
 export function allSpecs(root) {
   return [root, ...root.children.flatMap((child) => allSpecs(child))]
 }
@@ -81,8 +72,7 @@ export function specNamed(root, name) {
   return allSpecs(root).find((spec) => spec.name === name)
 }
 
-// Specification#platform_hash: a name, a list of names, or names to
-// deployment targets; anything else, none.
+// Specification#platform_hash: a name, names, or names to deployment targets; anything else, none
 function platformNames(spec, where) {
   const value = spec.attributes.platforms
   const named = typeof value === 'string' ? [[value, null]] : Array.isArray(value) ? value.map((name) => [name, null]) : isObject(value) ? Object.entries(value) : []
@@ -102,9 +92,7 @@ export function platformsOf(spec, where) {
   return PLATFORMS
 }
 
-// The hash of a platform's values where a spec gives one, as the Consumer
-// reads it; anything else but null or false CocoaPods fails on, or reads as
-// a string.
+// A platform's values, as the Consumer reads them; anything but a hash, null or false CocoaPods fails on
 function platformHash(spec, platform, where) {
   const value = spec.attributes[platform]
   if (!given(value)) return undefined
@@ -112,8 +100,7 @@ function platformHash(spec, platform, where) {
   return value
 }
 
-// prepare_value of a list: a value as a list of itself, nulls dropped;
-// each has to be a pattern, as File.fnmatch takes nothing else.
+// prepare_value: a value as a list of itself, nulls dropped, each a pattern, as File.fnmatch takes no other
 function patternsOf(value, what, where) {
   if (value === undefined || value === null) return []
   const list = Array.isArray(value) ? value.filter((item) => item !== null) : [value]
@@ -131,8 +118,7 @@ function listOf(spec, key, platform, where) {
   return [...patternsOf(own, `${spec.at}${key}`, where), ...patternsOf(onPlatform, `${spec.at}${platform}.${key}`, where)]
 }
 
-// A path given as it is joined to the pod's directory, as Pathname#+ joins
-// it: one this keeps as it is, within the directory.
+// A path Pathname#+ joins to the pod's directory as it is, within it
 function checkPath(path, what, where) {
   if (!isText(path) || path === '' || path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
     throw new DeptreeError(`${what} is not a path within the pod, as CocoaPods joins it to the pod's directory`, where)
@@ -140,8 +126,7 @@ function checkPath(path, what, where) {
   return path
 }
 
-// prefix_header_file and module_map: a path, or false or null for none,
-// the platform's over the spec's, the spec's over its parent's.
+// prefix_header_file and module_map: the platform's over the spec's over its parent's; false or null none
 function pathOf(spec, key, platform, where) {
   const [own, onPlatform] = rawValues(spec, key, platform, where)
   const value = onPlatform ?? own ?? (spec.parent === undefined ? undefined : pathOf(spec.parent, key, platform, where))
@@ -150,8 +135,7 @@ function pathOf(spec, key, platform, where) {
   return checkPath(value, `${spec.at}${key}`, where)
 }
 
-// _prepare_on_demand_resources: patterns, or a hash of its `paths` and a
-// `category`, which has to be a name.
+// _prepare_on_demand_resources: patterns, or a hash of `paths` and a `category` name
 function onDemandPatterns(patterns, what, where) {
   if (typeof patterns === 'string' || Array.isArray(patterns)) return patternsOf(patterns, what, where)
   if (!isObject(patterns)) throw new DeptreeError(`${what} is not file patterns, or a hash of them, which CocoaPods fails on`, where)
@@ -159,10 +143,8 @@ function onDemandPatterns(patterns, what, where) {
   return patternsOf(patterns.paths, `${what}.paths`, where)
 }
 
-// resource_bundles and on_demand_resources: a hash, the platform's merged
-// into the spec's, by name, each its patterns as `prepare` reads them. Of
-// a name in both, the bundle has the patterns of both; of an on-demand
-// resource, CocoaPods fails, as it adds the two hashes as if strings.
+// resource_bundles and on_demand_resources: the platform's hash merged into the spec's, by name. A bundle
+// in both has both's patterns; CocoaPods fails on an on-demand resource in both, adding them as strings.
 function hashOf(spec, key, platform, where, prepare) {
   const result = new Map()
   const whats = [`${spec.at}${key}`, `${spec.at}${platform}.${key}`]
@@ -178,9 +160,7 @@ function hashOf(spec, key, platform, where, prepare) {
   return [...result.values()].flat()
 }
 
-// What a spec's Consumer on `platform` gives of each attribute that names
-// files: the lists of patterns, those of its resource bundles and its
-// on-demand resources, and the prefix header's and module map's paths.
+// What a spec's Consumer gives on `platform` of each attribute that names files
 export function consumerOf(spec, platform, where) {
   const values = {}
   for (const key of LISTS) values[key] = listOf(spec, key, platform, where)
@@ -190,8 +170,7 @@ export function consumerOf(spec, platform, where) {
   return values
 }
 
-// The root's license file, as RootAttributesAccessors#license reads it: of
-// a hash alone, where its `text`, which CocoaPods strips, is text.
+// The license file, as RootAttributesAccessors#license reads it: of a hash alone, its `text` text
 export function licenseFileOf(root, where) {
   const license = root.attributes.license
   if (!isObject(license)) return undefined

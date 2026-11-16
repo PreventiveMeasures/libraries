@@ -1,22 +1,6 @@
-// What `pnpm install --prod` installs of a lockfile, as
-// @pnpm/lockfile.filtering's filterLockfileByImportersAndEngine filters it
-// with devDependencies left out: every project's devDependencies dropped, and
-// of the snapshots those the rest reach, through dependencies,
-// optionalDependencies and `link:`s, which lead only to projects, all of them
-// installed anyway.
-//
-// From pnpm 11.28 and 12.7.0 on (@pnpm/lockfile.peer-edges), an edge to an
-// optional peer that a snapshot has only as the projects that reach it list
-// the peer themselves is not walked, and is dropped from the snapshot where
-// nothing else reaches the peer: a devDependency only there to satisfy an
-// optional peer of a production one is left out. From 11.28.7 and 12.15.0,
-// only an edge to a peer the snapshot's key binds is such an edge, or any of
-// one whose key ends in a hash of its peers; before, any edge by the name of
-// an optional peer was, though the snapshot resolved it as its own.
-//
-// pnpm 12 before 12.7.0 walks such an edge too, as pnpm 11 before 11.28
-// does, which is pnpm's bug and not built for: a lockfile where walking the
-// edges 12.15.0 does not walk installs otherwise is refused.
+// `pnpm install --prod`, as lockfile.filtering filters: devDependencies dropped, the snapshots the rest reach.
+// From 11.28 and 12.7.0 an edge to an optional peer that only the projects reaching it list is not walked;
+// from 11.28.7 and 12.15.0 only one the key binds. pnpm 12 before 12.7.0 walks it: refused where that tells.
 
 import { compareVersions } from '@preventive/upstream/semver.js'
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
@@ -86,10 +70,9 @@ function optionalPeerEdges(packages, bound) {
 
 const directOf = ({ dependencies, devDependencies, optionalDependencies }) => edgesOf({ ...dependencies, ...devDependencies, ...optionalDependencies })
 
-// pnpm's collectPeerSatisfactionEdges: by each edge's target, the projects
-// that do not list it among their own (none, where it is the root's
-// devDependency and resolvePeersFromWorkspaceRoot is set); an edge is one to
-// skip where nothing those projects list reaches its snapshot.
+// pnpm's collectPeerSatisfactionEdges: by target, the projects that do not list it (none, where it is the
+// root's devDependency under resolvePeersFromWorkspaceRoot); an edge is skipped where nothing they list
+// reaches its snapshot
 function satisfactionEdges(lockfile, rule, fromRoot) {
   const entries = optionalPeerEdges(lockfile.packages, rule.bound)
   const edges = new Map()
@@ -134,11 +117,9 @@ function refusalOf(edges, all, fixed, packages) {
   return new DeptreeError(`pnpm 12 before 12.7.0 walks its edge to its optional peer ${quote(edge.alias)}, which pnpm 12.7.0 on does not, and installs otherwise with devDependencies left out, which is not supported`, `snapshots[${quote(edge.parent)}]`)
 }
 
-// `installing`, the lockfile the tree is laid out from: the snapshots
-// reached, each but for the edges pnpm does not walk to a snapshot not
-// reached; and what `skippedOf` makes of what pnpm walks to leave out what
-// the host cannot run: every snapshot, but for those edges. Each importer's
-// devDependencies are empty.
+// `installing` is the snapshots reached, each less its unwalked edges to snapshots not reached; `skippedOf`
+// is given every snapshot less those edges, to leave out what the host cannot run. No importer keeps its
+// devDependencies.
 export function productionLockfile(lockfile, { pnpm, major, resolvePeersFromWorkspaceRoot }, skippedOf) {
   const importers = Object.fromEntries(Object.entries(lockfile.importers).map(([id, importer]) => [id, { ...importer, devDependencies: {} }]))
   const starts = Object.values(importers).flatMap(prodEdgesOf)

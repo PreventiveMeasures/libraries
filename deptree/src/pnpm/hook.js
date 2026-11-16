@@ -1,7 +1,5 @@
-// pnpm's read-package hook (@pnpm/hooks.read-package-hook), less a pnpmfile's
-// readPackage, refused elsewhere, and Yarn's compatibility database, not
-// reproduced. pnpm runs it on every package and on each project's
-// package.json before holding it to its importer.
+// pnpm's read-package hook, less a pnpmfile's readPackage (refused elsewhere) and Yarn's compatibility
+// database: run on every package, and on each project's package.json before it is held to its importer
 
 import { intersects, satisfies, validRange } from '@preventive/upstream/semver.js'
 import { relative } from '@preventive/vfs/path.js'

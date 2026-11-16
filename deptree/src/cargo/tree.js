@@ -13,9 +13,8 @@ import { fileOf, findWorkspace, parseAs } from './workspace.js'
 
 const checkNoVendor = checkNoDir('vendor', 'a vendor directory')
 
-// Of the config, [patch] is read, as cargo resolves with it; `paths`, which
-// overrides where packages come from, and `include`, which reads more
-// files, are refused; the rest bears on no package vendored.
+// Of the config, [patch] is read, as cargo resolves with it; `paths` and `include`, which change where
+// packages come from and what is read, are refused; the rest bears on no package vendored
 function configOf({ text, file }) {
   if (text === undefined) return { patch: parseCargoConfig([]).patch, file }
   const doc = parseAs(file, () => parseToml(text))
@@ -23,8 +22,8 @@ function configOf({ text, file }) {
   return { patch: parseAs(file, () => parseCargoConfig([text])).patch, file }
 }
 
-// Each path package by the key the lockfile gives it, `name version`: every
-// one of the lockfile's has to be one cargo reads, and every member there.
+// Each path package by its lockfile key, `name version`: every one of the lockfile's has to be one cargo
+// reads, and every member there
 function pathKeys(lock, packages) {
   const keys = new Map()
   const dirs = new Map()
@@ -42,8 +41,7 @@ function pathKeys(lock, packages) {
   return keys
 }
 
-// linkCargo ties a path dependency to a path package by name and version;
-// it has to be the one in the directory the path leads to.
+// linkCargo ties a path dependency to a package by name and version, which has to be the one its path leads to
 function checkPaths(graph, packages, keys) {
   for (const [dir, { links }] of packages) {
     const linked = graph.packages[keys.get(dir)]
@@ -55,9 +53,7 @@ function checkPaths(graph, packages, keys) {
   }
 }
 
-// `links` are the repository and homepage the Cargo.toml cargo packed gives
-// in [package], or [project] as cargo reads it too: strings, as
-// parseCargoManifest holds them to, or undefined.
+// `links` are the repository and homepage the packed Cargo.toml's [package] (or [project]) gives, or undefined
 function manifestOf(crate, vendored) {
   const where = `${about(crate.key)}: Cargo.toml`
   const file = vendored.files.get('Cargo.toml')
@@ -69,9 +65,8 @@ function manifestOf(crate, vendored) {
   return { text, manifest, links: { repository: own(pkg, 'repository'), homepage: own(pkg, 'homepage') } }
 }
 
-// The lockfile laid over every manifest, as linkCargo holds it to them; then
-// the vendored copies read back as cargo's directory source reads them.
-// Gives back each crate's links, by its key.
+// The lockfile laid over every manifest by linkCargo, then the copies read back as cargo's directory
+// source reads them; gives back each crate's links, by its key
 function checkLock(lock, inputs, crates, vendored) {
   const { keys } = inputs
   const manifests = Object.create(null)

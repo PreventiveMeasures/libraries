@@ -1,11 +1,6 @@
-// The files pnpm's bin linking fixes (@pnpm/link-bins, bin-links' fixBin):
-// no .bin is written, but the file of each command it links by a name is
-// made executable and a CRLF ending its `#!` line made LF. pnpm 10 sets
-// 0o755 and pnpm 11 adds 0o111, as pnpm 12 (its cmd-shim crate) does, which
-// rewrites no `#!` line.
-// Where any patch is configured, pnpm 10 and 11 build each package patched
-// or with an install script, which links its own bins beside its children's
-// before the patch; pnpm 12 links them together, with no build pass.
+// What pnpm's bin linking (@pnpm/link-bins) does to the files, as no .bin is written: each a command links
+// made executable (0o755 by pnpm 10, | 0o111 by 11 and 12), a CRLF `#!` made LF but by 12. With a patch
+// configured, 10 and 11 build each package patched or with an install script, linking its bins before it.
 
 import { DeptreeError, quote } from '../error.js'
 import { crlfShebang, fixShebang } from '../tarball.js'
@@ -32,10 +27,8 @@ function peersOf(children, nodes) {
 export const requiresBuild = (manifest, files, major) => Boolean((manifest.scripts != null && (manifest.scripts.preinstall || manifest.scripts.install || manifest.scripts.postinstall))
   || (files.has('binding.gyp') && !(major >= 11 && manifest.gypfile === false)) || files.keys().some((path) => /^\.hooks[\\/]/u.test(path)))
 
-// `contested` holds the files that may be fixed or not, and why; `ordered`
-// is whether pnpm always comes to the commands in this order; `fixNode`
-// whether pnpm 12 links a project's bins again, which fixes a direct
-// dependency's `node` already linked.
+// `contested` holds the files that may be fixed or not, and why; `ordered` is whether pnpm always comes
+// to the commands in this order; `fixNode` whether pnpm 12 links again, fixing a direct `node`
 function linker(major) {
   const fixed = new Map()
   const contested = new Map()
@@ -164,11 +157,8 @@ export function binTargets({ nodes, projects, direct, links, publicHoist, buildi
   return fixedFiles(nodes, fixed, contested, major)
 }
 
-// The packages of `nodes` whose files binTargets reads, given the same
-// options, but those it reads for their own build alone, which the lockfile
-// says have no bins: building one whose children are all packages links
-// again what their first link did, and fixes nothing of theirs. The others
-// are read as having no bins (lazy.js).
+// The packages whose files binTargets reads, but those it reads only for a build the lockfile says
+// links nothing: building one whose children are all packages fixes nothing of theirs (lazy.js)
 export function binReads({ nodes, projects, direct, links, publicHoist, peers, major }) {
   const mayHaveBin = mayHaveBinIn(nodes)
   const reads = new Set()
@@ -191,13 +181,9 @@ export function binReads({ nodes, projects, direct, links, publicHoist, peers, m
   return new Set(reads.values().filter((dir) => nodes.has(dir)))
 }
 
-// The copies of one package pnpm's build pass makes hardlinks of the one it
-// builds (hoisted.js): what is fixed in that one before, as each copy's own
-// bins are where pnpm fills its node_modules, is in all; and so is what is
-// fixed in any after. Where the copies it may build differ in what is fixed
-// before, so may the outcome. A phase's marks are `before` that, or not, or
-// a function of the package's build saying which. pnpm 11 links no file
-// under a node_modules (`keepsModules`), which each copy keeps its own of.
+// pnpm's build pass hardlinks one built copy into the others (hoisted.js), so what is fixed in any copy
+// is in all, and where the copies it may build differ in what is fixed before, so may the outcome. A
+// phase's marks are `before` or not, or say per build; from 11.25 files under a node_modules stay apart.
 function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
   const ownerOf = new Map()
   for (const build of builds) {
@@ -238,13 +224,8 @@ function linkCopies(builds, phases, fixed, contested, { keepsModules, major }) {
   }
 }
 
-// The packages of `nodes` whose files hoistedBinTargets reads, with
-// hoistedBuilds where any patch is configured (`building`), but those it
-// reads as pnpm's hoisted linker reads each package in a node_modules it
-// fills, which the lockfile says have no bins, and those it reads for their
-// own build alone: building one none of whose dependencies have bins, as
-// `packages`, the lockfile's, say, links nothing of the others'. The others
-// are read as having no bins, and as built where patched alone (lazy.js).
+// The packages whose files hoistedBinTargets reads, but those the lockfile says have no bins and whose
+// build, where any patch is configured (`building`), links none of their dependencies' (lazy.js)
 export function hoistedBinReads({ nodes, building, packages }) {
   const reads = new Set()
   for (const node of nodes.values()) {
@@ -255,13 +236,9 @@ export function hoistedBinReads({ nodes, building, packages }) {
   return reads
 }
 
-// pnpm's hoisted linker links the bins of each node_modules it fills, by
-// what it reads there, as it fills it; then each project's again, with its
-// links in, a command of its own dependencies over any other. `modules` are
-// those node_modules, each with its packages by alias, and its project's
-// package.json where it is a project's. Between the two, where any patch is
-// configured, each package of `builds` links its dependencies' bins and its
-// own (hoisted.js), as the isolated linker's build does.
+// pnpm's hoisted linker links each node_modules' bins as it fills it, then each project's again, its own
+// dependencies first; between, where a patch is configured, each of `builds` links its dependencies' and
+// its own. `modules` are those node_modules, with their packages by alias and a project's package.json.
 export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardlinks = true, keepsModules = false, idOf = (key) => key, major }) {
   const commandsOfDir = commandReader(nodes, projects, major)
   const filling = linker(major)
@@ -274,10 +251,7 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
     }
     projectsAgain.link(preferOwn(entries, manifest, commandsOfDir), { ordered: false, where })
   }
-  // A package's dependencies are built first, but for those it is built
-  // before or after as they depend on each other.
-  // What each snapshot reaches through the copies' dependencies, each taken
-  // for the copies of its id.
+  // A package's dependencies are built first, but where they depend on each other
   const pkgs = new Map(nodes.values().map((node) => [idOf(node.key), node.pkg]))
   const edges = (id) => Object.values({ ...pkgs.get(id)?.dependencies, ...pkgs.get(id)?.optionalDependencies }).map(idOf)
   const building = builds.map((build) => {

@@ -1,12 +1,6 @@
-// Characters whose case Ruby's String#downcase and #upcase map otherwise
-// in one release than another, and than String#toLowerCase and
-// #toUpperCase here: cased letters encoded after Unicode 12.1, which Ruby
-// 2.6 reads, and older ones that map to them. Each is refused where
-// CocoaPods compares a name by its case, as which release reads it is not
-// known. Made from Unicode 17's DerivedAge.txt, the code points Node maps
-// to another case whose age, or that of what they map to, is past 12.1;
-// they take in every code point Ruby 3.3 maps otherwise than Node, but
-// for the final sigma, which clean.js reads as Ruby does.
+// Letters whose case Ruby maps otherwise in one release than another, or than Node: those Node maps to a
+// case where either is past Unicode 12.1, Ruby 2.6's, by Unicode 17's DerivedAge.txt. They take in all
+// Ruby 3.3 maps otherwise than Node but the final sigma, which clean.js reads as Ruby does.
 export const CASE_UNSTABLE = new RegExp(`[${[
   String.raw`\u{19B}\u{264}\u{1C89}-\u{1C8A}\u{2C2F}\u{2C5F}\u{A7C0}-\u{A7C1}`,
   String.raw`\u{A7C7}-\u{A7DC}\u{A7F5}-\u{A7F6}\u{10570}-\u{1057A}`,

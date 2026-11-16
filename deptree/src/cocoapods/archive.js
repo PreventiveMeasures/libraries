@@ -1,6 +1,5 @@
-// An archive by :http as RemoteFile leaves it: saved as `file.<type>` in a
-// directory, extracted there by `tar xf` or `unzip -d` under a umask of
-// 0o022, then flattened where that is asked and it holds one directory.
+// An archive by :http as RemoteFile leaves it: saved as `file.<type>`, extracted by `tar xf` or `unzip -d`
+// under a 0o022 umask, then flattened where that is asked and it holds one directory
 
 import { decompress } from '@preventive/archive/compression.js'
 import { ArchiveError, unpack } from '@preventive/archive/tar.js'
@@ -23,8 +22,7 @@ const OTHERS = [
 const SPECIAL = 0o7000
 const UMASK = 0o022
 
-// The names at the archive's root, a directory's that only paths under it
-// name among them.
+// The names at the archive's root, a directory's that only paths under it name among them
 const topsOf = ({ dirs, files, links }) => new Set([...dirs, ...files.keys(), ...links.keys()].map((path) => path.split('/')[0]))
 
 const gitRefusal = (at) => new DeptreeError('a path with a .git in it, which CocoaPods 1.16 leaves out of its cache and those before keep', at)
@@ -39,17 +37,9 @@ async function tarOf(bytes, where) {
   return bytes
 }
 
-// Each entry as tar writes it out: a directory, a file with its bytes and
-// its mode under the umask, a link to its target as stored. A hard link is
-// a second name for what it links to, and is copied as rsync -a, which
-// CocoaPods copies the download into its cache with, and FileUtils.cp_r
-// copy one: a file of the same bytes and mode, or a link to the same
-// target. What tar would make otherwise on one machine than on another is
-// refused: a special bit; a directory its owner cannot list and write in,
-// which the cleaner would leave files in; a file its owner cannot read,
-// which the copy fails on; a name starting with `._`, which bsdtar on macOS
-// makes an extended attribute of; a `.git`, which the copy into the cache
-// leaves out from CocoaPods 1.16; a FIFO or a device.
+// Each entry as tar writes it out, a hard link copied as rsync -a and FileUtils.cp_r copy one into the
+// cache. What tar makes otherwise on one machine than another is refused, and so is what the cleaner or
+// the copy would fail on, a `._` name bsdtar on macOS reads as attributes, and a `.git` 1.16 leaves out.
 function entriesOf(entries, where) {
   const dirs = new Set()
   const files = new Map()
@@ -83,17 +73,18 @@ function entriesOf(entries, where) {
   return { dirs, files, links }
 }
 
-async function untarred(bytes, where) {
+async function readable(read, where) {
   try {
-    return entriesOf(unpack(await tarOf(bytes, where), { trailingGlobal: true }), where)
+    return await read()
   } catch (error) {
     if (error instanceof ArchiveError) throw new DeptreeError(`its archive cannot be read: ${error.message}`, where, { cause: error })
     throw error
   }
 }
 
-// What unzip 6.0 stops to ask about, which fails `pod install` with nothing
-// on stdin.
+const untarred = (bytes, where) => readable(async () => entriesOf(unpack(await tarOf(bytes, where), { trailingGlobal: true }), where), where)
+
+// What unzip 6.0 stops to ask about, which fails `pod install` with nothing on stdin
 const PKZIP_VERSION = 45
 const VMS = 2
 
@@ -103,10 +94,8 @@ function checkVersion({ version }, at) {
   if (version >> 8 === VMS) throw new DeptreeError('marked as stored in VMS format, which unzip asks before extracting', at)
 }
 
-// A mode as unzip's mapattr() makes one: a Unix maker's as stored, any
-// other's from the DOS bits under the umask, unless the Unix mode it stored
-// agrees with them, as PKZip for Unix writes one; filtattr() then drops the
-// special bits. A symlink is one by its mode, from a maker known to make them.
+// A mode as unzip's mapattr() makes one: a Unix maker's as stored, another's from the DOS bits under the
+// umask unless its Unix mode agrees with them. A symlink is one by its mode, from a maker known to make them.
 const UNIX_HOSTS = new Set([2, 3, 5, 12, 13, 16, 17, 30])
 const SYMLINK_HOSTS = new Set([2, 3, 5, 16, 30])
 const LABEL_HOSTS = new Set([0, 5, 6, 11])
@@ -147,17 +136,10 @@ function checkName({ storedName, type }, at) {
   if (VMS_VERSION.test(last)) throw new DeptreeError('a name ending in `;` and digits, which unzip takes for a VMS version and drops', at)
 }
 
-// Each entry as unzip writes it out, in the central directory's order: a
-// volume label skipped, a directory entry's mode counted only where unzip
-// makes the directory for it.
+// Each entry as unzip writes it out, in the central directory's order: a volume label skipped, a directory
+// entry's mode counted only where unzip makes the directory for it
 async function unzipped(bytes, where) {
-  let entries
-  try {
-    entries = await unzip(bytes, { limit: MAX_BYTES })
-  } catch (error) {
-    if (error instanceof ArchiveError) throw new DeptreeError(`its archive cannot be read: ${error.message}`, where, { cause: error })
-    throw error
-  }
+  const entries = await readable(() => unzip(bytes, { limit: MAX_BYTES }), where)
   if (entries.length === 0) throw new DeptreeError('an empty archive, which unzip warns of, and CocoaPods fails on the warning', where)
   const dirs = new Set()
   const files = new Map()
@@ -193,12 +175,9 @@ async function unzipped(bytes, where) {
   return { dirs, files, links }
 }
 
-// RemoteFile#extract_with_type's flattening: where the directory holds one
-// thing beside the download, and that is a directory, its contents moved
-// up, by a move of it to its name and `.tmp` first. A link there, which
-// Pathname#directory? would follow, is refused, and so is a name the moves
-// would meet: a name ending in `.`, which Pathname#sub_ext reads otherwise
-// than it ends, or something in it of the name it is moved to.
+// RemoteFile#extract_with_type's flattening of one directory, moved to its name and `.tmp` first. A link
+// there, which Pathname#directory? follows, is refused, as is a name the moves would meet: one ending in
+// `.`, which Pathname#sub_ext reads otherwise, or one in it of the name it is moved to.
 function flattened(contents, where) {
   const tops = topsOf(contents)
   if (tops.size !== 1) return contents

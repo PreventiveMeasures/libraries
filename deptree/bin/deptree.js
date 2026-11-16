@@ -92,13 +92,11 @@ const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
 }
 
-// Each package manager by its version flag: its lockfile, the folder it
-// installs into in each project it finds, and the version where the flag is
-// left out and nothing pins one, or, `pinned`, what the project pins, or,
-// `unpinned`, that the flag is needed; `development`, that it installs every
-// dependency, there being no other kind.
 const github = () => createClient({ token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null })
 
+// Each manager by its version flag: its lockfile, the folder it installs into, and the version where the
+// flag is left out: `pinned` takes what the project pins, `unpinned` needs the flag. `development` is a
+// manager that installs every dependency, there being no other kind.
 const MANAGERS = {
   pnpm: { lockfile: 'pnpm-lock.yaml', folder: 'node_modules', projects: findPnpmProjects, build: buildPnpmTree },
   yarn: { lockfile: 'yarn.lock', folder: 'node_modules', projects: findYarn1Workspaces, build: buildYarn1Tree },
@@ -241,11 +239,8 @@ function size(bytes) {
   return unit === 0 ? `${bytes} B` : `${(bytes / 1024 ** unit).toFixed(1)} ${UNITS[unit]}`
 }
 
-// A refusal says what and where: deptree's or its lockfile reader's,
-// compare's of a side that is no tree it can hold (a link to nothing, say),
-// the system's on a call it names, parseArgs's of an option, or a host
-// deptree takes no version of from what is there. Anything else is a bug,
-// and shows its stack, though Node gave it a code.
+// A refusal says what and where: deptree's, its readers', compare's, the system's on a call it names,
+// parseArgs's, or of a host version deptree cannot take. Anything else is a bug, and shows its stack.
 const REFUSALS = [DeptreeError, LockfileError, TomlError, CompareError]
 const refused = (error) => REFUSALS.some((type) => error instanceof type) || typeof error?.syscall === 'string' || String(error?.code).startsWith('ERR_PARSE_ARGS_') || (error instanceof TypeError && error.message.startsWith('host.'))
 function describe(error) {

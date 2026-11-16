@@ -1,9 +1,6 @@
-// A registry package as yarn 1 installs it, each mode given 0o644 and masked
-// by a 0o022 umask as yarn's tarball fetcher does with tar-fs. Held to more
-// than yarn holds it to: what npm packs, every entry under one directory,
-// none in its own node_modules (npm packs those only for bundled
-// dependencies), and a package.json of the lockfile's name and version.
-// And a directory by `file:`, as yarn's copy fetcher installs it.
+// A registry package as yarn 1 installs it, each mode given 0o644 and masked by a 0o022 umask as tar-fs
+// does for yarn's fetcher, and held to what npm packs; and a directory by `file:`, as yarn's copy fetcher
+// installs it
 
 import { fromBase64 } from '@exodus/bytes/base64.js'
 import { toHex } from '@exodus/bytes/hex.js'
@@ -47,12 +44,9 @@ function entriesOf(entries, where) {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-// yarn writes the registry's sha512 where it has one, and else a sha1 of its
-// shasum. Since this time the registry has made one for every version as it
-// was published, by any client: firebase-tools@4.0.3, published then by npm
-// 3.10.8, is the first it signed over one it made, and superstatic@6.0.0, at
-// 2018-08-03T20:22:28.120Z, the last over none. It has since made one for
-// every version published before too.
+// yarn writes a sha1 alone where the registry has no sha512, which it has made for every version as it
+// was published since then: firebase-tools@4.0.3, by npm 3.10.8, is the first it signed over one it made,
+// and superstatic@6.0.0 the last over none
 const SHA512_SINCE = '2018-08-05T14:58:16.253Z'
 
 // The hex of an integrity that is a sha1 alone.
@@ -61,11 +55,9 @@ function sha1Of(integrity) {
   return toHex(fromBase64(integrity.slice(5)))
 }
 
-// `name` is the one fetched, as an `npm:` alias asks for it. yarn writes no
-// integrity for a pattern that names the tarball's URL, but the sha1 after
-// its `#`: the tarball is held to that, and to the registry's sha512. One
-// with a sha1 integrity alone is held to it, and to the registry's sha512,
-// where it was published before SHA512_SINCE.
+// `name` is the one fetched, as an `npm:` alias asks for it. A pattern naming the tarball's URL has no
+// integrity but the sha1 after its `#`, and one with a sha1 integrity alone has to be published before
+// SHA512_SINCE: each is held to its sha1 and to the registry's sha512.
 export function registryTarball(entry, name, where) {
   const { resolution } = entry
   if (resolution === undefined) throw new DeptreeError('a directory, by file: or link:, is not supported', where)
@@ -117,12 +109,9 @@ export async function fetchYarnPackage({ name, version, integrity, sha1: pinned 
   return { ...withBins({ files, dirs }, manifest, where), sha1, integrity: fetched.integrity, about: fetched.about }
 }
 
-// A directory by `file:`, as yarn's copy fetcher installs it: all in it, each
-// file's mode as it is, but what yarn's copy passes over (tree.js); read from
-// the project, as yarn reads it again at every install. Held to more than
-// yarn holds it to: no link, device or node_modules of its own in it, and a
-// package.json of the name, version and lists its lockfile entry has, which
-// yarn reads anew, installing whatever they are.
+// All in the directory, modes as they are, read from the project as yarn reads it at every install. No
+// link, device or node_modules of its own in it, and a package.json of the name, version and lists its
+// lockfile entry has, which yarn would install whatever they are.
 export function readYarnDirectory(project, { name, version, entry, dir }, where) {
   if (typeOf(project, `/${dir}`, false) !== 'directory') throw new DeptreeError(`${quote(dir)} is not a directory of the project`, where)
   const files = new Map()

@@ -1,9 +1,6 @@
-// A patch as `pnpm patch-commit` writes one: a git diff of files changed,
-// created or deleted. A hunk applies where it says, its context and removed
-// lines the same byte for byte. pnpm (@pnpm/patch-package) would also look
-// up to twenty lines away and drop trailing whitespace, and puts a hunk that
-// inserts after a line with no context a line early; a patch that needs any
-// of that is refused, so one applied here leaves the file as pnpm would.
+// A patch as `pnpm patch-commit` writes one, each hunk applied where it says, byte for byte. A patch that
+// needs pnpm's fuzz (twenty lines away, trailing whitespace dropped, a context-free insert a line early)
+// is refused, so one applied here leaves the file as pnpm would.
 
 import { utf8fromString } from '@exodus/bytes/utf8.js'
 import { applyChangeSet, parseDiff } from '@preventive/diff'
@@ -22,11 +19,8 @@ function pathOf(header) {
   return rest === `${path} b/${path}` ? path : undefined
 }
 
-// git quotes a path with a control character, and by default one with any
-// other non-ASCII one. Of what it may leave unquoted, a backslash, a
-// separator on Windows, and what reads otherwise than it is written (a line
-// or paragraph separator, a bidirectional control) are refused, as the
-// lockfile reader refuses them in a path.
+// git quotes a path with a control or by default any non-ASCII character; of what it leaves unquoted,
+// what the lockfile reader refuses in a path is refused too
 function checkPath(path, where) {
   if (path === undefined || path.startsWith('"') || UNSAFE.test(path) || !isInside(path)) {
     throw new DeptreeError('expected a header naming one relative path on both sides', where)

@@ -1,13 +1,6 @@
-// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile
-// with the isolated linker and --ignore-scripts, in a Vfs rooted at the
-// lockfile's directory; patched still, as pnpm patches before scripts. Bins are
-// not linked, though what linking does to their files is (bins.js). With
-// `sizeEstimateOnly`, its directories and links alone, each package's sized
-// by its version document, of which nothing is fetched but those documents.
-// With `lazy`, its directories and links alone too, fetching nothing, and
-// each package unpacked into it as it is asked for (lazy.js). With
-// `production`, as --prod installs it (production.js): laid out from the
-// lockfile it leaves, and held to the whole one.
+// The node_modules tree pnpm 10, 11 or 12 installs from a frozen lockfile with --ignore-scripts, patched,
+// as pnpm patches before scripts. With `sizeEstimateOnly` or `lazy` its directories and links alone, the
+// one sized by version documents, the other unpacked as asked (lazy.js); `production` as --prod lays it out.
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { compareVersions } from '@preventive/upstream/semver.js'
@@ -77,11 +70,8 @@ function checkSource(node, installed) {
 
 const bytesOf = (files) => files.values().reduce((sum, file) => sum + file.data.length, 0)
 
-// By name@version, as the lockfile reader gives a package's snapshots one
-// resolution and manifest. With `sizeEstimateOnly`, a registry package's size
-// alone, with no files or package.json; with `lazy`, nothing of one, which is
-// fetched as it is unpacked. A directory is read whole all the same, and its
-// size is its files'.
+// By name@version, which the lockfile reader gives one resolution and manifest. With `sizeEstimateOnly`
+// a registry package's size alone, with `lazy` nothing of one; a directory is read whole either way.
 async function fetchAll(nodes, project, host, fetching) {
   const packages = new Map([...nodes.values()].map(({ key, pkg }) => [packageKeyOf(key), pkg]))
   const fetched = new Map()
@@ -100,9 +90,7 @@ async function fetchAll(nodes, project, host, fetching) {
   return fetched
 }
 
-// With `lazy`, a registry package's snapshots have no files yet, and are held
-// to them as each is unpacked; `checks` are what that takes, of the whole
-// lockfile.
+// With `lazy`, a registry package's snapshots are held to its files as each is unpacked, by `checks`
 async function fetchNodes(nodes, checks, project, host, fetching) {
   const fetched = await fetchAll(nodes, project, host, fetching)
   const byDir = new Map()
@@ -114,10 +102,8 @@ async function fetchNodes(nodes, checks, project, host, fetching) {
   return { byDir, tarballs: [...fetched.values()].filter((got) => !got.local).length }
 }
 
-// pnpm hardlinks a directory package's files into each of its snapshots, so a
-// file fixBin makes executable in one is so in all (a CRLF `#!` it rewrites
-// stays that snapshot's own), but where pnpm builds the package or, with
-// pnpm 11 and 12, packageImportMethod is neither auto nor hardlink.
+// pnpm hardlinks a directory package's files into each snapshot, so a file made executable in one is so
+// in all (a CRLF `#!` rewritten stays its own), unless it builds it or, from 11, imports otherwise
 function executableElsewhere(byDir, targets, packageImportMethod, major) {
   if (major >= 11 && packageImportMethod !== 'auto' && packageImportMethod !== 'hardlink') return new Map()
   const shared = [...byDir.values()].filter((node) => node.pkg.resolution.type === 'directory' && !requiresBuild(node.manifest, node.files, major))
@@ -184,15 +170,9 @@ function linksOf(byDir, direct, settings, projects, major, hoisting) {
 // The import methods with which each copy of a package is its own.
 const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 
-// The hoisted layout of pnpm 10 and 11 (hoisted.js): nothing but the packages
-// and links, each copy a parent before what lands in its node_modules, as
-// pnpm keeps only its state in node_modules/.pnpm. `fixes` are what linking
-// bins does to the files, with what pnpm's build pass does to them, read once
-// every package's files are at hand; with `sizeEstimateOnly` they are not
-// followed, nor with `lazy` but where a package unpacked needs them. `builds`
-// tells, where any patch is configured, what the build pass builds; `reads`
-// the packages the fixes read the files of (hoistedBinReads). `lockfile` is
-// the one the tree is laid out from, and `checks` hold it to the whole one.
+// The hoisted layout of pnpm 10 and 11 (hoisted.js), each copy a parent before what lands in its
+// node_modules. `fixes` are what linking bins and the build pass do to the files, read once every
+// package's are at hand; `builds` what the build pass builds; `checks` hold the lockfile to the whole one.
 async function buildHoisted({ lockfile, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
@@ -227,9 +207,8 @@ async function buildHoisted({ lockfile, checks, settings, host, project, install
   return { byDir, links, fixes, reads: () => hoistedBinReads({ nodes: byDir, building, packages: lockfile.packages }), builds, early, tarballs, dev }
 }
 
-// The isolated layout: each package in node_modules/.pnpm, linked from what
-// needs it and where it is hoisted; `fixes` as buildHoisted's, and `reads`
-// the packages they read the files of (binReads).
+// The isolated layout: each package in node_modules/.pnpm, linked from what needs it and where it is
+// hoisted; `reads` are the packages `fixes` read the files of (binReads)
 async function buildIsolated({ lockfile, checks, settings, host, project, installed, manifests, names, skipped, fetching }) {
   const { major } = host
   const { nodes, direct, hoisting } = await buildGraph(lockfile, skipped, settings.virtualStoreDirMaxLength, major)
@@ -309,9 +288,7 @@ export async function buildPnpmTree(options) {
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: byDir.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...byDir.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
   const listed = []
   const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
-  // Each node is let go once written, and a package's files with its last.
-  // With `sizeEstimateOnly`, its directory alone is made, and its size
-  // counted; with `lazy`, its directory alone, and the node is kept to unpack.
+  // Each node is let go once written, so a package's files go with its last; `lazy` keeps them to unpack
   for (const node of byDir.values()) {
     if (!fetching.lazy) byDir.delete(node.dir)
     try {

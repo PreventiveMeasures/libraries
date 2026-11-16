@@ -1,9 +1,6 @@
-// The walks of npm-packlist over ignore-walk that pnpm 10 (npm-packlist
-// 5.1.3, ignore-walk 5) and pnpm 11 (npm-packlist 10.0.4, ignore-walk 8)
-// run over a directory, kept to their steps, odd ones and all: a walker of a
-// directory asks its parent of each entry by a path from there, and reads
-// the ignore files among its entries, in the order ignoreFiles lists them.
-// `view` reads the directory, and refuses what is not followed here.
+// npm-packlist's walks over ignore-walk, kept to their steps, odd ones and all: 5.1.3 over ignore-walk 5 for
+// pnpm 10, 10.0.4 over 8 for pnpm 11. A walker asks its parent of each entry by a path from there, and reads
+// the ignore files among its entries in ignoreFiles' order; `view` refuses what is not followed here.
 
 import { basename, dirname, join, normalize } from '@preventive/vfs/path.js'
 import { quote } from '../error.js'

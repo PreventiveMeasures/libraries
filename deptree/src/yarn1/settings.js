@@ -1,9 +1,6 @@
-// The project's .yarnrc and .npmrc, as far as yarn 1 reads them for an
-// install, the .yarnrc's options over the .npmrc's. ignore-platform is
-// followed only as a flag, as yarn reads the option and does not act on it.
-// Options that change the tree are refused; the rest are for where and how
-// yarn fetches, and the tree is held to the lockfile's integrities. A `--`
-// line of .yarnrc is a flag yarn adds to its command line.
+// The project's .yarnrc and .npmrc as yarn 1 reads them for an install, the .yarnrc's over the .npmrc's,
+// and a `--` line of the .yarnrc as a flag. What changes the tree is refused; the rest is where and how
+// yarn fetches, and the tree is held to the lockfile's integrities.
 
 import { DeptreeError, quote } from '../error.js'
 import { parseNpmrc } from '../npmrc.js'
@@ -16,10 +13,8 @@ const PASSED = new Set([
   'check-files', 'pure-lockfile', 'frozen-lockfile', 'audit', 'disable-pnp',
 ])
 
-// Of the options yarn 1.22 reads by config.getOption, those that change the
-// tree, and yarn-path, which runs another yarn. global-folder may be the
-// project's directory, where yarn reads no package.json with validate(),
-// which drops a name listed twice from all but one of its lists.
+// Of the options config.getOption reads, those that change the tree, and yarn-path, which runs another
+// yarn; global-folder as the project's directory has yarn drop a name listed twice from all but one list
 const REFUSED = new Set([
   'ignore-optional', 'production', 'bin-links', 'workspaces-experimental', 'workspaces-nohoist-experimental', 'plugnplay-override',
   'yarn-link-file-dependencies', 'enable-meta-folder', 'experimental-pack-script-packages-in-mirror', 'global-folder', 'yarn-path',

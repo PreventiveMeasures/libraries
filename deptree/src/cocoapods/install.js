@@ -1,17 +1,13 @@
-// A downloaded pod's directory as `pod install` leaves it in Pods/: cleaned
-// once in CocoaPods' download cache, for every spec of the podspec on every
-// platform each takes; copied into Pods/; cleaned again there, for the
-// specs installed; and its source files made read-only.
+// A downloaded pod's directory as `pod install` leaves it in Pods/: cleaned in the download cache for every
+// spec on every platform, copied into Pods/, cleaned there for the specs installed, its sources made read-only
 
 import { DeptreeError, quote } from '../error.js'
 import { clean, lock } from './clean.js'
 import { PodTree } from './podtree.js'
 import { allSpecs, consumerOf, licenseFileOf, platformsOf } from './podspec.js'
 
-// What a spec's file patterns come to on each platform it takes, of
-// `platforms` where they are given. The lockfile does not say which of
-// them a pod was installed for, so a spec installed is held to name the
-// same files on each.
+// A spec's file patterns on each platform it takes, of `platforms` where given, which have to name the
+// same files, as the lockfile does not say which a pod was installed for
 function uniformConsumer(spec, platforms, where) {
   const taken = platformsOf(spec, where).filter((platform) => platforms?.includes(platform) ?? true)
   if (taken.length === 0) throw new DeptreeError(`${quote(spec.name)} is for none of the platforms given`, where)
@@ -25,13 +21,9 @@ function uniformConsumer(spec, platforms, where) {
   return first[1]
 }
 
-// What a pod's podspec says of the files CocoaPods keeps of it, read and
-// checked whole before anything is downloaded: the license file it names,
-// the consumerOf values of every spec on every platform each takes, for
-// the clean in the download cache, and of the specs installed, for the
-// clean in Pods/. `installed` are the specs of `podspec` the lockfile has,
-// and `platforms` those the Podfile's targets are for, or undefined for
-// any.
+// What a podspec says of the files CocoaPods keeps, checked whole before anything is downloaded: the
+// license file, and the consumerOf values of every spec on every platform, for the clean in the cache, and
+// of the `installed` specs, for the clean in Pods/
 export function planPod(podspec, installed, platforms, where) {
   return {
     license: licenseFileOf(podspec, where),
@@ -40,18 +32,13 @@ export function planPod(podspec, installed, platforms, where) {
   }
 }
 
-// The download, `contents` as writeFiles takes them, as planPod's `plan`
-// leaves it. `folded` where the pod is on macOS; `keepsGit` where the
-// download is a clone, whose .git CocoaPods copies into its cache with the
-// rest, as 1.13 to 1.15 do, which is refused where the clean there keeps
-// it, as what is in it is not known; an archive has none.
+// The download as `plan` leaves it. `keepsGit` where 1.13 to 1.15 copy a clone's .git into the cache,
+// which is refused where the clean there keeps it, as what is in it is not known.
 export function installPod(contents, plan, { folded, keepsGit, where }) {
   const tree = new PodTree(keepsGit ? { ...contents, dirs: [...contents.dirs, '.git'] } : contents, folded, where)
   const budget = { matches: 0 }
-  // Downloader::Cache#copy_and_clean, its group_subspecs_by_platform. Its
-  // copy into Pods/, FileUtils.cp_r under a umask of 0o022, keeps the modes
-  // a download has, a checkout's 0o644 and 0o755 or an archive's under that
-  // umask as tar extracts it.
+  // Downloader::Cache#copy_and_clean; its copy into Pods/, FileUtils.cp_r under a 0o022 umask, keeps the
+  // download's modes
   clean(tree, plan.every, plan.license, budget)
   if (tree.nodes.has('.git')) throw new DeptreeError('its file patterns keep the .git of the clone, which CocoaPods before 1.16 copies into its cache, and which is not built', where)
   // PodSourceInstaller#clean!, then Installer#lock_pod_sources.

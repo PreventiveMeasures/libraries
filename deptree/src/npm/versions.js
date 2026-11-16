@@ -1,7 +1,6 @@
-// What changes the tree between the npm releases supported. `reuse` is npm
-// 10's ci, building on the tree it loaded the lockfile into: lockfile flags
-// as written, optional packages left out after their directories are made,
-// an unmet optional peer resolved again, a workspace's prepare script run.
+// What changes the tree between the npm releases supported. `reuse` is npm 10's ci on the tree it loaded
+// the lockfile into: flags as written, optional packages left out after their directories are made, an
+// unmet optional peer resolved again, a workspace's prepare script run.
 
 import { DeptreeError, quote } from '../error.js'
 

@@ -1,11 +1,6 @@
-// yarn 1's PackageHoister (package-hoister.js), quirks and all: a prepass
-// seeds at the top, of several versions of a package, the one most others
-// depend on, and a level's requests go by pattern, then those with peers,
-// which a check meant to put them after their peers always puts last.
-// Departs from yarn only in leaving out nohoist, --focus and --flat, refused
-// before it runs, and yarn's record of each step; in comparing `loc` where
-// yarn compares cache paths, and references where it compares manifests;
-// and in reachedBut, its own.
+// yarn 1's PackageHoister (package-hoister.js), quirks and all: a level's requests go by pattern, then
+// those with peers, which a check meant to put them after their peers puts last. It departs from yarn in
+// comparing `loc` for cache paths and references for manifests, and in reachedBut, its own.
 
 import { DeptreeError, quote } from '../error.js'
 

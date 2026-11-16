@@ -1,5 +1,4 @@
-// Where a pod is downloaded from: its podspec's `source`, as
-// cocoapods-downloader takes it, held to what is fetched here alike.
+// Where a pod is downloaded from: its podspec's `source`, as cocoapods-downloader takes it
 
 import { isPodArchiveUrl } from '@preventive/upstream/cocoapods.js'
 import { DeptreeError, quote } from '../error.js'
@@ -11,35 +10,24 @@ const STRATEGIES = ['git', 'hg', 'http', 'scp', 'svn']
 // What its Git takes beside the URL; anything else it refuses.
 const GIT_OPTIONS = new Set(['git', 'tag', 'commit', 'branch', 'submodules'])
 const COMMIT = /^[\da-f]{40}$/u
-// What its Http, a RemoteFile, takes beside the URL; anything else it
-// refuses.
+// What its Http, a RemoteFile, takes beside the URL; anything else it refuses
 const HTTP_OPTIONS = new Set(['http', 'type', 'flatten', 'sha1', 'sha256', 'headers'])
-// The hash RemoteFile checks a download against, :sha256 before :sha1, by
-// the lowercase hex Ruby's hexdigest writes, which it compares as text: a
-// sha256 alone is taken, as two archives can be made to share a sha1.
+// RemoteFile compares :sha256 before :sha1, as text, to the lowercase hex Ruby's hexdigest writes; a sha256
+// alone is taken, as two archives can be made to share a sha1
 const SHA256 = /^[\da-f]{64}$/u
-// RemoteFile's types, by :type or the end of the URL's path: tars it
-// extracts with `tar xf` and flattens by default, a zip with `unzip`, which
-// it does not flatten, and a dmg it mounts, not read here.
+// RemoteFile's types, by :type or the end of the URL's path: tars `tar xf` extracts and are flattened by
+// default, a zip `unzip` extracts, and a dmg it mounts, not read here
 const TARS = new Set(['tgz', 'tar', 'tbz', 'txz'])
 const TYPES = new Set([...TARS, 'zip', 'dmg'])
 const URL_TYPES = [[/\.zip$/u, 'zip'], [/\.(?:tgz|tar\.gz)$/u, 'tgz'], [/\.tar$/u, 'tar'], [/\.(?:tbz|tar\.bz2)$/u, 'tbz'], [/\.(?:txz|tar\.xz)$/u, 'txz'], [/\.dmg$/u, 'dmg']]
-// Meta's namespace on Maven Central, a .tar.gz or a .zip under which
-// upstream's isPodArchiveUrl takes.
+// Meta's namespace on Maven Central, under which isPodArchiveUrl takes a .tar.gz or a .zip
 const MAVEN_FACEBOOK = 'https://repo1.maven.org/maven2/com/facebook/'
 
-// A refusal of where a pod is downloaded from, which buildCocoaPodsTree's
-// `partial` leaves the pod to CocoaPods for; a DeptreeError otherwise.
+// A refusal of where a pod is downloaded from, for which `partial` leaves the pod to CocoaPods
 export class SourceRefusal extends DeptreeError {}
 
-// The podspec's source: git, a GitHub repository by its URL and the full
-// commit to check out of it; or :http, an archive on GitHub over https,
-// `tar xf` or `unzip` extracts, or a .tar.gz or a .zip under Maven
-// Central's com/facebook/, and the hash the podspec holds it to. A
-// tag is refused, as the lockfile holds no commit for one and GitHub can
-// move it. A prepare_command, a script CocoaPods runs in the download, is
-// refused unless `prepares`, where the caller runs it, as is any other
-// source, each with a SourceRefusal.
+// Git from a GitHub repository by a full commit, or :http (httpSourceOf), else a SourceRefusal: a tag, as
+// GitHub can move one; a prepare_command unless `prepares`, where the caller runs it; any other source
 export function sourceOf(podspec, where, prepares = false) {
   if (given(podspec.attributes.prepare_command) && !prepares) throw new SourceRefusal('a prepare_command, a script CocoaPods runs in the download, is not supported', where)
   const source = podspec.attributes.source
@@ -61,14 +49,9 @@ export function sourceOf(podspec, where, prepares = false) {
   return { type: 'git', url, repo, commit }
 }
 
-// An :http source: its URL, one upstream's getPodArchive fetches, on GitHub
-// or a .tar.gz or a .zip under Maven Central's com/facebook/, of the type
-// its URL names, by :type too; what RemoteFile takes it to be, and so the
-// name it downloads it under, `file.<type>`, in the directory it extracts
-// it into; whether it flattens it, by :flatten where that is given, as Ruby
-// reads a value, and else by its type, a tar and not a zip; and the sha256
-// it checks it against. A download held to no hash, or to a sha1 alone, is
-// refused, as is one with :headers, which curl would send.
+// An archive getPodArchive fetches, of the type RemoteFile takes it to be and so downloads as
+// `file.<type>`, flattened by :flatten as Ruby reads it or else as a tar is, held to its sha256. No hash, a
+// sha1 alone, or :headers, which curl would send, is refused.
 function httpSourceOf(source, where) {
   const other = Object.keys(source).find((key) => !HTTP_OPTIONS.has(key))
   if (other !== undefined) throw new SourceRefusal(`its source has :${other}, which cocoapods-downloader refuses of :http`, where)

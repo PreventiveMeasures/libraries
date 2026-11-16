@@ -1,12 +1,6 @@
-// How CocoaPods matches a podspec's file patterns against a pod's files:
-// PathList's dir_glob_equivalent_patterns, its own expansion of braces,
-// then Ruby's File.fnmatch with FNM_CASEFOLD and FNM_PATHNAME, as dir.c
-// has it in Ruby 2.6 to 3.4. Each is followed step for step, quirks and
-// all: a `*` stops at a `/`; a leading `.` of a name is matched by a `.`
-// alone, and `**/` enters no directory whose name starts with one; case
-// is folded for ASCII letters alone; and in a bracket, a character that is
-// not one of it byte for byte is folded against the one after it in the
-// pattern, so that `[a]` does not take `A` where `[ba]` does.
+// PathList's brace expansion, then File.fnmatch with FNM_CASEFOLD | FNM_PATHNAME, step for step as dir.c
+// has it in Ruby 2.6 to 3.4, quirks and all: case folds for ASCII alone, and in a bracket against the
+// character after, so `[a]` does not take `A` where `[ba]` does
 
 const NOMATCH = 1
 
@@ -68,7 +62,6 @@ function helper(P, p0, S, s0) {
   if (at(S, s) === '.' && at(P, unescape(p)) !== '.') return { r: NOMATCH, p, s }
   for (;;) {
     const char = at(P, p)
-    let failed = false
     if (char === '*') {
       do p++
       while (at(P, p) === '*')
@@ -87,9 +80,7 @@ function helper(P, p0, S, s0) {
     if (char === '[') {
       if (end(S, s)) return { r: NOMATCH, p, s }
       const t = bracket(P, p + 1, S, s)
-      if (t === -1) {
-        failed = true
-      } else {
+      if (t !== -1) {
         p = t
         s++
         continue
@@ -102,9 +93,9 @@ function helper(P, p0, S, s0) {
         s++
         continue
       }
-      failed = true
     }
-    if (failed && ptmp !== -1) {
+    // A failed match: back to the last `*`, a character further on
+    if (ptmp !== -1) {
       p = ptmp
       stmp++
       s = stmp
@@ -161,27 +152,21 @@ function matches(P, S) {
   }
 }
 
-// Ruby's String#split by ',': empty strings at the end dropped, so that
-// `{}` and `{,}` stand for no pattern at all.
+// Ruby's String#split by ',', which drops empty strings at the end, so `{}` and `{,}` are no pattern at all
 function splitCommas(text) {
   const values = text.split(',')
   while (values.length > 0 && values.at(-1) === '') values.pop()
   return values
 }
 
-// More than this many patterns from one is refused, rather than matched,
-// and so is a pattern longer than MAX_PATTERN, whose braces take time to
-// find in proportion to its length squared.
+// More patterns from one are refused, and so is one longer than MAX_PATTERN, as finding its braces
+// takes time in its length squared
 export const MAX_EXPANDED = 4096
 const MAX_PATTERN = 4096
 
-// dir_glob_equivalent_patterns: each `/**/` as `{/**/,/}`, then each
-// `{...}` with no `}` inside, by the text of it, replaced wherever that text
-// is with each of the values between its commas, braces dropped from them,
-// one set after another in the order each is first found. Ruby's gsub reads
-// a backslash in a value as the start of a reference to the match; a
-// pattern with one there, and one that comes to more than MAX_EXPANDED,
-// is undefined, for the caller to refuse, before it is expanded.
+// dir_glob_equivalent_patterns: each `/**/` as `{/**/,/}`, then each `{...}` by its text replaced everywhere
+// with each of its values, set after set. Undefined, for the caller to refuse, past MAX_EXPANDED or with a
+// backslash in a value, which Ruby's gsub reads as a reference to the match.
 export function expandBraces(pattern) {
   if (pattern.length > MAX_PATTERN) return undefined
   const rewritten = pattern.replaceAll('/**/', '{/**/,/}')

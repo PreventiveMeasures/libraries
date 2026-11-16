@@ -1,7 +1,6 @@
-// pnpm 10 applies the patch patchedDependencies picks for a package's name and
-// version (@pnpm/patching.config's getPatchInfo), not the one its snapshot key
-// names, so every snapshot must name that pick's hash. Every patch must be some
-// snapshot's, which pnpm checks only when resolving.
+// pnpm 10 applies the patch patchedDependencies picks for a package's name and version (getPatchInfo), not
+// the one its snapshot key names, so every snapshot must name that pick's hash; and every patch must be some
+// snapshot's, which pnpm checks only when resolving
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { isExactVersion, satisfies, valid, validRange } from '@preventive/upstream/semver.js'

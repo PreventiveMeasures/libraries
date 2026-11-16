@@ -12,15 +12,9 @@ import { binsOf } from './commands.js'
 import { checkFetched, fetchPackage } from './package.js'
 import { compose, writeNode } from './write.js'
 
-// Whether what is done to a package's files turns on other packages', once
-// fetched: with the hoisted linker where any patch is configured, pnpm's
-// build pass builds it (`builds`), patched or with an install script, which
-// turns on its other copies and what else is built; or which of its bins pnpm
-// links could change them, one linked being fixed otherwise than it is, made
-// executable or its CRLF `#!` line made LF; or pnpm 12 fails on one that
-// is a directory; or the package is patched, which is held to its bins as
-// linked; or its commands cannot be read alone. Else its files are as fetched
-// and patched, whatever pnpm links of its bins, and of anything else's.
+// Whether its files turn on others' once fetched: pnpm's build pass builds it (`builds`); a bin it links could
+// be fixed otherwise, made executable or its CRLF `#!` made LF; pnpm 12 fails on a bin that is a directory; it
+// is patched, held to its bins as linked; or its commands cannot be read alone.
 function bound(node, major, builds) {
   if (builds?.(node)) return true
   let bins
@@ -53,20 +47,9 @@ function filesIn(vfs, dir, dirs) {
   return files
 }
 
-// Each registry package fetched once for all its snapshots, a few at a time,
-// and held to what the full tree holds it to; each snapshot written as the
-// full tree writes it, `patched` and `composing` being what compose takes, and
-// listed by `entryOf`. What linking bins fixes of it turns on the other
-// packages' bins only where a package is bound (above): the first such
-// unpack fetches those of `reads()` not unpacked yet, every package where it
-// is not given, and reads the fixes by `fixes`, as the full tree does, one
-// unpacked before read back from the tree, where it is as it came, and one
-// not at hand read as having no bins, as the lockfile says. One read so that
-// is bound once unpacked has the fixes read again, with its own files. A
-// package's files are let go once it is unpacked, and its tarball once each
-// of its snapshots is, but a patched one's, and every one's once the fixes
-// are read. `early.nodes` are fetched before anything is unpacked, and held
-// to `early.check()`.
+// Each registry package fetched once for all its snapshots, a few at a time, each snapshot written as the full
+// tree writes it. Only a `bound` one waits on the others' bins: the first fetches those `reads()` names, or all,
+// and reads the fixes by `fixes`, a package not at hand read as binless. `early.nodes` are fetched first.
 export async function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, early, checks, patched, composing, entryOf, fetching, folded }) {
   const { major } = composing
   const limit = limited()
@@ -120,9 +103,11 @@ export async function lazyUnpacker({ vfs, byDir, stats, fixes, reads, builds, ea
       await eachConcurrently([...byDir.values()].filter((other) => read?.has(other.dir) ?? true), prepare, (other) => quote(other.key))
       return readFixes()
     })()
+    // One read as binless before it was at hand has the fixes read again, with its own files
     if ((await made).stubbed.has(node.dir)) made = Promise.try(readFixes)
     return made
   }
+  // A tarball is let go once each of its snapshots is written, and the files until the fixes are read
   const release = (node) => {
     const id = packageKeyOf(node.key)
     left.set(id, left.get(id) - 1)

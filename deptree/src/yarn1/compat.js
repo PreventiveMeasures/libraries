@@ -1,7 +1,5 @@
-// yarn 1's package-compatibility.js, engines checked against host.node and
-// host.yarn; one yarn knows no version of is passed over, as yarn does. A
-// Node unknown (host.node left out) takes every range of its own, and of
-// what it reports in process.versions.
+// yarn 1's package-compatibility.js against host.node and host.yarn: an engine yarn knows no version of
+// is passed over, as yarn does, and a Node unknown takes every range of its own and its process.versions
 
 import { compareVersions, major, satisfies, valid } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'

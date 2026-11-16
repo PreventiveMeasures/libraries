@@ -1,16 +1,13 @@
-// A pod's directory, held in memory as CocoaPods finds it on disk: what
-// is there, what a path comes to through the links on the way, and what
-// FileUtils.rm_rf leaves of it.
+// A pod's directory as CocoaPods finds it on disk: what is there, what a path comes to through links, and
+// what FileUtils.rm_rf leaves
 
 import { utf8fromStringLoose } from '@exodus/bytes/utf8.js'
 import { DeptreeError, quote } from '../error.js'
 import { fold } from '../mount.js'
 import { CASE_UNSTABLE } from './unicode.js'
 
-// The links a path is followed through before it is taken to lead nowhere,
-// as each gives up with ELOOP; the longest path, in bytes, and the longest
-// name in it, that a call takes, which a path in the pod is shorter than
-// with the pod's directory in front of it.
+// Links followed before ELOOP, and the longest path and name in bytes a call takes, which a path in the pod
+// is shorter than with the pod's directory in front
 const LIMITS = {
   linux: { links: 40, path: 4096, name: 255 },
   darwin: { links: 32, path: 1024, name: 255 },
@@ -19,11 +16,8 @@ const LIMITS = {
 const parentOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const join = (dir, name) => (dir === '' ? name : `${dir}/${name}`)
 
-// A pod's directory: its paths from there, each a directory, a file with
-// its data and mode, or a link with its target, as given; every directory
-// on the way to one is one of them. `folded` where it is on macOS, which
-// finds a name whatever its case and normalization: two that are one name
-// there are refused, as git's checkout would write one of them alone.
+// Every directory on the way to a path is one too. `folded` on macOS, which finds a name whatever its case
+// and normalization: two that are one name there are refused, as git's checkout would write one alone.
 export class PodTree {
   constructor({ dirs, files, links }, folded, where) {
     this.where = where
@@ -47,8 +41,7 @@ export class PodTree {
     }
   }
 
-  // What CocoaPods fails on, a path too long or with a name too long, and
-  // what it reads by case otherwise in one release than another.
+  // A path or name too long, which CocoaPods fails on, or with a letter one release cases otherwise
   check(path, target) {
     const bytes = utf8fromStringLoose(path).length
     if (bytes >= this.limits.path || path.split('/').some((name) => utf8fromStringLoose(name).length > this.limits.name)) {
@@ -63,9 +56,8 @@ export class PodTree {
     return [...this.nodes.keys()]
   }
 
-  // The node `path` comes to, links followed, or undefined where it comes
-  // to nothing. A link that leads out of the pod's directory reads as
-  // whatever is there on the machine, which is refused.
+  // The node `path` comes to, links followed, or undefined for none; a link out of the pod's directory reads
+  // whatever the machine has there, and is refused
   resolve(path) {
     // The names still to follow, the next one last.
     const pending = path.split('/').toReversed()
@@ -104,8 +96,7 @@ export class PodTree {
     return this.resolve(path) !== undefined
   }
 
-  // FileUtils.rm_rf of each of `removed`: it, and all under it where it is
-  // a directory, as nothing is under a link.
+  // FileUtils.rm_rf of each of `removed`, with all under it
   removeAll(removed) {
     for (const path of this.paths) {
       let at = path

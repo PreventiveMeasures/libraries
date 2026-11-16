@@ -1,15 +1,11 @@
-// What CocoaPods keeps of a pod it downloads, held in memory: its
-// PodDirCleaner removes every file and directory of the download that no
-// spec uses, by the file patterns of each spec on each platform, through a
-// PathList of what is there and a FileAccessor per spec and platform; its
-// lock_files! then takes the owner's write off each source file. Each is
-// followed as CocoaPods 1.13 to 1.17 have it, in Ruby 2.6 to 3.4.
+// PodDirCleaner, which removes all no spec uses, by a PathList of what is there and a FileAccessor per spec
+// and platform, then lock_files!, which takes the owner's write off each source file; as CocoaPods 1.13 to
+// 1.17 have them, in Ruby 2.6 to 3.4
 
 import { DeptreeError, quote } from '../error.js'
 import { expandBraces, matcher } from './fnmatch.js'
 
-// FileAccessor::GLOB_PATTERNS, and what a source file is: Xcodeproj's
-// header extensions after CocoaPods' own.
+// FileAccessor::GLOB_PATTERNS; a source file's extensions, Xcodeproj's header ones after CocoaPods' own
 const HEADERS = ['.h', '.hh', '.hpp', '.ipp', '.tpp', '.hxx', '.def', '.inl', '.inc']
 const SOURCES = [...new Set(['.m', '.mm', '.i', '.c', '.cc', '.cxx', '.cpp', '.c++', '.swift', ...HEADERS])]
 const SOURCE_FILES = `*{${SOURCES.join(',')}}`
@@ -17,13 +13,10 @@ const README = 'readme{*,.*}'
 const LICENSE = 'licen{c,s}e{*,.*}'
 // What PathList#relative_glob lays under a directory an exclusion names.
 const EXCLUDED_DIR = '**/*'
-// The paths matched against a pattern, each of a pattern's expansions
-// counted, past which a pod is refused rather than cleaned.
+// Paths matched against a pattern's expansions, past which a pod is refused rather than cleaned
 export const MAX_MATCHES = 200_000_000
 
-// Ruby's String#downcase and #upcase: Unicode's mappings, without the
-// final sigma, which takes the letters around it into account and Ruby
-// does not.
+// Ruby's String#downcase: Unicode's mapping without the final sigma, which Ruby does not take into account
 const downcase = (text) => text.replaceAll('\u03A3', '\u03C3').toLowerCase()
 const encoder = new TextEncoder()
 function compareBytes(a, b) {
@@ -33,10 +26,8 @@ function compareBytes(a, b) {
 // Ruby's sort_by(&:upcase), which compares bytes.
 const byUpcase = (paths) => paths.map((path) => [path, encoder.encode(path.toUpperCase())]).sort(([, a], [, b]) => compareBytes(a, b)).map(([path]) => path)
 
-// Sandbox::PathList: what `**/*` with FNM_DOTMATCH finds in the pod's
-// directory, entering no link, each a directory where File.directory? says
-// so and a file where it does not, a directory whose path ends in `.`
-// passed over; each list sorted by sort_by(&:upcase).
+// Sandbox::PathList: `**/*` with FNM_DOTMATCH, entering no link, a directory where File.directory? says so
+// (but where its path ends in `.`) and a file elsewhere, each list by sort_by(&:upcase)
 class PathList {
   constructor(tree, budget) {
     this.tree = tree
@@ -58,12 +49,9 @@ class PathList {
     return this.lowerDirs.has(downcase(pattern).replace(/\/$/u, ''))
   }
 
-  // PathList#relative_glob: each pattern a path of the list as it is, or
-  // else, where it names a directory and `dirPattern` is given, that laid
-  // under it; then its braces expanded, and every path of the list that
-  // one of them matches. Those `exclude` matches, under a directory it
-  // names too, are taken out. Paths come back in the order of the list,
-  // pattern by pattern, the same path more than once where two match it.
+  // PathList#relative_glob: a pattern that is a path as it is, else with `dirPattern` under a directory it
+  // names, its braces expanded and matched; `exclude` taken out, under a directory it names too. In the
+  // list's order, pattern by pattern, a path again where two match it.
   glob(patterns, { dirPattern, exclude = [], includeDirs = false } = {}) {
     if (patterns.length === 0) return []
     const key = JSON.stringify([patterns, dirPattern, exclude, includeDirs])
@@ -88,8 +76,7 @@ class PathList {
     return found
   }
 
-  // `glob([pattern]).first`, as readme and license take it: refused where
-  // two that sort_by(&:upcase) leaves in no set order could be first.
+  // `glob([pattern]).first`, refused where sort_by(&:upcase) leaves two in no set order first
   first(pattern) {
     const [one, two] = this.glob([pattern])
     if (two !== undefined && one.toUpperCase() === two.toUpperCase()) throw new DeptreeError(`${quote(one)} and ${quote(two)} differ in case alone, and CocoaPods takes either as the first ${pattern}`, this.tree.where)
@@ -97,13 +84,11 @@ class PathList {
   }
 }
 
-// FileAccessor#source_files, of one spec on one platform: `values` are its
-// consumerOf.
+// FileAccessor#source_files; `values` are consumerOf's
 const sourceFiles = (list, values) => list.glob(values.source_files, { dirPattern: SOURCE_FILES, exclude: values.exclude_files })
 
-// FileAccessor.all_files, of one spec on one platform: the paths of what it
-// uses, from the pod's directory, as each accessor finds them; the prefix
-// header's, the module map's and the license's as the podspec gives them.
+// FileAccessor.all_files: what a spec uses on a platform, the prefix header, module map and license as
+// the podspec gives them
 function usedFiles(list, values, licenseFile) {
   const exclude = values.exclude_files
   const withDirs = (patterns) => list.glob(patterns, { exclude, includeDirs: true })
@@ -135,10 +120,8 @@ function firstFrom(sorted, text) {
   return low
 }
 
-// Whether one of `sorted` starts with `text`, or `text` with one of them.
-// One `text` starts with is at or before it, and so is all that comes
-// between the two: the last before it starts with that one too, so that
-// where it is not one, the search goes on in what the two have in common.
+// Whether one of `sorted` starts with `text`, or `text` with one: such a one is at or before it, and so is
+// all between, so where the last before it is not one the search goes on in what the two share
 function sharesStart(sorted, text) {
   let at = firstFrom(sorted, text)
   if (sorted[at]?.startsWith(text)) return true
@@ -158,14 +141,9 @@ function sharesStart(sorted, text) {
 // Each set of values once, as specs and platforms often share one.
 const uniqueOf = (accessors) => [...new Map(accessors.map((one) => [JSON.stringify(one), one])).values()]
 
-// PodDirCleaner#clean!, by the consumerOf values of each spec on each
-// platform it is cleaned for: every path of the pod's directory removed,
-// all under it with it, but what ends in `.`, and what is a used file's
-// path or one of whose paths is in the other, downcased, as `include?`
-// finds one string in another. The pod's directory has its own path in
-// front of each, and is taken not to come again within one, so that one
-// is in the other where it is at its start. `budget` counts the matches
-// made, across every clean of the pod.
+// PodDirCleaner#clean!: every path removed but what ends in `.` and what, downcased, `include?` finds in a
+// used file's or finds one in, which with the pod's path in front of both is one at the other's start.
+// `budget` counts the matches across every clean of the pod.
 export function clean(tree, accessors, licenseFile, budget) {
   const list = new PathList(tree, budget)
   const used = [...new Set(uniqueOf(accessors).flatMap((values) => usedFiles(list, values, licenseFile)).map(downcase))].sort()
@@ -173,9 +151,7 @@ export function clean(tree, accessors, licenseFile, budget) {
   tree.removeAll(new Set(tree.paths.filter((one) => !kept(one))))
 }
 
-// lock_files!: the owner's write taken off each source file, by the file
-// that a link among them leads to, as chmod follows it. A link that leads
-// to nothing CocoaPods fails on, as File.stat does.
+// lock_files!, through a link to the file it leads to as chmod follows it; one to nothing fails File.stat
 export function lock(tree, accessors, budget) {
   const list = new PathList(tree, budget)
   for (const path of new Set(uniqueOf(accessors).flatMap((values) => sourceFiles(list, values)))) {

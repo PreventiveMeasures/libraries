@@ -1,10 +1,6 @@
-// The hoist of @yarnpkg/nm 4.0.5, which pnpm 10 bundles for the hoisted
-// linker: each package is moved as near the root as it can go without
-// shadowing a different one of its name for a package that needs that one.
-// Step for step as it runs, with its recursions on stacks of their own, and
-// its debug output and checks left out, which change nothing. pnpm sets no
-// hoisting limits, hoist priorities or external soft links, which are left
-// out too: the root alone is a hoist border, and nothing depends on it.
+// @yarnpkg/nm 4.0.5's hoist, which pnpm 10 bundles: each package moved as near the root as it goes without
+// shadowing another of its name that a package needs. Step for step, recursions on stacks, debug output and
+// checks left out; pnpm sets no limits, priorities or external links, so only the root is a border.
 
 import { DeptreeError } from '../error.js'
 import { REGULAR, WORKSPACE, buildPreferenceMap, depthFirst, getHoistIdentMap, getUsedDependencies, getZeroRoundUsedDependencies, hoistGraph, regularDependencies, walk } from './nm-hoist-graph.js'
@@ -18,10 +14,8 @@ const makeIdent = (name, reference) => {
 }
 const getIdentName = (locator) => locator.slice(0, locator.indexOf('@', 1))
 
-// The steps hoisting may take, and the nodes of the tree it gives, past
-// which it is refused: on a graph made to defeat it, the hoist walks each
-// path through what it cannot hoist, and the tree has a copy of a package
-// for each, of which there can be more than there is time or memory for.
+// Refused past these: on a graph made to defeat it, the hoist walks every path through what it cannot hoist,
+// and the tree holds a copy of a package for each
 const MAX_STEPS = 50_000_000
 const MAX_NODES = 100_000
 

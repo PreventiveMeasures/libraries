@@ -1,8 +1,5 @@
-// The settings an install reads. pnpm 10 reads the .npmrc beside the
-// lockfile, pnpm-workspace.yaml and the root package.json's `pnpm` field,
-// each over the one before; pnpm 11 and 12 read pnpm-workspace.yaml alone.
-// Settings from anywhere else (a user or global .npmrc, `npm_config_*`, the
-// command line) are taken to be at their defaults.
+// The settings an install reads: pnpm 10 the .npmrc, pnpm-workspace.yaml and the package.json's `pnpm`,
+// each over the one before; pnpm 11 and 12 pnpm-workspace.yaml alone. Any others are at their defaults.
 
 import { valid, validRange } from '@preventive/upstream/semver.js'
 import { DeptreeError, quote } from '../error.js'
