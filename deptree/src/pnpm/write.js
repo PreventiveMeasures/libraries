@@ -2,6 +2,7 @@
 // fixes them, then each into the tree, as the full tree and a lazy one
 // write them.
 
+import { compareVersions } from '@preventive/upstream/semver.js'
 import { dirname } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { checkWrite, isInside, makeDirs } from '../mount.js'
@@ -16,14 +17,18 @@ export function parsedPatch(patches, hash) {
   return patch
 }
 
-export function compose(node, patches, { targets, executable }, { major, checkPatched }) {
+// pnpm 12 before 12.11.0 writes a file a patch creates at 0o644, whatever
+// mode the patch gives it; 12.11.0 on, and pnpm 10 and 11, at that mode.
+const createdModeOf = (pnpm, major) => (major === 12 && compareVersions(pnpm, '12.11.0') < 0 ? 0o644 : undefined)
+
+export function compose(node, patches, { targets, executable }, { pnpm, major, checkPatched }) {
   const where = quote(node.key)
   let files = node.files
   const { patchHash } = node.pkg
   if (patchHash !== undefined) {
     const patch = parsedPatch(patches, patchHash)
     patch.applied ??= new WeakMap()
-    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, { createdMode: major >= 12 ? 0o644 : undefined }))
+    if (!patch.applied.has(files)) patch.applied.set(files, applyPatch(files, patch.parsed, { createdMode: createdModeOf(pnpm, major) }))
     files = patch.applied.get(files)
     const manifest = checkPatchOfBins(node, files, targets, where, major)
     checkPatched?.(manifest, where)

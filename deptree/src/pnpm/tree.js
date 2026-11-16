@@ -308,7 +308,7 @@ export async function buildPnpmTree(options) {
   if (!hoisted) makeDirs(vfs, 'node_modules/.pnpm')
   const stats = { projects: manifests.size, snapshots: Object.keys(lockfile.packages).length, installed: byDir.size, skipped: skipped.size, incompatible: incompatible.size, tarballs, patched: [...byDir.values()].filter((node) => node.pkg.patchHash !== undefined).length, files: 0, bytes: 0, links: links.size }
   const listed = []
-  const composing = { major, checkPatched: createPatchedCheck({ host, settings }) }
+  const composing = { pnpm: host.pnpm, major, checkPatched: createPatchedCheck({ host, settings }) }
   // Each node is let go once written, and a package's files with its last.
   // With `sizeEstimateOnly`, its directory alone is made, and its size
   // counted; with `lazy`, its directory alone, and the node is kept to unpack.

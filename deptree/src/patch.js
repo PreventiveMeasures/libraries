@@ -121,7 +121,8 @@ const parentsOf = (path) => path.split('/').slice(0, -1).map((_, index, names) =
 
 // `files` maps each path to `{ data, mode }` or `{ directory: true }`. A
 // deleted file leaves its directory, empty or not, as pnpm does; a created
-// one has `createdMode` where given, as pnpm 12 writes one plain.
+// one has `createdMode` where given, as pnpm 12 before 12.11.0 writes one
+// plain, and the mode the patch gives it otherwise.
 export function applyPatch(files, patch, { createdMode } = {}) {
   const next = new Map(files)
   for (const file of patch) {

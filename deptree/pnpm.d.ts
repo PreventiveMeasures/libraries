@@ -517,8 +517,8 @@ export interface PnpmLazyTree extends PnpmTree {
 // directories.bin otherwise, dotfiles among them, and a package's null
 // `bin` beside a directories.bin as its store has the package or not,
 // which is refused. It links no package to
-// a dependency of its own name, and writes a file a patch makes as
-// 0o644, whatever mode the patch gives it. It hoists from a graph of every
+// a dependency of its own name, and, before 12.11.0, writes a file a patch
+// makes as 0o644, whatever mode the patch gives it. It hoists from a graph of every
 // snapshot, those left out walked through but not hoisted, keeps from
 // hoisting the root project's aliases but its `link:`s, those left out
 // among them, and takes the snapshots of one depth in the order of their
