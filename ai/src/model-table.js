@@ -20,10 +20,10 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // rate, on the WHOLE request rather than only the tokens past the line. A row with no
 // `longContext` bills every request at its base rates.
 //
-// OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on the gpt-6
-// trio and gpt-6-cyber, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and gpt-5.4, and every
-// -pro row of those. The minis, nano and codex have none, nor gpt-5.6-cyber, whose input stops
-// at 272K.
+// OpenAI's is one tier across every model that has one: 2x and 1.5x past 272K, on gpt-6.2-astra
+// and -sol, the gpt-6 trio and gpt-6-cyber, gpt-6.1-sol and -terra, the gpt-5.6 trio, gpt-5.5 and
+// gpt-5.4, and every -pro row of those. The minis, nano and codex have none, nor gpt-5.6-cyber,
+// whose input stops at 272K.
 //
 // Of the Anthropic rows only haiku-5.5 takes one, inline: its two rate cards are 5x apart on every
 // leg past a 100K prompt. For the rest that is the published price rather than a gap: Opus, Sonnet
@@ -71,6 +71,10 @@ export const MAIN_MODELS = [
   // without one -- gpt-5.5-pro, gpt-5.4-pro -- is an OPENAI MODEL NAME, priced six times its namesake
   // because it is a different model. Adding a new `-pro` means deciding which, and the rate says
   // it: same as its base, or not.
+  ['openai/gpt-6.2-astra', { input: 8, output: 40, cacheReadPrice: 0.4, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
+  ['openai/gpt-6.2-astra-pro', { input: 8, output: 40, cacheReadPrice: 0.4, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6.2-astra', reasoningMode: 'pro' }],
+  ['openai/gpt-6.2-sol', { input: 2, output: 10, cacheReadPrice: 0.1, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
+  ['openai/gpt-6.2-sol-pro', { input: 2, output: 10, cacheReadPrice: 0.1, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6.2-sol', reasoningMode: 'pro' }],
   ['openai/gpt-6-astra', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],
   ['openai/gpt-6-astra-pro', { input: 10, output: 50, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION, wireModel: 'openai/gpt-6-astra', reasoningMode: 'pro' }],
   ['openai/gpt-6.1-sol', { input: 2, output: 10, cacheReadPrice: 0.1, longContext: OPENAI_LONG_CONTEXT, maxTokens: 128_000, noThink: 'unsupported', cacheBreakpoint: true, compaction: OPENAI_COMPACTION }],

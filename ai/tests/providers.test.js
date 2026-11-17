@@ -409,7 +409,7 @@ describe('buildRequestBody — provider-specific shapes', () => {
       // 922K of input on the GPT-6 and gpt-5.6 rows, aliases and pro rows
       // included; 272K on gpt-5.3-codex. Less the request's own
       // max_output_tokens, so the threshold follows the session's budget.
-      for (const model of ['openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6.1-sol', 'openai/gpt-5.6-sol', 'openai/gpt-5.6']) {
+      for (const model of ['openai/gpt-6.2-astra', 'openai/gpt-6.2-sol-pro', 'openai/gpt-6-astra', 'openai/gpt-6-astra-pro', 'openai/gpt-6.1-sol', 'openai/gpt-5.6-sol', 'openai/gpt-5.6']) {
         assert.deepEqual(buildRequestBody(model, 128_000, 'sys', messages, { think: true, tools }).context_management, compaction(794_000), model)
       }
       assert.deepEqual(buildRequestBody('openai/gpt-6-astra', 32_000, 'sys', messages, { think: true, tools }).context_management, compaction(890_000))
@@ -761,6 +761,14 @@ describe('buildRequestBody — provider-specific shapes', () => {
       assert.equal(buildRequestBody('openai/gpt-5.4', 1000, 'sys', messages).reasoning, undefined)
       assert.equal(buildRequestBody('openai/gpt-6-astra', 1000, 'sys', messages).reasoning, undefined)
       assert.equal(buildRequestBody('openai/gpt-6.1-sol', 1000, 'sys', messages).reasoning, undefined)
+      for (const base of ['gpt-6.2-astra', 'gpt-6.2-sol']) {
+        const body = buildRequestBody(`openai/${base}`, 1000, 'sys', messages)
+        assert.equal(body.model, base)
+        assert.equal(body.reasoning, undefined, base)
+        const pro = buildRequestBody(`openai/${base}-pro`, 1000, 'sys', messages)
+        assert.equal(pro.model, base)
+        assert.deepEqual(pro.reasoning, { mode: 'pro' }, base)
+      }
       for (const [model, wire] of [['openai/gpt-6-cyber', 'gpt-6-cyber'], ['openai/gpt-5.6-cyber', 'gpt-5.6-cyber']]) {
         const body = buildRequestBody(model, 1000, 'sys', messages)
         assert.equal(body.model, wire, model)
