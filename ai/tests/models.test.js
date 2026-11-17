@@ -1773,6 +1773,21 @@ describe('supportedModels', () => {
     assert.deepEqual(supportedModels().map((m) => m.id), KNOWN_MODELS.filter((id) => !id.endsWith(':free')))
   })
 
+  it('offers each vendor\'s current models ahead of its outdated ones, smaller ones included', () => {
+    const order = ids()
+    for (const [current, outdated] of [
+      ['openai/gpt-6-luna', 'openai/gpt-6-astra'],
+      ['openai/gpt-6.1-terra', 'openai/gpt-6.1-sol'],
+      ['openai/gpt-6-cyber', 'openai/gpt-6-sol'],
+      ['google/gemini-3.5-flash-lite', 'google/gemini-3.1-pro-preview'],
+      ['qwen/qwen3.8-flash', 'qwen/qwen3.8-max'],
+      ['nvidia/nemotron-3.5-lightning', 'nvidia/nemotron-3-super-120b-a12b'],
+      ['anthropic/claude-haiku-5.5', 'anthropic/claude-fable-5.1'],
+    ]) {
+      assert.ok(order.indexOf(current) < order.indexOf(outdated), `${current} before ${outdated}`)
+    }
+  })
+
   it('gives openrouter the main list', () => {
     const served = ids('openrouter')
     for (const id of ['openai/gpt-oss-120b', 'qwen/qwen3.8-max', 'moonshotai/kimi-k3']) {
