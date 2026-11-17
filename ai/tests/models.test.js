@@ -457,9 +457,13 @@ describe('no-think wire form', () => {
     // opt-out on either route, so omitting the effort field is all we can do.
     ['moonshotai/kimi-k3', false, false],
     ['moonshotai/kimi-k3.1-pro', false, false],
-    // Astra and 6.1 Sol reject `reasoning_effort: 'none'` and floor at
-    // `low`, so thinking cannot be turned off on any of these rows — pro
-    // least of all, since pro IS a reasoning mode.
+    // Astra, 6.1 Sol and both 6.2 models reject `reasoning_effort: 'none'`
+    // and floor at `low`, so thinking cannot be turned off on any of these
+    // rows — pro least of all, since pro IS a reasoning mode.
+    ['openai/gpt-6.2-astra', false, false],
+    ['openai/gpt-6.2-astra-pro', false, false],
+    ['openai/gpt-6.2-sol', false, false],
+    ['openai/gpt-6.2-sol-pro', false, false],
     ['openai/gpt-6-astra', false, false],
     ['openai/gpt-6-astra-pro', false, false],
     ['openai/gpt-6.1-sol', false, false],
@@ -774,6 +778,8 @@ describe('long-context tier', () => {
   // cached input, cache writes (null where the page lists none), output. A
   // million tokens on any prompt leg is already past the 272K line.
   for (const [model, input, cached, write, output] of [
+    ['openai/gpt-6.2-astra', 16, 0.8, 20, 60],
+    ['openai/gpt-6.2-sol', 4, 0.2, 5, 15],
     ['openai/gpt-6-astra', 20, 2, 25, 75],
     ['openai/gpt-6.1-sol', 4, 0.2, 5, 15],
     ['openai/gpt-6.1-terra', 2, 0.1, 2.5, 7.5],
@@ -813,7 +819,7 @@ describe('long-context tier', () => {
 
   it('gives each openrouter pro alias its base model\'s tier, the way it shares its base rate', () => {
     const long = { input: MTOK, output: MTOK, cacheRead: MTOK }
-    for (const base of ['openai/gpt-6-astra', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna']) {
+    for (const base of ['openai/gpt-6.2-astra', 'openai/gpt-6.2-sol', 'openai/gpt-6-astra', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra', 'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna']) {
       assert.equal(bill(`${base}-pro`, long), bill(base, long), base)
     }
   })
@@ -1006,6 +1012,36 @@ describe('gpt-6 sol and luna', () => {
   })
 })
 
+describe('gpt-6.2 astra and sol', () => {
+  // Astra comes in under GPT-6 Astra's $10 / $50, and Sol at GPT-6.1 Sol's
+  // $2 / $10. Both read cache at 0.05x of input, and OpenAI's pages say
+  // both reject reasoning effort `none`.
+  const ASTRA = 'openai/gpt-6.2-astra'
+  const SOL = 'openai/gpt-6.2-sol'
+
+  it('registers the published $8 / $40 and $2 / $10 per Mtok and a 128,000 max_tokens', () => {
+    assert.equal(baseRate(ASTRA, 'input', 'output'), 8 + 40)
+    assert.equal(baseRate(SOL, 'input', 'output'), 2 + 10)
+    for (const model of [ASTRA, SOL]) assert.equal(getMaxTokens(model), 128_000, model)
+  })
+
+  it('bills cache reads at 0.05x of input and 30-minute writes at 1.25x', () => {
+    assert.equal(baseRate(ASTRA, 'cacheRead'), 0.4)
+    assert.equal(baseRate(ASTRA, 'cacheWrite5m'), 10)
+    assert.equal(baseRate(SOL, 'cacheRead'), 0.1)
+    assert.equal(baseRate(SOL, 'cacheWrite5m'), 2.5)
+  })
+
+  it('takes the ladder through max with no off switch, and compacts and reads cache breakpoints as the other GPT-6 rows do', () => {
+    for (const model of [ASTRA, SOL, `${ASTRA}-pro`, `${SOL}-pro`]) {
+      assert.deepEqual(effortsFor(model), ['low', 'medium', 'high', 'xhigh', 'max'], model)
+      assert.equal(canDisableThink(model), false, model)
+      assert.equal(readsCacheBreakpoint(model), true, model)
+      assert.equal(compactThresholdFor(model, 128_000), 794_000, model)
+    }
+  })
+})
+
 describe('gpt-6.1 sol', () => {
   const SOL61 = 'openai/gpt-6.1-sol'
 
@@ -1061,6 +1097,8 @@ describe('gpt-6.1 terra', () => {
 // is a model of its own at its own rate, and is simply a row.
 describe('openai pro rows', () => {
   const MODES = [
+    ['openai/gpt-6.2-astra-pro', 'openai/gpt-6.2-astra'],
+    ['openai/gpt-6.2-sol-pro', 'openai/gpt-6.2-sol'],
     ['openai/gpt-6-astra-pro', 'openai/gpt-6-astra'],
     ['openai/gpt-6.1-sol-pro', 'openai/gpt-6.1-sol'],
     ['openai/gpt-6.1-terra-pro', 'openai/gpt-6.1-terra'],
@@ -1733,6 +1771,21 @@ describe('supportedModels', () => {
 
   it('lists every paid row when no provider is named, in the table\'s order', () => {
     assert.deepEqual(supportedModels().map((m) => m.id), KNOWN_MODELS.filter((id) => !id.endsWith(':free')))
+  })
+
+  it('offers each vendor\'s current models ahead of its outdated ones, smaller ones included', () => {
+    const order = ids()
+    for (const [current, outdated] of [
+      ['openai/gpt-6-luna', 'openai/gpt-6-astra'],
+      ['openai/gpt-6.1-terra', 'openai/gpt-6.1-sol'],
+      ['openai/gpt-6-cyber', 'openai/gpt-6-sol'],
+      ['google/gemini-3.5-flash-lite', 'google/gemini-3.1-pro-preview'],
+      ['qwen/qwen3.8-flash', 'qwen/qwen3.8-max'],
+      ['nvidia/nemotron-3.5-lightning', 'nvidia/nemotron-3-super-120b-a12b'],
+      ['anthropic/claude-haiku-5.5', 'anthropic/claude-fable-5.1'],
+    ]) {
+      assert.ok(order.indexOf(current) < order.indexOf(outdated), `${current} before ${outdated}`)
+    }
   })
 
   it('gives openrouter the main list', () => {
