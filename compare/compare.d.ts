@@ -253,9 +253,7 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // - Node's stripTypeScriptTypes erases, to the character, what oxc finds erased
 //   and leaves nothing it does not, but comments, the hashbang and those;
 // - what it leaves, the run statements set aside, read token by token apart from
-//   either, holds nothing else;
-// - nor does what its transform mode (--experimental-transform-types) leaves,
-//   where Node has one: from Node 26 it has none, and runs nothing transformed.
+//   either, holds nothing else.
 // `runtime` is built from those run statements and from the directive and pragma
 // comments stripping keeps -- a `/// <reference ... />`, a `//# sourceMappingURL=`
 // or `//# sourceURL=` and their legacy forms, comments a tool reads as more than prose --
