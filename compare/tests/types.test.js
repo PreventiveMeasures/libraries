@@ -172,10 +172,41 @@ describe('proveTypeOnly', () => {
     }
   })
 
-  it('throws where the input is not a well-formed string', () => {
-    for (const bad of [null, undefined, 42, {}, Buffer.from('type A = 1'), 'type A = "\uD800"', '\uFEFFtype A = "\uDC00"', 'declare const x: 1 // \uDBFF']) {
+  it('throws where the input is neither a well-formed string nor bytes', () => {
+    for (const bad of [null, undefined, 42, {}, [0x61], 'type A = "\uD800"', '\uFEFFtype A = "\uDC00"', 'declare const x: 1 // \uDBFF']) {
       assert.throws(() => proveTypeOnly(bad), TypeError, String(bad))
     }
+    assert.deepEqual(proveTypeOnly(Buffer.from('type A = 1')), { proven: true, runtime: '', loads: false }, "a Buffer's bytes, as its text")
+  })
+})
+
+// Node reads a file's bytes as UTF-8, and the proof compares what its stripping leaves with the text unit for
+// unit: a text proves something of the file only where it is those bytes decoded, which they must be.
+describe('proveTypeOnly reads a file from its bytes only where they are UTF-8', () => {
+  const utf8 = (text) => new TextEncoder().encode(text)
+  const latin1 = (text) => Uint8Array.from(text, (unit) => unit.codePointAt(0))
+
+  it('proves bytes that are UTF-8 as their text, and refuses bytes that are not, which a decoding reads as another', () => {
+    for (const text of [EMITTED, UMD, '﻿type A = "é\u{1F600}"\n', "import { type A } from 'ü'\nexport type B = A\n", 'let x = 1\n']) {
+      assert.deepEqual(proveTypeOnly(utf8(text)), proveTypeOnly(text), text)
+    }
+    const bytes = latin1('export type A = "é";\n')
+    assert.deepEqual(proveTypeOnly(bytes), refused('unparsed', null), "é as Latin-1's one byte")
+    assert.deepEqual(proveTypeOnly(new TextDecoder().decode(bytes)), { proven: true, runtime: '', loads: false }, 'a text it decodes to proves, of no file')
+    // An overlong NUL, a surrogate, a code point past U+10FFFF, a sequence cut short: each in a comment.
+    for (const wrong of [[0xc0, 0x80], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80], [0xe4, 0xb8]]) {
+      assert.deepEqual(proveTypeOnly(Uint8Array.of(0x2f, 0x2f, 0x20, ...wrong, 0x0a)), refused('unparsed', null), String(wrong))
+    }
+    assert.throws(() => proveTypeOnly([0x61]), TypeError)
+  })
+
+  it('stamps a declaration file given as bytes only where they are UTF-8', () => {
+    const [before, after] = [latin1('export type A = "é";\n'), latin1('export type A = "è";\n')]
+    const [change] = compareTrees(tree({ 'a.d.ts': before }), tree({ 'a.d.ts': after }))
+    assert.equal(change.typeOnly, undefined, 'not UTF-8: no text is either file')
+    assert.equal(new TextDecoder().decode(before), new TextDecoder().decode(after), 'decoded, the two read alike')
+    const [utf8Change] = compareTrees(tree({ 'a.d.ts': utf8('export type A = "é";\n') }), tree({ 'a.d.ts': utf8('export type A = "è";\n') }))
+    assert.equal(utf8Change.typeOnly, true, 'UTF-8, stamped')
   })
 })
 

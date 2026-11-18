@@ -5,7 +5,9 @@
 // types.js, proves nothing and loads nothing. oxc-parser, an optional peer, is loaded on first use, and
 // without it nothing is proven: compareTrees, which stamps declaration files, needs no peer.
 
+import { isUtf8 } from 'node:buffer'
 import * as nodeModule from 'node:module'
+import { utf8toString } from '@exodus/bytes/utf8.js'
 import { getParser } from '#oxc'
 import { CODE, ERASED, bindingless, leftover, strippedAs } from './erasure.js'
 
@@ -150,9 +152,14 @@ function runtimeText(body, code, comments, { start, end }) {
   return out
 }
 
-// proveTypeOnly with the stripping given: exported for tests alone, not by the package.
-export function proveWith(text, stripTypeScriptTypes) {
-  if (typeof text !== 'string') throw new TypeError(`a text must be a string, not ${typeof text}`)
+// proveTypeOnly with the stripping given: exported for tests alone, not by the package. What stripping
+// leaves is compared with the text unit for unit, which proves something of a file only where the text is
+// the file as Node reads it: its bytes decoded as UTF-8, which they must be. Bytes given are held to that
+// (isUtf8), and those that are not refused, as any decoding of them reads units that are no file's.
+export function proveWith(source, stripTypeScriptTypes) {
+  if (source instanceof Uint8Array && !isUtf8(source)) return refused('unparsed', null)
+  const text = source instanceof Uint8Array ? utf8toString(source) : source
+  if (typeof text !== 'string') throw new TypeError(`a text must be a string or its UTF-8 bytes, not ${typeof text}`)
   if (!text.isWellFormed()) throw new TypeError('a text must be a well-formed string')
   const parseSync = parser()
   if (typeof stripTypeScriptTypes !== 'function' || parseSync === null || !trusted(stripTypeScriptTypes)) return unsupported()

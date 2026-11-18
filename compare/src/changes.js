@@ -62,12 +62,13 @@ const EXPORT_EMPTY = /^export\s*\{\s*\}\s*;?$/u
 // `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only.
 // `loads` is whether that runtime holds a module load, `export {}`, or an `export default` on an identifier, the part that runs differently per
 // module format; a hashbang, a directive or a pragma does not, so a runtime of only those is format-free. A
-// side not there has none. Not proven where the proof throws, as no check should.
+// side not there has none. A file given as bytes is proven from them, which the proof holds to UTF-8 itself;
+// one given as text, as it is. Not proven where it isn't text (textOf), nor where the proof throws, as no
+// check should.
 function proven(file) {
   if (file === null) return { proven: true, runtime: '', loads: false }
-  const text = textOf(file)
   try {
-    return text === undefined ? { proven: false } : proveTypeOnly(text)
+    return textOf(file) === undefined ? { proven: false } : proveTypeOnly(file.data)
   } catch {
     return { proven: false }
   }
