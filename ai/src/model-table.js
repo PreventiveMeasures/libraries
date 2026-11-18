@@ -32,6 +32,10 @@ const EFFORTS_THROUGH_XHIGH = ['low', 'medium', 'high', 'xhigh']
 // first-party API.
 const OPENAI_LONG_CONTEXT = { above: 272_000, input: 2, output: 1.5 }
 
+// xAI's doubles every leg once a prompt REACHES 200K, on grok-4.7, 4.6 and 4.5. A tier starts past
+// `above`, so the line sits one token short of it.
+const XAI_LONG_CONTEXT = { above: 199_999, input: 2, output: 2 }
+
 // Server-side compaction (`context_management`), on the rows OpenAI documents it for: GPT-6
 // "supports the existing API capabilities available with GPT-5.6, including ... compaction", and
 // the compaction guide's own example runs on gpt-5.3-codex. `inputCap` is the row's documented
@@ -132,7 +136,9 @@ export const MAIN_MODELS = [
   ['qwen/qwen3.6-35b-a3b', { input: 0.1, output: 0.9, maxTokens: 64 * 1024, noThink: 'explicit' }],
   ['deepseek/deepseek-v4.1-flash', { input: 0.3, output: 1.2, cacheReadPrice: 0.006, maxTokens: 384 * 1024, noThink: 'explicit', efforts: ['low', 'high', 'max'] }],
   ['deepseek/deepseek-v4-pro', { input: 1.32, output: 3.96, cacheReadPrice: 0.044, maxTokens: 384 * 1024, noThink: 'explicit', efforts: ['high', 'xhigh'] }],
-  ['x-ai/grok-4.7', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: { above: 200_000, input: 2, output: 2 }, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
+  ['x-ai/grok-4.7', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: XAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
+  ['x-ai/grok-4.6', { input: 2, output: 6, cacheReadPrice: 0.5, longContext: XAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
+  ['x-ai/grok-4.5', { input: 2, output: 6, cacheReadPrice: 0.3, longContext: XAI_LONG_CONTEXT, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: EFFORTS_THROUGH_XHIGH }],
   ['z-ai/glm-5.3', { input: 1.4, output: 4.4, cacheReadPrice: 0.26, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['z-ai/glm-5.3-flash', { input: 0.15, output: 0.5, cacheReadPrice: 0.03, maxTokens: 128 * 1024, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],
   ['moonshotai/kimi-k3.1-pro', { input: 2, output: 10, cacheWritePrice: 2, maxTokens: 131_072, noThink: 'unsupported', efforts: ['low', 'high', 'max'] }],

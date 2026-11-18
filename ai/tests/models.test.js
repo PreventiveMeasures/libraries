@@ -452,6 +452,8 @@ describe('no-think wire form', () => {
     ['meta/muse-ember', false, false],
     ['deepseek/deepseek-v4.1-flash', true, true],
     ['x-ai/grok-4.7', false, false],
+    ['x-ai/grok-4.6', false, false],
+    ['x-ai/grok-4.5', false, false],
     ['z-ai/glm-5.3', false, false],
     ['z-ai/glm-5.3-flash', false, false],
     // Same shape as fable 5, arrived at from the other direction: K3 has no
@@ -1416,29 +1418,34 @@ describe('Gemma 4 (google/gemma-4-31b-it, google/gemma-4-26b-a4b-it)', () => {
   })
 })
 
-describe('grok 4.7', () => {
-  const GROK = 'x-ai/grok-4.7'
-  const bill = (fields) => calculateCost(GROK, { ...emptyUsage(), ...fields })
+describe('grok 4.7, 4.6 and 4.5', () => {
+  // xAI prices all three at $2 / $6 and caps them at a 500K window; only
+  // 4.5's cache reads differ.
+  for (const [GROK, cached] of [['x-ai/grok-4.7', 0.5], ['x-ai/grok-4.6', 0.5], ['x-ai/grok-4.5', 0.3]]) {
+    const bill = (fields) => calculateCost(GROK, { ...emptyUsage(), ...fields })
 
-  it("registers xAI's published $2 / $6 per Mtok, $0.50 cache reads and a 128k max_tokens", () => {
-    assert.equal(bill({ input: 100_000, output: 100_000 }), 0.2 + 0.6)
-    assert.equal(bill({ cacheRead: 100_000 }), 0.05)
-    assert.equal(getMaxTokens(GROK), 128 * 1024)
-  })
+    it(`${GROK}: registers xAI's published $2 / $6 per Mtok, $${cached} cache reads and a 128k max_tokens`, () => {
+      assert.equal(bill({ input: 100_000, output: 100_000 }), 0.2 + 0.6)
+      assert.equal(bill({ cacheRead: 1_000 }), (1_000 * cached) / 1_000_000)
+      assert.equal(getMaxTokens(GROK), 128 * 1024)
+    })
 
-  it('doubles every leg past 200,000 prompt tokens, on the whole request', () => {
-    assert.equal(bill({ input: 200_000 }), 0.4)
-    assert.equal(bill({ input: 200_001 }), (200_001 * 4) / 1_000_000)
-    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 4 + 12)
-    assert.equal(bill({ cacheRead: 1_000_000 }), 1)
-  })
+    it(`${GROK}: doubles every leg once the prompt reaches 200,000 tokens, on the whole request`, () => {
+      // xAI: "Requests whose prompt reaches 200k tokens are billed at the
+      // higher rate" -- 200,000 itself included.
+      assert.equal(bill({ input: 199_999 }), (199_999 * 2) / 1_000_000)
+      assert.equal(bill({ input: 200_000 }), 0.8)
+      assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 4 + 12)
+      assert.equal(bill({ cacheRead: 1_000_000 }), cached * 2)
+    })
 
-  it('always reasons, at the four efforts xAI lists', () => {
-    assert.equal(canThink(GROK), true)
-    assert.equal(canDisableThink(GROK), false)
-    assert.deepEqual(effortsFor(GROK), ['low', 'medium', 'high', 'xhigh'])
-    assert.deepEqual(normalizeThinkEffort(GROK, true), { useThink: true, useEffort: 'high' })
-  })
+    it(`${GROK}: always reasons, at the four efforts xAI lists`, () => {
+      assert.equal(canThink(GROK), true)
+      assert.equal(canDisableThink(GROK), false)
+      assert.deepEqual(effortsFor(GROK), ['low', 'medium', 'high', 'xhigh'])
+      assert.deepEqual(normalizeThinkEffort(GROK, true), { useThink: true, useEffort: 'high' })
+    })
+  }
 })
 
 describe('glm 5.3', () => {
@@ -1814,6 +1821,8 @@ describe('supportedModels', () => {
       ['qwen/qwen3.8-flash', 'qwen/qwen3.8-max'],
       ['nvidia/nemotron-3.5-lightning', 'nvidia/nemotron-3-super-120b-a12b'],
       ['anthropic/claude-haiku-5.5', 'anthropic/claude-fable-5.1'],
+      ['x-ai/grok-4.7', 'x-ai/grok-4.6'],
+      ['x-ai/grok-4.6', 'x-ai/grok-4.5'],
     ]) {
       assert.ok(order.indexOf(current) < order.indexOf(outdated), `${current} before ${outdated}`)
     }
