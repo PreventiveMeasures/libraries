@@ -38,10 +38,9 @@ function erased(node) {
 }
 
 // An import or re-export that binds nothing and only loads its module: a side-effect `import`, an empty
-// `import {}`, or `export {}` with a source. Code in a declaration file's source -- it loads for effects
-// alone, naming no type -- but also what transform mode emits when it elides an inline-type import or
-// re-export, so the transformed-output check reads it as that elision, not as source code.
-export function bindingless(statement) {
+// `import {}`, or `export {}` with a source. Code in a declaration file: it loads for effects alone, naming
+// no type.
+function bindingless(statement) {
   if (statement.type === 'ImportDeclaration') return statement.importKind !== 'type' && statement.specifiers.length === 0
   if (statement.type === 'ExportNamedDeclaration') return !statement.declaration && statement.exportKind !== 'type' && Boolean(statement.source) && statement.specifiers.length === 0
   return false

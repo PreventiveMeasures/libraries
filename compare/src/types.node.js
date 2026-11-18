@@ -1,15 +1,15 @@
 // Whether a text holds types alone, proven on Node: Node runs a `.d.ts` it imports as the `.ts` it is
 // named, what its type stripping leaves of it, so oxc's syntax tree and that stripping itself must each
 // find nothing but types in it, the same to the character; what stripping leaves is read again apart from
-// either, and so is what its transform mode (--experimental-transform-types) leaves. The portable twin,
-// types.js, proves nothing and loads nothing. oxc-parser, an optional peer, is loaded on first use, and
-// without it nothing is proven: compareTrees, which stamps declaration files, needs no peer.
+// either. The portable twin, types.js, proves nothing and loads nothing. oxc-parser, an optional peer, is
+// loaded on first use, and without it nothing is proven: compareTrees, which stamps declaration files,
+// needs no peer.
 
 import { isUtf8 } from 'node:buffer'
 import * as nodeModule from 'node:module'
 import { utf8toString } from '@exodus/bytes/utf8.js'
 import { getParser } from '#oxc'
-import { CODE, ERASED, bindingless, leftover, strippedAs } from './erasure.js'
+import { CODE, ERASED, leftover, strippedAs } from './erasure.js'
 
 // Each a fresh result, never a shared object a caller could mutate into another's.
 const unsupported = () => ({ proven: false, reason: 'unsupported', at: null })
@@ -61,10 +61,10 @@ function parser() {
   }
 }
 
-// Node's stripping in either mode: null where this Node has none, built without it.
-function strip(stripTypeScriptTypes, text, mode) {
+// Node's stripping, its strip mode, all of it Node runs: null where this Node has none, built without it.
+function strip(stripTypeScriptTypes, text) {
   try {
-    return { code: stripTypeScriptTypes(text, { mode }) }
+    return { code: stripTypeScriptTypes(text, { mode: 'strip' }) }
   } catch (error) {
     if (error?.code === 'ERR_NO_TYPESCRIPT') return null
     if (!REFUSALS.has(error?.code)) untrusted.add(stripTypeScriptTypes)
@@ -73,7 +73,7 @@ function strip(stripTypeScriptTypes, text, mode) {
 }
 
 function trusted(stripTypeScriptTypes) {
-  if (!untrusted.has(stripTypeScriptTypes) && CANARY_STRIPPED.has(strip(stripTypeScriptTypes, CANARY, 'strip')?.code)) return true
+  if (!untrusted.has(stripTypeScriptTypes) && CANARY_STRIPPED.has(strip(stripTypeScriptTypes, CANARY)?.code)) return true
   untrusted.add(stripTypeScriptTypes)
   return false
 }
@@ -126,7 +126,7 @@ function blankedOutside(code, spans) {
 // differs only in a blank) still differs here. Known limit: the kept text is read as written, so a load left
 // runtime-identical but reformatted still differs -- a removed trailing inline-type specifier leaving its
 // comma (`{ B, }` for `{ B }`), or a comment added where no blank sat. Closing that would mean canonicalizing
-// the executable text (Node's transform mode does, eliding the specifier and its comma), a wider signature
+// the executable text (TypeScript's emit does, eliding the specifier and its comma), a wider signature
 // left for another change; erring this way only withholds a stamp, never gives a wrong one.
 function runtimeText(body, code, comments, { start, end }) {
   const commented = new Uint8Array(end - start)
@@ -167,7 +167,7 @@ export function proveWith(text, stripTypeScriptTypes) {
   // Stripping goes first: oxc's parser, native, overflows its stack on nesting deep enough and ends the
   // process, where stripping throws first, at less than half the depth on an 8 MB stack. oxc reads only
   // what stripping read whole: it either strips it, or refuses what it does not erase once it has read it all.
-  const stripped = strip(stripTypeScriptTypes, body, 'strip')
+  const stripped = strip(stripTypeScriptTypes, body)
   if (stripped === null) return unsupported()
   if ('error' in stripped && stripped.error?.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') return refused('unparsed', null)
   const tree = parsed(parseSync, body)
@@ -187,15 +187,6 @@ export function proveWith(text, stripTypeScriptTypes) {
   // Set the run statements aside; the rest of the stripped text must be blanks, comments and a hashbang.
   const left = leftover(blankedOutside(stripped.code, runtime))
   if (left !== -1) return refused('disagree', shift + left)
-  // Transform mode (--experimental-transform-types) reveals a construct strip under-erases as code: its
-  // output, read again, must hold nothing but run statements and what erased to nothing. A bindingless load
-  // is not under-erasure here: transform emits one where it elides an inline-type import or re-export (an
-  // `import { type A }` becomes a bare side-effect `import`), so it is allowed though its source form is code.
-  const transformed = strip(stripTypeScriptTypes, body, 'transform')
-  if (transformed === null) return unsupported()
-  if ('error' in transformed) return refused('disagree', null)
-  const after = parsed(parseSync, transformed.code)
-  if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
   // The runtime a change must leave untouched to be types only: the hashbang, the module loads and
   // `export {}` stripping leaves, and the directive and pragma comments it keeps -- in source order. Empty
   // where the file erases whole and carries none. A run statement is read through runtimeText, so an inline

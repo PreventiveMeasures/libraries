@@ -99,9 +99,8 @@ describe('proveTypeOnly', () => {
   })
 
   // An import or re-export whose only specifier is an inline type still loads its module, so it is runtime,
-  // not a side-effect load. Transform mode elides the specifier, emitting a bindingless load; the
-  // transformed-output check reads that as the elision, not code, so these prove rather than disagreeing.
-  it('proves an inline-type-only import or re-export, which transform elides to a bindingless load', () => {
+  // not a side-effect load: these prove, the load their runtime.
+  it('proves an inline-type-only import or re-export, its load its runtime', () => {
     const imp = proveTypeOnly("import { type A } from 'a'\nexport declare const x: A\n")
     assert.equal(imp.proven, true, 'inline-type import')
     assert.match(imp.runtime, /^import \{\s*\} from 'a'$/u)
@@ -213,10 +212,10 @@ describe('proveTypeOnly reads a file from its bytes only where they are UTF-8', 
 describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", () => {
   const text = 'declare const x: 1 // c\n'
   // Node's stripping, but for `text`, which it strips as given; or throws, where given a function.
-  const strip = (code, transformed = '', of = text) => (t, { mode }) => {
+  const strip = (code, of = text) => (t, { mode }) => {
     if (t !== of) return stripTypeScriptTypes(t, { mode })
     if (typeof code === 'function') return code()
-    return mode === 'strip' ? code : transformed
+    return code
   }
   const throwing = (code, Kind = Error) => () => {
     throw Object.assign(new Kind('stripping failed'), { code })
@@ -262,14 +261,24 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, strip('                   // c')), refused('disagree', null), 'a unit dropped')
     assert.deepEqual(proveWith(text, strip('\n                  // c\n')), refused('disagree', 0), 'a line break written')
     const added = 'declare const x: 1\n/* a */'
-    assert.deepEqual(proveWith(added, strip('                  \n/* a */f', '', added)), refused('disagree', null), 'a unit added')
+    assert.deepEqual(proveWith(added, strip('                  \n/* a */f', added)), refused('disagree', null), 'a unit added')
     assert.deepEqual(proveWith(text, strip('                  x// c\n')), refused('disagree', 18))
   })
 
-  it('refuses where stripping or its transform mode refuses the text, or leaves code', () => {
+  // Node 26 has no transform mode, and refuses it as an argument: the proof asks for strip mode alone.
+  it('proves on a Node whose stripping has no transform mode, as Node 26 has none', () => {
+    const stripOnly = (t, { mode }) => {
+      if (mode !== 'strip') throw Object.assign(new TypeError(`The property 'options.mode' must be one of: 'strip'. Received '${mode}'`), { code: 'ERR_INVALID_ARG_VALUE' })
+      return stripTypeScriptTypes(t, { mode })
+    }
+    for (const t of [text, EMITTED, UMD, "import { type A } from 'a'\nexport type B = A\n", 'let x = 1\n', 'enum E { A }\n', 'namespace N { export type T = 1 }\n']) {
+      assert.deepEqual(proveWith(t, stripOnly), proveTypeOnly(t), t)
+    }
+    assert.deepEqual(proveWith(text, stripOnly), { proven: true, runtime: '', loads: false }, 'trusted still, asked again')
+  })
+
+  it('refuses where stripping refuses the text', () => {
     assert.deepEqual(proveWith(text, strip(throwing('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'))), refused('disagree', null))
-    assert.deepEqual(proveWith(text, strip('                   // c\n', '(function(N) {})(N || (N = {}));\nvar N;\n')), refused('disagree', null))
-    assert.deepEqual(proveWith(text, strip('                   // c\n', 'export { };\n')), { proven: true, runtime: '', loads: false })
   })
 
   // Stopped partway, Node's stripping may throw on every text from then on: one that failed so once is
@@ -278,7 +287,7 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     const overflowing = strip(throwing(undefined, RangeError))
     assert.deepEqual(proveWith(text, overflowing), refused('unparsed', null), 'not read whole, so not for oxc to read')
     assert.deepEqual(proveWith('type A = 1', overflowing), refused('unsupported', null), 'nor anything after')
-    const stopped = strip(throwing('ERR_INTERNAL_ASSERTION'), '', 'type A = 1')
+    const stopped = strip(throwing('ERR_INTERNAL_ASSERTION'), 'type A = 1')
     assert.deepEqual(proveWith(text, stopped), { proven: true, runtime: '', loads: false })
     assert.deepEqual(proveWith('type A = 1', stopped), refused('unparsed', null))
     assert.deepEqual(proveWith(text, stopped), refused('unsupported', null))
