@@ -1,9 +1,10 @@
 // Whether a text holds types alone, proven on Node: Node runs a `.d.ts` it imports as the `.ts` it is
 // named, what its type stripping leaves of it, so oxc's syntax tree and that stripping itself must each
 // find nothing but types in it, the same to the character; what stripping leaves is read again apart from
-// either, and so is what its transform mode (--experimental-transform-types) leaves. The portable twin,
-// types.js, proves nothing and loads nothing. oxc-parser, an optional peer, is loaded on first use, and
-// without it nothing is proven: compareTrees, which stamps declaration files, needs no peer.
+// either, and so is what its transform mode (--experimental-transform-types) leaves, where Node has one
+// (it has none from 26). The portable twin, types.js, proves nothing and loads nothing. oxc-parser, an
+// optional peer, is loaded on first use, and without it nothing is proven: compareTrees, which stamps
+// declaration files, needs no peer.
 
 import { isUtf8 } from 'node:buffer'
 import * as nodeModule from 'node:module'
@@ -70,6 +71,22 @@ function strip(stripTypeScriptTypes, text, mode) {
     if (!REFUSALS.has(error?.code)) untrusted.add(stripTypeScriptTypes)
     return { error }
   }
+}
+
+// Whether a stripping has a transform mode: Node 26 dropped it, with --experimental-transform-types, and
+// refuses the mode as an argument. Asked once of each, apart from strip(), which would untrust it for that.
+const transforming = new WeakMap()
+function transforms(stripTypeScriptTypes) {
+  if (!transforming.has(stripTypeScriptTypes)) {
+    let has = true
+    try {
+      stripTypeScriptTypes('', { mode: 'transform' })
+    } catch (error) {
+      has = error?.code !== 'ERR_INVALID_ARG_VALUE'
+    }
+    transforming.set(stripTypeScriptTypes, has)
+  }
+  return transforming.get(stripTypeScriptTypes)
 }
 
 function trusted(stripTypeScriptTypes) {
@@ -191,11 +208,15 @@ export function proveWith(text, stripTypeScriptTypes) {
   // output, read again, must hold nothing but run statements and what erased to nothing. A bindingless load
   // is not under-erasure here: transform emits one where it elides an inline-type import or re-export (an
   // `import { type A }` becomes a bare side-effect `import`), so it is allowed though its source form is code.
-  const transformed = strip(stripTypeScriptTypes, body, 'transform')
-  if (transformed === null) return unsupported()
-  if ('error' in transformed) return refused('disagree', null)
-  const after = parsed(parseSync, transformed.code)
-  if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
+  // A Node without the mode (26 on) runs nothing transformed, and is not asked: what stripping leaves is
+  // held to oxc's tree and read apart above.
+  if (transforms(stripTypeScriptTypes)) {
+    const transformed = strip(stripTypeScriptTypes, body, 'transform')
+    if (transformed === null) return unsupported()
+    if ('error' in transformed) return refused('disagree', null)
+    const after = parsed(parseSync, transformed.code)
+    if (after === null || after.errors.length > 0 || after.program.body.some((statement) => strippedAs(statement) === CODE && !bindingless(statement))) return refused('disagree', null)
+  }
   // The runtime a change must leave untouched to be types only: the hashbang, the module loads and
   // `export {}` stripping leaves, and the directive and pragma comments it keeps -- in source order. Empty
   // where the file erases whole and carries none. A run statement is read through runtimeText, so an inline

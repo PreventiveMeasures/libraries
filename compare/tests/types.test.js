@@ -266,6 +266,19 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, strip('                  x// c\n')), refused('disagree', 18))
   })
 
+  // Node 26 dropped transform mode, and refuses it as an argument: a stripping without it is trusted all the
+  // same, and its transform mode is not asked of, nothing running transformed there.
+  it('proves on a Node whose stripping has no transform mode, as Node 26 has none', () => {
+    const stripOnly = (t, { mode }) => {
+      if (mode !== 'strip') throw Object.assign(new TypeError(`The property 'options.mode' must be one of: 'strip'. Received '${mode}'`), { code: 'ERR_INVALID_ARG_VALUE' })
+      return stripTypeScriptTypes(t, { mode })
+    }
+    for (const t of [text, EMITTED, UMD, "import { type A } from 'a'\nexport type B = A\n", 'let x = 1\n', 'enum E { A }\n', 'namespace N { export type T = 1 }\n']) {
+      assert.deepEqual(proveWith(t, stripOnly), proveTypeOnly(t), t)
+    }
+    assert.deepEqual(proveWith(text, stripOnly), { proven: true, runtime: '', loads: false }, 'trusted still, asked again')
+  })
+
   it('refuses where stripping or its transform mode refuses the text, or leaves code', () => {
     assert.deepEqual(proveWith(text, strip(throwing('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'))), refused('disagree', null))
     assert.deepEqual(proveWith(text, strip('                   // c\n', '(function(N) {})(N || (N = {}));\nvar N;\n')), refused('disagree', null))
