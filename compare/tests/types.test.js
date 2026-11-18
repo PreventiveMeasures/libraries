@@ -206,6 +206,24 @@ describe("proveTypeOnly holds oxc's tree and Node's stripping to each other", ()
     assert.deepEqual(proveWith(text, strip('\u3000\u2002\t\v\f\u00A0\uFEFF            // c\n')), { proven: true, runtime: '', loads: false })
   })
 
+  // amaro 1.2 on, Node's stripping since, writes a space for each unit it erases, where 1.1 wrote a blank of
+  // its bytes: as Node strips here, each unit it changed a space. Trusted as 1.1 is, it proves alike.
+  it('trusts a stripping that writes a space for each unit it erases, as amaro 1.2 does, and proves as with 1.1', () => {
+    const spaced = (t, { mode }) => {
+      const code = stripTypeScriptTypes(t, { mode })
+      if (mode !== 'strip') return code
+      let out = ''
+      for (let i = 0; i < code.length; i++) out += code[i] === t[i] ? code[i] : ' '
+      return out
+    }
+    const wide = 'type A = "\u00E9\u4E00\u{1F600}" /* \u4E00 */\ninterface B { /** \u4E00\u{1F600} */ b: "\u3000" }\n'
+    const loads = "import { type \u00C4, b } from '\u00FC\u{1F600}'\nexport type T = \"\u4E00\" | b\nexport declare const \u00E9: T\n"
+    assert.deepEqual(proveWith(wide, spaced), { proven: true, runtime: '', loads: false })
+    for (const t of [text, wide, loads, EMITTED, UMD, '\uFEFF// \u4E00\ntype A = "\u00E9"\n', 'let x: "\u00E9" = 1\n']) assert.deepEqual(proveWith(t, spaced), proveTypeOnly(t), t)
+    const tabbed = (t, { mode }) => spaced(t, { mode }).replaceAll(' ', '\t')
+    assert.deepEqual(proveWith(text, tabbed), refused('unsupported', null), 'a stripping that writes neither, untrusted still')
+  })
+
   it('refuses where stripping keeps what oxc finds erased, or blanks otherwise', () => {
     assert.deepEqual(proveWith(text, strip(text)), refused('disagree', 0), 'kept whole')
     assert.deepEqual(proveWith(text, strip('                   f() \n')), refused('disagree', 19), 'a comment written over')
