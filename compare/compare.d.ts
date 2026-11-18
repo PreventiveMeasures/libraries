@@ -222,10 +222,10 @@ export function rootLabel(root: Root | null, prefix: string): { prefix: string; 
 // Why a text is not proven to hold types alone: proving needs Node, whose type
 // stripping is held to oxc's tree, and oxc-parser, an optional peer, there,
 // and is not asked of a stripping that once failed as may leave it unsound
-// (`unsupported`); its bytes are not UTF-8, so that no text is the file's, or
-// Node's stripping or oxc finds an error in it, as in `export const x: number`,
-// which only a declaration file may write, or it nests too deep for either
-// (`unparsed`); a statement is neither erased nor a
+// (`unsupported`); its bytes are not UTF-8, or Node's stripping or oxc finds an
+// error in it, as in `export const x: number`, which only a declaration file
+// may write, or it nests too deep for either (`unparsed`); a statement is
+// neither erased nor a
 // module load binding a type nor a bare `export {}`, as `export { type A }`,
 // `export as namespace N` and a side-effect load that binds nothing are not
 // (`code`); or Node's stripping, or a reading of what it leaves, does not find
@@ -277,15 +277,11 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 // it then touches erased types and ordinary comments alone. Where `loads`, a rename across
 // module formats does not cancel (see compareTrees' `typeOnly`); a runtime without it runs the
 // same either way and cancels across them. `at` is where in `text` what is found
-// begins, where it has a place. What stripping leaves is compared with `text`
-// unit for unit, which proves something of a file only where `text` is the file
-// as Node reads it: its bytes decoded as UTF-8, which they must be. Given the
-// file's bytes, the proof holds them to that (isUtf8) and refuses those that
-// are not (`unparsed`), as any decoding of them reads units that are no file's;
-// given a string, it can't, and the caller must: decode the bytes strictly, or
-// give them. Throws a TypeError where `text` is a string that is not well-formed,
-// or neither a string nor bytes. Node warns once that stripTypeScriptTypes is
-// experimental.
+// begins, where it has a place. `text` is compared unit for unit, so it must be
+// the file as Node reads it: its bytes, which are refused where they are not
+// UTF-8 (`unparsed`), or a string decoded from them strictly, which the caller
+// is to see to. Throws a TypeError where `text` is neither bytes nor a
+// well-formed string. Node warns once that stripTypeScriptTypes is experimental.
 export function proveTypeOnly(text: string | Uint8Array): { proven: true; runtime: string; loads: boolean } | { proven: false; reason: TypeOnlyReason; at: number | null }
 
 // `path` is the name at fault as its entry spelled it, and `tree` which tree

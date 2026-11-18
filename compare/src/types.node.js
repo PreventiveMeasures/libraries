@@ -152,13 +152,11 @@ function runtimeText(body, code, comments, { start, end }) {
   return out
 }
 
-// proveTypeOnly with the stripping given: exported for tests alone, not by the package. What stripping
-// leaves is compared with the text unit for unit, which proves something of a file only where the text is
-// the file as Node reads it: its bytes decoded as UTF-8, which they must be. Bytes given are held to that
-// (isUtf8), and those that are not refused, as any decoding of them reads units that are no file's.
-export function proveWith(source, stripTypeScriptTypes) {
-  if (source instanceof Uint8Array && !isUtf8(source)) return refused('unparsed', null)
-  const text = source instanceof Uint8Array ? utf8toString(source) : source
+// proveTypeOnly with the stripping given: exported for tests alone, not by the package. The text is compared
+// unit for unit with what stripping leaves of it, which says nothing of a file it is a lossy decoding of: a
+// file's bytes are read as its text only where they are UTF-8.
+export function proveWith(text, stripTypeScriptTypes) {
+  if (text instanceof Uint8Array) return isUtf8(text) ? proveWith(utf8toString(text), stripTypeScriptTypes) : refused('unparsed', null)
   if (typeof text !== 'string') throw new TypeError(`a text must be a string or its UTF-8 bytes, not ${typeof text}`)
   if (!text.isWellFormed()) throw new TypeError('a text must be a well-formed string')
   const parseSync = parser()
