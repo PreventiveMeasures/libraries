@@ -13,9 +13,10 @@ import { CODE, ERASED, bindingless, leftover, strippedAs } from './erasure.js'
 const unsupported = () => ({ proven: false, reason: 'unsupported', at: null })
 const refused = (reason, at) => ({ proven: false, reason, at })
 
-// What stripping writes in place of what it erases is a blank of as many UTF-8 bytes (a space, a no-break
-// space, an en space; a space and a byte order mark for four), unit for unit; line breaks and other blanks
-// it keeps. Any blank but a line break is taken for one.
+// What stripping writes in place of what it erases is a blank for each unit: up to amaro 1.1, Node's
+// stripping, one of as many UTF-8 bytes (a space, a no-break space, an en space; a space and a byte order
+// mark for four), and from amaro 1.2 a space; line breaks and other blanks it keeps. Any blank but a line
+// break is taken for one.
 const WRITTEN = /[^\S\n\r\u2028\u2029]/u
 const LINE_BREAK = /[\n\r\u2028\u2029]/u
 const NOT_LINE_BREAK = /[^\n\r\u2028\u2029]/gu
@@ -46,7 +47,9 @@ const steers = (text, prologue) => (DIRECTIVE.test(text) && prologue) || PRAGMA.
 // refusal of a text, or that does not strip the canary as it should, as one stopped elsewhere may not.
 const untrusted = new WeakSet()
 const REFUSALS = new Set(['ERR_INVALID_TYPESCRIPT_SYNTAX', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'])
-const CANARY = ['let a: "\u00E9\u4E00\u{1F600}" = 1 // c\n', 'let a   \u00A0\u2002 \uFEFF  = 1 // c\n']
+// The canary, and as each amaro strips it: 1.1, its units erased as blanks of their bytes; 1.2 on, as spaces.
+const CANARY = 'let a: "\u00E9\u4E00\u{1F600}" = 1 // c\n'
+const CANARY_STRIPPED = new Set(['let a   \u00A0\u2002 \uFEFF  = 1 // c\n', `let a${' '.repeat(8)} = 1 // c\n`])
 
 function parser() {
   try {
@@ -68,7 +71,7 @@ function strip(stripTypeScriptTypes, text, mode) {
 }
 
 function trusted(stripTypeScriptTypes) {
-  if (!untrusted.has(stripTypeScriptTypes) && strip(stripTypeScriptTypes, CANARY[0], 'strip')?.code === CANARY[1]) return true
+  if (!untrusted.has(stripTypeScriptTypes) && CANARY_STRIPPED.has(strip(stripTypeScriptTypes, CANARY, 'strip')?.code)) return true
   untrusted.add(stripTypeScriptTypes)
   return false
 }
