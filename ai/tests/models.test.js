@@ -424,6 +424,7 @@ describe('no-think wire form', () => {
     ['google/gemini-3.5-flash-lite', false, false],
     ['google/gemini-3.1-flash-lite-preview', true, true],
     ['google/gemini-4-carbon', false, false],
+    ['google/gemini-4-neon', false, false],
     ['google/gemini-4-argon', false, false],
     ['google/gemini-4-hydrogen', false, false],
     ['google/gemini-3.8-flash', false, false],
@@ -699,6 +700,36 @@ describe('gemini 4 carbon and argon', () => {
   }
 })
 
+describe('gemini 4 neon', () => {
+  // Neon launched at its standard price: no introductory rate, unlike
+  // Carbon and Argon.
+  const NEON = 'google/gemini-4-neon'
+
+  it('prices at Google\'s $3 / $15 per Mtok, with cached input at $0.15, 0.05x of input', () => {
+    assert.equal(baseRate(NEON, 'input'), 3)
+    assert.equal(baseRate(NEON, 'output'), 15)
+    assert.equal(baseRate(NEON, 'cacheRead'), 0.15)
+  })
+
+  it('registers the 65,536 default synchronous cap Google documents for every gemini 4', () => {
+    assert.equal(getMaxTokens(NEON), 64 * 1024)
+  })
+
+  it('thinks with no off switch, at low through xhigh, defaulting to high', () => {
+    assert.equal(canThink(NEON), true)
+    assert.equal(canDisableThink(NEON), false)
+    assert.deepEqual(effortsFor(NEON), ['low', 'medium', 'high', 'xhigh'])
+    for (const model of ['google/gemini-4-carbon', 'google/gemini-4-argon']) {
+      assert.equal(effortsFor(model).includes('xhigh'), false, model)
+    }
+  })
+
+  it('sits where Google\'s models page lists it: Carbon, Neon, Hydrogen, Argon', () => {
+    const gemini4 = KNOWN_MODELS.filter((id) => id.startsWith('google/gemini-4-'))
+    assert.deepEqual(gemini4, ['google/gemini-4-carbon', 'google/gemini-4-neon', 'google/gemini-4-hydrogen', 'google/gemini-4-argon'])
+  })
+})
+
 describe('gemini 4 hydrogen', () => {
   // Hydrogen launched at its standard price: unlike Carbon and Argon, there
   // is no introductory rate to reprice on 2026-12-01.
@@ -714,7 +745,7 @@ describe('gemini 4 hydrogen', () => {
     assert.equal(getMaxTokens(HYDROGEN), 64 * 1024)
   })
 
-  it('thinks with no off switch, and alone of the gemini 4 rows reaches xhigh', () => {
+  it('thinks with no off switch, and, as Neon does, reaches xhigh', () => {
     assert.equal(canThink(HYDROGEN), true)
     assert.equal(canDisableThink(HYDROGEN), false)
     assert.deepEqual(effortsFor(HYDROGEN), ['low', 'medium', 'high', 'xhigh'])
