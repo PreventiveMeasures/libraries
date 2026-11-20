@@ -168,15 +168,17 @@ const IGNORED_11 = new Set([
 
 // What pnpm 12 adds that leaves an isolated tree as it is.
 const IGNORED_12 = new Set([
-  'autoDedupe', 'autoInstallPeersFromHighestMatch', 'externalDependencies', 'hoistingLimits', 'globalShims',
+  'autoDedupe', 'autoInstallPeersFromHighestMatch', 'globalShims',
   'concurrencyGroups', 'pipelines', 'pipelineBase', 'publishWaitTimeout', 'saveTypes', 'tools', 'macosBackup',
 ])
 const notEnabled = (value, where) => {
   if (value.enabled != null && value.enabled !== false) never('an install of Cargo or Python packages beside the tree is not supported')(value.enabled, `${where}.enabled`)
 }
+// What pnpm 12's hoisted linker reads, which leaves an isolated tree as it is.
 const READ_12 = {
   __proto__: null,
-  nodeLinker: only('text', 'isolated', 'only the isolated node_modules layout is built for pnpm 12'),
+  hoistingLimits: { kind: 'text', check: oneOf(new Set(['none', 'workspaces', 'dependencies'])) },
+  externalDependencies: { kind: 'list' },
   cargo: { kind: 'mapping', check: notEnabled },
   python: { kind: 'mapping', check: notEnabled },
 }

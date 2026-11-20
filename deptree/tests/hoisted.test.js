@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
 import { buildPnpmTree } from '../pnpm.js'
 import { hoistedBuilds, hoistedTree, packageIdOf } from '../src/pnpm/hoisted.js'
+import { hoistedLayout12 } from '../src/pnpm/hoisted12.js'
 import { HOST, stubRegistry, tarball } from './registry.js'
 
 // The trees pnpm 10's and 11's hoisted linker installs, from tarballs made
@@ -36,6 +37,10 @@ const TARBALLS = await Promise.all([
   tarball('needs-mac', '1.0.0', {}, { manifest: { dependencies: { mac: '2.0.0' } } }),
   tarball('needs-zzz', '1.0.0', {}, { manifest: { dependencies: { zzz: '1.0.0' } } }),
   tarball('lone', '1.0.0', { 'bin/k.js': '#!k\n' }, { manifest: { bin: '', directories: { bin: 'bin' }, scripts: { postinstall: 'node -e 0' } } }),
+  tarball('is-number', '6.0.0'),
+  tarball('is-number', '7.0.0'),
+  tarball('is-odd', '3.0.1', {}, { manifest: { dependencies: { 'is-number': '^6.0.0' } } }),
+  tarball('needs-old-mac', '1.0.0', {}, { manifest: { dependencies: { mac: '1.0.0' } } }),
 ])
 const byKey = new Map(TARBALLS.map((t) => [`${t.name}@${t.version}`, t]))
 
@@ -72,7 +77,8 @@ function workspace({ projects, snapshots, patched, patch = PATCH, major = 10 }) 
       manifest[kind] = {}
       for (const [alias, target] of Object.entries(deps)) {
         const linked = target.startsWith('workspace:')
-        const specifier = linked ? 'workspace:*' : target.slice(alias.length + 1).replace(/\(.*$/u, '')
+        const base = target.replace(/\(.*$/u, '')
+        const specifier = linked ? 'workspace:*' : base.startsWith(`${alias}@`) ? base.slice(alias.length + 1) : `npm:${base}`
         lines.push(`      ${alias}:`, `        specifier: ${specifier}`, `        version: ${linked ? `link:${relative(id, target.slice(10))}` : ref(alias, target)}`)
         manifest[kind][alias] = specifier
       }
@@ -510,6 +516,111 @@ describe('buildPnpmTree with pnpm 11\'s hoisted linker', () => {
     const one = { ...leaves, projects: { '.': { dependencies: { ms: `ms@2.0.0(patch_hash=${HD})` } } }, snapshots: { [`ms@2.0.0(patch_hash=${HD})`]: {} } }
     const { vfs } = await build11(one)
     assert.deepEqual(vfs.readdir('/node_modules/ms'), ['package.json'])
+  })
+})
+
+// pnpm 12 reads its settings, the patches with them, from pnpm-workspace.yaml.
+// What each test holds a tree to is what real installs of pnpm 12.21.0 made of
+// trees of the same shape, of packages from npm's registry.
+const HOST_12 = { ...HOST, pnpm: '12.21.0' }
+const build12 = async ({ host = HOST_12, settings = '', importMethod = 'copy', ...spec }) => {
+  stubRegistry(TARBALLS)
+  const { lockfile, manifests, patches } = workspace({ ...spec, major: 12 })
+  const patching = spec.patched ? `patchedDependencies:\n  ${spec.patched}: patches/p.patch\n` : ''
+  const { vfs, installed } = await buildPnpmTree({ lockfile, manifests, patches, workspace: `${WORKSPACE}nodeLinker: hoisted\npackageImportMethod: ${importMethod}\n${patching}${settings}`, host })
+  return { vfs, installed, version: (path) => JSON.parse(vfs.readText(`/${path}/package.json`)).version }
+}
+
+const IS_ODD = { 'is-odd@3.0.1': { dependencies: { 'is-number': 'is-number@6.0.0' } }, 'is-number@6.0.0': {} }
+
+describe('buildPnpmTree with pnpm 12\'s hoisted linker', () => {
+  // The root's devDependency adebug sorts before its dependency zdebug, and
+  // its ms takes the root's node_modules; pnpm 11 comes to zdebug first.
+  it('hoists each project\'s dependencies in the order of their aliases', async () => {
+    const projects = { '.': { dependencies: { zdebug: 'debug@4.3.4' }, devDependencies: { adebug: 'debug@2.6.9' } } }
+    const snapshots = { ...DEBUG, 'debug@4.3.4': { dependencies: { ms: 'ms@2.1.3' } } }
+    const { version } = await build12({ projects, snapshots })
+    assert.equal(version('node_modules/ms'), '2.0.0')
+    assert.equal(version('node_modules/zdebug/node_modules/ms'), '2.1.3')
+    const eleven = await build11({ projects, snapshots })
+    assert.equal(eleven.version('node_modules/ms'), '2.1.3')
+  })
+
+  it('keeps each project\'s copy where the root has another, and links its workspace dependencies and the named projects', async () => {
+    const projects = {
+      '.': { dependencies: { ms: 'ms@2.1.3', debug: 'debug@4.3.4' } },
+      'packages/foo': { dependencies: { ms: 'ms@2.0.0', bar: 'workspace:packages/bar' } },
+      'packages/bar': { dependencies: { debug: 'debug@2.6.9', 'is-odd': 'is-odd@3.0.1' } },
+      'packages/baz': { dependencies: { 'is-number': 'is-number@6.0.0', debug: 'debug@2.6.9' } },
+    }
+    const { vfs, version } = await build12({ projects, snapshots: { ...DEBUG, ...IS_ODD, 'debug@4.3.4': { dependencies: { ms: 'ms@2.1.3' } } } })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['bar', 'baz', 'debug', 'foo', 'is-number', 'is-odd', 'ms'])
+    assert.deepEqual(['node_modules/debug', 'node_modules/ms', 'node_modules/is-number'].map(version), ['4.3.4', '2.1.3', '6.0.0'])
+    assert.equal(vfs.readlink('/node_modules/bar'), '../packages/bar')
+    for (const project of ['bar', 'baz']) {
+      assert.deepEqual(vfs.readdir(`/packages/${project}/node_modules`), ['debug', 'ms'])
+      assert.deepEqual([`packages/${project}/node_modules/debug`, `packages/${project}/node_modules/ms`].map(version), ['2.6.9', '2.0.0'])
+    }
+    assert.deepEqual(vfs.readdir('/packages/foo/node_modules'), ['bar', 'ms'])
+    assert.equal(vfs.readlink('/packages/foo/node_modules/bar'), '../../bar')
+  })
+
+  // The root has is-number 7.0.0 as baz and by its name, and is-odd 6.0.0
+  // under it: a links its 7.0.0 to the first copy the walk came to, baz,
+  // though it would find the other going up.
+  it('links into a project what it depends on where the walk put it in no node_modules it resolves from', async () => {
+    const projects = { '.': { dependencies: { baz: 'is-number@7.0.0' } }, 'packages/a': { dependencies: { 'is-number': 'is-number@7.0.0', 'is-odd': 'is-odd@3.0.1' } } }
+    const { vfs, version } = await build12({ projects, snapshots: { ...IS_ODD, 'is-number@7.0.0': {} } })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['a', 'baz', 'is-number', 'is-odd'])
+    assert.deepEqual(['node_modules/baz', 'node_modules/is-number', 'node_modules/is-odd/node_modules/is-number'].map(version), ['7.0.0', '7.0.0', '6.0.0'])
+    assert.equal(vfs.readlink('/packages/a/node_modules/is-number'), '../../../node_modules/baz')
+  })
+
+  it('moves a copy where a project\'s `link:` goes aside, to .ignored_ and its name', async () => {
+    const projects = { '.': { dependencies: { 'is-number': 'workspace:packages/is-number', 'is-odd': 'is-odd@3.0.1' } }, 'packages/is-number': {} }
+    const { vfs, version, installed } = await build12({ projects, snapshots: IS_ODD })
+    assert.deepEqual(vfs.readdir('/node_modules'), ['.ignored_is-number', 'is-number', 'is-odd'])
+    assert.equal(vfs.readlink('/node_modules/is-number'), '../packages/is-number')
+    assert.equal(version('node_modules/.ignored_is-number'), '6.0.0')
+    assert.deepEqual(installed.map(({ path }) => path).sort(), ['node_modules/.ignored_is-number', 'node_modules/is-odd'])
+  })
+
+  // pnpm 11 installs mac 1.0.0, which needs-old-mac requires, and which the
+  // host cannot run; pnpm 12's walk leaves it out, as only optional
+  // dependencies reach it.
+  it('leaves out an optional package the host cannot run, though an installed one requires it', async () => {
+    const projects = { '.': { optionalDependencies: { 'needs-old-mac': 'needs-old-mac@1.0.0' } } }
+    const snapshots = { 'needs-old-mac@1.0.0': { dependencies: { mac: 'mac@1.0.0' }, optional: true }, 'mac@1.0.0': { optional: true } }
+    assert.deepEqual((await build12({ projects, snapshots })).vfs.readdir('/node_modules'), ['needs-old-mac'])
+    assert.deepEqual((await build11({ projects, snapshots })).vfs.readdir('/node_modules'), ['mac', 'needs-old-mac'])
+  })
+
+  it('patches every copy in place, and makes its bins executable with no CRLF made LF', async () => {
+    const patched = `debug@2.6.9(patch_hash=${H})`
+    const projects = { '.': { dependencies: { debug: 'debug@4.3.4', tool: 'tool@1.0.0' } }, 'packages/a': { dependencies: { debug: patched } }, 'packages/b': { dependencies: { debug: patched } } }
+    const snapshots = { [patched]: { dependencies: { ms: 'ms@2.0.0' } }, 'debug@4.3.4': { dependencies: { ms: 'ms@2.1.3' } }, 'ms@2.0.0': {}, 'ms@2.1.3': {}, 'tool@1.0.0': {} }
+    const { vfs } = await build12({ projects, snapshots, patched: 'debug@2.6.9' })
+    for (const project of ['a', 'b']) assert.equal(vfs.readText(`/packages/${project}/node_modules/debug/index.js`), 'module.exports = 2\n')
+    assert.equal(vfs.stat('/node_modules/tool/cli.js').mode, 0o755)
+    assert.equal(vfs.readText('/node_modules/tool/cli.js'), CRLF_BIN.data)
+  })
+
+  // pnpm 12 splits a key's version from its peers at its first `(`, and
+  // fails on one it cannot split so, as on an empty version.
+  it('refuses a key pnpm 12 cannot read', () => {
+    const empty = { dependencies: {}, devDependencies: {}, optionalDependencies: {} }
+    for (const key of ['ms@', 'ms@1.0.0(a', 'ms@runtime:file:x']) {
+      assert.throws(() => hoistedLayout12({ importers: { '.': empty }, packages: { [key]: { ...empty, name: 'ms' } } }, { skipped: new Set(), leftOut: () => false }), /^DeptreeError: (?:packages|snapshots)\[".*"\]: pnpm 12 fails to read this key/u, key)
+    }
+  })
+
+  it('refuses a pnpm 12 before 12.21.0, and settings that hoist otherwise', async () => {
+    const projects = { '.': { dependencies: { ms: 'ms@2.1.3' } } }
+    const snapshots = { 'ms@2.1.3': {} }
+    await assert.rejects(build12({ projects, snapshots, host: { ...HOST, pnpm: '12.20.0' } }), /^DeptreeError: nodeLinker: pnpm 12\.20\.0's hoisted layout is not supported: pnpm 12's is built for from 12\.21\.0 on, as it changed how it hoists in 12\.20\.0 and 12\.21\.0$/u)
+    await assert.rejects(build12({ projects, snapshots, settings: 'hoistingLimits: workspaces\n' }), /^DeptreeError: hoistingLimits: "workspaces" is not supported with pnpm 12's hoisted layout/u)
+    await assert.rejects(build12({ projects, snapshots, settings: 'externalDependencies:\n  - ms\n' }), /^DeptreeError: externalDependencies: not supported with pnpm 12's hoisted layout/u)
+    await assert.rejects(build12({ projects, snapshots, importMethod: 'hardlink' }), /^DeptreeError: packageImportMethod: "hardlink" is not supported with the hoisted layout/u)
   })
 })
 

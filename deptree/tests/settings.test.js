@@ -31,6 +31,8 @@ const DEFAULTS = {
   runtimeOnFail: undefined,
   packageImportMethod: 'auto',
   nodeLinker: 'isolated',
+  hoistingLimits: 'none',
+  externalDependencies: [],
 }
 
 describe('parseNpmrc', () => {
@@ -68,11 +70,20 @@ describe('readSettings', () => {
   })
 
   // Whether a package installed from a directory is one copy or many.
-  it('reads nodeLinker, hoisted for pnpm 10 and 11', () => {
+  it('reads nodeLinker, hoisted for pnpm 10, 11 and 12', () => {
     assert.equal(read({ npmrc: 'node-linker=hoisted\n' }).nodeLinker, 'hoisted')
     assert.equal(read({ workspace: 'nodeLinker: hoisted\n' }).nodeLinker, 'hoisted')
     assert.equal(read({ workspace: 'nodeLinker: hoisted\n', major: 11 }).nodeLinker, 'hoisted')
     assert.equal(read({ workspace: 'nodeLinker: isolated\n', major: 11 }).nodeLinker, 'isolated')
+    assert.equal(read({ workspace: 'nodeLinker: hoisted\n', major: 12 }).nodeLinker, 'hoisted')
+  })
+
+  // pnpm 12's hoisted linker reads them, which leave an isolated tree as it is.
+  it('reads hoistingLimits and externalDependencies for pnpm 12', () => {
+    const read12 = read({ workspace: 'hoistingLimits: workspaces\nexternalDependencies:\n  - a\n', major: 12 })
+    assert.deepEqual([read12.hoistingLimits, read12.externalDependencies], ['workspaces', ['a']])
+    assert.throws(() => read({ workspace: 'hoistingLimits: all\n', major: 12 }), /^DeptreeError: pnpm-workspace\.yaml: hoistingLimits: expected one of none, workspaces, dependencies, found "all"$/u)
+    assert.throws(() => read({ workspace: 'externalDependencies: a\n', major: 12 }), /^DeptreeError: pnpm-workspace\.yaml: externalDependencies: expected a list of strings, found "a"$/u)
   })
 
   it('reads packageImportMethod', () => {
@@ -233,7 +244,6 @@ describe('readSettings', () => {
   })
 
   const refused = [
-    [{ workspace: 'nodeLinker: hoisted\n', major: 12 }, /^pnpm-workspace\.yaml: nodeLinker: "hoisted" is not supported: only the isolated node_modules layout is built for pnpm 12$/u],
     [{ workspace: 'nodeLinker: pnp\n', major: 11 }, /^pnpm-workspace\.yaml: nodeLinker: "pnp" is not supported: only the isolated and hoisted node_modules layouts are built$/u],
     [{ npmrc: 'node-linker=pnp\n' }, /^\.npmrc:1: node-linker: "pnp" is not supported: only the isolated and hoisted node_modules layouts are built$/u],
     [{ workspace: 'someNewSetting: 1\n' }, /^pnpm-workspace\.yaml: someNewSetting: unsupported setting$/u],

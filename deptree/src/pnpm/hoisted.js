@@ -1,13 +1,14 @@
-// pnpm 10 and 11's hoisted linker: real-hoist's tree of the lockfile, every project under the root, hoisted
-// by @yarnpkg/nm (nm-hoist.js; pnpm 11's 4.0.7 to 4.1.1 differs only with hoistingLimits, not supported),
-// each package copied to node_modules/<alias> where it lands; a project's `link:`s alone are linked
+// The hoisted linker: pnpm's tree of the lockfile, every project under the root, hoisted by @yarnpkg/nm for
+// pnpm 10 and 11 (nm-hoist.js; pnpm 11's 4.0.7 to 4.1.1 differs only with hoistingLimits, not supported) and its
+// own for pnpm 12 (real-hoist12.js), each package copied to node_modules/<alias> where it lands; `link:`s linked
 
 import { packageKeyOf } from '@preventive/lockfile/pnpm.js'
 import { valid } from '@preventive/upstream/semver.js'
-import { relative } from '@preventive/vfs/path.js'
+import { compareNames, relative } from '@preventive/vfs/path.js'
 import { DeptreeError, quote } from '../error.js'
 import { createMatcher } from '../matcher.js'
 import { REGULAR, WORKSPACE, depthFirst, hoist, reachable } from './nm-hoist.js'
+import { hoist12 } from './real-hoist12.js'
 
 // pnpm's name@version of a snapshot, by which it takes every snapshot of a package for the first. A
 // directory has no version, so all of one name are one; from pnpm 11.24 (`directories`) each is its own.
@@ -19,7 +20,20 @@ export function packageIdOf(key, pkg, directories = false) {
   return `${name}@${version}`
 }
 
-const modulesOf = (id) => (id === '.' ? 'node_modules' : `${id}/node_modules`)
+// pnpm 12's pkg_id: the key with its peers and patch hash cut, from the
+// first `(` of a key that ends in `)`; but a `file:` directory's, each
+// variant of which is a copy of its own, unlike a tarball's, is the key.
+export function pkgId12(key) {
+  const sep = key.indexOf('@', 1)
+  const open = key.endsWith(')') ? key.indexOf('(', sep) : -1
+  const base = open === -1 ? key : key.slice(0, open)
+  const version = base.slice(sep + 1).replace(/^runtime:/u, '')
+  if (!version.startsWith('file:')) return base
+  const lower = version.replace(/[A-Z]/gu, (char) => char.toLowerCase())
+  return ['.tgz', '.tar.gz', '.tar'].some((ext) => lower.endsWith(ext)) ? base : key
+}
+
+export const modulesOf = (id) => (id === '.' ? 'node_modules' : `${id}/node_modules`)
 
 // A project's dependencies as pnpm reads them from the lockfile, a link
 // spelled from the project, as pnpm writes it.
@@ -29,24 +43,26 @@ function asWritten(id, deps) {
 
 // A link pnpm from 11.28.1 takes for one into the package that asks for it,
 // which it does not hoist: `link:<root>/` and a plain path.
-const rootLink = (ref) => ref.startsWith('link:<root>/') && ref.slice('link:<root>/'.length).split('/').every((name) => name !== '' && name !== '.' && name !== '..' && !name.includes('\\') && !name.includes(':'))
+export const rootLink = (ref) => ref.startsWith('link:<root>/') && ref.slice('link:<root>/'.length).split('/').every((name) => name !== '' && name !== '.' && name !== '..' && !name.includes('\\') && !name.includes(':'))
 
-// real-hoist's tree: a node by alias and snapshot, each made once and with
-// its own dependencies made before the next, depth first as pnpm recurses.
-function treeOf(lockfile, autoInstallPeers, { directories, rootLinks }) {
+// The tree hoisted, a node by alias and snapshot, each made once, its dependencies before the next, depth
+// first. pnpm 12 (`pnpm12`) takes dependencies and projects in the order of their aliases and ids, leaves a
+// project's `link:`s out, and takes a package by its pkg_id
+export function hoisterTree(lockfile, autoInstallPeers, { directories = false, rootLinks = false, pnpm12 = false } = {}) {
   const nodes = new Map()
   const referenceById = new Map()
+  const entriesOf = (deps) => (pnpm12 ? Object.entries(deps).sort(([a], [b]) => compareNames(a, b)) : Object.entries(deps))
   const nodeOf = (alias, ref) => {
     if (ref.startsWith('link:')) return { name: alias, identName: alias, reference: ref, dependencyKind: rootLinks && rootLink(ref) ? WORKSPACE : REGULAR, dependencies: new Set(), peerNames: new Set() }
     const pkg = lockfile.packages[ref]
-    const id = packageIdOf(ref, pkg, directories)
+    const id = pnpm12 ? pkgId12(ref) : packageIdOf(ref, pkg, directories)
     if (!referenceById.has(id)) referenceById.set(id, ref)
     const peerNames = new Set(autoInstallPeers ? [] : [...Object.keys(pkg.peerDependencies), ...pkg.transitivePeerDependencies])
     return { name: alias, identName: pkg.name, reference: referenceById.get(id), dependencyKind: REGULAR, dependencies: new Set(), peerNames }
   }
   const toTree = (deps) => {
     const top = new Set()
-    depthFirst({ items: Object.entries(deps).values(), into: top }, ([alias, ref], { into }) => {
+    depthFirst({ items: entriesOf(deps).values(), into: top }, ([alias, ref], { into }) => {
       const key = `${alias}:${ref}`
       const made = !nodes.has(key)
       if (made) nodes.set(key, nodeOf(alias, ref))
@@ -54,24 +70,24 @@ function treeOf(lockfile, autoInstallPeers, { directories, rootLinks }) {
       into.add(node)
       if (!made || ref.startsWith('link:')) return undefined
       const pkg = lockfile.packages[ref]
-      return { items: Object.entries({ ...pkg.dependencies, ...pkg.optionalDependencies }).values(), into: node.dependencies }
+      return { items: entriesOf({ ...pkg.dependencies, ...pkg.optionalDependencies }).values(), into: node.dependencies }
     })
     return top
   }
   const projectNode = (id, name, reference) => {
     const { dependencies, devDependencies, optionalDependencies } = lockfile.importers[id]
-    return { name, identName: name, reference, peerNames: new Set(), dependencyKind: WORKSPACE, dependencies: toTree(asWritten(id, { ...dependencies, ...devDependencies, ...optionalDependencies })) }
+    const deps = asWritten(id, { ...dependencies, ...devDependencies, ...optionalDependencies })
+    return { name, identName: name, reference, peerNames: new Set(), dependencyKind: WORKSPACE, dependencies: toTree(pnpm12 ? Object.fromEntries(Object.entries(deps).filter(([, ref]) => !ref.startsWith('link:'))) : deps) }
   }
   const tree = projectNode('.', '.', '')
-  for (const [id, importer] of Object.entries(lockfile.importers)) {
-    if (id !== '.' && !importer.made) tree.dependencies.add(projectNode(id, encodeURIComponent(id), `workspace:${id}`))
-  }
+  const ids = Object.keys(lockfile.importers).filter((id) => id !== '.' && !lockfile.importers[id].made)
+  for (const id of pnpm12 ? ids.sort(compareNames) : ids) tree.dependencies.add(projectNode(id, encodeURIComponent(id), `workspace:${id}`))
   return tree
 }
 
 // pnpm reads a package's link as its writer left it, which the lockfile
-// reader does not keep.
-function checkNoPackageLinks(lockfile) {
+// reader does not keep; pnpm 12 links one nowhere, or one into the package.
+export function checkNoPackageLinks(lockfile) {
   for (const [key, pkg] of Object.entries(lockfile.packages)) {
     for (const [alias, target] of Object.entries({ ...pkg.dependencies, ...pkg.optionalDependencies })) {
       if (target.startsWith('link:')) throw new DeptreeError('a package\'s `link:` dependency is not supported with the hoisted linker', `packages[${quote(key)}].dependencies[${quote(alias)}]`)
@@ -80,43 +96,54 @@ function checkNoPackageLinks(lockfile) {
 }
 
 // The tree as hoisted, of nodes with a name, an identName, references and
-// dependencies; with `directories` from pnpm 11.24, and `rootLinks` from
-// 11.28.1.
-export function hoistedTree(lockfile, autoInstallPeers, bounds, { directories = false, rootLinks = false } = {}) {
+// dependencies; with `directories` from pnpm 11.24, `rootLinks` from
+// 11.28.1, and `pnpm12`'s hoister for pnpm 12.
+export function hoistedTree(lockfile, autoInstallPeers, bounds, options = {}) {
   checkNoPackageLinks(lockfile)
-  return hoist(treeOf(lockfile, autoInstallPeers, { directories, rootLinks }), bounds)
+  return (options.pnpm12 ? hoist12 : hoist)(hoisterTree(lockfile, autoInstallPeers, options), bounds)
 }
 
-// Each copy pnpm makes, a parent before what lands in its node_modules; each project's `link:`s by where
-// they go; and the projects' node_modules, the root's first. pnpm hoists from the lockfile's importers,
-// `skipped` snapshots too, and not those made for projects it has none for.
-export function hoistedLayout(lockfile, { autoInstallPeers, skipped, directories = false, rootLinks = false }, bounds) {
-  const tree = hoistedTree(lockfile, autoInstallPeers, bounds, { directories, rootLinks })
+// Each copy pnpm makes, a parent before what lands in its node_modules; the projects' `link:`s and node_modules;
+// and what is left out, `skipped` (hoisted all the same) and what `leftOut` takes. pnpm 10 and 11 walk the root's
+// packages first, 12 each project where the root has it; importers made for projects pnpm has none for are not
+export function hoistedLayout(lockfile, { autoInstallPeers, skipped, leftOut = () => false, checkAlias, ...options }, bounds) {
+  const tree = hoistedTree(lockfile, autoInstallPeers, bounds, options)
+  const projectOf = (dep) => (dep.references.values().next().value.startsWith('workspace:') ? dep.references.values().next().value.slice('workspace:'.length) : undefined)
+  const top = options.pnpm12 ? [...tree.dependencies] : [...tree.dependencies].sort((a, b) => (projectOf(a) === undefined ? 0 : 1) - (projectOf(b) === undefined ? 0 : 1))
   const placed = new Map()
-  const place = (modules, deps) => depthFirst({ modules, items: deps.values() }, (dep, frame) => {
+  const left = new Set(skipped)
+  const projects = ['node_modules']
+  depthFirst({ modules: 'node_modules', top: true, items: top.values() }, (dep, frame) => {
     const [key] = dep.references
-    if (skipped.has(key) || key.startsWith('workspace:') || !(key in lockfile.packages)) return undefined
-    const dir = `${frame.modules}/${dep.name}`
+    if (key.startsWith('workspace:')) {
+      if (!frame.top) return undefined
+      projects.push(modulesOf(projectOf(dep)))
+      return { modules: modulesOf(projectOf(dep)), items: dep.dependencies.values() }
+    }
+    if (left.has(key) || !(key in lockfile.packages)) return undefined
     const pkg = lockfile.packages[key]
+    if (leftOut(key, pkg)) {
+      left.add(key)
+      return undefined
+    }
+    checkAlias?.(dep.name, frame.modules)
+    const dir = `${frame.modules}/${dep.name}`
     placed.set(dir, { key, pkg, name: pkg.name, dir, modules: frame.modules, alias: dep.name })
     return { modules: `${dir}/node_modules`, items: dep.dependencies.values() }
   })
-  place('node_modules', tree.dependencies)
-  const projects = ['node_modules']
-  for (const dep of tree.dependencies) {
-    const [reference] = dep.references
-    if (!reference.startsWith('workspace:')) continue
-    const modules = modulesOf(reference.slice('workspace:'.length))
-    projects.push(modules)
-    place(modules, dep.dependencies)
-  }
+  return { placed, links: projectLinks(lockfile), projects, skipped: left }
+}
+
+// Each project's `link:` dependencies, by where each goes in its
+// node_modules, to the directory from the lockfile's.
+export function projectLinks(lockfile) {
   const links = new Map()
   for (const [id, importer] of Object.entries(lockfile.importers)) {
     for (const [alias, target] of Object.entries({ ...importer.devDependencies, ...importer.dependencies, ...importer.optionalDependencies })) {
-      if (target.startsWith('link:')) links.set(`${modulesOf(id)}/${alias}`, target.slice(5))
+      if (target.startsWith('link:')) links.set(`${modulesOf(id)}/${alias}`, target.slice('link:'.length))
     }
   }
-  return { placed, links, projects }
+  return links
 }
 
 // From pnpm 11.28, each project in `names` linked into the root's node_modules by its name where a hoist

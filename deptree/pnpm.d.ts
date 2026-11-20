@@ -1,6 +1,6 @@
 /**
  * The node_modules tree `pnpm install --frozen-lockfile --ignore-scripts` makes, built in memory from a
- * pnpm lockfile: with the isolated linker of pnpm 10, 11 or 12, or the hoisted one of pnpm 10 or 11
+ * pnpm lockfile: with the isolated linker of pnpm 10, 11 or 12, or the hoisted one of pnpm 10, 11 or 12
  *
  * ```js
  * import { buildPnpmTree, findPnpmProjects } from '@preventive/deptree/pnpm.js'
@@ -243,8 +243,10 @@ export interface PnpmLazyTree extends PnpmTree {
  * outside the tree. No .bin is written, nor pnpm's state, but each file a bin pnpm links runs is left as
  * linking leaves it: executable, and with a CRLF `#!` line made LF but by pnpm 12. Every file is its own,
  * as where pnpm clones or copies from its store. pnpm 11's and 12's ways of linking bins and hoisting
- * are built as each makes them; the hoisted linker as @yarnpkg/nm hoists, where packageImportMethod is
- * copy, clone or clone-or-copy, refused past 50,000,000 weighted steps or 100,000 packages.
+ * are built as each makes them; the hoisted linker as @yarnpkg/nm hoists for pnpm 10 and 11, and as pnpm
+ * 12's own hoister does from 12.21.0, a copy where a project's `link:` goes moved aside to
+ * .ignored_<name>; where packageImportMethod is copy, clone or clone-or-copy, refused past 50,000,000
+ * weighted steps or 100,000 packages.
  *
  * The lockfile is held to what a frozen install holds it to: the settings it was resolved with
  * (catalogs, overrides, package extensions, patches, autoInstallPeers, dedupePeers,
@@ -258,7 +260,9 @@ export interface PnpmLazyTree extends PnpmTree {
  * Refused, among the rest: a setting not built for, a pnpmfile, an injected dependency, a package from
  * anywhere but the registry, a `file:` tarball, another package manager or a runtime to download, a
  * lockfile not up to date, two projects of one name, a patch that does not hash or apply or would change
- * a bin between two links, and a file whose mode would turn on the order a directory is read in.
+ * a bin between two links, a file whose mode would turn on the order a directory is read in, and pnpm
+ * 12's hoisted linker before 12.21.0, or with hoistingLimits, externalDependencies or autoInstallPeers
+ * false.
  *
  * @param options - The files, the host, and how to build
  * @returns The tree, its counts, and the snapshots installed

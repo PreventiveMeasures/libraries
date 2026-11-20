@@ -16,8 +16,8 @@ const getIdentName = (locator) => locator.slice(0, locator.indexOf('@', 1))
 
 // Refused past these: on a graph made to defeat it, the hoist walks every path through what it cannot hoist,
 // and the tree holds a copy of a package for each
-const MAX_STEPS = 50_000_000
-const MAX_NODES = 100_000
+export const MAX_STEPS = 50_000_000
+export const MAX_NODES = 100_000
 
 function counter(limit, what, stats) {
   let steps = 0

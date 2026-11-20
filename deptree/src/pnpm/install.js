@@ -120,6 +120,21 @@ function createCheck(context) {
   }
 }
 
+// pnpm 12's hoisted walk checks each copy again (presence.rs), by the os, cpu and libc the lockfile has, none
+// inferred, and leaves out one the host cannot run that only optional dependencies reach, though an installed
+// package requires it; with engineStrict, a patched one's engines passed over. Whether it leaves out `key`
+export function createWalkerCheck(context) {
+  const { host, settings } = context
+  const node = nodeOf(context)
+  const later = patchedLater(context)
+  return (key, pkg) => {
+    if (!pkg.optional) return false
+    const engines = later && pkg.patchHash !== undefined ? {} : pkg.engines
+    checkSure12(engines.node, quote(key))
+    return !(takesPlatform(pkg, host, settings.supportedArchitectures) && takesEngine(engines, node))
+  }
+}
+
 // pnpm removes an optional package that fails this from the tree already
 // linked, also refused. pnpm 12 passes over engines.runtime's Node here.
 export function createPatchedCheck(context) {

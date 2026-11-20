@@ -28,10 +28,12 @@ export const requiresBuild = (manifest, files, major) => Boolean((manifest.scrip
   || (files.has('binding.gyp') && !(major >= 11 && manifest.gypfile === false)) || files.keys().some((path) => /^\.hooks[\\/]/u.test(path)))
 
 // `contested` holds the files that may be fixed or not, and why; `ordered` is whether pnpm always comes
-// to the commands in this order; `fixNode` whether pnpm 12 links again, fixing a direct `node`
+// to the commands in this order; `fixNode` whether pnpm 12 links again, fixing a direct `node`, or else
+// why it may or may not
 function linker(major) {
   const fixed = new Map()
   const contested = new Map()
+  const contest = (tied, why) => tied.filter(({ owner }) => owner !== undefined).forEach(({ target, owner }) => contested.set(target, { owner, why }))
   const link = (commands, { ordered, where, fixNode = false }) => {
     const unknown = commands.some((command) => command.unknown)
     const best = new Map()
@@ -44,14 +46,14 @@ function linker(major) {
     }
     for (const tied of best.values()) {
       // pnpm 11 and 12 link `node` with no fix of its file.
-      if (major >= 11 && tied[0].name === 'node' && !(fixNode && tied.every((command) => command.direct !== false))) continue
-      const unordered = new Set(tied.map(({ target }) => target)).size > 1 && (!ordered || tied.some((command) => command.unordered))
-      for (const { target, owner } of unknown || unordered ? tied : tied.slice(0, 1)) {
-        if (owner === undefined) continue
-        if (unknown) contested.set(target, { owner, why: 'the bins of a directory outside the tree, which are not known here' })
-        else if (unordered) contested.set(target, { owner, why: 'the order it reads a directory in, which varies' })
-        else fixed.set(target, owner)
+      if (major >= 11 && tied[0].name === 'node' && !(fixNode === true && tied.every((command) => command.direct !== false))) {
+        if (typeof fixNode === 'string') contest(tied, fixNode)
+        continue
       }
+      const unordered = new Set(tied.map(({ target }) => target)).size > 1 && (!ordered || tied.some((command) => command.unordered))
+      if (unknown) contest(tied, 'the bins of a directory outside the tree, which are not known here')
+      else if (unordered) contest(tied, 'the order it reads a directory in, which varies')
+      else if (tied[0].owner !== undefined) fixed.set(tied[0].target, tied[0].owner)
     }
     return { names: new Set(best.keys()), unknown }
   }
@@ -273,6 +275,23 @@ export function hoistedBinTargets({ nodes, projects, modules, builds = [], hardl
   const fixed = new Map()
   const contested = new Map()
   linkCopies(hardlinks ? builds : [], [{ ...filling, before: true }, ...building, { ...projectsAgain, before: false }], fixed, contested, { keepsModules, major })
+  return fixedFiles(nodes, fixed, contested, major)
+}
+
+// pnpm 12's hoisted linker links the bins of each node_modules it fills, of all it put there; then of each
+// package bundling its dependencies, all in its node_modules; then each project's, as `resolved` has them.
+// `node`'s file, which a second link of one package into a .bin fixes, is not followed
+export function hoistedBinTargets12({ nodes, projects, resolved, major }) {
+  const commandsOfDir = commandReader(nodes, projects, major)
+  const mayHaveBin = mayHaveBinIn(nodes)
+  const { fixed, contested, link } = linker(major)
+  const linking = (dirs, where, more = []) => link([...more, ...dirs.filter((at) => !nodes.has(at) || mayHaveBin(at)).flatMap((at) => commandsOfDir(at))], { ordered: false, where, fixNode: 'whether pnpm 12 links it into one .bin twice' })
+  const filled = Map.groupBy(nodes.values(), (node) => node.modules)
+  for (const [modules, copies] of filled) linking(copies.map((node) => node.dir), quote(modules))
+  for (const node of nodes.values()) {
+    if (node.pkg.bundledDependencies !== undefined) linking((filled.get(`${node.dir}/node_modules`) ?? []).map((copy) => copy.dir), quote(node.key), bundledCommands(node, quote(node.key), major))
+  }
+  for (const { modules, dirs } of resolved) linking(dirs, quote(modules))
   return fixedFiles(nodes, fixed, contested, major)
 }
 
