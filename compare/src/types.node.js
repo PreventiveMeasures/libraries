@@ -152,6 +152,25 @@ function runtimeText(body, code, comments, { start, end }) {
   return out
 }
 
+// Each enum a program declares, wherever it stands: exported, or within a namespace, a module or `declare
+// global` (`declare namespace N { const enum E { A = 1 } }`). Stripping erases one whole and Node runs nothing
+// of it, but its members are values, not types: tsc writes a const enum's member into the code that reads it,
+// a declaration file's as any other's (`E.A` emitted as `1`), and a const enum's member may be computed from
+// any enum's (`A = Other.A`), so a change to either changes what runs elsewhere. Statements alone hold an
+// enum, so only lists of them are walked, a work list rather than a recursion, as namespaces nest.
+function enumsOf(program) {
+  const found = [], lists = [program.body]
+  while (lists.length > 0) {
+    for (const statement of lists.pop()) {
+      let node = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
+      if (node?.type === 'TSEnumDeclaration') found.push(node)
+      while (node?.type === 'TSModuleDeclaration') node = node.body
+      if (node?.type === 'TSModuleBlock') lists.push(node.body)
+    }
+  }
+  return found
+}
+
 // proveTypeOnly with the stripping given: exported for tests alone, not by the package. The text is compared
 // unit for unit with what stripping leaves of it, which says nothing of a file it is a lossy decoding of: a
 // file's bytes are read as its text only where they are UTF-8.
@@ -188,14 +207,16 @@ export function proveWith(text, stripTypeScriptTypes) {
   const left = leftover(blankedOutside(stripped.code, runtime))
   if (left !== -1) return refused('disagree', shift + left)
   // The runtime a change must leave untouched to be types only: the hashbang, the module loads and
-  // `export {}` stripping leaves, and the directive and pragma comments it keeps -- in source order. Empty
-  // where the file erases whole and carries none. A run statement is read through runtimeText, so an inline
-  // type specifier or a comment within it does not count; the hashbang, a directive and a pragma stand
-  // verbatim, since what they say is the point. A triple-slash directive counts only in the prologue, before
-  // the first statement, where TypeScript honours it; a comment blanked within an erased statement reads as
-  // blanks here, so only a kept one steers. `loads` is whether any run statement is a module load, a bare
-  // `export {}`, or an `export default` on an identifier, the runtime that runs differently per module format
-  // -- a hashbang, directive or pragma does not.
+  // `export {}` stripping leaves, the directive and pragma comments it keeps, and each enum it erases
+  // (enumsOf) -- in source order. Empty where the file erases whole and carries none. A run statement is read
+  // through runtimeText, so an inline type specifier or a comment within it does not count; an enum likewise,
+  // as the text has it rather than as stripping blanked it, so a comment within one (a member's doc) does not
+  // count either, while its names, its values and the blanks within its string values stand. The hashbang,
+  // a directive and a pragma stand verbatim, since what they say is the point. A triple-slash directive counts
+  // only in the prologue, before the first statement, where TypeScript honours it; a comment blanked within an
+  // erased statement reads as blanks here, so only a kept one steers. `loads` is whether any run statement is
+  // a module load, a bare `export {}`, or an `export default` on an identifier, the runtime that runs
+  // differently per module format -- a hashbang, directive, pragma or enum does not.
   const prologue = tree.program.body[0]?.start ?? stripped.code.length
   const hashbang = tree.program.hashbang ? [tree.program.hashbang] : []
   const steering = tree.comments.filter(({ start, end }) => steers(stripped.code.slice(start, end), start < prologue))
@@ -204,6 +225,7 @@ export function proveWith(text, stripTypeScriptTypes) {
     ...hashbang.map(verbatim),
     ...runtime.map((node) => ({ start: node.start, text: runtimeText(body, stripped.code, tree.comments, node) })),
     ...steering.map(verbatim),
+    ...enumsOf(tree.program).map((node) => ({ start: node.start, text: runtimeText(body, body, tree.comments, node) })),
   ]
   const signature = parts.sort((a, b) => a.start - b.start).map((part) => part.text).join('\n')
   return { proven: true, runtime: signature, loads: runtime.length > 0 }

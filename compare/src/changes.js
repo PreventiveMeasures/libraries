@@ -59,7 +59,8 @@ const fixedModule = (path) => (path.endsWith('.mts') ? 'module' : path.endsWith(
 const EXPORT_EMPTY = /^export\s*\{\s*\}\s*;?$/u
 
 // A file's proof: that it holds types alone but for its `runtime` -- a hashbang, the module loads and
-// `export {}` stripping leaves -- which a change must leave byte for byte untouched to be types only.
+// `export {}` stripping leaves, its enums, whose members compile into what reads them -- which a change
+// must leave byte for byte untouched to be types only.
 // `loads` is whether that runtime holds a module load, `export {}`, or an `export default` on an identifier, the part that runs differently per
 // module format; a hashbang, a directive or a pragma does not, so a runtime of only those is format-free. A
 // side not there has none. Proven from its data as given, bytes held to UTF-8 by the proof itself; not
