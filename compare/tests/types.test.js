@@ -91,11 +91,29 @@ describe('proveTypeOnly', () => {
     // they join the runtime, in source order, so a change to one is not types only. Neither is a module load,
     // so a directive- or pragma-only runtime does not gate the module format (`loads` is false).
     assert.deepEqual(proveTypeOnly('declare const x: 1\n//# sourceMappingURL=x.map\n'), { proven: true, runtime: '//# sourceMappingURL=x.map', loads: false })
-    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: '/// <reference types="node" />\nexport {};', loads: true })
+    // Its const enum, which stripping erases, joins the runtime too (as the next test has it).
+    assert.deepEqual(proveTypeOnly(EMITTED), { proven: true, runtime: '/// <reference types="node" />\ndeclare const enum Kind { File = 0 }\nexport {};', loads: true })
     // A type-only specifier within a kept import blanks; the module still loads, so it is runtime.
     const r = proveTypeOnly("import { type A, B } from 'b'\nexport declare const x: A\n")
     assert.equal(r.proven, true)
     assert.match(r.runtime, /^import \{ *B \} from 'b'$/u)
+  })
+
+  // An enum erases whole and runs nothing in Node, yet its members are values, not types: tsc writes a const
+  // enum's member into the code that reads it (`E.A` emitted as `1`), and a const enum's member may be
+  // computed from any enum's. Each joins the runtime wherever it stands, read as the text has it: a comment
+  // within one reduced as a run statement's is, its names, its values and the blanks within them kept.
+  it('proves an enum as part of its runtime, wherever it stands, a comment within it reduced', () => {
+    assert.deepEqual(proveTypeOnly('export declare const enum E { A = 1 }\n'), { proven: true, runtime: 'declare const enum E { A = 1 }', loads: false })
+    assert.deepEqual(proveTypeOnly('declare enum E { A }\nexport interface I {}\n'), { proven: true, runtime: 'declare enum E { A }', loads: false })
+    const nested = 'declare namespace N { const enum C { A = 1 } }\ndeclare global { const enum G { B } }\n'
+      + 'declare module "m" { enum M { C } }\nexport declare namespace O.P { const enum Q { D } }\n'
+    assert.deepEqual(proveTypeOnly(nested), { proven: true, runtime: 'const enum C { A = 1 }\nconst enum G { B }\nenum M { C }\nconst enum Q { D }', loads: false })
+    const rt = (text) => proveTypeOnly(text).runtime
+    assert.equal(rt('declare const enum E { /** a */ A = 1 }\n'), rt('declare const enum E { /** a longer doc */ A = 1 }\n'), "a member's doc")
+    assert.equal(rt('/** a */\ndeclare const enum E { A = 1 }\n'), rt('/** another */\ndeclare const enum E { A = 1 }\n'), "the enum's own doc")
+    assert.notEqual(rt('declare const enum E { A = "a b" }\n'), rt('declare const enum E { A = "a  b" }\n'), 'the blanks within a value')
+    assert.notEqual(rt('declare const enum E { A, B }\n'), rt('declare const enum E { B, A }\n'), 'members reordered, each numbered by its place')
   })
 
   // An import or re-export whose only specifier is an inline type still loads its module, so it is runtime,
@@ -340,6 +358,23 @@ describe('compareTrees stamps a declaration file holding types alone on each sid
     assert.equal(compareTrees(entry(0o644), entry(0o755))[0].typeOnly, undefined, 'the mode changed')
     const typed = (c) => [{ name: 'a.d.ts', data: `#!/usr/bin/env node\nexport declare const a: ${c}\n`, mode: 0o644 }]
     assert.equal(compareTrees(typed(1), typed(2))[0].typeOnly, true, 'the mode held, only types changed')
+  })
+
+  // An enum's members compile into the code that reads them, so a change to one is not types only, as tsc,
+  // reading `Role.Admin` of this file, writes its value where it is read; a change to its docs, or to the
+  // types beside it, still is.
+  it('none where an enum changed, as its members compile into what reads them', () => {
+    const roles = (admin, doc = 'a') => `/** ${doc} */\nexport declare const enum Role {\n    User = 1,\n    /** ${doc} */\n    Admin = ${admin}\n}\nexport interface User { role: Role }\n`
+    assert.deepEqual(stamps({ 'a.d.ts': roles(4) }, { 'a.d.ts': roles(1) }, { renames: false }), [['modified a.d.ts', undefined]], 'a value')
+    assert.deepEqual(stamps({ 'a.d.ts': roles(4) }, { 'a.d.ts': roles(4, 'b, said otherwise') }, { renames: false }), [['modified a.d.ts', true]], 'its docs alone')
+    assert.deepEqual(stamps({ 'a.d.ts': roles(4) }, { 'a.d.ts': `${roles(4)}export type Other = 1\n` }, { renames: false }), [['modified a.d.ts', true]], 'types beside it')
+    // A const enum's member computed from an enum that is none is written as that one's value, so it changes with it.
+    const based = (admin) => `export declare enum Base { Admin = ${admin} }\nexport declare const enum Role { Admin = Base.Admin }\n`
+    assert.deepEqual(stamps({ 'a.d.ts': based(4) }, { 'a.d.ts': based(1) }, { renames: false }), [['modified a.d.ts', undefined]], 'an enum another is computed from')
+    const nested = (value) => `export declare namespace N {\n    const enum E { A = ${value} }\n}\n`
+    assert.deepEqual(stamps({ 'a.d.ts': nested(1) }, { 'a.d.ts': nested(2) }, { renames: false }), [['modified a.d.ts', undefined]], 'within a namespace')
+    assert.deepEqual(stamps({}, { 'a.d.ts': nested(1) }, { renames: false }), [['added a.d.ts', undefined]], 'added')
+    assert.deepEqual(stamps({ 'a.d.ts': nested(1) }, {}, { renames: false }), [['deleted a.d.ts', undefined]], 'deleted')
   })
 
   it('a rename where both are declaration files', () => {

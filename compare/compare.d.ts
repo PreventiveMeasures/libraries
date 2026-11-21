@@ -38,7 +38,8 @@ export type Status = 'added' | 'deleted' | 'modified' | 'renamed' | 'type-change
 // change whose every side there is a file named as a declaration file
 // (`.d.ts`, `.d.mts`, `.d.cts`, `.d.css.ts`) and holds types alone but for a
 // runtime both sides leave the same, as proveTypeOnly proves: one touching
-// erased types and comments alone, a side not there leaving an empty runtime. A
+// erased types and comments alone, an enum's members, which compile into what
+// reads them, part of the runtime, a side not there leaving an empty runtime. A
 // retained module load or `export {}` runs the same on both sides only within
 // one module format -- an `export {}` emits a marker transpiled to CommonJS, a
 // module load runs as one format and throws as the other -- so where the runtime
@@ -254,14 +255,20 @@ export type TypeOnlyReason = 'unsupported' | 'unparsed' | 'code' | 'disagree'
 //   and leaves nothing it does not, but comments, the hashbang and those;
 // - what it leaves, the run statements set aside, read token by token apart from
 //   either, holds nothing else.
-// `runtime` is built from those run statements and from the directive and pragma
+// `runtime` is built from those run statements, from the directive and pragma
 // comments stripping keeps -- a `/// <reference ... />`, a `//# sourceMappingURL=`
 // or `//# sourceURL=` and their legacy forms, comments a tool reads as more than prose --
-// the hashbang first and the rest in source order, joined by newlines; empty where the
-// file erases whole and carries none. A run statement is reduced: an inline type specifier
+// and from each enum declared, wherever it stands (a namespace's or `declare global`'s
+// among them), which stripping erases but whose members are values, not types: tsc writes a
+// const enum's member into the code that reads it (`E.A` emitted as `1`), and a const enum's
+// member may be computed from any enum's, so a change to an enum is not types only. The
+// hashbang first and the rest in source order, joined by newlines; empty where the file erases
+// whole and carries none. A run statement is reduced: an inline type specifier
 // stripping blanks within it (`import { type A, B }`), and any comment within it, each become
 // a single blank, so a change to only those leaves `runtime` unchanged; its executable text and
 // its module specifier are kept to the character, so a load of another module still differs.
+// An enum is reduced as the text has it, a comment within it (a member's doc) a single blank,
+// its names, values and the blanks within its string values kept.
 // Known limit: that kept text is compared as written, so a change leaving a load runtime-identical
 // yet reformatting it withholds the stamp rather than passing -- a removed trailing inline-type
 // specifier leaving its comma (`{ B, }` where `{ B }` would stand), or a comment added where no
