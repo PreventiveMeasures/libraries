@@ -11,12 +11,13 @@ import { DeptreeError, quote, refusalOf } from '../error.js'
 import { checkNoModules, fold, makeDirs, mount, writeLink } from '../mount.js'
 import { checkProject, productionOf } from '../project.js'
 import { NO_ABOUT, REGISTRY, fetchSize, fetchingOf, tarballUrl } from '../tarball.js'
-import { binReads, binTargets, hoistedBinReads, hoistedBinTargets, requiresBuild } from './bins.js'
+import { binReads, binTargets, hoistedBinReads, hoistedBinTargets, hoistedBinTargets12, requiresBuild } from './bins.js'
 import { buildGraph } from './graph.js'
 import { hoist } from './hoist.js'
-import { checkNoneDropped, hoistedBuilds, hoistedLayout, hoistedModules, mayDrop, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
+import { checkNoneDropped, hoistedBuilds, hoistedLayout, hoistedModules, mayDrop, modulesOf, packageIdOf, prodPackages, workspaceHoists } from './hoisted.js'
 import { checkLocalOverrides, createFreshnessCheck, readDirectoryPackage, readLinked } from './local.js'
-import { createPatchedCheck, skippedSnapshots } from './install.js'
+import { hoistedLayout12, hoistedLinks12 } from './hoisted12.js'
+import { createPatchedCheck, createWalkerCheck, skippedSnapshots } from './install.js'
 import { lazyUnpacker } from './lazy.js'
 import { checkFetched, createPeerDrop, fetchPackage } from './package.js'
 import { checkLinks, checkOptional } from './checks.js'
@@ -162,7 +163,7 @@ function linksOf(byDir, direct, settings, projects, major, hoisting) {
   }
   for (const [path, dir] of hoist(byDir, direct, settings, projects, major, hoisting)) links.set(path, dir)
   for (const [id, children] of direct) {
-    for (const [alias, dir] of children) links.set(`${id === '.' ? '' : `${id}/`}node_modules/${alias}`, dir)
+    for (const [alias, dir] of children) links.set(`${modulesOf(id)}/${alias}`, dir)
   }
   return links
 }
@@ -170,15 +171,25 @@ function linksOf(byDir, direct, settings, projects, major, hoisting) {
 // The import methods with which each copy of a package is its own.
 const COPYING = new Set(['copy', 'clone', 'clone-or-copy'])
 
+// The hoisted layout is built where each copy of a package is its own; pnpm 12's from 12.21.0, as it
+// changed how it hoists in 12.20.0 and 12.21.0, and with none of the settings that change it
+function checkHoisted(settings, host) {
+  if (host.major >= 12 && compareVersions(host.pnpm, '12.21.0') < 0) throw new DeptreeError(`pnpm ${host.pnpm}'s hoisted layout is not supported: pnpm 12's is built for from 12.21.0 on, as it changed how it hoists in 12.20.0 and 12.21.0`, 'nodeLinker')
+  if (!COPYING.has(settings.packageImportMethod)) {
+    throw new DeptreeError(`${quote(settings.packageImportMethod)} is not supported with the hoisted layout, which is built only where each copy of a package is its own: with copy, clone or clone-or-copy`, 'packageImportMethod')
+  }
+  if (host.major < 12) return
+  if (settings.hoistingLimits !== 'none') throw new DeptreeError(`${quote(settings.hoistingLimits)} is not supported with pnpm 12's hoisted layout, which keeps packages from hoisting by it`, 'hoistingLimits')
+  if (settings.externalDependencies.length > 0) throw new DeptreeError('not supported with pnpm 12\'s hoisted layout, which leaves out of the root\'s node_modules what it names', 'externalDependencies')
+  if (!settings.autoInstallPeers) throw new DeptreeError('false is not supported with pnpm 12\'s hoisted layout, which hoists each peer as a dependency then', 'autoInstallPeers')
+}
+
 // The hoisted layout of pnpm 10 and 11 (hoisted.js), each copy a parent before what lands in its
 // node_modules. `fixes` are what linking bins and the build pass do to the files, read once every
 // package's are at hand; `builds` what the build pass builds; `checks` hold the lockfile to the whole one.
 async function buildHoisted({ lockfile, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching }) {
   const { major } = host
   const since = (version) => compareVersions(host.pnpm, version) >= 0
-  if (!COPYING.has(settings.packageImportMethod)) {
-    throw new DeptreeError(`${quote(settings.packageImportMethod)} is not supported with the hoisted layout, which is built only where each copy of a package is its own: with copy, clone or clone-or-copy`, 'packageImportMethod')
-  }
   const directories = since('11.24.0')
   const { placed, links, projects } = hoistedLayout(lockfile, { autoInstallPeers: settings.autoInstallPeers, skipped, directories, rootLinks: since('11.28.1') })
   if (since('11.28.0')) for (const [path, id] of workspaceHoists(placed, lockfile, settings, names)) links.set(path, id)
@@ -205,6 +216,20 @@ async function buildHoisted({ lockfile, checks, settings, host, project, install
   // With lazy, those that may drop a node_modules are fetched with the tree.
   const early = dropping.size === 0 ? undefined : { nodes: [...byDir.values()].filter((node) => dropping.has(node.key)), check: () => builtOf((node) => dropping.has(node.key) && builds(node)) }
   return { byDir, links, fixes, reads: () => hoistedBinReads({ nodes: byDir, building, packages: lockfile.packages }), builds, early, tarballs, dev }
+}
+
+// The hoisted layout of pnpm 12 (hoisted12.js), each copy a parent before what lands in its node_modules;
+// every copy patched in place, and nothing built. `fixes` are what linking bins does to the files
+async function buildHoisted12({ lockfile, checks, settings, host, project, installed, manifests, names, skipped, fetching }) {
+  const layout = hoistedLayout12(lockfile, { skipped, leftOut: createWalkerCheck({ host, settings }) })
+  const { placed, links, resolved } = hoistedLinks12(lockfile, layout, settings, names)
+  for (const node of placed.values()) checkSource(node, installed)
+  const { byDir, tarballs } = await fetchNodes(placed, checks, project, host, fetching)
+  const linked = readLinked(links, byDir, manifests, project)
+  const prod = prodPackages(lockfile, layout.skipped, true)
+  const dev = (node) => !prod.has(packageIdOf(node.key, node.pkg, true))
+  const fixes = () => ({ targets: hoistedBinTargets12({ nodes: byDir, projects: new Map([...manifests, ...linked]), resolved, major: host.major }), executable: new Map() })
+  return { byDir, links, fixes, reads: () => hoistedBinReads({ nodes: byDir, building: false, packages: lockfile.packages }), tarballs, dev }
 }
 
 // The isolated layout: each package in node_modules/.pnpm, linked from what needs it and where it is
@@ -278,8 +303,9 @@ export async function buildPnpmTree(options) {
   const skippedOf = (walked) => skippedSnapshots(walked, { host, settings })
   const { installing, skipped, incompatible } = production ? productionLockfile(lockfile, { ...host, resolvePeersFromWorkspaceRoot: settings.resolvePeersFromWorkspaceRoot }, skippedOf) : { installing: lockfile, ...skippedOf(lockfile) }
   const hoisted = settings.nodeLinker === 'hoisted'
+  if (hoisted) checkHoisted(settings, host)
   const checks = { lockfile, hook, fresh, drops }
-  const { byDir, links, fixes, reads, builds, early, tarballs, dev } = await (hoisted ? buildHoisted : buildIsolated)({ lockfile: installing, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching })
+  const { byDir, links, fixes, reads, builds, early, tarballs, dev } = await (hoisted ? (major >= 12 ? buildHoisted12 : buildHoisted) : buildIsolated)({ lockfile: installing, checks, settings, host, project, installed, manifests, names, patched, skipped, fetching })
   const laidOut = fetching.sizeEstimateOnly || fetching.lazy
   const { targets, executable } = laidOut ? { targets: new Map(), executable: new Map() } : fixes()
 
