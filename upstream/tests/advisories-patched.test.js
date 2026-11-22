@@ -86,7 +86,14 @@ describe('a range with no end of its own, ended below its patched versions', () 
       ['>= 6.0.0', '7.1.3.1, 7.0.8.1, 6.1.7.7', ['>= 6.0.0, < 6.1.7.7', '>= 7.A, < 7.0.8.1', '>= 7.1.A, < 7.1.3.1']],
       // One version, written twice.
       ['>= 0.9', '1.0, 1.0.0', ['>= 0.9, < 1.0.0']],
+      // What it leaves out stays out of each line, even where it is where
+      // a line begins.
+      ['>= 1.0, != 2.0.5', '1.5, 2.1', ['>= 1.0, != 2.0.5, < 1.5', '>= 2.A, != 2.0.5, < 2.1']],
+      ['>= 1.0, != 2.A', '1.5, 2.1', ['>= 1.0, != 2.A, < 1.5', '>= 2.A, != 2.A, < 2.1']],
+      ['>= 2.0.1, != 2.0.5', '1.5, 2.1', ['>= 2.0.1, != 2.0.5, < 2.1']],
     ])
+    const excluded = readGemRange(boundGemRange('>= 1.0, != 2.0.5', '1.5, 2.1')[1])
+    for (const [version, held] of [['2.0.4', true], ['2.0.5', false], ['2.0.6', true]]) assert.equal(excluded(version), held, version)
     const seven = readGemRange(boundGemRange('', '7.0.8.1, 6.1.7.7')[1])
     for (const version of ['7.0.0.RC1', '7.0.0.alpha', '7.0.0', '7.0.8']) assert.ok(seven(version), version)
     for (const version of ['6.1.7.7', '6.1.99', '7.0.8.1', '7.1.0']) assert.ok(!seven(version), version)

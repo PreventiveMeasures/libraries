@@ -1,5 +1,5 @@
 import { compareVersions as comparePypiVersions, isVersion as isPypiVersion, lowerBoundsBelow as pypiBoundsBelow, releaseOf as pypiRelease, readRange as readPypiRange } from '../pypi/version.js'
-import { compareVersions as compareGemVersions, lowerBoundsBelow as gemBoundsBelow, releaseOf as gemRelease, isVersion as isGemVersion, readRange as readGemRange } from '../rubygems/version.js'
+import { compareVersions as compareGemVersions, exclusionsOf, lowerBoundsBelow as gemBoundsBelow, releaseOf as gemRelease, isVersion as isGemVersion, meetsLowerBounds } from '../rubygems/version.js'
 import { compareVersions as compareSemver, isExactVersion } from '../semver.js'
 import { inRange, isOpenAbove, overlap } from './common.js'
 
@@ -14,12 +14,13 @@ function lineAt(a, b) {
 // names as patched, a range per release line: below the lowest, then from
 // where each one's line ends to below the next. A line is a major, or a
 // minor where the next patched version is of the same major; the highest
-// of a line's patched versions ends it, and a line none ends stays in. Any
-// other range, or a list it can't read all of, is as given.
+// of a line's patched versions ends it, and a line none ends stays in. A
+// line the range begins below keeps what the range leaves out (a gem's
+// `!=`). Any other range, or a list it can't read all of, is as given.
 //
 // So Next.js's GHSA-ggv3-7p47-pfv8, `>=9.5.0` patched in `16.1.7, 15.5.13`,
 // is `>=9.5.0, < 15.5.13` and `>= 16.0.0-0, < 16.1.7`, as GitHub reviewed it.
-function endBelow({ isVersion, compare, release, lowest, opensBelow, contains }) {
+function endBelow({ isVersion, compare, release, lowest, opensBelow, above, kept = () => [] }) {
   return (range, patched) => {
     const versions = typeof patched === 'string' && patched.length <= 1024 ? patched.split(',').map((part) => part.trim()) : []
     if (versions.length === 0 || !versions.every(isVersion)) return [range]
@@ -33,8 +34,9 @@ function endBelow({ isVersion, compare, release, lowest, opensBelow, contains })
       const at = i + 1 < sorted.length ? lineAt(releases[i], releases[i + 1]) : 0
       if (at === -1) continue
       const below = `< ${version}`
-      if (from !== undefined && (given === '' || contains(given, from))) ranges.push(`>= ${from}, ${below}`)
+      if (from !== undefined && given === '') ranges.push(`>= ${from}, ${below}`)
       else if (given === '') ranges.push(below)
+      else if (from !== undefined && above(given, from)) ranges.push([`>= ${from}`, ...kept(given), below].join(', '))
       else if (opensBelow(given, version)) ranges.push(`${given}, ${below}`)
       if (i + 1 < sorted.length) from = lowest([...releases[i].slice(0, at), (releases[i][at] ?? 0n) + 1n])
     }
@@ -52,7 +54,7 @@ export const boundSemverRange = endBelow({
   release: (version) => /^\d+\.\d+\.\d+/u.exec(version)[0].split('.').map(BigInt),
   lowest: (release) => `${[...release, 0n, 0n].slice(0, 3).join('.')}-0`,
   opensBelow: (range, version) => isOpenAbove(npm(range)) && overlap(npm(range), `< ${version}`),
-  contains: (range, version) => inRange(version, npm(range)),
+  above: (range, version) => inRange(version, npm(range)),
 })
 
 // From `.A`, below any letters a prerelease has: Ruby orders them by byte.
@@ -62,7 +64,8 @@ export const boundGemRange = endBelow({
   release: gemRelease,
   lowest: (release) => `${release.join('.')}.A`,
   opensBelow: gemBoundsBelow,
-  contains: (range, version) => readGemRange(range)(version),
+  above: meetsLowerBounds,
+  kept: exclusionsOf,
 })
 
 // From `.dev0`, below its pre-releases.
@@ -72,5 +75,5 @@ export const boundPypiRange = endBelow({
   release: pypiRelease,
   lowest: (release) => `${release.join('.')}.dev0`,
   opensBelow: pypiBoundsBelow,
-  contains: (range, version) => readPypiRange(range)(version),
+  above: (range, version) => readPypiRange(range)(version),
 })

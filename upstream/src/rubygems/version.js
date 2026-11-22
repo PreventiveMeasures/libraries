@@ -118,5 +118,10 @@ export function readRange(text) {
 // `version`.
 export const lowerBoundsBelow = (range, version) => requirementsOf(range)?.every(([operator, against]) => operator === '!=' || ((operator === '>=' || operator === '>') && compareVersions(against, version) < 0)) === true
 
+// Of a range lowerBoundsBelow takes, whether a version meets each lower
+// bound, and the `!=` it keeps.
+export const meetsLowerBounds = (range, version) => requirementsOf(range).every(([operator, against]) => operator === '!=' || OPERATORS[operator](compareVersions(version, against)))
+export const exclusionsOf = (range) => requirementsOf(range).filter(([operator]) => operator === '!=').map((part) => part.join(' '))
+
 // Its numbers before any letters, as Gem::Version reads it.
 export const releaseOf = (version) => numeric(read(version))
