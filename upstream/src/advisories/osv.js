@@ -248,12 +248,20 @@ function rangeOf(ecosystem, entries, versions) {
   return ranges.length > 0 ? { range: ranges.join(' || ') } : {}
 }
 
+// An entry names a package as OSV spells it; a Python one in any spelling
+// PEP 503 normalizes alike, as it was asked.
+const NAME_KEYS = { __proto__: null, PyPI: normalName }
+const names = (ecosystem, name) => {
+  const key = NAME_KEYS[ecosystem] ?? ((each) => each)
+  return (entry) => entry?.package?.ecosystem === ecosystem && typeof entry.package.name === 'string' && key(entry.package.name) === key(name)
+}
+
 export function toAdvisory(ecosystem, name, versions, record, details) {
   const { aliases } = record
   const ghsas = aliases.filter(isGhsa)
   const ghsa = isGhsa(record.id) ? record.id : (ghsas.length === 1 ? ghsas[0] : undefined)
   const vector = record.severity?.find?.((entry) => /^CVSS_V[34]$/u.test(entry?.type))?.score
-  const entries = Array.isArray(record.affected) ? record.affected.filter((entry) => entry?.package?.ecosystem === ecosystem && entry.package.name === name) : []
+  const entries = Array.isArray(record.affected) ? record.affected.filter(names(ecosystem, name)) : []
   const informational = entries[0]?.database_specific?.informational
   return {
     name,
