@@ -114,11 +114,9 @@ export function readRange(text) {
   }
 }
 
-// Lower bounds alone end below the one patched version above them; any
-// other range is as given.
-export function boundRange(range, patched) {
-  if (!isVersion(patched)) return range
-  if (range.trim() === '') return `< ${patched}`
-  const open = requirementsOf(range)?.every(([operator, against]) => operator === '!=' || ((operator === '>=' || operator === '>') && compareVersions(against, patched) < 0))
-  return open ? `${range.trim()}, < ${patched}` : range
-}
+// Whether a range is lower bounds alone, `!=` among them, each below
+// `version`.
+export const lowerBoundsBelow = (range, version) => requirementsOf(range)?.every(([operator, against]) => operator === '!=' || ((operator === '>=' || operator === '>') && compareVersions(against, version) < 0)) === true
+
+// Its numbers before any letters, as Gem::Version reads it.
+export const releaseOf = (version) => numeric(read(version))

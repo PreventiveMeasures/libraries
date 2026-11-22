@@ -5,9 +5,9 @@ import { readRecord, writeRecord } from '../cache.js'
 import { isGone } from '../github/client.js'
 import { HttpError, recover } from '../http.js'
 import { pool } from '../pool.js'
-import { boundRange, compareVersions, readRange } from '../rubygems/version.js'
-import { isExactVersion } from '../semver.js'
-import { advisoryUrl, covered, detailsOf, isOpenAbove, isText, mayBeInRange, metrics, order, overlap } from './common.js'
+import { compareVersions, readRange } from '../rubygems/version.js'
+import { advisoryUrl, covered, detailsOf, isText, mayBeInRange, metrics, order } from './common.js'
+import { boundGemRange, boundSemverRange } from './patched.js'
 import { podRepos, soldeerRepos } from './repos.js'
 
 const REPOS_AT_ONCE = 4
@@ -22,15 +22,6 @@ const isRepoAdvisory = (advisory) => advisory && typeof advisory === 'object' &&
   && (advisory.vulnerabilities == null || Array.isArray(advisory.vulnerabilities)) && (advisory.cwe_ids == null || isStrings(advisory.cwe_ids))
 
 export const assertClient = assertion('a GitHub client from createClient', (value) => typeof value?.listRepoAdvisories === 'function' && typeof value.getRepo === 'function')
-
-// A range with no upper bound ends below its one patched version, where
-// that leaves some of it; any other is as given.
-function boundedRange(range, patched) {
-  if (!isExactVersion(patched)) return range
-  if (range.trim() === '') return `< ${patched}`
-  const npm = range.replaceAll(',', ' ')
-  return isOpenAbove(npm) && overlap(npm, `< ${patched}`) ? `${range.trim()}, < ${patched}` : range
-}
 
 // What is kept of a listing. One whose only fault is a description is
 // answered but not kept.
@@ -108,16 +99,18 @@ function fromRepository(repo, name, advisory, range, versions, details) {
   }
 }
 
-// A row per advisory, range and asked name `takes` it for.
-export async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), bound = boundedRange, details, cache }) {
+// A row per advisory, range and asked name `takes` it for, a range with no
+// end of its own one per line its patched versions end (see patched.js).
+export async function repositoryAdvisories(github, asked, { repoOf, takes = () => true, versionsIn = bySemver(), bound = boundSemverRange, details, cache }) {
   const namesOf = Map.groupBy([...asked.keys()].filter(repoOf), (name) => repoOf(name).toLowerCase())
   const listed = await pool([...namesOf.values()], REPOS_AT_ONCE, async (names) => ({ names, ...(await listAdvisories(github, repoOf(names[0]), cache)) }))
   const rows = new Map()
   for (const { repo, names, advisories } of listed) {
     for (const advisory of advisories) {
       for (const { range: given, patched, ...pkg } of advisory.ranges) {
-        const range = bound(given, patched)
-        for (const name of names.filter((candidate) => takes(candidate, pkg))) {
+        const taken = names.filter((candidate) => takes(candidate, pkg))
+        const ranges = taken.length > 0 ? bound(given, patched) : []
+        for (const [name, range] of taken.flatMap((each) => ranges.map((one) => [each, one]))) {
           rows.set(`${name} ${advisory.ghsa} ${range}`, fromRepository(repo, name, advisory, range, versionsIn(asked.get(name), range), details))
         }
       }
@@ -171,5 +164,5 @@ export const COCOAPODS = {
   assertName: assertPodName,
   assertVersion: assertPodVersion,
   compare: (a, b) => compareVersions(podRelease(a), podRelease(b)) || order(a, b),
-  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, podRepos, cache), versionsIn: podsIn, bound: boundRange, details, cache }),
+  advisories: async (asked, { github, known, details, cache }) => await repositoryAdvisories(github, asked, { repoOf: await reposOf(asked, known, podRepos, cache), versionsIn: podsIn, bound: boundGemRange, details, cache }),
 }
