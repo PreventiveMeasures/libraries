@@ -63,7 +63,9 @@ export interface Advisory {
   cvss?: number
   cvssVector?: string
   cwe: string[]
-  // The affected range as its source wrote it, where it has one.
+  // The affected range as its source wrote it, where it has one. OSV's as
+  // GitHub writes one, `>= 9.5.0, < 15.5.13 || >= 16.0.0-beta.0, < 16.1.7`:
+  // the ranges holding the versions it reports, else all of them.
   range?: string
   // RustSec's `unmaintained`, `unsound` or `notice`: not a vulnerability as
   // such. A yanked crate isn't an advisory: see cargo.js's yankedVersions.

@@ -58,6 +58,23 @@ const pysec = (id, aliases) => ({ id, aliases, affected: [{ package: { name: 'dj
 const repoAdvisory = (id, vulnerabilities) => ({ ghsa_id: id, state: 'published', summary: `Advisory ${id}`, severity: 'high', vulnerabilities })
 const vuln = (name, range, patched, ecosystem = 'pip') => ({ package: { ecosystem, name }, vulnerable_version_range: range, ...(patched !== undefined && { patched_versions: patched }) })
 
+describe("pypi, OSV's ranges", () => {
+  it('orders them as PEP 440 does: a release candidate in the line it begins', async () => {
+    const ecosystem = (...events) => ({ type: 'ECOSYSTEM', events })
+    stubAll({
+      hits: { 'django@5.0rc1': ['GHSA-qrw5-5h28-6cmg'] },
+      records: {
+        'GHSA-qrw5-5h28-6cmg': ghsa('GHSA-qrw5-5h28-6cmg', {
+          aliases: [],
+          affected: [{ package: { name: 'django', ecosystem: 'PyPI' }, ranges: [ecosystem({ introduced: '0' }, { fixed: '4.2.16' }), ecosystem({ introduced: '5.0a1' }, { fixed: '5.0.9' }), ecosystem({ introduced: '5.1a1' }, { fixed: '5.1.1' })] }],
+        }),
+      },
+    })
+    const found = await advisories([pkg('django', ['5.0rc1'])])
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [['GHSA-qrw5-5h28-6cmg', '>= 5.0a1, < 5.0.9', ['5.0rc1']]])
+  })
+})
+
 describe('pypi', () => {
   it('asks OSV of PyPI for each version, as PEP 440 orders them, a name spelled two ways as one, and answers its records', async () => {
     const calls = stubAll({

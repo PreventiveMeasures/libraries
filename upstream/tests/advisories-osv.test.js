@@ -272,6 +272,75 @@ describe('cargo', () => {
   })
 })
 
+describe("OSV's ranges", () => {
+  const semver = (...events) => ({ type: 'SEMVER', events })
+  const entry = (name, ecosystem, ...ranges) => ({ package: { name, ecosystem }, ranges })
+
+  it('writes the ranges holding the versions it reports, as GitHub does, from every entry naming the package', async () => {
+    // As OSV has Next.js's GHSA-ggv3-7p47-pfv8: two entries, a range each.
+    const next = [entry('smallvec', 'crates.io', semver({ introduced: '16.0.0-beta.0' }, { fixed: '16.1.7' })), entry('smallvec', 'crates.io', semver({ introduced: '9.5.0' }, { fixed: '15.5.13' }))]
+    stubOsv({ 'smallvec@15.5.12': ['GHSA-aaaa-aaaa-aaaa', 'GHSA-bbbb-bbbb-bbbb'], 'smallvec@16.1.6': ['GHSA-aaaa-aaaa-aaaa'] }, {
+      'GHSA-aaaa-aaaa-aaaa': ghsa('GHSA-aaaa-aaaa-aaaa', {
+        aliases: [],
+        // Another crate's, and one of commits, are no range of this one.
+        affected: [...next, entry('tinyvec', 'crates.io', semver({ introduced: '0' }, { fixed: '99.0.0' })), entry('smallvec', 'crates.io', { type: 'GIT', repo: 'https://github.com/servo/rust-smallvec', events: [{ introduced: 'a1b2c3' }, { fixed: 'd4e5f6' }] })],
+      }),
+      'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: [], affected: next }),
+    })
+    const found = await cargo([{ name: 'smallvec', version: '15.5.12' }, { name: 'smallvec', version: '16.1.6' }, { name: 'smallvec', version: '16.2.5' }])
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 16.0.0-beta.0, < 16.1.7 || >= 9.5.0, < 15.5.13', ['15.5.12', '16.1.6']],
+      ['GHSA-bbbb-bbbb-bbbb', '>= 9.5.0, < 15.5.13', ['15.5.12']],
+    ])
+  })
+
+  it('ends a range at `fixed` or with `last_affected`, leaves one with neither open, and from `0` begins at the first version', async () => {
+    const record = (id, ...ranges) => ghsa(id, { aliases: [], affected: [entry('smallvec', 'crates.io', ...ranges)] })
+    stubOsv({ 'smallvec@1.2.0': ['GHSA-aaaa-aaaa-aaaa', 'GHSA-bbbb-bbbb-bbbb', 'GHSA-cccc-cccc-cccc', 'MAL-2025-0001'] }, {
+      'GHSA-aaaa-aaaa-aaaa': record('GHSA-aaaa-aaaa-aaaa', semver({ introduced: '1.0.0' }, { last_affected: '1.2.3' }, { introduced: '2.0.0' })),
+      'GHSA-bbbb-bbbb-bbbb': record('GHSA-bbbb-bbbb-bbbb', semver({ introduced: '0' }, { fixed: '1.3.0' })),
+      // A bound that would garble the range, and an end before a start,
+      // are no events: this one stays open.
+      'GHSA-cccc-cccc-cccc': record('GHSA-cccc-cccc-cccc', semver({ fixed: '0.9.0' }, { introduced: '1.0.0' }, { fixed: '1.3.0, 2.0.0' }, { limit: '1.5.0' }), { type: 'SEMVER', events: 'none' }, null),
+      'MAL-2025-0001': { id: 'MAL-2025-0001', summary: 'Malicious code in smallvec (crates.io)', affected: [entry('smallvec', 'crates.io', semver({ introduced: '0' }))] },
+    })
+    const found = await cargo([{ name: 'smallvec', version: '1.2.0' }])
+    assert.deepEqual(found.map(({ id, range }) => [id, range]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 1.0.0, <= 1.2.3'],
+      ['GHSA-bbbb-bbbb-bbbb', '< 1.3.0'],
+      ['GHSA-cccc-cccc-cccc', '>= 1.0.0'],
+      ['MAL-2025-0001', '>= 0'],
+    ])
+  })
+
+  it('writes every range where none holds a version it reports, or it cannot order one, and none for a record without', async () => {
+    stubOsv({ 'smallvec@5.0.0': ['GHSA-aaaa-aaaa-aaaa', 'GHSA-bbbb-bbbb-bbbb'], 'smallvec@1.0.0+build': ['GHSA-cccc-cccc-cccc'] }, {
+      // OSV answered for a version its `versions` list, and no range, names.
+      'GHSA-aaaa-aaaa-aaaa': ghsa('GHSA-aaaa-aaaa-aaaa', { aliases: [], affected: [{ ...entry('smallvec', 'crates.io', semver({ introduced: '1.0.0' }, { fixed: '2.0.0' }), semver({ introduced: '3.0.0' }, { fixed: '4.0.0' })), versions: ['5.0.0'] }] }),
+      'GHSA-bbbb-bbbb-bbbb': ghsa('GHSA-bbbb-bbbb-bbbb', { aliases: [], affected: [{ package: { name: 'smallvec', ecosystem: 'crates.io' }, versions: ['5.0.0'] }] }),
+      'GHSA-cccc-cccc-cccc': ghsa('GHSA-cccc-cccc-cccc', { aliases: [], affected: [entry('smallvec', 'crates.io', semver({ introduced: '0.9.0' }, { fixed: '0.9.5' }), semver({ introduced: '1.0.0' }, { fixed: '1.0.1' }))] }),
+    })
+    const found = await cargo([{ name: 'smallvec', version: '5.0.0' }, { name: 'smallvec', version: '1.0.0+build' }])
+    assert.deepEqual(found.map(({ id, range }) => [id, range]), [
+      ['GHSA-aaaa-aaaa-aaaa', '>= 1.0.0, < 2.0.0 || >= 3.0.0, < 4.0.0'],
+      ['GHSA-bbbb-bbbb-bbbb', undefined],
+      ['GHSA-cccc-cccc-cccc', '>= 0.9.0, < 0.9.5 || >= 1.0.0, < 1.0.1'],
+    ])
+  })
+
+  it("orders a Composer package's as Composer does, past a `v`", async () => {
+    const ecosystem = (...events) => ({ type: 'ECOSYSTEM', events })
+    stubOsv({ 'drupal/core@v10.4.2': ['GHSA-aaaa-aaaa-aaaa'] }, {
+      'GHSA-aaaa-aaaa-aaaa': ghsa('GHSA-aaaa-aaaa-aaaa', {
+        aliases: [],
+        affected: [entry('drupal/core', 'Packagist', ecosystem({ introduced: '8.0.0' }, { fixed: '10.3.14' }), ecosystem({ introduced: '10.4.0' }, { fixed: '10.4.5' }), ecosystem({ introduced: '11.0.0' }, { fixed: '11.0.13' }))],
+      }),
+    })
+    const found = await composer([{ name: 'drupal/core', version: 'v10.4.2' }])
+    assert.deepEqual(found.map(({ id, range, versions }) => [id, range, versions]), [['GHSA-aaaa-aaaa-aaaa', '>= 10.4.0, < 10.4.5', ['v10.4.2']]])
+  })
+})
+
 describe('composer', () => {
   it('leaves out a record that a GHSA answered for the same package also publishes', async () => {
     stubOsv({

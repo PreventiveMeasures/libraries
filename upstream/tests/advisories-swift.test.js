@@ -88,6 +88,8 @@ describe('swift', () => {
       severity: 'moderate',
       cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L',
       cwe: ['CWE-400'],
+      // Introduced at `0`: from the first version.
+      range: '< 4.40.1',
       versions: ['4.0.0'],
     }])
   })

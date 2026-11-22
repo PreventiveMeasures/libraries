@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 
+import { allows, normalize } from '@preventive/lockfile/composer-semver.js'
+
 import { assertCrateName, assertCrateVersion, assertGemName, assertGemVersion, assertion, isGhsa, isRepo, isStrings, matches, show } from '../args.js'
 import { readJSON, writeJSON } from '../cache.js'
 import { OSV_API, OSV_EXPORTS, buildUrl, request } from '../http.js'
 import { chunks, pool } from '../pool.js'
-import { assertPypiName, assertPypiVersion, boundRange as boundPypiRange, compareVersions as comparePypiVersions, normalName, readRange as readPypiRange } from '../pypi/version.js'
-import { boundRange as boundGemRange, compareVersions as compareGemVersions, readRange as readGemRange } from '../rubygems/version.js'
-import { isExactVersion } from '../semver.js'
+import { assertPypiName, assertPypiVersion, boundRange as boundPypiRange, compareVersions as comparePypiVersions, isVersion as isPypiVersion, normalName, readRange as readPypiRange } from '../pypi/version.js'
+import { boundRange as boundGemRange, compareVersions as compareGemVersions, isVersion as isGemVersion, readRange as readGemRange } from '../rubygems/version.js'
+import { compareVersions as compareSemver, isExactVersion } from '../semver.js'
 import { advisoryUrl, detailsOf, inRange, isText, metrics, order } from './common.js'
 import { bySemver, withRepositories } from './github.js'
 import { packagistRows } from './packagist.js'
@@ -179,13 +181,80 @@ export async function getVuln(id) {
   return { ...record, aliases: (record.aliases ?? []).filter(isOsvId) }
 }
 
+// Whether a version is `>=`, `<` or `<=` a bound, as an ecosystem orders
+// them; undefined where it can't read either.
+const MEETS = { '>=': (cmp) => cmp >= 0, '<': (cmp) => cmp < 0, '<=': (cmp) => cmp <= 0 }
+const meetsBy = (isVersion, compare) => (version, operator, bound) => (isVersion(version) && isVersion(bound) ? MEETS[operator](compare(version, bound)) : undefined)
+const semverMeets = meetsBy(isExactVersion, compareSemver)
+// Composer's own order, as `version_compare` has it, of what it normalizes.
+function composerMeets(version, operator, bound) {
+  const [normal, against] = [normalize(version), normalize(bound)]
+  return normal === undefined || against === undefined ? undefined : allows({ operator, version: against }, normal)
+}
+// OSV's ECOSYSTEM ranges, by ecosystem; its SEMVER ones are semver's.
+const ORDERS = {
+  __proto__: null,
+  npm: semverMeets,
+  'crates.io': semverMeets,
+  SwiftURL: semverMeets,
+  PyPI: meetsBy(isPypiVersion, comparePypiVersions),
+  RubyGems: meetsBy(isGemVersion, compareGemVersions),
+  Packagist: composerMeets,
+}
+
+// A bound as OSV writes one, nothing in it to garble a range.
+const isBound = (text) => typeof text === 'string' && /^[^\s,|]{1,256}$/u.test(text)
+
+// A SEMVER or ECOSYSTEM range's intervals, event by event: from the first
+// `introduced` to the next `fixed` (out) or `last_affected` (in), else on.
+// A GIT range is of commits, not versions.
+function intervalsIn(range) {
+  if (!['SEMVER', 'ECOSYSTEM'].includes(range?.type) || !Array.isArray(range.events)) return []
+  const intervals = []
+  let from
+  for (const event of range.events) {
+    if (from === undefined) {
+      if (isBound(event?.introduced)) from = event.introduced
+      continue
+    }
+    const end = isBound(event?.fixed) ? ['<', event.fixed] : (isBound(event?.last_affected) ? ['<=', event.last_affected] : undefined)
+    if (end === undefined) continue
+    intervals.push({ type: range.type, from, end })
+    from = undefined
+  }
+  if (from !== undefined) intervals.push({ type: range.type, from })
+  return intervals
+}
+
+const intervalsOf = (entries) => entries.flatMap((entry) => (Array.isArray(entry.ranges) ? entry.ranges.flatMap(intervalsIn) : []))
+
+// As GitHub writes a range, `>= 1.0.0, < 1.2.6`; `0` is the first version.
+const written = ({ from, end }) => (end === undefined ? `>= ${from}` : [...(from === '0' ? [] : [`>= ${from}`]), end.join(' ')].join(', '))
+
+// Whether an interval may hold a version: it does where its order can't
+// tell.
+function mayHold(ecosystem, version, { type, from, end }) {
+  const meets = type === 'SEMVER' ? semverMeets : ORDERS[ecosystem]
+  if (meets === undefined) return true
+  return (from === '0' || meets(version, '>=', from) !== false) && (end === undefined || meets(version, ...end) !== false)
+}
+
+// OSV's ranges of a package, those holding one of the versions it reports,
+// else all of them.
+function rangeOf(ecosystem, entries, versions) {
+  const intervals = intervalsOf(entries)
+  const holding = intervals.filter((interval) => versions.some((version) => mayHold(ecosystem, version, interval)))
+  const ranges = [...new Set((holding.length > 0 ? holding : intervals).map(written))]
+  return ranges.length > 0 ? { range: ranges.join(' || ') } : {}
+}
+
 export function toAdvisory(ecosystem, name, versions, record, details) {
   const { aliases } = record
   const ghsas = aliases.filter(isGhsa)
   const ghsa = isGhsa(record.id) ? record.id : (ghsas.length === 1 ? ghsas[0] : undefined)
   const vector = record.severity?.find?.((entry) => /^CVSS_V[34]$/u.test(entry?.type))?.score
-  const affected = record.affected?.find?.((entry) => entry?.package?.ecosystem === ecosystem && entry.package.name === name)
-  const informational = affected?.database_specific?.informational
+  const entries = Array.isArray(record.affected) ? record.affected.filter((entry) => entry?.package?.ecosystem === ecosystem && entry.package.name === name) : []
+  const informational = entries[0]?.database_specific?.informational
   return {
     name,
     source: 'osv',
@@ -196,6 +265,7 @@ export function toAdvisory(ecosystem, name, versions, record, details) {
     ...(record.summary && { title: record.summary }),
     ...(details && detailsOf(record.details, record.id)),
     ...metrics({ severity: record.database_specific?.severity, vector, cwe: record.database_specific?.cwe_ids }),
+    ...rangeOf(ecosystem, entries, versions),
     ...(INFORMATIONAL.has(informational) && { informational }),
     versions,
   }
