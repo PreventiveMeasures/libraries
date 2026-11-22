@@ -47,8 +47,10 @@
 // don't take it. A codex export goes through `parseCodexCsvToScans`,
 // which splits it into one JSON-shaped report per scan, and each of
 // those reads through the readers like any other JSON report. Generic Markdown
-// can also contain multiple products: readReport reads all findings, while
-// parseGenericMarkdownToReports validates and splits it into product reports.
+// -- a summary table over `## N. ID` sections, or concatenated `# Title`
+// findings -- can span several products or repositories: readReport reads all
+// findings, while parseGenericMarkdownToReports validates and splits it into
+// one report per product, or per repository for `# Title` findings.
 //
 // THIS FILE IS THE WHOLE SURFACE. The modules live in `src/` and the
 // package exports one path -- `@preventive/report`, this file -- so
