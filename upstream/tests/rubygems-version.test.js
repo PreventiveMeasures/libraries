@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { boundRange, compareVersions, isVersion, readRange } from '../src/rubygems/version.js'
+import { compareVersions, isVersion, readRange } from '../src/rubygems/version.js'
 
 // Gem::Version and Gem::Requirement as RubyGems 3.5 has them: every case
 // below is what `Gem::Version.new(a) <=> Gem::Version.new(b)` and
@@ -103,22 +103,6 @@ describe('Gem::Requirement, in GitHub\'s ranges', () => {
       ['1.0.0', '1.0', true], ['1.0.0', '1.0.1', false],
       ['~> 7.0.4.3', '7.0.4.9', true], ['~> 7.0.4.3', '7.0.5', false],
     ]) assert.equal(readRange(range)(version), met, `${version} in ${range}`)
-  })
-
-  it('ends a range of lower bounds alone below its one patched version, where that is above them', () => {
-    for (const [range, patched, bounded] of [
-      ['>= 7.0.0.rc1', '7.0.4.1', '>= 7.0.0.rc1, < 7.0.4.1'],
-      ['', '1.2', '< 1.2'],
-      ['> 3.0, != 3.0.5', '3.1', '> 3.0, != 3.0.5, < 3.1'],
-      ['>= 3.0', '2.2.9', '>= 3.0'],
-      ['>= 3.0', '3.0.0', '>= 3.0'],
-      ['= 3.1.2', '3.1.2', '= 3.1.2'],
-      ['~> 3.1', '3.1.3', '~> 3.1'],
-      ['>= 1.0, < 2.0', '1.5', '>= 1.0, < 2.0'],
-      ['>= 1.0', '1.5, 2.1', '>= 1.0'],
-      ['>= 1.0', `1${'.1'.repeat(200)}`, '>= 1.0'],
-      ['^1.0', '1.5', '^1.0'],
-    ]) assert.equal(boundRange(range, patched), bounded, `${range} patched in ${patched.slice(0, 20)}`)
   })
 
   it('reads no range with a part it cannot, a version over 256, or none', () => {

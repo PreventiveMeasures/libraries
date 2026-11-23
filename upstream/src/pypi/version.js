@@ -39,11 +39,11 @@ export function readRange(text) {
   return parts && ((version) => parts.every(([operator, against]) => OPERATORS[operator](compareVersions(version, against))))
 }
 
-// Lower bounds alone end below the one patched version above them; any
-// other range is as given.
-export function boundRange(range, patched) {
-  if (!isVersion(patched)) return range
-  if (range.trim() === '') return `< ${patched}`
-  const open = requirementsOf(range)?.every(([operator, against]) => (operator === '>=' || operator === '>') && compareVersions(against, patched) < 0)
-  return open ? `${range.trim()}, < ${patched}` : range
+// Whether a range is lower bounds alone, each below `version`.
+export const lowerBoundsBelow = (range, version) => requirementsOf(range)?.every(([operator, against]) => (operator === '>=' || operator === '>') && compareVersions(against, version) < 0) === true
+
+// Its release numbers; none where it has an epoch, which no line spans.
+export function releaseOf(version) {
+  const { epoch, release } = parseVersion(version)
+  return epoch === '0' ? release.map(BigInt) : undefined
 }

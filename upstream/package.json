@@ -87,6 +87,7 @@
     "src/advisories/npm.js",
     "src/advisories/osv.js",
     "src/advisories/packagist.js",
+    "src/advisories/patched.js",
     "src/advisories/repos.js",
     "src/advisories/rubysec.js",
     "src/args.js",
