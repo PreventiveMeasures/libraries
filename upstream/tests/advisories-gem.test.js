@@ -139,6 +139,8 @@ describe('gem', () => {
       severity: 'moderate',
       cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L',
       cwe: ['CWE-1333'],
+      // OSV's range, as GitHub writes one.
+      range: '>= 0.4, < 2.2.8.1',
       versions: ['2.2', '2.2.0', '2.2.8.rc1'],
     }])
   })
