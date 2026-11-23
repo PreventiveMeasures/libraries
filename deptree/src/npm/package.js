@@ -19,6 +19,11 @@ export function registryTarball({ name, version, resolution }, where) {
 
 const FILES = new Set(['file', 'contiguous-file'])
 
+// One global header of a `comment` alone, as git archive writes its commit: tar's releases keep it on each entry
+// and extract by nothing of it. They split a value at a newline into records, and merge a global header into the
+// one before, which the archive reader replaces, so a second ahead of one entry would hide what the first sets.
+const isCommentOnly = (globalPax, extended) => extended.filter(({ kind }) => kind === 'global').length <= 1 && globalPax.entries().every(([key, value]) => key === 'comment' && !value.includes('\n'))
+
 // tar up to 7.5.15 (npm 10.9.8, 11.16 and before) reads a pax size into each header after the pax one up
 // to its entry, so a long name, long link or global header between them, and all after, reads otherwise
 function checkPaxSizes(entries, where) {
@@ -33,12 +38,12 @@ function unpack(entries, where) {
   const files = new Map()
   const ignores = new Set()
   let top
-  for (const { storedName, storedLinkname, type, mode, data, globalPax } of entries) {
+  for (const { storedName, storedLinkname, type, mode, data, globalPax, extended } of entries) {
     const segments = storedName.replace(/(?<=.)\/$/u, '').split('/')
     if (segments.length > 1024 || /[\\\0]/u.test(storedName) || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
       throw new DeptreeError(`${quote(storedName)} is a name tar reads otherwise`, where)
     }
-    if (globalPax.size > 0) throw new DeptreeError(`${quote(storedName)} has a pax header tar's releases read otherwise`, where)
+    if (!isCommentOnly(globalPax, extended)) throw new DeptreeError(`${quote(storedName)} has a pax header tar's releases read otherwise`, where)
     if (top !== undefined && segments[0] !== top) throw new DeptreeError('the tarball has entries under more than one directory', where)
     top = segments[0]
     if (!FILES.has(type)) continue
