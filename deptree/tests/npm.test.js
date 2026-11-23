@@ -494,6 +494,31 @@ describe('the packages', () => {
     }
   })
 
+  // git archive writes its commit as one, as ftp@0.3.10 has it: tar's releases keep the comment on each entry and
+  // extract by nothing of it.
+  const global = (data) => ({ name: 'pax_global_header', type: 'g', data })
+  it('a global pax header of a comment alone', async () => {
+    const options = await rawOne([global(record('comment', '0bdc6384b4ebc3dea8a0e3a3ee2c41ed0f1bb4c8')), { name: 'package/package.json', data: MANIFEST }, { name: 'package/index.js', data: 'b' }])
+    assert.deepEqual(listing((await buildNpmTree(options)).vfs).filter((line) => line.startsWith('node_modules/b/')), [
+      'node_modules/b/ 755',
+      'node_modules/b/index.js 644 "b"',
+      `node_modules/b/package.json 644 ${JSON.stringify(MANIFEST)}`,
+    ])
+  })
+
+  // tar reads a global mode into each header after it, reads `12 mode=511` after a comment's newline as a record of
+  // its own, and merges a global header into the one before, where the archive reader keeps the second alone.
+  it('refused: any other global pax header', async () => {
+    for (const headers of [
+      [global(record('mode', '511'))],
+      [global(`${record('comment', 'c')}${record('uname', 'u')}`)],
+      [global(record('comment', 'c\n12 mode=511'))],
+      [global(record('mode', '511')), global(record('comment', 'c'))],
+    ]) {
+      await refuses(await rawOne([...headers, { name: 'package/package.json', data: MANIFEST }]), '"package/package.json" has a pax header tar\'s releases read otherwise', 'packages["node_modules/b"]')
+    }
+  })
+
   it('refused: bins npm fails on, or does not leave as here', async () => {
     await refuses(await one({ 'b.js': 'x' }, { bin: { b: 'b.js/x' } }), '"b.js/x" runs through a file, which npm fails on', 'packages["node_modules/b"].bin')
     await refuses(await one({ 'lib/x.js': 'x' }, { bin: { b: 'lib' } }), '"lib" is a directory, which is not supported', 'packages["node_modules/b"].bin')

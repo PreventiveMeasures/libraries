@@ -252,8 +252,8 @@ export interface NpmLazyTree extends NpmTree {
  *
  * And held to what npm's lockfiles and the registry always hold: each tarball gzipped, under one directory,
  * named as tar reads it (no `\`, at most 1024 segments), with nothing in its own node_modules, no setuid,
- * setgid or sticky bit, no link name on a file, no global pax header or pax size ahead of another extended
- * header, and the lockfile's sha512. On macOS, two names in a directory differing only in case or
+ * setgid or sticky bit, no link name on a file, no global pax header but one of a comment alone (as git
+ * archive writes its commit), no pax size ahead of another extended header, and the lockfile's sha512. On macOS, two names in a directory differing only in case or
  * normalization are refused. Each package's `resolved` has to be the registry's own tarball URL, a scope's
  * `/` as `%2f` or not, or that on yarn's mirror. Ranges are read with the semver of the npm beside node.
  *
