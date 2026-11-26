@@ -1643,48 +1643,6 @@ describe('deepseek v4', () => {
   })
 })
 
-describe('pareto 26.10', () => {
-  const PARETO = 'unbiased/pareto-26.10'
-  const bill = (field) => calculateCost(PARETO, { ...emptyUsage(), [field]: 1_000_000 })
-
-  it('prices at Unbiased\'s $0.80 / $3.20 per Mtok, with cache reads at $0.03, under 26.9\'s $2.50 / $7.50', () => {
-    assert.equal(bill('input'), 0.8)
-    assert.equal(bill('output'), 3.2)
-    assert.equal(bill('cacheRead'), 0.03)
-  })
-
-  it('registers its endpoint\'s 128K of output', () => {
-    assert.equal(getMaxTokens(PARETO), 128 * 1024)
-  })
-
-  it('takes no reasoning controls, so --think and --effort are refused up front', () => {
-    // Like 26.9, its only endpoint accepts no `reasoning` or `reasoning_effort`.
-    assert.equal(canThink(PARETO), false)
-    assert.equal(canEffort(PARETO), false)
-    assert.throws(() => resolveThinkEffort(PARETO, true), /--think is not supported/u)
-  })
-})
-
-describe('pareto 26.9', () => {
-  const PARETO = 'unbiased/pareto-26.9'
-
-  it('prices at Unbiased\'s $2.50 / $7.50 per Mtok, cache reads at the usual 0.10x', () => {
-    assert.equal(baseRate(PARETO, 'input', 'output'), 2.5 + 7.5)
-    assert.equal(baseRate(PARETO, 'cacheRead'), 0.25)
-  })
-
-  it('registers its endpoint\'s 128K of output', () => {
-    assert.equal(getMaxTokens(PARETO), 128 * 1024)
-  })
-
-  it('takes no reasoning controls, so --think and --effort are refused up front', () => {
-    // Its only endpoint accepts no `reasoning` or `reasoning_effort`.
-    assert.equal(canThink(PARETO), false)
-    assert.equal(canEffort(PARETO), false)
-    assert.throws(() => resolveThinkEffort(PARETO, true), /--think is not supported/u)
-  })
-})
-
 describe('meta muse wonder', () => {
   const WONDER = 'meta/muse-wonder'
 

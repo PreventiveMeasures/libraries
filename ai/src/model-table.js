@@ -151,8 +151,6 @@ export const MAIN_MODELS = [
   ['mistralai/mistral-large-4-0', { input: 0.7, output: 2.1, maxTokens: 256 * 1024, noThink: 'unsupported', efforts: ['low', 'medium', 'high'] }],
   ['meta/muse-wonder', { input: 4, output: 20, cacheReadPrice: 0.2, maxTokens: 128 * 1024, noThink: 'unsupported' }],
   ['meta/muse-ember', { input: 0.1, output: 0.5, cacheReadPrice: 0.004, longContext: { above: 200_000, input: 3, output: 3 }, maxTokens: 128 * 1024, noThink: 'unsupported' }],
-  ['unbiased/pareto-26.10', { input: 0.8, output: 3.2, cacheReadPrice: 0.03, maxTokens: 128 * 1024, canThink: false }],
-  ['unbiased/pareto-26.9', { input: 2.5, output: 7.5, maxTokens: 128 * 1024, canThink: false }],
 ]
 
 // Models that run on this machine, which OpenRouter has no endpoint for: Chrome's on-device models,
