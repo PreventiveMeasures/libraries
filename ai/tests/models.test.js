@@ -587,11 +587,11 @@ describe('claude fable 5.1', () => {
 describe('nemotron paid/free pairs', () => {
   const LADDER = ['low', 'medium', 'high', 'xhigh', 'max']
   const PAIRS = [
-    ['nvidia/nemotron-3-ultra-550b-a55b', 0.625, 3.125, LADDER],
-    ['nvidia/nemotron-3.5-lightning', 0.08, 0.2, LADDER],
-    ['nvidia/nemotron-3-super-120b-a12b', 0.085, 0.4, LADDER],
+    ['nvidia/nemotron-3-ultra-550b-a55b', 0.5, 2.2, LADDER],
+    ['nvidia/nemotron-3.5-lightning', 0.07, 0.2, LADDER],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.075, 0.4, LADDER],
     // OpenRouter takes no reasoning_effort for Super VL on either route.
-    ['nvidia/nemotron-3.5-super-vl', 0.1, 0.4, []],
+    ['nvidia/nemotron-3.5-super-vl', 0.15, 0.47, []],
   ]
 
   for (const [paid, input, output, ladder] of PAIRS) {
@@ -624,9 +624,9 @@ describe('nemotron paid/free pairs', () => {
 
 describe('nemotron 3.5 super vl', () => {
   // NVIDIA sells it nowhere on OpenRouter, so the row takes OpenRouter's
-  // listed price, which Crusoe and DeepInfra charge.
-  it('bills cache reads at the listed $0.08, 0.8x of input rather than 0.10x', () => {
-    assert.equal(baseRate('nvidia/nemotron-3.5-super-vl', 'cacheRead'), 0.08)
+  // listed price, which CoreWeave charges.
+  it('bills cache reads at the listed $0.02 rather than 0.10x of input', () => {
+    assert.equal(baseRate('nvidia/nemotron-3.5-super-vl', 'cacheRead'), 0.02)
   })
 
   it('thinks with no effort knob, so an effort is refused up front and none is advertised', () => {
@@ -641,6 +641,8 @@ describe('nemotron 3.5 super vl', () => {
 })
 
 describe('gemini flash', () => {
+  // $0.75 / $3.75 is Google's promotional price for 3.8 Flash, through
+  // 2026-12-31. From 2027-01-01 it is $1.50 / $7.50: reprice the row then.
   it('registers 3.8 flash, and lets all three gemini rows think', () => {
     const million = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
     assert.equal(calculateCost('google/gemini-3.8-flash', million), 0.75 + 3.75)
@@ -755,6 +757,43 @@ describe('gemini 4 hydrogen', () => {
       assert.equal(effortsFor(model).includes('xhigh'), false, model)
     }
   })
+})
+
+describe('gemini 3.1 pro preview', () => {
+  const PRO = 'google/gemini-3.1-pro-preview'
+  const bill = (fields) => calculateCost(PRO, { ...emptyUsage(), ...fields })
+
+  it("bills Google's long-context rate past 200,000 prompt tokens: 2x input and cache, 1.5x output", () => {
+    // $4 / $18 and $0.40 cached for prompts over 200K, against $2 / $12 and $0.20.
+    assert.equal(bill({ input: 200_000 }), 0.4)
+    assert.equal(bill({ input: 200_001 }), (200_001 * 2 * 2) / 1_000_000)
+    assert.equal(bill({ input: 1_000_000, output: 1_000_000 }), 4 + 18)
+    assert.equal(bill({ cacheRead: 1_000_000 }), 0.4)
+  })
+})
+
+describe('rows priced at OpenRouter\'s listed rate', () => {
+  // No endpoint run by these models' makers is on OpenRouter, so each row
+  // takes the price OpenRouter lists for the model: Crusoe's for gpt-oss,
+  // DeepInfra's for Gemma 4 31B, CoreWeave's for Qwen3.6 35B, and Venice's
+  // and DeepInfra's, ModelRun's and CoreWeave's, and DeepInfra's for the
+  // three Nemotron rows below.
+  const bill = (model, field) => calculateCost(model, { ...emptyUsage(), [field]: 1_000_000 })
+
+  for (const [model, input, output, cacheRead] of [
+    ['openai/gpt-oss-120b', 0.05, 0.25, 0.05],
+    ['google/gemma-4-31b-it', 0.2, 0.4, undefined],
+    ['qwen/qwen3.6-35b-a3b', 0.1, 0.89, 0.035],
+    ['nvidia/nemotron-3-ultra-550b-a55b', 0.5, 2.2, 0.1],
+    ['nvidia/nemotron-3.5-lightning', 0.07, 0.2, 0.04],
+    ['nvidia/nemotron-3-super-120b-a12b', 0.075, 0.4, undefined],
+  ]) {
+    it(`${model}: $${input} / $${output}${cacheRead === undefined ? '' : `, cache reads $${cacheRead}`}`, () => {
+      assert.equal(bill(model, 'input'), input)
+      assert.equal(bill(model, 'output'), output)
+      if (cacheRead !== undefined) assert.equal(bill(model, 'cacheRead'), cacheRead)
+    })
+  }
 })
 
 describe('cache-read overrides (rows that are not 0.10x of input)', () => {
@@ -1384,8 +1423,10 @@ describe('Gemma 4 (google/gemma-4-31b-it, google/gemma-4-26b-a4b-it)', () => {
 
   it('prices the paid rows per Mtok in + out, and charges nothing for the free ones', () => {
     const usage = { ...emptyUsage(), input: 1_000_000, output: 1_000_000 }
-    assert.equal(calculateCost('google/gemma-4-31b-it', usage), 0.14 + 0.4)
-    assert.equal(calculateCost('google/gemma-4-26b-a4b-it', usage), 0.13 + 0.4)
+    // Google now serves 26B on OpenRouter, so it takes Google's rate; 31B
+    // still has no Google endpoint and takes the listed one, DeepInfra's.
+    assert.equal(calculateCost('google/gemma-4-31b-it', usage), 0.2 + 0.4)
+    assert.equal(calculateCost('google/gemma-4-26b-a4b-it', usage), 0.15 + 0.6)
     for (const model of FREE) assert.equal(calculateCost(model, usage), 0, model)
   })
 
@@ -1485,20 +1526,39 @@ describe('glm 5.3 flash', () => {
   })
 })
 
+describe('qwen open-weight rows at Alibaba\'s OpenRouter rate', () => {
+  const bill = (model, field) => calculateCost(model, { ...emptyUsage(), [field]: 1_000_000 })
+
+  for (const [model, input, output, cacheRead] of [
+    ['qwen/qwen3.8-2.4t-a95b', 2, 6, 0.25],
+    ['qwen/qwen3.8-27b', 0.425, 2.55, 0.085],
+    ['qwen/qwen3.6-27b', 0.45, 2.7, undefined],
+  ]) {
+    it(`${model}: $${input} / $${output}${cacheRead === undefined ? '' : `, cache reads $${cacheRead}`}`, () => {
+      assert.equal(bill(model, 'input'), input)
+      assert.equal(bill(model, 'output'), output)
+      if (cacheRead !== undefined) assert.equal(bill(model, 'cacheRead'), cacheRead)
+    })
+  }
+})
+
 describe('qwen4 max', () => {
   const MAX = 'qwen/qwen4-max'
   const bill = (field) => calculateCost(MAX, { ...emptyUsage(), [field]: 1_000_000 })
 
-  it("registers Alibaba's international $1.50 / $4.50 per Mtok, one tier across the 1M window, and a 128k max_tokens", () => {
-    assert.equal(bill('input'), 1.5)
-    assert.equal(bill('output'), 4.5)
+  // Alibaba's OpenRouter endpoint runs 5% off its $1.50 / $4.50 list price,
+  // with no end date given. Recheck it, and return to the list price when
+  // the discount ends.
+  it("registers Alibaba's promotional $1.425 / $4.275 per Mtok, one tier across the 1M window, and a 128k max_tokens", () => {
+    assert.equal(bill('input'), 1.425)
+    assert.equal(bill('output'), 4.275)
     assert.equal(getMaxTokens(MAX), 128 * 1024)
   })
 
-  it('bills cache reads at $0.075, 0.05x of input, and both writes at the usual 1.25x and 2x', () => {
-    assert.equal(bill('cacheRead'), 0.075)
-    assert.equal(bill('cacheWrite5m'), 1.875)
-    assert.equal(bill('cacheWrite1h'), 3)
+  it('bills cache reads at $0.07125, 0.05x of input, and both writes at the usual 1.25x and 2x', () => {
+    assert.equal(bill('cacheRead'), 0.07125)
+    assert.equal(bill('cacheWrite5m'), 1.78125)
+    assert.equal(bill('cacheWrite1h'), 2.85)
   })
 
   it('thinks by default, switches off, and takes the three efforts Alibaba names', () => {
